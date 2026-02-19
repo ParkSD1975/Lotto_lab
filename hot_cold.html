@@ -1,0 +1,2125 @@
+<!DOCTYPE html>
+<html class="light" lang="ko">
+
+<head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>Lotto Lab - 핫/콜드 (Supabase AI)</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    
+    <link rel="icon" href="data:,">
+
+    <link rel="stylesheet" href="css/common.css" />
+
+    <link as="style" crossorigin=""
+        href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css"
+        rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
+        rel="stylesheet" />
+    
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script
+        src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <script src="js/config.js"></script>
+    <script src="js/theme.js"></script>
+    <script src="js/aiProxy.js"></script>
+    <script src="js/common_v2.js"></script>
+    <script src="js/filter/FilterService.js"></script>
+    <script src="js/layout.js"></script>
+    <script src="js/NLPProcessor.js"></script>
+    <script src="js/NLPInputComponent.js"></script>
+    <script src="js/BasicAnalysisNLP.js"></script>
+
+    <script>
+        // 전역 변수 설정
+        let allData = []; // 당첨번호 데이터
+        let featuresMap = new Map(); // 🔥 DB 분석 데이터 (회차별 캐싱)
+
+        let currentPeriod = 10;
+        let selectedRound = 0;
+        let filterApplied = true;
+        let displayLimit = 100;
+        let currentRange = 100; // 분석 회차 범위 (차트/통계용)
+
+        // [수정] 기간별 설정을 따로 저장하기 위한 전역 변수
+        let periodFilters = {};
+
+        // 현재 화면에 표시되는 전역 변수 (UI와 바인딩)
+        let excludeNumbers = [];
+        let fixedNumbers = [];
+
+        // 셀 하이라이트 상태 관리
+        let selectedHighlight = { col: null, val: null };
+        let highlightStartRound = null; // 🔹 하이라이트 시작 회차 추적
+        let isRecentTenFilter = false;
+        let hotGap = 0;
+        let coldStreak = 0;
+
+        const CRITERIA = {
+            5: { hot: 2, neutral: [1, 1], cold: [0, 0] },
+            10: { hot: 3, neutral: [2, 1], cold: [0, 0] },
+            15: { hot: 4, neutral: [3, 2], cold: [1, 0] },
+            20: { hot: 5, neutral: [4, 2], cold: [1, 0] }
+        };
+
+        // [수정] 필터 저장 함수 (DB 저장)
+        async function saveFilterSettings() {
+            // 현재 UI의 설정값을 periodFilters 객체의 해당 기간(currentPeriod)에 저장
+            periodFilters[currentPeriod] = {
+                hotMin: document.getElementById('hotMin').value,
+                hotMax: document.getElementById('hotMax').value,
+                neutralMin: document.getElementById('neutralMin').value,
+                neutralMax: document.getElementById('neutralMax').value,
+                coldMin: document.getElementById('coldMin').value,
+                coldMax: document.getElementById('coldMax').value,
+                excludeNumbers: [...excludeNumbers], // 배열 복사 저장
+                fixedNumbers: [...fixedNumbers]      // 배열 복사 저장
+            };
+
+            // 저장할 데이터 객체 구성
+            const settings = {
+                lastPeriod: currentPeriod, // 마지막 접속 기간
+                periodFilters: periodFilters // 기간별 설정 맵
+            };
+            const enabled = document.getElementById('filterToggle').checked;
+
+            // DB 저장 (FilterService 사용)
+            if (window.filterService && window.filterService.initialized) {
+                await window.filterService.saveSetting('hot_cold_v2', settings, enabled);
+            } else if (window.Utils && window.Utils.saveFilter) {
+                // Fallback: localStorage
+                window.Utils.saveFilter('hot_cold_filter_v2', { ...settings, filterApplied: enabled });
+            }
+        }
+
+        // [수정] 필터 로드 함수 (DB 로드)
+        async function loadFilterSettings() {
+            let saved = null;
+
+            // DB에서 로드 (FilterService 사용)
+            if (window.filterService && window.filterService.initialized) {
+                const data = await window.filterService.loadSetting('hot_cold_v2');
+                if (data) {
+                    saved = { ...data.settings, filterApplied: data.enabled };
+                }
+            }
+
+            // Fallback: localStorage
+            if (!saved && window.Utils && window.Utils.loadFilter) {
+                saved = window.Utils.loadFilter('hot_cold_filter_v2');
+            }
+
+            if (saved) {
+                // 1. 전역 설정 복원
+                if (document.getElementById('filterToggle')) {
+                    document.getElementById('filterToggle').checked = saved.filterApplied;
+                    filterApplied = saved.filterApplied;
+                }
+
+                // 2. 기간별 설정 맵 복원
+                if (saved.periodFilters) {
+                    periodFilters = saved.periodFilters;
+                }
+
+                // 3. 마지막 선택했던 기간으로 초기화
+                currentPeriod = saved.lastPeriod || 10;
+
+                // 4. 해당 기간의 데이터 UI 적용
+                applyPeriodSettings(currentPeriod);
+
+                updatePeriodButtonUI(currentPeriod);
+                updateListCriteriaDisplay(currentPeriod);
+            }
+        }
+
+        // [신규] 특정 기간의 저장된 설정을 UI 및 변수에 적용하는 헬퍼 함수
+        function applyPeriodSettings(period) {
+            const savedSettings = periodFilters[period];
+
+            if (savedSettings) {
+                // 저장된 설정이 있으면 불러오기
+                if (document.getElementById('hotMin')) document.getElementById('hotMin').value = savedSettings.hotMin;
+                if (document.getElementById('hotMax')) document.getElementById('hotMax').value = savedSettings.hotMax;
+                if (document.getElementById('neutralMin')) document.getElementById('neutralMin').value = savedSettings.neutralMin;
+                if (document.getElementById('neutralMax')) document.getElementById('neutralMax').value = savedSettings.neutralMax;
+                if (document.getElementById('coldMin')) document.getElementById('coldMin').value = savedSettings.coldMin;
+                if (document.getElementById('coldMax')) document.getElementById('coldMax').value = savedSettings.coldMax;
+
+                // 제외수/고정수 복원
+                excludeNumbers = savedSettings.excludeNumbers || [];
+                fixedNumbers = savedSettings.fixedNumbers || [];
+            } else {
+                // 저장된 설정이 없으면 해당 기간에 대해 자동 계산 실행 및 필터 초기화
+                calculateAndSetMinMax(period);
+                excludeNumbers = [];
+                fixedNumbers = [];
+            }
+        }
+
+        // [신규] 기간 버튼 UI 업데이트 함수
+        function updatePeriodButtonUI(period) {
+            // 모든 버튼 초기화
+            ['btn5', 'btn10', 'btn15', 'btn20'].forEach(id => {
+                const btn = document.getElementById(id);
+                if (btn) {
+                    btn.className = 'px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-200 rounded-lg transition-colors';
+                }
+            });
+
+            // 선택된 버튼 활성화
+            const activeBtn = document.getElementById(`btn${period}`);
+            if (activeBtn) {
+                activeBtn.className = 'px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg transition-colors';
+            }
+        }
+
+        // [신규] 리스트 기준 표시 업데이트 함수
+        function updateListCriteriaDisplay(period) {
+            const display = document.getElementById('listCriteriaDisplay');
+            if (display) {
+                display.textContent = `(현재 ${period}회차 기준)`;
+            }
+        }
+
+        // [신규] 기간 변경 함수
+        async function setPeriod(period) {
+            // 현재 UI 설정을 기존 period에 저장
+            await saveFilterSettings();
+
+            // 새로운 period로 전환
+            currentPeriod = period;
+
+            // 새 period의 설정 적용
+            applyPeriodSettings(period);
+
+            // UI 업데이트
+            updatePeriodButtonUI(period);
+            updateListCriteriaDisplay(period);
+            updateAnalysis();
+            renderCountTable();
+            updateFilterMaxValues();
+            renderFilterZones();
+            renderDrawsList(); // 기간 변경 시에는 리스트 새로고침 필요
+
+            // AI 분석 새로고침
+            await refreshAIAnalysis();
+        }
+
+        // [신규] 분석 업데이트 함수
+        function updateAnalysis() {
+            if (allData.length === 0) return;
+            updateSelectedRoundDisplay();
+        }
+
+        // 🔹 페이지 전용 Tailwind 설정
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "active-green": "#E6FFED",
+                        "active-text": "#16A34A",
+                        "lotto-blue": "#3B82F6",
+                        "lotto-pink": "#EC4899"
+                    },
+                    fontFamily: {
+                        "sans": ["Pretendard", "Inter", "sans-serif"]
+                    },
+                },
+            },
+        }
+    </script>
+    <style>
+        /* 페이지 전용 스타일 */
+        .lotto-number {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 14px;
+            color: white;
+            margin: 2px;
+            cursor: grab;
+            user-select: none;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+        }
+
+        .lotto-number:active {
+            cursor: grabbing;
+        }
+
+        .lotto-number.dragging {
+            opacity: 0.5;
+        }
+
+        .lotto-number.no-drag {
+            cursor: default;
+        }
+
+        .hot-bg {
+            background: #DC2626;
+            border: 1px solid #B91C1C;
+        }
+
+        .neutral-bg {
+            background: #6B7280;
+            border: 1px solid #4B5563;
+        }
+
+        .cold-bg {
+            background: #2563EB;
+            border: 1px solid #1D4ED8;
+        }
+
+        .winning-bg {
+            background: #111827;
+            border: 1px solid #000000;
+        }
+
+        .drop-zone {
+            min-height: 80px;
+            border: 2px dashed #E5E7EB;
+            border-radius: 8px;
+            padding: 12px;
+            transition: all 0.3s;
+            background-color: #F9FAFB;
+        }
+
+        .drop-zone.drag-over {
+            border-color: #3B82F6;
+            background-color: #EFF6FF;
+        }
+
+        .filter-number {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 12px;
+            color: white;
+            margin: 2px;
+            position: relative;
+            cursor: pointer;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+        }
+
+        .filter-number:hover::after {
+            content: '×';
+            position: absolute;
+            top: -4px;
+            right: -4px;
+            width: 14px;
+            height: 14px;
+            background: #EF4444;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            border: 1px solid white;
+        }
+
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 44px;
+            height: 22px;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #E5E7EB;
+            transition: .4s;
+            border-radius: 22px;
+        }
+
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 2px;
+            bottom: 2px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+        }
+
+        input:checked+.toggle-slider {
+            background-color: #3B82F6;
+        }
+
+        input:checked+.toggle-slider:before {
+            transform: translateX(22px);
+        }
+
+        /* 🔹 [수정됨] 행 하이라이트 스타일 (Standard Purple Theme) */
+        /* 흔들림 방지: 기본 상태에서 투명 보더 추가 */
+        #drawsList tr td:first-child {
+            border-left: 4px solid transparent;
+        }
+
+        .row-highlight td {
+            background-color: #F3E8FF !important;
+            /* purple-100 */
+        }
+
+        .row-highlight td:first-child {
+            border-left: 4px solid #7C3AED !important;
+            /* deep purple border */
+        }
+
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 4px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #c1c1c1;
+            border-radius: 4px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #a8a8a8;
+        }
+
+        .ai-section {
+            background-color: #FFFFFF;
+            border: 1px solid #E5E7EB;
+            border-radius: 1rem;
+        }
+
+        /* 로딩 오버레이 */
+        #loadingOverlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.9);
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        input[type=number]::-webkit-inner-spin-button,
+        input[type=number]::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+    </style>
+</head>
+
+<body class="bg-[#F9FAFB] font-sans antialiased">
+    <div id="loadingOverlay">
+        <div class="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4"></div>
+        <p class="text-gray-700 font-bold text-lg">DB 데이터 동기화 중...</p>
+        <p class="text-gray-500 text-sm mt-2">분석 데이터를 불러오고 있습니다 (잠시만 기다려주세요)</p>
+    </div>
+
+    <div class="flex flex-col h-screen w-full">
+
+        <div id="gnb-container"></div>
+
+        <div class="flex flex-1 overflow-hidden">
+            <aside class="w-56 bg-white border-r border-gray-200 overflow-y-auto custom-scrollbar flex-shrink-0"
+                id="lnb-container">
+            </aside>
+
+            <main class="flex-1 overflow-y-auto p-8 custom-scrollbar">
+                <div class="max-w-7xl mx-auto space-y-6">
+                    <div>
+                        <h1 class="text-3xl font-bold text-gray-900 mb-2">핫/콜드 분석</h1>
+                        <p class="text-sm text-gray-600">최근 당첨 패턴을 분석하여 뜨거운 번호(Hot), 중립 번호(Neutral), 차가운 번호(Cold)를
+                            식별합니다.</p>
+                    </div>
+
+                    <div class="ai-section p-8 pb-10 mb-6">
+                        <div class="flex items-center justify-between mb-6">
+                            <div class="flex items-center gap-2">
+                                <h3 class="text-2xl font-extrabold text-gray-900 tracking-tight">AI Insight</h3>
+                                <span id="aiTargetInfo" class="text-sm text-gray-500 font-medium"></span>
+                            </div>
+                            <button onclick="window.AIAnalysis.openPromptLibraryModal('hot_cold', event)"
+                                class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors">
+                                <span class="material-symbols-outlined text-lg">library_books</span>
+                                프롬프트 라이브러리
+                            </button>
+                        </div>
+
+                        <div id="aiAnalysisContent" class="min-h-[100px] flex items-center justify-center">
+                            <div class="flex items-center gap-2 text-gray-500">
+                                <span class="material-symbols-outlined text-lg animate-spin">progress_activity</span>
+                                <span>AI가 핫/콜드 패턴을 분석하고 있습니다...</span>
+                            </div>
+                        </div>
+
+                        <div class="mt-6 border-t border-gray-100 pt-6">
+                            <div class="flex flex-col gap-3">
+                                <div class="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                                    <button onclick="openChatWithPrompt('최근 핫/콜드 번호의 출현 흐름 및 규칙 상세 분석')"
+                                        class="px-3 py-1.5 text-xs font-medium bg-blue-50 text-blue-600 rounded-full hover:bg-blue-100 transition-colors whitespace-nowrap">
+                                        ✨ 핫/콜드綜合 진단
+                                    </button>
+                                    <button onclick="openChatWithPrompt('각 그룹(핫, 중립, 콜드)의 당첨 비중 통계 분석')"
+                                        class="px-3 py-1.5 text-xs font-medium bg-indigo-50 text-indigo-600 rounded-full hover:bg-indigo-100 transition-colors whitespace-nowrap">
+                                        📊 패턴별 비중 분석
+                                    </button>
+                                    <button onclick="openChatWithPrompt('특정 그룹의 과출현 또는 장기 미출현 후의 평균 회귀 지점 진단')"
+                                        class="px-3 py-1.5 text-xs font-medium bg-purple-50 text-purple-600 rounded-full hover:bg-purple-100 transition-colors whitespace-nowrap">
+                                        🔄 평균 회귀 분석
+                                    </button>
+                                    <button onclick="openChatWithPrompt('이번 회차에 특정 그룹(핫,중립,콜드) 중 전멸할 가능성이 있는 구간 분석')"
+                                        class="px-3 py-1.5 text-xs font-medium bg-red-50 text-red-600 rounded-full hover:bg-red-100 transition-colors whitespace-nowrap">
+                                        🚫 멸(Zero) 구간 예측
+                                    </button>
+                                    <button onclick="openChatWithPrompt('최근 10회차 핫/콜드 데이터의 상하 이동 추세 분석')"
+                                        class="px-3 py-1.5 text-xs font-medium bg-teal-50 text-teal-600 rounded-full hover:bg-teal-100 transition-colors whitespace-nowrap">
+                                        📈 그룹별 추세 추적
+                                    </button>
+                                    <button onclick="openChatWithPrompt('최근 100회차 기준 각 그룹별 가장 안정적인 개수 범위 추천')"
+                                        class="px-3 py-1.5 text-xs font-medium bg-orange-50 text-orange-600 rounded-full hover:bg-orange-100 transition-colors whitespace-nowrap">
+                                        🎯 최적 필터 범위 추천
+                                    </button>
+                                    <button onclick="openChatWithPrompt('동일한 핫/콜드 패턴이 연속으로 나올 확률 및 기록 분석')"
+                                        class="px-3 py-1.5 text-xs font-medium bg-green-50 text-green-600 rounded-full hover:bg-green-100 transition-colors whitespace-nowrap">
+                                        ⚠️ 연속성 감지
+                                    </button>
+                                    <button
+                                        onclick="document.getElementById('aiUserPrompt').value='현재 중립 구간 번호 중 Hot으로 진입할 가능성이 높은 번호 식별'; submitCustomAIAnalysis()"
+                                        class="px-3 py-1.5 text-xs font-medium bg-yellow-50 text-yellow-600 rounded-full hover:bg-yellow-100 transition-colors whitespace-nowrap">
+                                        🔍 중립 상승세 분석
+                                    </button>
+                                    <button onclick="openChatWithPrompt('최근 통계상 출현 확률이 가장 낮은 핫/콜드 조합 패턴 식별')"
+                                        class="px-3 py-1.5 text-xs font-medium bg-slate-50 text-slate-600 rounded-full hover:bg-slate-100 transition-colors whitespace-nowrap">
+                                        🧼 제외 전략
+                                    </button>
+                                    <button onclick="openChatWithPrompt('분석된 비중을 반영한 최적의 핫/콜드 조합 필터링 전략 제안')"
+                                        class="px-3 py-1.5 text-xs font-medium bg-pink-50 text-pink-600 rounded-full hover:bg-pink-100 transition-colors whitespace-nowrap">
+                                        💡 조합 최적화 전략
+                                    </button>
+                                </div>
+                                <div class="relative">
+                                    <input type="text" id="aiUserPrompt"
+                                        class="w-full pl-4 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder-gray-400"
+                                        placeholder="핫/콜드 분석에 대해 궁금한 점을 물어보세요..."
+                                        onkeyup="if(event.key === 'Enter') submitCustomAIAnalysis()">
+                                    <button onclick="submitCustomAIAnalysis()"
+                                        class="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors">
+                                        <span class="material-symbols-outlined text-xl">send</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-lg font-bold text-gray-900">기간 당첨 개수별 번호 및 필터</h3>
+                            <button onclick="alert('필터 페이지로 이동')"
+                                class="flex items-center gap-1.5 text-gray-500 hover:text-blue-600 text-sm font-medium transition-colors">
+                                <span class="material-symbols-outlined text-sm">open_in_new</span>
+                                필터 바로가기
+                            </button>
+                        </div>
+
+                        <div
+                            class="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200 flex items-center justify-between">
+                            <div class="flex items-center gap-3">
+                                <span class="text-sm font-bold text-gray-700">핫/콜드 기준 회차:</span>
+                                <div class="flex gap-2">
+                                    <button onclick="setPeriod(5)"
+                                        class="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-200 rounded-lg transition-colors"
+                                        id="btn5">5회차</button>
+                                    <button onclick="setPeriod(10)"
+                                        class="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg transition-colors"
+                                        id="btn10">10회차</button>
+                                    <button onclick="setPeriod(15)"
+                                        class="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-200 rounded-lg transition-colors"
+                                        id="btn15">15회차</button>
+                                    <button onclick="setPeriod(20)"
+                                        class="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-200 rounded-lg transition-colors"
+                                        id="btn20">20회차</button>
+                                </div>
+                            </div>
+                            <span class="text-xs text-gray-500">※ 선택한 기간 동안의 출현 빈도를 기준으로 분류합니다.</span>
+                        </div>
+
+                        <div class="overflow-x-auto custom-scrollbar">
+                            <table class="w-full border-collapse">
+                                <thead>
+                                    <tr class="bg-gray-50">
+                                        <th class="py-3 px-6 text-center text-sm font-semibold text-gray-600 border border-gray-200"
+                                            style="width: 100px;">당첨<br />개수</th>
+                                        <th class="py-3 px-8 text-center text-sm font-semibold border border-gray-200"
+                                            style="color: #DC2626; min-width: 200px;">Hot<br />(과열)</th>
+                                        <th class="py-3 px-6 text-center text-sm font-semibold border border-gray-200"
+                                            style="color: #6B7280;">Neutral<br />(중립)</th>
+                                        <th class="py-3 px-6 text-center text-sm font-semibold border border-gray-200"
+                                            style="color: #2563EB;">Cold<br />(냉각)</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="countTableBody"></tbody>
+                                <tfoot>
+                                    <tr class="bg-gray-50">
+                                        <td
+                                            class="py-3 px-6 text-center text-sm font-semibold text-gray-600 border border-gray-200 whitespace-nowrap">
+                                            조합 필터</td>
+                                        <td class="py-3 px-3 border border-gray-200">
+                                            <div class="flex items-center justify-center gap-2">
+                                                <input type="number" id="hotMin" min="0" max="6" value="0"
+                                                    class="px-2 py-1 text-sm border border-gray-300 rounded w-16 text-center focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                                    onchange="updateFilters()">
+                                                <span class="text-sm text-gray-500">~</span>
+                                                <input type="number" id="hotMax" min="0" max="6" value="6"
+                                                    class="px-2 py-1 text-sm border border-gray-300 rounded w-16 text-center focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                                    onchange="updateFilters()">
+                                            </div>
+                                        </td>
+                                        <td class="py-3 px-3 border border-gray-200">
+                                            <div class="flex items-center justify-center gap-2">
+                                                <input type="number" id="neutralMin" min="0" max="6" value="0"
+                                                    class="px-2 py-1 text-sm border border-gray-300 rounded w-16 text-center focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                                    onchange="updateFilters()">
+                                                <span class="text-sm text-gray-500">~</span>
+                                                <input type="number" id="neutralMax" min="0" max="6" value="6"
+                                                    class="px-2 py-1 text-sm border border-gray-300 rounded w-16 text-center focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                                    onchange="updateFilters()">
+                                            </div>
+                                        </td>
+                                        <td class="py-3 px-3 border border-gray-200">
+                                            <div class="flex items-center justify-center gap-2">
+                                                <input type="number" id="coldMin" min="0" max="6" value="0"
+                                                    class="px-2 py-1 text-sm border border-gray-300 rounded w-16 text-center focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                                    onchange="updateFilters()">
+                                                <span class="text-sm text-gray-500">~</span>
+                                                <input type="number" id="coldMax" min="0" max="6" value="6"
+                                                    class="px-2 py-1 text-sm border border-gray-300 rounded w-16 text-center focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                                    onchange="updateFilters()">
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+
+                        <div class="flex items-center justify-end mt-6">
+                            <button onclick="applyRecent10Filters()" id="recent10FilterBtn" style="min-width: 210px;"
+                                class="flex items-center justify-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 transition-all active:scale-95 text-sm font-black mr-2">
+                                <span class="material-symbols-outlined text-[18px]">auto_fix_high</span>
+                                <span id="recent10BtnText">최근 10회차 필터 적용</span>
+                            </button>
+                            <label class="flex items-center gap-3 cursor-pointer">
+                                <span class="text-sm font-medium text-gray-700">필터 적용</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="filterToggle" checked onchange="toggleFilterApply()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
+                        <div class="mb-6">
+                            <div class="flex items-center justify-between mb-2">
+                                <div class="flex items-center gap-2">
+                                    <h3 class="text-lg font-bold text-gray-900">회차별 Hot/Neutral/Cold 번호</h3>
+                                    <span class="text-xs text-gray-400 font-normal">(drag&drop)</span>
+                                </div>
+                                <select id="roundSelect"
+                                    class="w-40 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                    onchange="selectRound(this.value)">
+                                </select>
+                            </div>
+                            <div id="selectedRoundNumbers" class="space-y-4 mt-4"></div>
+                        </div>
+
+                        <div class="border-t border-gray-200 pt-6">
+                            <div class="grid grid-cols-2 gap-6">
+                                <div>
+                                    <h4 class="text-sm font-semibold text-gray-700 mb-3">제외수 필터</h4>
+                                    <div id="excludeZone" class="drop-zone" ondrop="dropNumber(event, 'exclude')"
+                                        ondragover="allowDrop(event)" ondragleave="dragLeave(event)">
+                                        <p class="text-sm text-gray-400 text-center">번호를 드래그하여 추가하세요</p>
+                                    </div>
+                                </div>
+                                <div>
+                                    <h4 class="text-sm font-semibold text-gray-700 mb-3">고정수 필터</h4>
+                                    <div id="fixedZone" class="drop-zone" ondrop="dropNumber(event, 'fixed')"
+                                        ondragover="allowDrop(event)" ondragleave="dragLeave(event)">
+                                        <p class="text-sm text-gray-400 text-center">번호를 드래그하여 추가하세요</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 분석 회차 범위 섹션 (low_high.html과 동일) -->
+                        <div class="mb-6">
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="text-xl font-bold text-gray-900">분석 회차 범위</h3>
+                                <div class="flex items-center gap-2">
+                                    <button onclick="setRange(50)" id="preset50"
+                                        class="px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors">50회</button>
+                                    <button onclick="setRange(100)" id="preset100"
+                                        class="px-3 py-1.5 text-sm font-medium bg-blue-500 text-white rounded-lg transition-colors">100회</button>
+                                    <button onclick="setRange(500)" id="preset500"
+                                        class="px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors">500회</button>
+                                    <button onclick="setRange(1210)" id="preset1210"
+                                        class="px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors">전체</button>
+                                </div>
+                            </div>
+                            <div class="space-y-3">
+                                <input type="range" id="rangeSlider" min="10" max="1210" value="100"
+                                    oninput="updateRange(this.value)" />
+                                <div class="flex items-center justify-between text-sm">
+                                    <span class="text-gray-600">최근 <span id="rangeDisplay"
+                                            class="font-bold text-blue-600">100</span>회 분석</span>
+                                    <span id="totalRangeDisplay" class="text-gray-500">최대 1,210회</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mt-8">
+                        <div class="flex items-center justify-between mb-4 px-2">
+                            <div>
+                                <h3 class="text-xl font-bold text-gray-900 mb-1">회차별 당첨번호 및 Hot/Neutral/Cold</h3>
+                                <p class="text-sm text-gray-600">최근 <span id="displayedCount"
+                                        class="font-bold text-blue-600">100</span>회차 표시 (클릭 시 10회차 하이라이트)
+                                    <span id="listCriteriaDisplay"
+                                        class="text-xs font-bold text-blue-600 bg-blue-50 px-3 py-1 rounded-full border border-blue-100 shadow-sm ml-2">(현재
+                                        10회차 기준)</span>
+                                </p>
+                            </div>
+                        </div>
+
+                        <div
+                            class="flex items-center gap-4 bg-white p-4 rounded-t-xl border border-gray-200 border-b-0 shadow-sm">
+                            <span class="text-sm text-gray-600 whitespace-nowrap">표시 범위:</span>
+                            <div class="flex-1 relative h-6 flex items-center">
+                                <input type="range" id="displayRange" min="10" max="1210" value="100" class="w-full"
+                                    oninput="updateDisplayRange(this.value)">
+                            </div>
+                            <span class="text-sm font-bold text-blue-600 whitespace-nowrap" id="rangeLabel">100회</span>
+                        </div>
+
+                        <div class="overflow-x-auto overflow-y-auto custom-scrollbar bg-white rounded-b-xl border border-gray-200 shadow-sm"
+                            style="max-height: 600px;">
+                            <table class="w-full text-center">
+                                <thead class="sticky top-0 z-30">
+                                    <tr class="bg-[#1e293b] text-white">
+                                        <th rowspan="2"
+                                            class="py-3 px-4 text-sm font-semibold uppercase text-white sticky left-0 bg-[#1e293b] z-40 w-20 text-center border-r border-[#334155] border-b border-[#334155]">
+                                            회차</th>
+                                        <th rowspan="2"
+                                            class="py-3 px-4 text-sm font-semibold uppercase text-white sticky bg-[#1e293b] z-40 border-r border-[#334155] border-b border-[#334155]"
+                                            style="left: 80px; min-width: 280px;">당첨번호</th>
+                                        <th colspan="3"
+                                            class="py-2 px-4 text-sm font-semibold uppercase border-b border-[#334155] border-r border-[#334155]">
+                                            전체 개수</th>
+                                        <th colspan="3"
+                                            class="py-2 px-4 text-sm font-semibold uppercase border-b border-[#334155]">
+                                            당첨 개수</th>
+                                    </tr>
+                                    <tr class="bg-[#1e293b] text-white">
+                                        <th
+                                            class="py-2 px-3 text-sm font-semibold text-red-300 border-r border-[#334155] border-b border-[#334155] w-20">
+                                            Hot</th>
+                                        <th
+                                            class="py-2 px-3 text-sm font-semibold text-gray-300 border-r border-[#334155] border-b border-[#334155] w-20">
+                                            Neutral</th>
+                                        <th
+                                            class="py-2 px-3 text-sm font-semibold text-blue-300 border-r border-[#334155] border-b border-[#334155] w-20">
+                                            Cold</th>
+                                        <th
+                                            class="py-2 px-3 text-sm font-semibold text-red-300 border-r border-[#334155] border-b border-[#334155] w-20">
+                                            Hot</th>
+                                        <th
+                                            class="py-2 px-3 text-sm font-semibold text-gray-300 border-r border-[#334155] border-b border-[#334155] w-20">
+                                            Neutral</th>
+                                        <th
+                                            class="py-2 px-3 text-sm font-semibold text-blue-300 border-b border-[#334155] w-20">
+                                            Cold</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="drawsList" class="divide-y divide-gray-100"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', async function () {
+            try {
+                const client = window.supabaseClient;
+                if (!client) throw new Error("Supabase Client가 초기화되지 않았습니다.");
+
+                // FilterService 초기화 (DB 필터 저장용)
+                if (window.initFilterService) {
+                    await window.initFilterService();
+                }
+
+                // 🔥 1. 대용량 데이터 한 번에 가져오기 (Promise.all로 병렬 처리)
+                const [drawsResult, featuresResult] = await Promise.all([
+                    client.from('lotto_draws').select('*').order('round', { ascending: false }).range(0, 5000),
+                    client.from('number_features_by_round')
+                        .select('round, number, appearance_count_5, appearance_count_10, appearance_count_15, appearance_count_20')
+                ]);
+
+                if (drawsResult.error) throw drawsResult.error;
+                if (featuresResult.error) throw featuresResult.error;
+
+                const data = drawsResult.data;
+                console.log(`✅ 핫콜드 DB 데이터 로드: ${data ? data.length : 0}개`);
+                console.log(`✅ 피처 DB 데이터 로드: ${featuresResult.data ? featuresResult.data.length : 0}개`);
+
+                if (!data || data.length === 0) {
+                    document.getElementById('drawsList').innerHTML = '<tr><td colspan="8" class="p-10 text-center">데이터가 없습니다.</td></tr>';
+                    document.getElementById('loadingOverlay').style.display = 'none';
+                    return;
+                }
+                allData = data;
+
+                // 2. 분석 데이터 메모리 맵핑
+                const featureData = featuresResult.data;
+                featuresMap = new Map();
+                featureData.forEach(row => {
+                    if (!featuresMap.has(row.round)) {
+                        featuresMap.set(row.round, []);
+                    }
+                    featuresMap.get(row.round).push(row);
+                });
+
+                // 초기 설정
+                const latestDrawRound = allData[0].round;
+                selectedRound = latestDrawRound + 1;
+
+                const totalCount = allData.length;
+                const displaySlider = document.getElementById('displayRange');
+                displaySlider.max = totalCount;
+
+                populateRoundSelect();
+
+                // [수정] 필터 로드 (저장된 값이 없으면 기본값)
+                await loadFilterSettings();
+
+                // 만약 저장된 필터가 없었다면(첫 진입), 현재 Period에 대해 자동 계산 수행
+                if (!periodFilters[currentPeriod]) {
+                    calculateAndSetMinMax(currentPeriod);
+                }
+
+                updateAnalysis();
+                renderCountTable();
+                updateFilterMaxValues();
+                updateDisplayRange(displayLimit);
+                renderFilterZones();
+
+                document.getElementById('loadingOverlay').style.display = 'none';
+
+                // AI 분석 실행
+                await refreshAIAnalysis();
+
+            } catch (err) {
+                console.error('데이터 로드 실패:', err);
+                document.getElementById('loadingOverlay').innerHTML = `<p class="text-red-500 font-bold">데이터 로드 실패: ${err.message}</p>`;
+            }
+        });
+
+        function dragStart(event, number) {
+            event.dataTransfer.setData('number', number);
+            event.target.classList.add('dragging');
+        }
+
+        function dragEnd(event) {
+            event.target.classList.remove('dragging');
+        }
+
+        function allowDrop(event) {
+            event.preventDefault();
+            event.currentTarget.classList.add('drag-over');
+        }
+
+        function dragLeave(event) {
+            event.currentTarget.classList.remove('drag-over');
+        }
+
+        // [수정] 드롭 시 저장 기능 추가
+        function dropNumber(event, type) {
+            event.preventDefault();
+            event.currentTarget.classList.remove('drag-over');
+            const number = parseInt(event.dataTransfer.getData('number'));
+            let changed = false;
+
+            if (type === 'exclude') {
+                if (!excludeNumbers.includes(number)) {
+                    if (fixedNumbers.includes(number)) { alert('이미 고정수에 포함된 번호입니다.'); return; }
+                    excludeNumbers.push(number);
+                    excludeNumbers.sort((a, b) => a - b);
+                    changed = true;
+                }
+            } else if (type === 'fixed') {
+                if (!fixedNumbers.includes(number)) {
+                    if (fixedNumbers.length >= 6) { alert('고정수는 최대 6개까지만 선택 가능합니다.'); return; }
+                    if (excludeNumbers.includes(number)) { alert('이미 제외수에 포함된 번호입니다.'); return; }
+                    fixedNumbers.push(number);
+                    fixedNumbers.sort((a, b) => a - b);
+                    changed = true;
+                }
+            }
+
+            if (changed) {
+                renderFilterZones();
+                saveFilterSettings(); // 변경 즉시 저장
+            }
+        }
+
+        // [수정] 필터 제거 시 저장 기능 추가
+        function removeFilterNumber(number, type) {
+            if (type === 'exclude') {
+                excludeNumbers = excludeNumbers.filter(n => n !== number);
+            } else if (type === 'fixed') {
+                fixedNumbers = fixedNumbers.filter(n => n !== number);
+            }
+            renderFilterZones();
+            saveFilterSettings(); // 변경 즉시 저장
+        }
+
+        function renderFilterZones() {
+            const excludeZone = document.getElementById('excludeZone');
+            const fixedZone = document.getElementById('fixedZone');
+            const { hot, neutral, cold } = getClassifiedNumbers(currentPeriod, selectedRound);
+
+            const getNumberClass = (n) => {
+                if (hot.includes(n)) return 'hot-bg';
+                if (neutral.includes(n)) return 'neutral-bg';
+                if (cold.includes(n)) return 'cold-bg';
+                return 'neutral-bg';
+            };
+
+            if (excludeNumbers.length === 0) excludeZone.innerHTML = '<p class="text-sm text-gray-400 text-center">번호를 드래그하여 추가하세요</p>';
+            else excludeZone.innerHTML = excludeNumbers.map(n => `<span class="filter-number ${getNumberClass(n)}" onclick="removeFilterNumber(${n}, 'exclude')">${n}</span>`).join('');
+
+            if (fixedNumbers.length === 0) fixedZone.innerHTML = '<p class="text-sm text-gray-400 text-center">번호를 드래그하여 추가하세요</p>';
+            else fixedZone.innerHTML = fixedNumbers.map(n => `<span class="filter-number ${getNumberClass(n)}" onclick="removeFilterNumber(${n}, 'fixed')">${n}</span>`).join('');
+        }
+
+        function updateFilterMaxValues() {
+            if (allData.length === 0) return;
+            const { hot, neutral, cold } = getClassifiedNumbers(currentPeriod, selectedRound);
+            const elHotMin = document.getElementById('hotMin'); if (elHotMin) elHotMin.max = Math.min(6, hot.length);
+            const elHotMax = document.getElementById('hotMax'); if (elHotMax) elHotMax.max = Math.min(6, hot.length);
+            const elNeuMin = document.getElementById('neutralMin'); if (elNeuMin) elNeuMin.max = Math.min(6, neutral.length);
+            const elNeuMax = document.getElementById('neutralMax'); if (elNeuMax) elNeuMax.max = Math.min(6, neutral.length);
+            const elColdMin = document.getElementById('coldMin'); if (elColdMin) elColdMin.max = Math.min(6, cold.length);
+            const elColdMax = document.getElementById('coldMax'); if (elColdMax) elColdMax.max = Math.min(6, cold.length);
+        }
+
+        function populateRoundSelect() {
+            const select = document.getElementById('roundSelect');
+            if (allData.length === 0) return;
+            const latestRound = allData[0].round;
+            const nextRound = latestRound + 1;
+            let options = `<option value="${nextRound}">${nextRound}회</option>`;
+            allData.forEach(d => { options += `<option value="${d.round}">${d.round}회</option>`; });
+            select.innerHTML = options;
+            select.value = selectedRound;
+        }
+
+        function getClassifiedNumbers(period, fromRound) {
+            if (featuresMap.has(fromRound)) {
+                const features = featuresMap.get(fromRound);
+                const hot = [], neutral = [], cold = [];
+
+                features.forEach(f => {
+                    let count = 0;
+                    if (period === 5) count = f.appearance_count_5 || 0;
+                    else if (period === 10) count = f.appearance_count_10 || 0;
+                    else if (period === 15) count = f.appearance_count_15 || 0;
+                    else if (period === 20) count = f.appearance_count_20 || 0;
+
+                    const criteria = CRITERIA[period];
+
+                    if (count >= criteria.hot) hot.push(f.number);
+                    else if (count >= criteria.cold[1] && count <= criteria.cold[0]) cold.push(f.number);
+                    else neutral.push(f.number);
+                });
+                return { hot, neutral, cold };
+            }
+
+            return getClassifiedNumbersFallback(period, fromRound);
+        }
+
+        function getClassifiedNumbersFallback(period, fromRound) {
+            const hot = [], neutral = [], cold = [];
+            const latestRoundInDB = allData[0]?.round || 0;
+
+            for (let num = 1; num <= 45; num++) {
+                let startIdx = 0;
+                if (fromRound <= latestRoundInDB) {
+                    const roundIdx = allData.findIndex(d => d.round === fromRound);
+                    if (roundIdx === -1) { neutral.push(num); continue; }
+                    startIdx = roundIdx + 1;
+                }
+                if (startIdx + period > allData.length) { neutral.push(num); continue; }
+                const recentDraws = allData.slice(startIdx, startIdx + period);
+                let count = 0;
+                recentDraws.forEach(draw => { if (draw.numbers.includes(num)) count++; });
+                const criteria = CRITERIA[period];
+                if (count >= criteria.hot) hot.push(num);
+                else if (count >= criteria.cold[1] && count <= criteria.cold[0]) cold.push(num);
+                else neutral.push(num);
+            }
+            return { hot, neutral, cold };
+        }
+
+        function calculateAndSetMinMax(period) {
+            if (allData.length === 0) return;
+            let hMin = 99, hMax = -1;
+            let nMin = 99, nMax = -1;
+            let cMin = 99, cMax = -1;
+            const analyzeLimit = period;
+            const targetData = allData.slice(0, analyzeLimit);
+
+            for (const draw of targetData) {
+                const { hot, neutral, cold } = getClassifiedNumbers(period, draw.round);
+                const hotCount = draw.numbers.filter(n => hot.includes(n)).length;
+                const neutralCount = draw.numbers.filter(n => neutral.includes(n)).length;
+                const coldCount = draw.numbers.filter(n => cold.includes(n)).length;
+
+                if (hotCount < hMin) hMin = hotCount;
+                if (hotCount > hMax) hMax = hotCount;
+                if (neutralCount < nMin) nMin = neutralCount;
+                if (neutralCount > nMax) nMax = neutralCount;
+                if (coldCount < cMin) cMin = coldCount;
+                if (coldCount > cMax) cMax = coldCount;
+            }
+            if (hMin === 99) { hMin = 0; hMax = 6; nMin = 0; nMax = 6; cMin = 0; cMax = 6; }
+            document.getElementById('hotMin').value = hMin;
+            document.getElementById('hotMax').value = hMax;
+            document.getElementById('neutralMin').value = nMin;
+            document.getElementById('neutralMax').value = nMax;
+            document.getElementById('coldMin').value = cMin;
+            document.getElementById('coldMax').value = cMax;
+        }
+
+        async function selectRound(round) {
+            selectedRound = parseInt(round);
+            updateAnalysis();
+            renderCountTable();
+            updateFilterMaxValues();
+            updateSelectedRoundDisplay();
+            renderFilterZones();
+            await refreshAIAnalysis();
+        }
+
+        function updateSelectedRoundDisplay() {
+            if (allData.length === 0) return;
+            const { hot, neutral, cold } = getClassifiedNumbers(currentPeriod, selectedRound);
+            const currentDraw = allData.find(d => d.round === selectedRound);
+            const latestRoundInDB = allData[0].round;
+            const isDraggable = selectedRound > latestRoundInDB;
+
+            const renderNumbers = (numbers, typeClass) => {
+                const isLatest = selectedRound === latestRoundInDB;
+
+                return numbers.sort((a, b) => a - b).map(n => {
+                    const isWinning = currentDraw && currentDraw.numbers.includes(n);
+
+                    let className = '';
+                    let style = '';
+
+                    // [Modified] 색상 로직 (미래 회차 vs 과거/최근 회차)
+                    // 1. 미래 회차 (isDraggable): 모든 번호에 Hot/Neutral/Cold 색상 적용 (분석용)
+                    // 2. 과거/최근 회차 (!isDraggable): 결과 확인용
+                    //    - 당첨번호: 최근이면 기본색, 과거면 핫/콜드색
+                    //    - 미당첨: 옅은 회색
+
+                    if (isDraggable) {
+                        // 미래 회차: 모든 번호를 분류 색상으로 표시
+                        className = typeClass + ' font-bold shadow-sm ring-1 ring-inset ring-black/10 cursor-grab active:cursor-grabbing';
+                    } else {
+                        // 과거/최근 회차
+                        if (isWinning) {
+                            if (isLatest) {
+                                // 최근 회차(1210): 기본 공 색상
+                                const color = window.Utils.getBallColor(n);
+                                className = 'font-bold shadow-sm ring-1 ring-inset ring-black/10 text-white';
+                                style = `background-color: ${color}; border-color: ${color};`;
+                            } else {
+                                // 과거 회차: 분류 색상
+                                className = typeClass + ' font-bold shadow-sm ring-1 ring-inset ring-black/10';
+                            }
+                        } else {
+                            // 미당첨: 옅은 회색
+                            className = 'bg-gray-50 text-gray-300 border border-gray-100';
+                        }
+                    }
+
+                    const dragAttr = isDraggable ? `draggable="true" ondragstart="dragStart(event, ${n})" ondragend="dragEnd(event)"` : '';
+                    const cursorClass = isDraggable ? '' : 'no-drag cursor-default';
+
+                    return `<span class="lotto-number ${className} ${cursorClass}" style="${style}" ${dragAttr}>${n}</span>`;
+                }).join('');
+            };
+
+            document.getElementById('selectedRoundNumbers').innerHTML = `
+                <div class="grid grid-cols-3 gap-4">
+                    <div class="space-y-2"><h4 class="text-sm font-semibold" style="color: #DC2626;">Hot (${hot.length}개)</h4><div class="flex flex-wrap gap-1">${renderNumbers(hot, 'hot-bg')}</div></div>
+                    <div class="space-y-2"><h4 class="text-sm font-semibold" style="color: #6B7280;">Neutral (${neutral.length}개)</h4><div class="flex flex-wrap gap-1">${renderNumbers(neutral, 'neutral-bg')}</div></div>
+                    <div class="space-y-2"><h4 class="text-sm font-semibold" style="color: #2563EB;">Cold (${cold.length}개)</h4><div class="flex flex-wrap gap-1">${renderNumbers(cold, 'cold-bg')}</div></div>
+                </div>`;
+        }
+
+        function renderCountTable() {
+            if (allData.length === 0) return;
+            const { hot, neutral, cold } = getClassifiedNumbers(currentPeriod, selectedRound);
+            const countMap = { hot: {}, neutral: {}, cold: {} };
+            const latestRoundInDB = allData[0].round;
+            let startIdx = 0;
+            if (selectedRound <= latestRoundInDB) { startIdx = allData.findIndex(d => d.round === selectedRound) + 1; }
+            const recentDraws = allData.slice(startIdx, startIdx + currentPeriod);
+
+            [hot, neutral, cold].forEach((nums, typeIdx) => {
+                const type = ['hot', 'neutral', 'cold'][typeIdx];
+                nums.forEach(num => {
+                    let count = 0;
+                    recentDraws.forEach(draw => { if (draw.numbers.includes(num)) count++; });
+                    if (!countMap[type][count]) countMap[type][count] = [];
+                    countMap[type][count].push(num);
+                });
+            });
+
+            const maxCount = Math.max(...Object.keys(countMap.hot).map(Number), ...Object.keys(countMap.neutral).map(Number), ...Object.keys(countMap.cold).map(Number), 0);
+            let html = '';
+            for (let count = maxCount; count >= 0; count--) {
+                html += `<tr class="hover:bg-gray-50"><td class="py-3 px-6 text-center font-semibold text-gray-900 border border-gray-200">${count}회</td><td class="py-3 px-8 text-center border border-gray-200">${countMap.hot[count] ? countMap.hot[count].sort((a, b) => a - b).join(', ') : '-'}</td><td class="py-3 px-6 text-center border border-gray-200">${countMap.neutral[count] ? countMap.neutral[count].sort((a, b) => a - b).join(', ') : '-'}</td><td class="py-3 px-6 text-center border border-gray-200">${countMap.cold[count] ? countMap.cold[count].sort((a, b) => a - b).join(', ') : '-'}</td></tr>`;
+            }
+            document.getElementById('countTableBody').innerHTML = html;
+        }
+
+        function updateFilters() {
+            saveFilterSettings();
+            // 필터는 조합 생성용이므로 리스트 렌더링 불필요
+        }
+
+        function toggleFilterApply() {
+            saveFilterSettings();
+            filterApplied = document.getElementById('filterToggle').checked;
+            // 필터는 조합 생성용이므로 리스트 렌더링 불필요
+        }
+
+        // 분석 회차 범위 변경 (차트/통계용)
+        function updateRange(value) {
+            currentRange = parseInt(value);
+            document.getElementById('rangeDisplay').textContent = value;
+            updateSliderBackground(value, 'rangeSlider');
+            updatePresetButtons(currentRange);
+
+            // 차트와 통계 업데이트
+            renderCountTable();
+            // AI 분석도 새로고침 가능
+        }
+
+        // 프리셋 버튼 클릭
+        function setRange(value) {
+            currentRange = value;
+            document.getElementById('rangeSlider').value = value;
+            document.getElementById('rangeDisplay').textContent = value;
+            updateSliderBackground(value, 'rangeSlider');
+            updatePresetButtons(value);
+
+            renderCountTable();
+        }
+
+        // 프리셋 버튼 활성화 상태 업데이트
+        function updatePresetButtons(value) {
+            ['preset50', 'preset100', 'preset500', 'preset1210'].forEach(id => {
+                const btn = document.getElementById(id);
+                if (btn) {
+                    btn.className = 'px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors';
+                }
+            });
+
+            const presetMap = { 50: 'preset50', 100: 'preset100', 500: 'preset500', 1210: 'preset1210' };
+            const activeBtn = document.getElementById(presetMap[value]);
+            if (activeBtn) {
+                activeBtn.className = 'px-3 py-1.5 text-sm font-medium bg-blue-500 text-white rounded-lg transition-colors';
+            }
+        }
+
+        // 표시 범위 변경 (리스트 표시용)
+        function updateDisplayRange(value) {
+            displayLimit = parseInt(value);
+            document.getElementById('rangeLabel').textContent = value + '회';
+            const dispCount = document.getElementById('displayedCount');
+            if (dispCount) dispCount.textContent = value;
+            updateSliderBackground(value, 'displayRange');
+            renderDrawsList();
+        }
+
+        function updateSliderBackground(value, sliderId = 'displayRange') {
+            const slider = document.getElementById(sliderId);
+            if (!slider) return;
+            const max = parseInt(slider.max);
+            const min = parseInt(slider.min);
+            const percent = ((value - min) / (max - min)) * 100;
+            slider.style.setProperty('--value-percent', `${percent}%`);
+        }
+
+        function toggleCellHighlight(col, val) {
+            if (selectedHighlight.col === col && selectedHighlight.val === val) {
+                selectedHighlight = { col: null, val: null };
+            } else {
+                selectedHighlight = { col: col, val: val };
+            }
+            renderDrawsList();
+        }
+
+        function renderDrawsList() {
+            if (allData.length === 0) return;
+            const container = document.getElementById('drawsList');
+            if (!container) return;
+
+            container.innerHTML = '';
+            // 필터링 없이 displayLimit만큼 표시
+            const targetData = allData.slice(0, displayLimit);
+
+            // 2. 렌더링
+            targetData.forEach((draw, index) => {
+                const { hot: currentHot, neutral: currentNeutral, cold: currentCold } = getClassifiedNumbers(currentPeriod, draw.round);
+
+                const hotNumbers = draw.numbers.filter(n => currentHot.includes(n));
+                const neutralNumbers = draw.numbers.filter(n => currentNeutral.includes(n));
+                const coldNumbers = draw.numbers.filter(n => currentCold.includes(n));
+
+                const tr = document.createElement('tr');
+                tr.setAttribute('data-round', draw.round);
+                let rowClass = 'border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors';
+
+                // 10회차 하이라이트
+                const isHighlighted = highlightStartRound !== null &&
+                    draw.round <= highlightStartRound &&
+                    draw.round > highlightStartRound - 10;
+
+                if (isHighlighted) {
+                    rowClass += ' row-highlight';
+                }
+
+                tr.className = rowClass;
+                tr.onclick = () => highlightTenDraws(draw.round);
+                tr.id = `draw-row-${index}`;
+
+                // 내부 보더 처리 (td에 border가 있으므로 tr style로 제어하거나 css 클래스 조정 필요)
+                // hot_cold의 경우 각 td에 border가 있으므로, top-border/bottom-border 클래스에서 td에 border를 적용하도록 CSS를 수정했음.
+
+                const numberBalls = draw.numbers.map(num => {
+                    const type = currentHot.includes(num) ? 'hot' : currentNeutral.includes(num) ? 'neutral' : 'cold';
+                    const className = type === 'hot' ? 'hot-bg' : type === 'neutral' ? 'neutral-bg' : 'cold-bg';
+                    return `<span class="lotto-number ${className}">${num}</span>`;
+                }).join('');
+
+                const getHighlightClass = (col, val) => {
+                    if (selectedHighlight.col === col && selectedHighlight.val === val) {
+                        return 'val-highlight';
+                    }
+                    return '';
+                };
+                const getTextColor = (col, val, defaultColor) => {
+                    if (selectedHighlight.col === col && selectedHighlight.val === val) return 'text-white';
+                    return defaultColor;
+                };
+
+                tr.innerHTML = `
+                    <td class="py-3 px-4 text-sm font-semibold text-gray-900 sticky left-0 bg-inherit border-r border-gray-200">${draw.round}회</td>
+                    <td class="py-3 px-4 sticky bg-inherit border-r border-gray-200" style="left: 80px; min-width: 280px;">
+                        <div class="flex gap-1 justify-center">${numberBalls}</div>
+                    </td>
+                    <td class="py-3 px-3 text-center text-sm font-semibold border-r border-gray-200" style="color: #DC2626;">${currentHot.length}</td>
+                    <td class="py-3 px-3 text-center text-sm font-semibold border-r border-gray-200" style="color: #6B7280;">${currentNeutral.length}</td>
+                    <td class="py-3 px-3 text-center text-sm font-semibold border-r border-gray-200" style="color: #2563EB;">${currentCold.length}</td>
+                    
+                    <td class="py-3 px-3 text-center text-sm border-r border-gray-200">
+                        <span onclick="event.stopPropagation(); toggleCellHighlight('hotCount', ${hotNumbers.length})" 
+                              class="inline-flex items-center justify-center w-8 h-8 rounded-full font-bold transition-colors cursor-pointer ${getHighlightClass('hotCount', hotNumbers.length)} ${getTextColor('hotCount', hotNumbers.length, 'text-red-600')}">
+                            ${hotNumbers.length}
+                        </span>
+                    </td>
+                    <td class="py-3 px-3 text-center text-sm border-r border-gray-200">
+                        <span onclick="event.stopPropagation(); toggleCellHighlight('neutralCount', ${neutralNumbers.length})" 
+                              class="inline-flex items-center justify-center w-8 h-8 rounded-full font-bold transition-colors cursor-pointer ${getHighlightClass('neutralCount', neutralNumbers.length)} ${getTextColor('neutralCount', neutralNumbers.length, 'text-gray-500')}">
+                            ${neutralNumbers.length}
+                        </span>
+                    </td>
+                    <td class="py-3 px-3 text-center text-sm">
+                        <span onclick="event.stopPropagation(); toggleCellHighlight('coldCount', ${coldNumbers.length})" 
+                              class="inline-flex items-center justify-center w-8 h-8 rounded-full font-bold transition-colors cursor-pointer ${getHighlightClass('coldCount', coldNumbers.length)} ${getTextColor('coldCount', coldNumbers.length, 'text-blue-600')}">
+                            ${coldNumbers.length}
+                        </span>
+                    </td>
+                `;
+                container.appendChild(tr);
+            });
+        }
+
+        // 🔹 행 하이라이트 (10회차) - 표준화 적용
+        function highlightTenDraws(round) {
+            // [New] 토글 기능: 동일 회차 재클릭 시 해제
+            if (highlightStartRound === round) {
+                highlightStartRound = null;
+                document.querySelectorAll('tr[data-round]').forEach(row => {
+                    row.classList.remove('row-highlight');
+                });
+                return;
+            }
+
+            highlightStartRound = round;
+
+            // 기존 하이라이트 제거 및 신규 적용 (클래스 직접 조작으로 성능 최적화)
+            document.querySelectorAll('tr[data-round]').forEach(row => {
+                const r = parseInt(row.getAttribute('data-round'));
+                if (r <= round && r > round - 10) {
+                    row.classList.add('row-highlight');
+                } else {
+                    row.classList.remove('row-highlight');
+                }
+            });
+        }
+
+        // ==========================================================
+        // [AI 분석 엔진]
+        // ==========================================================
+        // [Merged] AI 분석 함수 (NLP + QnA Sidebar)
+
+        async function refreshAIAnalysis() {
+            if (!allData || allData.length === 0) return;
+
+            // UI 상태 제어
+            const loader = document.getElementById('aiLoadingIndicator');
+            const content = document.getElementById('aiAnalysisContent');
+
+            // 기존 3-Section UI가 아닌 단일 로딩 메시지 구조일 수 있으므로 ID 확인
+            // hot_cold.html은 <div id="aiAnalysisContent">...<span class="...animate-spin">...</span></div> 구조임.
+            // 따라서 로딩 인디케이터를 별도로 제어하기보다, aiAnalysisContent 내부를 로딩 상태로 변경하는 것이 안전함.
+            const analysisContent = document.getElementById('aiAnalysisContent');
+            if (analysisContent) {
+                analysisContent.innerHTML = `
+                <div class="flex items-center gap-2 text-gray-500">
+                    <span class="material-symbols-outlined text-lg animate-spin">progress_activity</span>
+                    <span>AI가 핫/콜드 패턴을 정밀 분석하고 있습니다...</span>
+                </div>
+            `;
+            }
+
+            const subjectData = allData[0];
+            const subjectRound = subjectData.round;
+            const targetRound = subjectRound + 1;
+
+            // Context 생성
+            const contextData = generateAnalysisContext(currentPeriod);
+
+            const targetText = `Target ${targetRound}회차 (based on ${subjectRound}회)`;
+            const targetEl = document.getElementById('aiTargetInfo');
+            if (targetEl) targetEl.textContent = targetText;
+
+            // 실행 Config
+            const analysisConfig = {
+                containerId: 'aiAnalysisContent',
+                analysisType: 'hot_cold', // AIProxy에서 인식하는 type
+                topic: '핫/콜드',
+                subjectRound: subjectRound,
+                targetRound: targetRound,
+                userPrompt: "현재 핫/콜드 데이터를 바탕으로 다음 회차의 출현 경향을 예측하고 전략을 제시해줘.",
+                contextData: contextData,
+                customRules: `
+# [분석 미션]
+1. 핫/콜드 숫자의 흐름(Gap, Streak)과 분포 비율을 근거로 "타이밍"을 진단하시오.
+2. [전략 제안]: 이번 회차에 Hot/Neutral/Cold 그룹별로 몇 개씩 가져가는 것이 좋을지 필터 범위(Min~Max)를 수치로 제안하시오.
+3. [패턴]: 특정 그룹의 과열/침체 여부를 판단하고, 평균 회귀 관점에서의 변화 가능성을 서술하시오.
+4. 절대 "에너지", "기운", "운세" 같은 비과학적 용어를 사용하지 마시오. 철저히 통계 데이터에 기반하시오.
+`
+            };
+
+            // AI 실행 (AIProxy 우선)
+            if (window.AIAnalysis && window.AIAnalysis.executeAnalysis) {
+                await window.AIAnalysis.executeAnalysis(analysisConfig);
+            } else {
+                // Fallback if AIAnalysis not available (should not happen with common_v2.js)
+                await executeLocalAIAnalysis(analysisConfig);
+            }
+        }
+
+        async function submitCustomAIAnalysis() {
+            const inputEl = document.getElementById('aiUserPrompt');
+            const userPrompt = inputEl.value.trim();
+            if (!userPrompt) return;
+
+            // NLP 처리
+            let nlpResult = window.nlpProcessor ? window.nlpProcessor.process(userPrompt) : null;
+            if (nlpResult && nlpResult.intent !== 'unknown' && nlpResult.confidence > 0.6) {
+                if (nlpResult.intent === 'navigate') {
+                    // hot_cold에 맞는 네비게이션 처리 (필요 시 구현)
+                }
+            }
+
+            if (window.openQnaModal) window.openQnaModal();
+            const qnaContent = document.getElementById('aiQnaContent');
+            if (qnaContent) {
+                qnaContent.innerHTML += `<div class="flex justify-end mb-4"><div class="bg-blue-600 text-white px-4 py-2 rounded-2xl shadow-sm text-sm">${userPrompt}</div></div>`;
+                const uniqueId = 'ai-res-' + Date.now();
+                qnaContent.innerHTML += `<div class="flex mb-4"><div class="w-7 h-7 rounded-full bg-blue-500 flex items-center justify-center text-white text-[10px] mr-2 flex-shrink-0">AI</div><div id="${uniqueId}" class="bg-white border text-gray-800 px-4 py-2 rounded-2xl shadow-sm text-sm min-h-[40px] flex-1"></div></div>`;
+
+                // Context 생성
+                const contextData = generateAnalysisContext(currentPeriod);
+
+                // Config 설정
+                const analysisConfig = {
+                    containerId: uniqueId,
+                    topic: '핫/콜드',
+                    analysisType: 'hot_cold',
+                    subjectRound: allData[0]?.round || 0,
+                    targetRound: (allData[0]?.round || 0) + 1,
+                    userPrompt: userPrompt,
+                    contextData: contextData,
+                    responseStyle: 'chat',
+                    customRules: "사용자의 질문에 대해 위 데이터를 근거로 핵심만 답변하시오. '에너지' 같은 단어 사용 금지."
+                };
+
+                // 실행 (AIProxy 우선)
+                if (window.AIAnalysis && window.AIAnalysis.executeAnalysis) {
+                    await window.AIAnalysis.executeAnalysis(analysisConfig);
+                } else {
+                    await executeLocalAIAnalysis(analysisConfig);
+                }
+
+                qnaContent.scrollTop = qnaContent.scrollHeight;
+                inputEl.value = '';
+            }
+        }
+
+        // [New] Standardized Local AI Execution
+        async function executeLocalAIAnalysis(params) {
+            const { containerId, subjectRound, targetRound, userPrompt, contextData } = params;
+            const container = document.getElementById(containerId);
+            if (container) {
+                container.innerHTML = `
+                <div class="flex items-center gap-3 p-2 text-gray-500">
+                    <div class="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                    <span class="text-xs">AI 핫/콜드 분석 중...</span>
+                </div>`;
+            }
+            try {
+                const prompt = `
+# Role: 로또 핫/콜드 데이터 분석 전문가
+# Target: ${targetRound}회차 전략
+# Context: ${contextData}
+# User Question: "${userPrompt}"
+
+# 절대 금지어 (어떤 경우에도 사용 금지):
+에너지, 기운, 파동, 흐름이 좋다, 운세, 소액 투자, 분산 투자, 고액 투자 지양, 투자 전략,
+100% 보장은 없다, 참고용, 책임지지 않습니다, 재미로, 행운을 빕니다, 당첨을 기원,
+감이 좋다, 직감, 필승, 대박
+
+# Instructions:
+1. 답변은 **핵심만 요약된 단일 단락**으로 작성하시오.
+2. 제공된 통계 데이터(평균, 편차, 추세, Gap)를 근거로 논리적으로 설명하시오.
+3. 중요 키워드는 JSON의 highlights 배열에 담아주세요.
+4. JSON 구조: 
+{
+  "response": "데이터 인용 기반 분석 답변 (3~5문장)",
+  "highlights": [
+    {"text": "키워드", "type": "good" | "warn" | "trend"}
+  ]
+}
+`;
+                // ★ 핵심 변경: AIProxy 우선 사용
+                let data, error;
+                if (window.AIProxy) {
+                    try {
+                        data = await window.AIProxy.invoke({
+                            prompt: prompt,
+                            analysisType: 'hot_cold',
+                            targetRound: targetRound,
+                            subjectRound: subjectRound,
+                            responseStyle: 'chat'
+                        });
+                    } catch (proxyErr) {
+                        console.warn('AIProxy failed, falling back to Edge Function:', proxyErr);
+                        const result = await window.supabaseClient.functions.invoke('analyze-lotto', { body: { context: prompt } });
+                        data = result.data;
+                        error = result.error;
+                    }
+                } else {
+                    const result = await window.supabaseClient.functions.invoke('analyze-lotto', { body: { context: prompt } });
+                    data = result.data;
+                    error = result.error;
+                }
+
+                if (error) throw error;
+
+                let content = '';
+                let highlights = [];
+
+                if (typeof data === 'string') {
+                    try {
+                        const parsed = JSON.parse(data);
+                        content = parsed.response || parsed.recommendation || JSON.stringify(parsed);
+                        if (parsed.highlights) highlights = parsed.highlights;
+                    } catch (e) {
+                        content = data;
+                    }
+                } else {
+                    content = data.response || data.recommendation || JSON.stringify(data);
+                    if (data.highlights) highlights = data.highlights;
+                }
+
+                if (container) {
+                    // 1. Sanitize
+                    let safeContent = content.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+                    // 2. Apply Highlights
+                    if (highlights.length > 0) {
+                        const tagColors = { good: 'text-blue-600', warn: 'text-red-600', trend: 'text-teal-600' };
+                        highlights.forEach(h => {
+                            const color = tagColors[h.type] || 'text-blue-600';
+                            const escapedText = h.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                            const regex = new RegExp(escapedText, 'g');
+                            safeContent = safeContent.replace(regex, `<span class="${color} font-bold">${h.text}</span>`);
+                        });
+                    } else if (window.AIAnalysis && typeof window.AIAnalysis.formatText === 'function') {
+                        safeContent = window.AIAnalysis.formatText(safeContent);
+                    }
+
+                    // 3. Render
+                    container.innerHTML = `<div class="prose prose-sm max-w-none text-gray-800 leading-relaxed">${safeContent}</div>`;
+
+                    // Add to history (global chatHistory if exists, or local)
+                    if (typeof chatHistory !== 'undefined') {
+                        chatHistory.push({ role: 'assistant', content: content });
+                    }
+                }
+            } catch (err) {
+                console.error('Local AI Error:', err);
+                if (container) {
+                    container.textContent = `분석 실패: ${err.message}. 잠시 후 다시 시도해주세요.`;
+                    container.className = 'text-red-500 text-xs p-2';
+                }
+            }
+        }
+
+        function applyRecent10Filters() {
+            const btn = document.getElementById('recent10FilterBtn');
+            const btnText = document.getElementById('recent10BtnText');
+            const toggle = document.getElementById('filterToggle'); // Hot/Cold may use filterToggle
+
+            if (!allData || allData.length === 0) return;
+
+            if (isRecentTenFilter) {
+                // 해제: 초기 상태로 복구 (0~6)
+                isRecentTenFilter = false;
+                document.getElementById('hotMin').value = 0;
+                document.getElementById('hotMax').value = 6;
+                document.getElementById('neutralMin').value = 0;
+                document.getElementById('neutralMax').value = 6;
+                document.getElementById('coldMin').value = 0;
+                document.getElementById('coldMax').value = 6;
+
+                if (toggle) toggle.checked = false;
+
+                highlightStartRound = null;
+                updateFilters();
+                saveFilterSettings();
+                updateRecent10FilterUI();
+                // 필터는 조합용이므로 리스트 렌더링 불필요
+                return;
+            }
+
+            const recent10 = allData.slice(0, 10);
+            let minHot = 6, maxHot = 0;
+            let minNeu = 6, maxNeu = 0;
+            let minCold = 6, maxCold = 0;
+
+            recent10.forEach(draw => {
+                const { hot, neutral, cold } = getClassifiedNumbers(currentPeriod, draw.round);
+                let hCount = 0, nCount = 0, cCount = 0;
+                draw.numbers.forEach(num => {
+                    if (hot.includes(num)) hCount++;
+                    else if (neutral.includes(num)) nCount++;
+                    else if (cold.includes(num)) cCount++;
+                });
+
+                if (hCount < minHot) minHot = hCount;
+                if (hCount > maxHot) maxHot = hCount;
+                if (nCount < minNeu) minNeu = nCount;
+                if (nCount > maxNeu) maxNeu = nCount;
+                if (cCount < minCold) minCold = cCount;
+                if (cCount > maxCold) maxCold = cCount;
+            });
+
+            document.getElementById('hotMin').value = minHot;
+            document.getElementById('hotMax').value = maxHot;
+            document.getElementById('neutralMin').value = minNeu;
+            document.getElementById('neutralMax').value = maxNeu;
+            document.getElementById('coldMin').value = minCold;
+            document.getElementById('coldMax').value = maxCold;
+
+            isRecentTenFilter = true;
+            updateFilters();
+            saveFilterSettings();
+            updateRecent10FilterUI();
+
+            if (toggle && !toggle.checked) {
+                toggle.checked = true;
+                toggleFilterApply();
+            }
+
+            highlightTenDraws(recent10[0].round);
+            console.log(`최근 10회차 필터 적용 완료`);
+        }
+
+        function updateRecent10FilterUI() {
+            const btn = document.getElementById('recent10FilterBtn');
+            const btnText = document.getElementById('recent10BtnText');
+            if (!btn || !btnText) return;
+
+            if (isRecentTenFilter) {
+                btn.classList.remove('from-blue-500', 'to-indigo-600');
+                btn.classList.add('from-purple-500', 'to-purple-700');
+                btnText.textContent = '필터 적용 해제';
+            } else {
+                btn.classList.remove('from-purple-500', 'to-purple-700');
+                btn.classList.add('from-blue-500', 'to-indigo-600');
+                btnText.textContent = '최근 10회차 필터 적용';
+            }
+        }
+
+        // 🔹 [New] AI 분석용 컨텍스트 생성 도우미 (통계/패턴 데이터 통합)
+        function generateAnalysisContext(period) {
+            const range = 50; // 분석할 과거 데이터 범위
+            const data = allData.slice(0, range);
+
+            // 1. 기초 통계 (Hot/Neutral/Cold 출현 빈도)
+            let hotSum = 0, neuSum = 0, coldSum = 0;
+            const history = data.map(d => {
+                const { hot, neutral, cold } = getClassifiedNumbers(period, d.round);
+                const hCount = d.numbers.filter(n => hot.includes(n)).length;
+                const nCount = d.numbers.filter(n => neutral.includes(n)).length;
+                const cCount = d.numbers.filter(n => cold.includes(n)).length;
+                hotSum += hCount; neuSum += nCount; coldSum += cCount;
+                return { round: d.round, h: hCount, n: nCount, c: cCount };
+            });
+
+            const avgHot = (hotSum / range).toFixed(1);
+            const avgNeu = (neuSum / range).toFixed(1);
+            const avgCold = (coldSum / range).toFixed(1);
+
+            // 2. 이동평균 (최근 5회 vs 20회) - 추세 파악
+            const recent5 = history.slice(0, 5);
+            const avgHot5 = (recent5.reduce((a, b) => a + b.h, 0) / 5).toFixed(1);
+            const avgCold5 = (recent5.reduce((a, b) => a + b.c, 0) / 5).toFixed(1);
+
+            const hotTrend = parseFloat(avgHot5) > parseFloat(avgHot) ? "상승세 (평균 상회)" : "하락세/보합";
+            const coldTrend = parseFloat(avgCold5) > parseFloat(avgCold) ? "상승세 (평균 상회)" : "하락세/보합";
+
+            // 3. Gap & Streak (현재 상태 진단)
+            let tempHotGap = 0;
+            for (let i = 0; i < allData.length; i++) {
+                const { hot } = getClassifiedNumbers(period, allData[i].round);
+                if (allData[i].numbers.filter(n => hot.includes(n)).length > 1) break;
+                tempHotGap++;
+            }
+
+            // 4. 최근 10회 흐름 요약
+            const recentFlow = history.slice(0, 10).map(d => `${d.round}회(H:${d.h}/C:${d.c})`).join(', ');
+
+            // 5. 현재 Hot/Cold 번호 목록
+            const { hot, neutral, cold } = getClassifiedNumbers(period, selectedRound);
+
+            return `
+## 1. 핫/콜드 기초 통계 (최근 ${range}회 기준)
+- 평균 출현: Hot(${avgHot}개), Neutral(${avgNeu}개), Cold(${avgCold}개)
+- 최근 5회 추세: Hot ${avgHot5}개 (${hotTrend}), Cold ${avgCold5}개 (${coldTrend})
+
+## 2. 리스크/기회 요인 (Gap & Streak)
+- Hot 저출현 Gap: ${tempHotGap}회차 연속 약세 (평균 회귀 가능성 ${tempHotGap > 2 ? '높음' : '보통'})
+- Cold 과출현 경향: 최근 Cold 번호가 자주 출현하는지 확인 필요
+
+## 3. 구성 현황 (기준: 최근 ${period}회 빈도)
+- Hot(${hot.length}개): ${hot.join(', ')}
+- Cold(${cold.length}개): ${cold.join(', ')}
+
+## 4. 최근 10회 상세 흐름
+- ${recentFlow}
+            `;
+        }
+
+        // ========== AI Chatbot Functions ==========
+
+        // Helper function to calculate hot/neutral/cold counts for a draw
+        function calculateHotColdCounts(draw) {
+            if (!draw || !draw.numbers) return { hot: 0, neutral: 0, cold: 0 };
+
+            const features = featuresMap.get(draw.round);
+            if (!features) return { hot: 0, neutral: 0, cold: 0 };
+
+            let hotCount = 0, neutralCount = 0, coldCount = 0;
+
+            draw.numbers.forEach(num => {
+                const feature = features.find(f => f.number === num);
+                if (!feature) return;
+
+                const count = feature[`appearance_count_${currentPeriod}`] || 0;
+                if (count >= 4) hotCount++;
+                else if (count <= 1) coldCount++;
+                else neutralCount++;
+            });
+
+            return { hot: hotCount, neutral: neutralCount, cold: coldCount };
+        }
+
+        // Helper function to generate analysis context for hot/cold data
+        function generateAnalysisContext(range) {
+            const data = allData.slice(0, range);
+            const hotCounts = [];
+            const neutralCounts = [];
+            const coldCounts = [];
+
+            data.forEach(draw => {
+                const counts = calculateHotColdCounts(draw);
+                hotCounts.push(counts.hot);
+                neutralCounts.push(counts.neutral);
+                coldCounts.push(counts.cold);
+            });
+
+            // Basic statistics
+            const avgHot = (hotCounts.reduce((a, b) => a + b, 0) / hotCounts.length).toFixed(2);
+            const avgNeutral = (neutralCounts.reduce((a, b) => a + b, 0) / neutralCounts.length).toFixed(2);
+            const avgCold = (coldCounts.reduce((a, b) => a + b, 0) / coldCounts.length).toFixed(2);
+
+            // Recent trends
+            const recent5Hot = (hotCounts.slice(0, 5).reduce((a, b) => a + b, 0) / Math.min(5, hotCounts.length)).toFixed(2);
+            const recent5Neutral = (neutralCounts.slice(0, 5).reduce((a, b) => a + b, 0) / Math.min(5, neutralCounts.length)).toFixed(2);
+            const recent5Cold = (coldCounts.slice(0, 5).reduce((a, b) => a + b, 0) / Math.min(5, coldCounts.length)).toFixed(2);
+
+            // Recent 30 rounds detail
+            const recent30 = data.slice(0, 30).map((d, i) => {
+                const counts = calculateHotColdCounts(d);
+                return `${d.round}회: H${counts.hot}/N${counts.neutral}/C${counts.cold}`;
+            }).join(' | ');
+
+            return `
+## 1. 핫/콜드 기초 통계 (최근 ${range}회, ${currentPeriod}회 기준)
+- Hot 평균: ${avgHot}개 (최근5회: ${recent5Hot})
+- Neutral 평균: ${avgNeutral}개 (최근5회: ${recent5Neutral})
+- Cold 평균: ${avgCold}개 (최근5회: ${recent5Cold})
+
+## 2. 최근 30회 흐름
+${recent30}
+`;
+        }
+
+        function applyRecent10Filters() {
+            const btn = document.getElementById('recent10FilterBtn');
+            const btnText = document.getElementById('recent10BtnText');
+            const toggle = document.getElementById('filterToggle'); // Hot/Cold may use filterToggle
+
+            if (!allData || allData.length === 0) return;
+
+            if (isRecentTenFilter) {
+                // 해제: 초기 상태로 복구 (0~6)
+                isRecentTenFilter = false;
+                document.getElementById('hotMin').value = 0;
+                document.getElementById('hotMax').value = 6;
+                document.getElementById('neutralMin').value = 0;
+                document.getElementById('neutralMax').value = 6;
+                document.getElementById('coldMin').value = 0;
+                document.getElementById('coldMax').value = 6;
+
+                if (toggle) toggle.checked = false;
+
+                highlightStartRound = null;
+                updateFilters();
+                saveFilterSettings();
+                updateRecent10FilterUI();
+                // 필터는 조합용이므로 리스트 렌더링 불필요
+                return;
+            }
+
+            const recent10 = allData.slice(0, 10);
+            let minHot = 6, maxHot = 0;
+            let minNeu = 6, maxNeu = 0;
+            let minCold = 6, maxCold = 0;
+
+            recent10.forEach(draw => {
+                const { hot, neutral, cold } = getClassifiedNumbers(currentPeriod, draw.round);
+                let hCount = 0, nCount = 0, cCount = 0;
+                draw.numbers.forEach(num => {
+                    if (hot.includes(num)) hCount++;
+                    else if (neutral.includes(num)) nCount++;
+                    else if (cold.includes(num)) cCount++;
+                });
+
+                if (hCount < minHot) minHot = hCount;
+                if (hCount > maxHot) maxHot = hCount;
+                if (nCount < minNeu) minNeu = nCount;
+                if (nCount > maxNeu) maxNeu = nCount;
+                if (cCount < minCold) minCold = cCount;
+                if (cCount > maxCold) maxCold = cCount;
+            });
+
+            document.getElementById('hotMin').value = minHot;
+            document.getElementById('hotMax').value = maxHot;
+            document.getElementById('neutralMin').value = minNeu;
+            document.getElementById('neutralMax').value = maxNeu;
+            document.getElementById('coldMin').value = minCold;
+            document.getElementById('coldMax').value = maxCold;
+
+            isRecentTenFilter = true;
+            updateFilters();
+            saveFilterSettings();
+            updateRecent10FilterUI();
+
+            if (toggle && !toggle.checked) {
+                toggle.checked = true;
+                toggleFilterApply();
+            }
+
+            highlightTenDraws(recent10[0].round);
+            console.log(`최근 10회차 필터 적용 완료`);
+        }
+
+        function updateRecent10FilterUI() {
+            const btn = document.getElementById('recent10FilterBtn');
+            const btnText = document.getElementById('recent10BtnText');
+            if (!btn || !btnText) return;
+
+            if (isRecentTenFilter) {
+                btn.classList.remove('from-blue-500', 'to-indigo-600');
+                btn.classList.add('from-purple-500', 'to-purple-700');
+                btnText.textContent = '필터 적용 해제';
+            } else {
+                btn.classList.remove('from-purple-500', 'to-purple-700');
+                btn.classList.add('from-blue-500', 'to-indigo-600');
+                btnText.textContent = '최근 10회차 필터 적용';
+            }
+        }
+
+        // 🔹 [New] AI 분석용 컨텍스트 생성 도우미 (통계/패턴 데이터 통합)
+        function generateAnalysisContext(period) {
+            const range = 50; // 분석할 과거 데이터 범위
+            const data = allData.slice(0, range);
+
+            // 1. 기초 통계 (Hot/Neutral/Cold 출현 빈도)
+            let hotSum = 0, neuSum = 0, coldSum = 0;
+            const history = data.map(d => {
+                const { hot, neutral, cold } = getClassifiedNumbers(period, d.round);
+                const hCount = d.numbers.filter(n => hot.includes(n)).length;
+                const nCount = d.numbers.filter(n => neutral.includes(n)).length;
+                const cCount = d.numbers.filter(n => cold.includes(n)).length;
+                hotSum += hCount; neuSum += nCount; coldSum += cCount;
+                return { round: d.round, h: hCount, n: nCount, c: cCount };
+            });
+
+            const avgHot = (hotSum / range).toFixed(1);
+            const avgNeu = (neuSum / range).toFixed(1);
+            const avgCold = (coldSum / range).toFixed(1);
+
+            // 2. 이동평균 (최근 5회 vs 20회) - 추세 파악
+            const recent5 = history.slice(0, 5);
+            const avgHot5 = (recent5.reduce((a, b) => a + b.h, 0) / 5).toFixed(1);
+            const avgCold5 = (recent5.reduce((a, b) => a + b.c, 0) / 5).toFixed(1);
+
+            const hotTrend = parseFloat(avgHot5) > parseFloat(avgHot) ? "상승세 (평균 상회)" : "하락세/보합";
+            const coldTrend = parseFloat(avgCold5) > parseFloat(avgCold) ? "상승세 (평균 상회)" : "하락세/보합";
+
+            // 3. Gap & Streak (현재 상태 진단)
+            let tempHotGap = 0;
+            for (let i = 0; i < allData.length; i++) {
+                const { hot } = getClassifiedNumbers(period, allData[i].round);
+                if (allData[i].numbers.filter(n => hot.includes(n)).length > 1) break;
+                tempHotGap++;
+            }
+
+            // 4. 최근 10회 흐름 요약
+            const recentFlow = history.slice(0, 10).map(d => `${d.round}회(H:${d.h}/C:${d.c})`).join(', ');
+
+            // 5. 현재 Hot/Cold 번호 목록
+            const { hot, neutral, cold } = getClassifiedNumbers(period, selectedRound);
+
+            return `
+## 1. 핫/콜드 기초 통계 (최근 ${range}회 기준)
+- 평균 출현: Hot(${avgHot}개), Neutral(${avgNeu}개), Cold(${avgCold}개)
+- 최근 5회 추세: Hot ${avgHot5}개 (${hotTrend}), Cold ${avgCold5}개 (${coldTrend})
+
+## 2. 리스크/기회 요인 (Gap & Streak)
+- Hot 저출현 Gap: ${tempHotGap}회차 연속 약세 (평균 회귀 가능성 ${tempHotGap > 2 ? '높음' : '보통'})
+- Cold 과출현 경향: 최근 Cold 번호가 자주 출현하는지 확인 필요
+
+## 3. 구성 현황 (기준: 최근 ${period}회 빈도)
+- Hot(${hot.length}개): ${hot.join(', ')}
+- Cold(${cold.length}개): ${cold.join(', ')}
+
+## 4. 최근 10회 상세 흐름
+- ${recentFlow}
+            `;
+        }
+
+        // ========== AI Chatbot Functions ==========
+
+        // Helper function to calculate hot/neutral/cold counts for a draw
+        // [수정] 핫/콜드 개수 계산 함수 (안전장치 적용)
+        function calculateHotColdCounts(draw) {
+            if (!draw || !draw.numbers) return { hot: 0, neutral: 0, cold: 0 };
+
+            // 기존의 불안정한 featuresMap 의존 코드를 버리고, 
+            // 이미 검증된 분류 함수(getClassifiedNumbers)를 사용하여 개수를 셉니다.
+            // 이렇게 하면 DB 데이터가 늦게 와도 실시간으로 계산해서 정확한 값을 냅니다.
+            const { hot, neutral, cold } = getClassifiedNumbers(currentPeriod, draw.round);
+
+            // 해당 회차 당첨 번호 안에 핫/뉴트럴/콜드가 각각 몇 개 있는지 카운팅
+            let hCount = 0, nCount = 0, cCount = 0;
+
+            draw.numbers.forEach(num => {
+                if (hot.includes(num)) hCount++;
+                else if (neutral.includes(num)) nCount++;
+                else if (cold.includes(num)) cCount++;
+            });
+
+            return { hot: hCount, neutral: nCount, cold: cCount };
+        }
+
+        // Helper function to generate analysis context for hot/cold data
+        function generateAnalysisContext(range) {
+            const data = allData.slice(0, range);
+            const hotCounts = [];
+            const neutralCounts = [];
+            const coldCounts = [];
+
+            data.forEach(draw => {
+                const counts = calculateHotColdCounts(draw);
+                hotCounts.push(counts.hot);
+                neutralCounts.push(counts.neutral);
+                coldCounts.push(counts.cold);
+            });
+
+            // Basic statistics
+            const avgHot = (hotCounts.reduce((a, b) => a + b, 0) / hotCounts.length).toFixed(2);
+            const avgNeutral = (neutralCounts.reduce((a, b) => a + b, 0) / neutralCounts.length).toFixed(2);
+            const avgCold = (coldCounts.reduce((a, b) => a + b, 0) / coldCounts.length).toFixed(2);
+
+            // Recent trends
+            const recent5Hot = (hotCounts.slice(0, 5).reduce((a, b) => a + b, 0) / Math.min(5, hotCounts.length)).toFixed(2);
+            const recent5Neutral = (neutralCounts.slice(0, 5).reduce((a, b) => a + b, 0) / Math.min(5, neutralCounts.length)).toFixed(2);
+            const recent5Cold = (coldCounts.slice(0, 5).reduce((a, b) => a + b, 0) / Math.min(5, coldCounts.length)).toFixed(2);
+
+            // Recent 30 rounds detail
+            const recent30 = data.slice(0, 30).map((d, i) => {
+                const counts = calculateHotColdCounts(d);
+                return `${d.round}회: H${counts.hot}/N${counts.neutral}/C${counts.cold}`;
+            }).join(' | ');
+
+            return `
+## 1. 핫/콜드 기초 통계 (최근 ${range}회, ${currentPeriod}회 기준)
+- Hot 평균: ${avgHot}개 (최근5회: ${recent5Hot})
+- Neutral 평균: ${avgNeutral}개 (최근5회: ${recent5Neutral})
+- Cold 평균: ${avgCold}개 (최근5회: ${recent5Cold})
+
+## 2. 최근 30회 흐름
+${recent30}
+`;
+        }
+
+        // Open chatbot modal with optional initial prompt
+        function openQnaModal(initialPrompt = '') {
+            const modal = document.getElementById('aiQnaModal');
+            if (!modal) return;
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                modal.classList.remove('translate-x-full');
+                modal.classList.add('translate-x-0');
+            }, 10);
+
+            if (initialPrompt) {
+                const input = document.getElementById('aiModalInput');
+                if (input) input.value = initialPrompt;
+                submitModalFollowUp();
+            }
+
+            setTimeout(() => {
+                const input = document.getElementById('aiModalInput');
+                if (input) input.focus();
+            }, 300);
+        }
+
+        // Close chatbot modal
+        function closeQnaModal() {
+            const modal = document.getElementById('aiQnaModal');
+            if (!modal) return;
+            modal.classList.remove('translate-x-0');
+            modal.classList.add('translate-x-full');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+            }, 300);
+        }
+
+        // Open chat with a specific prompt (called by quick buttons)
+        function openChatWithPrompt(prompt) {
+            if (!prompt || !prompt.trim()) return;
+            openQnaModal();
+
+            const qnaContent = document.getElementById('aiQnaContent');
+            if (!qnaContent) return;
+
+            // Display user question
+            qnaContent.innerHTML += `<div class="flex justify-end mb-4"><div class="bg-blue-600 text-white px-4 py-2 rounded-2xl shadow-sm text-base max-w-xs break-words">${prompt}</div></div>`;
+
+            const uniqueId = 'ai-res-' + Date.now();
+            qnaContent.innerHTML += `<div class="flex mb-4"><div class="w-7 h-7 rounded-full bg-blue-500 flex items-center justify-center text-white text-[10px] mr-2 flex-shrink-0">AI</div><div id="${uniqueId}" class="bg-white border text-gray-800 px-4 py-2 rounded-2xl shadow-sm text-base min-h-[40px] flex-1"></div></div>`;
+
+            // Generate context data
+            const contextData = generateAnalysisContext(currentRange);
+
+            const analysisConfig = {
+                containerId: uniqueId,
+                topic: '핫/콜드',
+                analysisType: 'hot_cold',
+                subjectRound: allData[0]?.round || 0,
+                targetRound: (allData[0]?.round || 0) + 1,
+                userPrompt: prompt,
+                contextData: contextData,
+                responseStyle: 'chat',
+                customRules: "사용자의 질문에 대해 위 데이터를 근거로 답변하고, 핵심 숫자는 {{good:숫자}}, 주의사항은 {{warn:내용}} 태그를 사용하시오."
+            };
+
+            // Execute AI analysis
+            if (window.AIAnalysis && window.AIAnalysis.executeAnalysis) {
+                window.AIAnalysis.executeAnalysis(analysisConfig);
+            }
+
+            qnaContent.scrollTop = qnaContent.scrollHeight;
+        }
+
+        // Chat history for context
+        let chatHistory = [];
+
+        // Submit follow-up question in chatbot
+        async function submitModalFollowUp() {
+            const input = document.getElementById('aiModalInput');
+            if (!input) return;
+            const val = input.value.trim();
+            if (!val) return;
+
+            const qnaContent = document.getElementById('aiQnaContent');
+            if (qnaContent) {
+                qnaContent.innerHTML += `<div class="flex justify-end mb-4"><div class="bg-blue-600 text-white px-4 py-2 rounded-2xl shadow-sm text-base max-w-xs break-words">${val}</div></div>`;
+                const uniqueId = 'ai-res-' + Date.now();
+                qnaContent.innerHTML += `<div class="flex mb-4"><div class="w-7 h-7 rounded-full bg-blue-500 flex items-center justify-center text-white text-[10px] mr-2 flex-shrink-0">AI</div><div id="${uniqueId}" class="bg-white border text-gray-800 px-4 py-2 rounded-2xl shadow-sm text-base min-h-[40px] flex-1"></div></div>`;
+
+                input.value = '';
+
+                // Context with recent data
+                const recentLimit = 30;
+                const recentData = allData.slice(0, recentLimit);
+                const recentStrings = recentData.map(draw => {
+                    const counts = calculateHotColdCounts(draw);
+                    return `${draw.round}회(H${counts.hot}/N${counts.neutral}/C${counts.cold})`;
+                });
+
+                const contextStr = `최근 ${recentStrings.length}회 핫/콜드 흐름: ${recentStrings.join(', ')}`;
+
+                // Chat memory context
+                const memoryContext = chatHistory.slice(-5).map(msg =>
+                    `${msg.role === 'user' ? 'User' : 'AI'}: ${msg.content}`
+                ).join('\n');
+
+                const fullContext = `${contextStr}\n\n[Previous Conversation History]\n${memoryContext}`;
+
+                // Add to history
+                chatHistory.push({ role: 'user', content: val });
+
+                await window.AIAnalysis.executeAnalysis({
+                    containerId: uniqueId,
+                    analysisType: 'hot_cold',
+                    subjectRound: allData[0]?.round || 0,
+                    targetRound: (allData[0]?.round || 0) + 1,
+                    userPrompt: val,
+                    contextData: fullContext,
+                    responseStyle: 'chat',
+                    customRules: "이전 대화 맥락을 고려하여 답변하고, 데이터에 기반한 사실만 언급하시오."
+                });
+
+                qnaContent.scrollTop = qnaContent.scrollHeight;
+            }
+        }
+    </script>
+
+    <!-- AI Q&A Sidebar (Floating Right) -->
+    <div id="aiQnaModal"
+        class="hidden fixed top-24 right-6 w-[500px] z-[9999] transition-all duration-300 translate-x-full shadow-2xl rounded-2xl border border-gray-200 bg-white"
+        style="height: calc(100vh - 120px);" role="dialog" aria-modal="false">
+
+        <div class="flex flex-col h-full overflow-hidden" id="aiQnaPanel">
+            <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-white flex-shrink-0">
+                <h3 class="font-bold text-gray-800 flex items-center gap-2">
+                    <div class="p-1.5 bg-blue-50 rounded-lg">
+                        <span class="material-symbols-outlined text-blue-600">forum</span>
+                    </div>
+                    AI 챗봇
+                </h3>
+                <button onclick="closeQnaModal()" class="text-gray-400 hover:text-gray-600 transition-colors">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            <div id="aiQnaContent" class="flex-1 overflow-y-auto p-5 space-y-4 custom-scrollbar bg-gray-50/50">
+                <div class="flex mb-4">
+                    <div
+                        class="w-7 h-7 rounded-full bg-blue-500 flex items-center justify-center text-white text-[10px] mr-2 flex-shrink-0">
+                        AI</div>
+                    <div class="bg-white border text-gray-800 px-4 py-2 rounded-2xl shadow-sm text-base">안녕하세요! 핫/콜드 분석에
+                        대해 궁금한 점을 물어보세요.</div>
+                </div>
+            </div>
+            <div class="p-4 bg-white border-t border-gray-100 flex-shrink-0">
+                <div class="relative flex items-center">
+                    <input type="text" id="aiModalInput"
+                        class="w-full pl-4 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder-gray-400"
+                        placeholder="메시지를 입력하세요..." onkeyup="if(event.key === 'Enter') submitModalFollowUp()">
+                    <button onclick="submitModalFollowUp()"
+                        class="absolute right-2 p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"><span
+                            class="material-symbols-outlined">send</span></button>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

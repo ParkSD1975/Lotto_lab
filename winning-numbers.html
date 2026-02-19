@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html class="light" lang="ko">
+
+<head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>Lotto Lab - 당첨번호 관리</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link rel="icon" href="data:,">
+
+    <link rel="stylesheet" href="css/common.css" />
+    <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css"
+        rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
+        rel="stylesheet" />
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+    <script src="js/config.js"></script>
+    <script src="js/theme.js"></script>
+    <script src="js/layout.js"></script>
+
+    <style>
+        /* 로또 볼 스타일 (크기 조정) */
+        .ball {
+            display: inline-flex;
+            width: 28px;
+            height: 28px;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            color: white;
+            font-weight: 700;
+            font-size: 12px;
+            box-shadow: inset 0 -2px 4px rgba(0, 0, 0, 0.15);
+            text-shadow: 0 1px 1px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease;
+            margin: 0 1px;
+        }
+
+        /* 기본 색상 */
+        .ball-yellow {
+            background: #fbbf24;
+        }
+
+        .ball-blue {
+            background: #60a5fa;
+        }
+
+        .ball-red {
+            background: #f87171;
+        }
+
+        .ball-gray {
+            background: #9ca3af;
+        }
+
+        .ball-green {
+            background: #4ade80;
+        }
+
+        /* 분석 모드용 색상 */
+        .ball-odd {
+            background: #ef4444;
+            border: 2px solid #b91c1c;
+        }
+
+        .ball-even {
+            background: #3b82f6;
+            border: 2px solid #1d4ed8;
+        }
+
+        .ball-low {
+            background: #10b981;
+            border: 2px solid #047857;
+        }
+
+        .ball-high {
+            background: #f59e0b;
+            border: 2px solid #b45309;
+        }
+
+        .ball-prime {
+            background: #d97706;
+            border: 2px solid #b45309;
+        }
+
+        .ball-composite {
+            background: #475569;
+            border: 2px solid #1e293b;
+        }
+
+        .ball-active {
+            background: #8b5cf6;
+            border: 2px solid #6d28d9;
+            transform: scale(1.1);
+            box-shadow: 0 0 10px rgba(139, 92, 246, 0.5);
+        }
+
+        .ball-dim {
+            background: #e2e8f0;
+            color: #94a3b8;
+            box-shadow: none;
+            text-shadow: none;
+        }
+
+        /* 테이블 스타일 */
+        .data-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            table-layout: fixed;
+        }
+
+        .data-table thead th {
+            background: #1e293b;
+            color: #f8fafc;
+            font-weight: 600;
+            font-size: 12px;
+            padding: 10px 4px;
+            text-align: center;
+            border-bottom: 1px solid #334155;
+            border-right: 1px solid #334155;
+            white-space: nowrap;
+            position: sticky;
+            top: 0;
+            z-index: 30;
+            user-select: none;
+        }
+
+        /* 헤더 클릭 효과 */
+        .clickable-header {
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .clickable-header:hover {
+            background: #334155;
+            color: #60a5fa;
+        }
+
+        .clickable-header.active-col-header {
+            background: #475569;
+            color: #fbbf24;
+            border-bottom: 3px solid #fbbf24;
+        }
+
+        .data-table thead th.sticky-col {
+            left: 0;
+            z-index: 40;
+            background: #1e293b;
+            border-right: 1px solid #475569;
+        }
+
+        .data-table tbody td {
+            padding: 8px 4px;
+            text-align: center;
+            font-size: 13px;
+            color: #334155;
+            border-bottom: 1px solid #f1f5f9;
+            border-right: 1px solid #f1f5f9;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .data-table tbody td.sticky-col {
+            position: sticky;
+            left: 0;
+            z-index: 20;
+            background: #fff;
+            font-weight: 600;
+            color: #1e293b;
+            border-right: 1px solid #e2e8f0;
+        }
+
+        .data-table tbody tr {
+            cursor: pointer;
+            transition: background 0.1s;
+        }
+
+        .data-table tbody tr:hover td {
+            background: #f8fafc;
+        }
+
+        .data-table tbody tr:hover td.sticky-col {
+            background: #f8fafc;
+        }
+
+        /* 행 선택 스타일 */
+        .data-table tbody tr.selected-row td {
+            background: #c7d2fe !important;
+            color: #1e1b4b;
+        }
+
+        .data-table tbody tr.selected-row td.sticky-col {
+            background: #c7d2fe !important;
+            color: #1e1b4b;
+            border-right-color: #a5b4fc;
+        }
+
+        /* 열 하이라이트 & 값 하이라이트 */
+        .col-active {
+            background-color: #fff7ed !important;
+            font-weight: 800 !important;
+            color: #b45309 !important;
+        }
+
+        /* 값 하이라이트 (다크그레이) */
+        .val-highlight {
+            background-color: #374151 !important;
+            color: #ffffff !important;
+            border-radius: 4px;
+            padding: 2px 6px;
+            font-weight: bold;
+        }
+
+        /* 값 클릭 가능 커서 */
+        .cursor-pointer-val {
+            cursor: pointer;
+        }
+
+        /* 버튼 및 입력창 스타일 */
+        .btn-base {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 40px;
+            padding: 0 16px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 13px;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+
+        .btn-dark {
+            background: #1e293b;
+            color: white;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .btn-dark:hover {
+            background: #334155;
+            transform: translateY(-1px);
+        }
+
+        .btn-white {
+            background: white;
+            border: 1px solid #e2e8f0;
+            color: #475569;
+        }
+
+        .btn-white:hover {
+            background: #f8fafc;
+            border-color: #cbd5e1;
+            color: #1e293b;
+        }
+
+        .btn-green {
+            background: #10b981;
+            color: white;
+        }
+
+        .btn-green:hover {
+            background: #059669;
+        }
+
+        .btn-icon-only {
+            width: 40px;
+            padding: 0;
+            color: #64748b;
+        }
+
+        .btn-icon-only:hover {
+            color: #2563eb;
+            background: #eff6ff;
+        }
+
+        .input-base {
+            height: 40px;
+            width: 100%;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+            padding: 0 12px;
+            font-size: 14px;
+            transition: all 0.2s;
+            background: #f8fafc;
+        }
+
+        .input-base:focus {
+            border-color: #6366f1;
+            background: white;
+            outline: none;
+            box-shadow: 0 0 0 2px #e0e7ff;
+        }
+
+        .search-wrapper {
+            position: relative;
+            width: 100%;
+            max-width: 500px;
+        }
+
+        .search-input {
+            padding-left: 12px;
+            padding-right: 40px;
+            background: #fff;
+            border-color: #cbd5e1;
+        }
+
+        .search-btn {
+            position: absolute;
+            right: 4px;
+            top: 4px;
+            bottom: 4px;
+            width: 32px;
+            border-radius: 6px;
+            background: #f1f5f9;
+            color: #64748b;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .search-btn:hover {
+            background: #3b82f6;
+            color: white;
+        }
+
+        /* 로딩 오버레이 */
+        #loadingOverlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.9);
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+    </style>
+</head>
+
+<body class="bg-white font-sans min-h-screen flex flex-col">
+    <div id="loadingOverlay">
+        <div class="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4"></div>
+        <p class="text-gray-700 font-bold text-lg">데이터 동기화 중...</p>
+    </div>
+
+    <div id="gnb-container" class="flex-shrink-0 z-50 relative"></div>
+    <div id="lnb-container" style="display: none;"></div>
+
+    <main class="flex-1 overflow-hidden flex flex-col h-screen pt-16">
+        <div class="max-w-[1920px] w-full mx-auto px-4 md:px-6 h-full flex flex-col">
+
+            <div class="flex-shrink-0 py-6 space-y-4">
+                <div class="flex items-end justify-between">
+                    <div>
+                        <h1 class="text-2xl font-bold text-slate-900 tracking-tight">당첨번호 관리</h1>
+                        <p class="text-slate-500 mt-1 text-sm">전체 회차 데이터베이스 및 통계 분석 (DB 기반)</p>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <span id="totalCount"
+                            class="text-xs font-bold text-indigo-600 bg-indigo-50 px-3 py-1 rounded-full border border-indigo-100">0회차</span>
+                    </div>
+                </div>
+
+                <div class="flex flex-col xl:flex-row gap-4 items-stretch xl:items-center justify-between bg-white">
+                    <div class="flex-1">
+                        <div class="search-wrapper">
+                            <input type="text" id="numSearchInput" class="input-base search-input"
+                                placeholder="번호 검색 (예: 1 15 45)"
+                                onkeyup="if(window.event.keyCode==13){applyNumSearch()}">
+                            <button onclick="applyNumSearch()" class="search-btn">
+                                <span class="material-symbols-outlined text-lg">search</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="flex flex-wrap items-center gap-2">
+                        <button onclick="resetSearch()" class="btn-base btn-white btn-icon-only" title="초기화">
+                            <span class="material-symbols-outlined text-lg">refresh</span>
+                        </button>
+                        <div class="w-px h-6 bg-slate-200 mx-1"></div>
+                        <button onclick="exportToExcel()" class="btn-base btn-green gap-2">
+                            <span class="material-symbols-outlined text-lg">download</span>
+                            <span class="hidden lg:inline">엑셀</span>
+                        </button>
+
+                        <button onclick="openManualInputModal()" class="btn-base btn-dark gap-2">
+                            <span class="material-symbols-outlined text-lg">edit</span>
+                            수동입력
+                        </button>
+                        <div class="w-px h-6 bg-slate-200 mx-1"></div>
+                        <button onclick="triggerUpdate()" id="btnUpdate" class="btn-base btn-white btn-icon-only"
+                            title="서버 동기화">
+                            <span class="material-symbols-outlined text-lg">cloud_sync</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div
+                class="flex-1 overflow-hidden border border-slate-200 rounded-xl bg-white shadow-sm flex flex-col mb-6">
+                <div class="flex-1 overflow-auto custom-scrollbar relative">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th class="sticky-col w-[70px]">회차</th>
+                                <th class="w-[90px]">당첨일</th>
+                                <th class="w-[220px]">당첨번호</th>
+                                <th class="w-[50px]">보너스</th>
+
+                                <th class="w-[50px] clickable-header" onclick="handleHeaderClick(4)" id="th-col-4">총합
+                                </th>
+                                <th class="w-[50px] clickable-header" onclick="handleHeaderClick(5)" id="th-col-5">끝수합
+                                </th>
+                                <th class="w-[40px] clickable-header" onclick="handleHeaderClick(6)" id="th-col-6">AC
+                                </th>
+                                <th class="w-[50px] clickable-header" onclick="handleHeaderClick(7, 'oe')"
+                                    id="th-col-7">홀:짝</th>
+                                <th class="w-[50px] clickable-header" onclick="handleHeaderClick(8, 'lh')"
+                                    id="th-col-8">저:고</th>
+                                <th class="w-[50px] clickable-header" onclick="handleHeaderClick(9, 'prime')"
+                                    id="th-col-9">소:합</th>
+                                <th class="w-[50px] clickable-header" onclick="handleHeaderClick(10, 'neighbor')"
+                                    id="th-col-10">이웃수</th>
+                                <th class="w-[50px] clickable-header" onclick="handleHeaderClick(11, 'carryover')"
+                                    id="th-col-11">이월수</th>
+
+                                <th class="w-[40px] clickable-header" onclick="handleHeaderClick(12)" id="th-col-12">연번
+                                </th>
+                                <th class="w-[70px] clickable-header" onclick="handleHeaderClick(13)" id="th-col-13">
+                                    핫/콜드</th>
+                                <th class="w-[90px] clickable-header" onclick="handleHeaderClick(14)" id="th-col-14">
+                                    배수(3/4/5/외)</th>
+                                <th class="w-[90px] clickable-header" onclick="handleHeaderClick(15)" id="th-col-15">
+                                    번호대별</th>
+                            </tr>
+                        </thead>
+                        <tbody id="drawTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <div id="manualInputModal"
+        class="hidden fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-sm transition-opacity opacity-0">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden transform scale-95 transition-all">
+            <div class="px-8 py-6 border-b border-slate-100 flex items-center justify-between bg-white">
+                <h3 class="font-bold text-xl text-slate-900">수동 데이터 입력</h3>
+                <button onclick="closeManualInputModal()" class="text-slate-400 hover:text-slate-800 transition">
+                    <span class="material-symbols-outlined text-2xl">close</span>
+                </button>
+            </div>
+            <div class="p-8 space-y-8">
+                <div class="grid grid-cols-2 gap-8">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">회차</label>
+                        <input type="number" id="manualRound" class="input-base font-bold text-lg text-slate-800"
+                            min="1">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">추첨일</label>
+                        <input type="date" id="manualDate" class="input-base bg-white">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-3">당첨번호
+                        (1~45)</label>
+                    <div class="grid grid-cols-6 gap-3">
+                        <input type="number" class="manual-num input-base text-center px-0 font-bold text-lg" min="1"
+                            max="45" oninput="checkInput(this)">
+                        <input type="number" class="manual-num input-base text-center px-0 font-bold text-lg" min="1"
+                            max="45" oninput="checkInput(this)">
+                        <input type="number" class="manual-num input-base text-center px-0 font-bold text-lg" min="1"
+                            max="45" oninput="checkInput(this)">
+                        <input type="number" class="manual-num input-base text-center px-0 font-bold text-lg" min="1"
+                            max="45" oninput="checkInput(this)">
+                        <input type="number" class="manual-num input-base text-center px-0 font-bold text-lg" min="1"
+                            max="45" oninput="checkInput(this)">
+                        <input type="number" class="manual-num input-base text-center px-0 font-bold text-lg" min="1"
+                            max="45" oninput="checkInput(this)">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">보너스</label>
+                    <div class="flex items-center gap-3">
+                        <input type="number" id="manualBonus"
+                            class="input-base w-24 text-center font-bold text-lg text-slate-800 border-indigo-200 bg-indigo-50"
+                            min="1" max="45" oninput="checkInput(this)">
+                    </div>
+                </div>
+                <div class="pt-4 flex gap-3">
+                    <button onclick="closeManualInputModal()"
+                        class="flex-1 btn-base btn-white h-12 text-base">취소</button>
+                    <button onclick="saveManualInput()"
+                        class="flex-1 btn-base btn-dark h-12 text-base shadow-lg shadow-slate-200">저장하기</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 🔥 Supabase 초기화 복원
+        const SUPABASE_URL = 'https://dkcflmyoscudawleglzb.supabase.co';
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRrY2ZsbXlvc2N1ZGF3bGVnbHpiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc1NDQ4OTAsImV4cCI6MjA4MzEyMDg5MH0.haAvbpScvMJv1uqH_tk-0fUlJNCpHnlWBtYzX6YFweo';
+
+        if (!window.supabaseClient && typeof supabase !== 'undefined') {
+            window.supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        }
+
+        // 전역 변수
+        let allDrawData = [];
+        let statsMap = new Map();
+        let selectedRound = null;
+        let viewMode = 'normal';
+        let activeColIndex = null;
+        let selectedHighlight = { col: null, val: null };
+
+        const PRIMES = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43];
+
+        document.addEventListener('DOMContentLoaded', function () {
+            setTimeout(() => {
+                const nav = document.querySelector('#gnb-container nav');
+                if (nav) {
+                    const links = nav.querySelectorAll('a');
+                    links.forEach((link, idx) => {
+                        link.classList.remove('text-gray-900', 'font-bold', 'border-b-2', 'border-gray-900');
+                        link.classList.add('text-gray-500', 'font-medium');
+                        if (idx === 1) {
+                            link.classList.remove('text-gray-500', 'font-medium');
+                            link.classList.add('text-gray-900', 'font-bold', 'border-b-2', 'border-gray-900');
+                        }
+                    });
+                }
+            }, 300);
+            initPage();
+            document.getElementById('manualRound').addEventListener('input', calculateDateFromRound);
+        });
+
+        function checkInput(el) {
+            if (el.value === '') return;
+            let val = parseInt(el.value);
+            if (val < 1) el.value = '';
+            if (val > 45) el.value = 45;
+        }
+
+        async function initPage() {
+            const client = window.supabaseClient;
+            const tbody = document.getElementById('drawTableBody');
+
+            if (!client) {
+                console.error('Supabase client missing');
+                document.getElementById('loadingOverlay').innerHTML = '<p class="text-red-600">DB 연결 실패 (초기화 오류)</p>';
+                return;
+            }
+
+            try {
+                const [drawsResult, featuresResult] = await Promise.all([
+                    client.from('lotto_draws').select('*').order('round', { ascending: true }).range(0, 2000),
+                    client.from('lotto_features').select('*').range(0, 2000)
+                ]);
+
+                if (drawsResult.error) throw drawsResult.error;
+
+                statsMap = new Map();
+                if (featuresResult.data) {
+                    featuresResult.data.forEach(feat => {
+                        statsMap.set(feat.round, feat);
+                    });
+                }
+
+                if (!drawsResult.data || drawsResult.data.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="16" class="py-20 text-center text-slate-400">데이터가 없습니다.</td></tr>`;
+                    document.getElementById('loadingOverlay').style.display = 'none';
+                    return;
+                }
+
+                console.log(`✅ 당첨번호 DB 데이터 로드: ${drawsResult.data.length}개`);
+
+                processData(drawsResult.data);
+
+                document.getElementById('totalCount').textContent = `총 ${allDrawData.length}회차`;
+                renderTable(allDrawData.reverse());
+
+                document.getElementById('loadingOverlay').style.display = 'none';
+
+            } catch (err) {
+                console.error('로드 실패:', err);
+                tbody.innerHTML = `<tr><td colspan="16" class="py-20 text-center text-red-400">데이터 로드 실패: ${err.message}</td></tr>`;
+                document.getElementById('loadingOverlay').style.display = 'none';
+            }
+        }
+
+        function processData(rawData) {
+            allDrawData = rawData.map((draw, idx) => {
+                const prev = idx > 0 ? rawData[idx - 1] : null;
+                const dbStats = statsMap.get(draw.round) || {};
+                const nums = draw.numbers || [];
+                const prevNums = prev ? prev.numbers : null;
+
+                let stat = {
+                    sum: dbStats.sum ?? calc.sum(nums),
+                    endSum: dbStats.end_sum ?? calc.endSum(nums),
+                    ac: dbStats.ac ?? calc.ac(nums),
+                    oe: dbStats.odd_even ?? calc.oddEven(nums),
+                    lh: dbStats.high_low ?? calc.lowHigh(nums),
+                    pc: dbStats.prime_composite ?? calc.primeComposite(nums),
+                    neighbor: dbStats.neighbor_count ?? calc.neighbor(nums, prevNums),
+                    carryover: dbStats.carryover_count ?? calc.carryover(nums, prevNums),
+                    section: (dbStats.section_pattern && /^\d+-\d+-\d+-\d+-\d+$/.test(dbStats.section_pattern)) ? dbStats.section_pattern : calc.section(nums),
+                    consecutive: dbStats.consecutive_count ?? calc.consecutive(nums),
+                    prevNumbers: prevNums
+                };
+
+                // 배수 (3/4/5/배수외)
+                const m3 = nums.filter(n => n % 3 === 0).length;
+                const m4 = nums.filter(n => n % 4 === 0).length;
+                const m5 = nums.filter(n => n % 5 === 0).length;
+                // 배수외: 3, 4, 5의 배수가 모두 아닌 수
+                const mNo = nums.filter(n => n % 3 !== 0 && n % 4 !== 0 && n % 5 !== 0).length;
+                stat.multiples = `${m3}/${m4}/${m5}/${mNo}`;
+
+                // 핫/콜드 (최근 10회차 기준)
+                let hot = 0, neutral = 0, cold = 0;
+                if (idx >= 10) {
+                    const windowDraws = rawData.slice(idx - 10, idx);
+                    const counts = new Array(46).fill(0);
+                    windowDraws.forEach(d => d.numbers.forEach(n => counts[n]++));
+
+                    nums.forEach(n => {
+                        const c = counts[n];
+                        if (c >= 3) hot++;
+                        else if (c === 0) cold++;
+                        else neutral++;
+                    });
+                } else {
+                    neutral = 6;
+                }
+                stat.hotCold = `${hot}-${neutral}-${cold}`;
+
+                return { ...draw, stat };
+            });
+        }
+
+        const calc = {
+            sum: nums => nums.reduce((a, b) => a + b, 0),
+            endSum: nums => nums.reduce((a, b) => a + (b % 10), 0),
+            ac: nums => {
+                const diffs = new Set();
+                for (let i = 0; i < nums.length; i++) for (let j = i + 1; j < nums.length; j++) diffs.add(Math.abs(nums[i] - nums[j]));
+                return diffs.size - 5;
+            },
+            oddEven: nums => { const odd = nums.filter(n => n % 2 !== 0).length; return `${odd}:${6 - odd}`; },
+            lowHigh: nums => { const low = nums.filter(n => n <= 23).length; return `${low}:${6 - low}`; },
+            primeComposite: nums => {
+                const mainNums = nums.slice(0, 6);
+                const primeCount = mainNums.filter(n => PRIMES.includes(n)).length;
+                const compositeCount = mainNums.filter(n => n !== 1 && !PRIMES.includes(n)).length;
+                return `${primeCount}:${compositeCount}`;
+            },
+            section: nums => {
+                const c = [0, 0, 0, 0, 0];
+                nums.forEach(n => { if (n <= 10) c[0]++; else if (n <= 20) c[1]++; else if (n <= 30) c[2]++; else if (n <= 40) c[3]++; else c[4]++; });
+                return c.join('-');
+            },
+            neighbor: (curr, prev) => {
+                if (!prev) return 0;
+                const nb = new Set();
+                prev.forEach(n => { if (n > 1) nb.add(n - 1); if (n < 45) nb.add(n + 1); });
+                return curr.filter(n => nb.has(n) && !prev.includes(n)).length;
+            },
+            carryover: (curr, prev) => prev ? curr.filter(n => prev.includes(n)).length : 0,
+            consecutive: nums => {
+                let cnt = 0;
+                const sorted = [...nums].sort((a, b) => a - b);
+                for (let i = 0; i < sorted.length - 1; i++) {
+                    if (sorted[i + 1] === sorted[i] + 1) cnt++;
+                }
+                return cnt;
+            }
+        };
+
+        function renderTable(list) {
+            const tbody = document.getElementById('drawTableBody');
+            if (list.length === 0) { tbody.innerHTML = `<tr><td colspan="16" class="py-20 text-center text-slate-400">검색 결과가 없습니다.</td></tr>`; return; }
+
+            tbody.innerHTML = list.map(d => {
+                const ballsHtml = d.numbers.map(n =>
+                    `<span class="ball ${getSmartBallClass(n, viewMode, d.stat.prevNumbers)}">${n}</span>`
+                ).join('');
+
+                const bonusClass = (viewMode === 'normal' || viewMode === 'prime')
+                    ? ((n) => {
+                        if (n <= 10) return 'ball-yellow'; if (n <= 20) return 'ball-blue';
+                        if (n <= 30) return 'ball-red'; if (n <= 40) return 'ball-gray'; return 'ball-green';
+                    })(d.bonus)
+                    : getSmartBallClass(d.bonus, viewMode, d.stat.prevNumbers);
+
+                const isSelected = (selectedRound === d.round) ? 'selected-row' : '';
+                const getColClass = (colIdx) => (activeColIndex === colIdx) ? 'col-active' : '';
+
+                const getHighlight = (colName, val) => {
+                    if (selectedHighlight.col === colName && selectedHighlight.val == val) return 'val-highlight';
+                    return '';
+                };
+
+                return `
+                <tr class="group transition-colors ${isSelected}" onclick="selectRow(${d.round})">
+                    <td class="sticky-col group-hover:bg-slate-50 font-bold">${d.round}회</td>
+                    <td class="text-slate-500 text-xs">${d.date || '-'}</td>
+                    <td><div class="flex items-center justify-center">${ballsHtml}</div></td>
+                    <td><span class="ball ${bonusClass} text-xs scale-90">${d.bonus || '-'}</span></td>
+                    
+                    <td class="text-slate-700 font-bold ${getColClass(4)} cursor-pointer-val"><span class="${getHighlight('sum', d.stat.sum)}" onclick="event.stopPropagation(); toggleValHighlight('sum', '${d.stat.sum}')">${d.stat.sum}</span></td>
+                    <td class="text-slate-600 ${getColClass(5)} cursor-pointer-val"><span class="${getHighlight('endSum', d.stat.endSum)}" onclick="event.stopPropagation(); toggleValHighlight('endSum', '${d.stat.endSum}')">${d.stat.endSum}</span></td>
+                    <td class="text-slate-600 font-bold ${getColClass(6)} cursor-pointer-val"><span class="${getHighlight('ac', d.stat.ac)}" onclick="event.stopPropagation(); toggleValHighlight('ac', '${d.stat.ac}')">${d.stat.ac}</span></td>
+                    <td class="${d.stat.oe === '3:3' ? 'text-emerald-600 font-bold' : 'text-slate-500'} ${getColClass(7)} cursor-pointer-val"><span class="${getHighlight('oe', d.stat.oe)}" onclick="event.stopPropagation(); toggleValHighlight('oe', '${d.stat.oe}')">${d.stat.oe}</span></td>
+                    <td class="${d.stat.lh === '3:3' ? 'text-blue-600 font-bold' : 'text-slate-500'} ${getColClass(8)} cursor-pointer-val"><span class="${getHighlight('lh', d.stat.lh)}" onclick="event.stopPropagation(); toggleValHighlight('lh', '${d.stat.lh}')">${d.stat.lh}</span></td>
+                    <td class="${d.stat.pc === '3:3' ? 'text-orange-600 font-bold' : 'text-slate-500'} ${getColClass(9)} cursor-pointer-val"><span class="${getHighlight('pc', d.stat.pc)}" onclick="event.stopPropagation(); toggleValHighlight('pc', '${d.stat.pc}')">${d.stat.pc}</span></td>
+                    <td class="${d.stat.neighbor > 0 ? 'text-orange-500 font-bold' : 'text-slate-400'} ${getColClass(10)} cursor-pointer-val"><span class="${getHighlight('neighbor', d.stat.neighbor)}" onclick="event.stopPropagation(); toggleValHighlight('neighbor', '${d.stat.neighbor}')">${d.stat.neighbor}</span></td>
+                    <td class="${d.stat.carryover > 0 ? 'text-purple-500 font-bold' : 'text-slate-400'} ${getColClass(11)} cursor-pointer-val"><span class="${getHighlight('carryover', d.stat.carryover)}" onclick="event.stopPropagation(); toggleValHighlight('carryover', '${d.stat.carryover}')">${d.stat.carryover}</span></td>
+                    
+                    <td class="${d.stat.consecutive > 0 ? 'text-red-500 font-bold' : 'text-slate-400'} ${getColClass(12)} cursor-pointer-val"><span class="${getHighlight('consecutive', d.stat.consecutive)}" onclick="event.stopPropagation(); toggleValHighlight('consecutive', '${d.stat.consecutive}')">${d.stat.consecutive}</span></td>
+                    <td class="text-slate-700 font-bold text-xs ${getColClass(13)} cursor-pointer-val"><span class="${getHighlight('hotCold', d.stat.hotCold)}" onclick="event.stopPropagation(); toggleValHighlight('hotCold', '${d.stat.hotCold}')">${d.stat.hotCold}</span></td>
+                    <td class="text-slate-600 text-xs ${getColClass(14)} cursor-pointer-val"><span class="${getHighlight('multiples', d.stat.multiples)}" onclick="event.stopPropagation(); toggleValHighlight('multiples', '${d.stat.multiples}')">${d.stat.multiples}</span></td>
+                    <td class="text-slate-600 font-mono tracking-tighter text-xs ${getColClass(15)} cursor-pointer-val"><span class="${getHighlight('section', d.stat.section)}" onclick="event.stopPropagation(); toggleValHighlight('section', '${d.stat.section}')">${d.stat.section}</span></td>
+                </tr>
+            `}).join('');
+        }
+
+        function handleHeaderClick(colIndex, mode) {
+            if (activeColIndex === colIndex) {
+                activeColIndex = null;
+            } else {
+                activeColIndex = colIndex;
+            }
+
+            if (mode) {
+                if (activeColIndex === colIndex) {
+                    viewMode = mode;
+                } else {
+                    viewMode = 'normal';
+                }
+            } else {
+                if (viewMode !== 'normal') viewMode = 'normal';
+            }
+
+            document.querySelectorAll('.clickable-header').forEach(el => el.classList.remove('active-col-header'));
+            if (activeColIndex !== null) {
+                const activeTh = document.getElementById(`th-col-${activeColIndex}`);
+                if (activeTh) activeTh.classList.add('active-col-header');
+            }
+            renderTable(allDrawData.slice().reverse());
+        }
+
+        function toggleValHighlight(col, val) {
+            if (selectedHighlight.col === col && selectedHighlight.val == val) {
+                selectedHighlight = { col: null, val: null };
+            } else {
+                selectedHighlight = { col: col, val: val };
+            }
+            renderTable(allDrawData.slice().reverse());
+        }
+
+        function getSmartBallClass(n, mode, prevNumbers) {
+            if (mode === 'normal') {
+                if (n <= 10) return 'ball-yellow'; if (n <= 20) return 'ball-blue';
+                if (n <= 30) return 'ball-red'; if (n <= 40) return 'ball-gray'; return 'ball-green';
+            }
+            if (mode === 'oe') return (n % 2 !== 0) ? 'ball-odd' : 'ball-even';
+            if (mode === 'lh') return (n <= 23) ? 'ball-low' : 'ball-high';
+            if (mode === 'prime') return PRIMES.includes(n) ? 'ball-prime' : 'ball-composite';
+            if (mode === 'neighbor') {
+                if (!prevNumbers) return 'ball-dim';
+                const isNeighbor = prevNumbers.some(prev => (prev > 1 && n === prev - 1) || (prev < 45 && n === prev + 1));
+                const isSelf = prevNumbers.includes(n);
+                return (isNeighbor && !isSelf) ? 'ball-active' : 'ball-dim';
+            }
+            if (mode === 'carryover') {
+                if (!prevNumbers) return 'ball-dim';
+                return prevNumbers.includes(n) ? 'ball-active' : 'ball-dim';
+            }
+            return 'ball-gray';
+        }
+
+        function selectRow(round) {
+            selectedRound = round;
+            renderTable(allDrawData.slice().reverse());
+        }
+
+        function applyNumSearch() {
+            const inputVal = document.getElementById('numSearchInput').value.trim();
+            if (!inputVal) {
+                renderTable(allDrawData.slice().reverse());
+                document.getElementById('totalCount').textContent = `총 ${allDrawData.length}회차`;
+                return;
+            }
+            const targetNums = inputVal.split(/[\s,]+/).map(n => parseInt(n)).filter(n => !isNaN(n));
+            if (targetNums.length === 0) return;
+
+            const filtered = allDrawData.filter(d => targetNums.every(target => d.numbers.includes(target) || d.bonus === target));
+            renderTable(filtered.slice().reverse());
+            document.getElementById('totalCount').textContent = `검색 결과 ${filtered.length}건`;
+        }
+
+        function resetSearch() {
+            document.getElementById('numSearchInput').value = '';
+            toggleValHighlight(null, null);
+            activeColIndex = null;
+            selectedRound = null;
+            viewMode = 'normal';
+            document.querySelectorAll('.clickable-header').forEach(el => el.classList.remove('active-col-header'));
+            renderTable(allDrawData.slice().reverse());
+            document.getElementById('totalCount').textContent = `총 ${allDrawData.length}회차`;
+        }
+
+        function openManualInputModal() {
+            const maxRound = allDrawData.length > 0 ? allDrawData[allDrawData.length - 1].round : 1000;
+            const nextRound = maxRound + 1;
+            document.getElementById('manualRound').value = nextRound;
+            calculateDateFromRound();
+            document.querySelectorAll('.manual-num').forEach(input => input.value = '');
+            document.getElementById('manualBonus').value = '';
+            const modal = document.getElementById('manualInputModal');
+            const inner = modal.querySelector('div');
+            modal.classList.remove('hidden');
+            setTimeout(() => { modal.classList.remove('opacity-0'); inner.classList.remove('scale-95'); inner.classList.add('scale-100'); }, 10);
+        }
+
+        function closeManualInputModal() {
+            const modal = document.getElementById('manualInputModal');
+            const inner = modal.querySelector('div');
+            modal.classList.add('opacity-0'); inner.classList.remove('scale-100'); inner.classList.add('scale-95');
+            setTimeout(() => modal.classList.add('hidden'), 200);
+        }
+
+        function calculateDateFromRound() {
+            const inputRound = parseInt(document.getElementById('manualRound').value);
+            if (!inputRound) return;
+            const lastDraw = allDrawData[allDrawData.length - 1];
+            if (lastDraw) {
+                const diff = inputRound - lastDraw.round;
+                if (diff > 0) {
+                    const estimatedDate = new Date(lastDraw.date);
+                    estimatedDate.setDate(estimatedDate.getDate() + (diff * 7));
+                    document.getElementById('manualDate').valueAsDate = estimatedDate;
+                }
+            } else {
+                document.getElementById('manualDate').valueAsDate = new Date();
+            }
+        }
+
+        async function saveManualInput() {
+            const client = window.supabaseClient;
+            if (!client) { alert('Supabase 연결 오류'); return; }
+
+            const round = parseInt(document.getElementById('manualRound').value);
+            const date = document.getElementById('manualDate').value;
+            const numInputs = document.querySelectorAll('.manual-num');
+            const bonus = parseInt(document.getElementById('manualBonus').value);
+
+            if (!round || !date || isNaN(bonus)) { alert('모든 정보를 입력해주세요.'); return; }
+            const numbers = [];
+            numInputs.forEach(input => numbers.push(parseInt(input.value)));
+
+            if (numbers.some(n => isNaN(n) || n < 1 || n > 45)) { alert('1~45 사이 숫자를 정확히 입력해주세요.'); return; }
+
+            try {
+                const { error } = await client.from('lotto_draws').upsert([{
+                    round: round,
+                    date: date,
+                    numbers: numbers,
+                    bonus: bonus,
+                    sum: calc.sum(numbers)
+                }], { onConflict: 'round' });
+
+                if (error) throw error;
+                alert(`${round}회차 저장 완료!`);
+                closeManualInputModal();
+                initPage();
+            } catch (err) {
+                alert(`저장 실패: ${err.message}`);
+            }
+        }
+
+        function exportToExcel() {
+            if (allDrawData.length === 0) { alert('데이터가 없습니다.'); return; }
+            const exportData = allDrawData.slice().reverse().map(d => ({
+                '회차': d.round, '날짜': d.date,
+                '번호1': d.numbers[0], '번호2': d.numbers[1], '번호3': d.numbers[2], '번호4': d.numbers[3], '번호5': d.numbers[4], '번호6': d.numbers[5], '보너스': d.bonus,
+                '총합': d.stat.sum, '끝수합': d.stat.endSum, 'AC': d.stat.ac, '홀짝': d.stat.oe, '저고': d.stat.lh, '소합': d.stat.pc, '이웃수': d.stat.neighbor, '이월수': d.stat.carryover,
+                '연번': d.stat.consecutive, '핫콜드': d.stat.hotCold, '배수': d.stat.multiples, '번호대': d.stat.section
+            }));
+            const ws = XLSX.utils.json_to_sheet(exportData);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, '당첨번호_분석');
+            XLSX.writeFile(wb, `로또_당첨번호_분석_${new Date().toISOString().slice(0, 10)}.xlsx`);
+        }
+
+        async function triggerUpdate() {
+            const client = window.supabaseClient;
+            if (!client) { alert('Supabase 연결 오류'); return; }
+            const btn = document.getElementById('btnUpdate');
+            const original = btn.innerHTML;
+            btn.innerHTML = '<span class="material-symbols-outlined text-lg animate-spin">sync</span>';
+            btn.disabled = true;
+            try {
+                const { data, error } = await client.functions.invoke('sync-lotto');
+                if (error) throw new Error(error.message || '통신 오류');
+                if (data && data.success) { alert(`✅ 동기화 완료`); initPage(); }
+                else { alert(`⚠️ 동기화 실패`); }
+            } catch (err) { alert(`⛔ 오류: ${err.message}`); }
+            finally { btn.innerHTML = original; btn.disabled = false; }
+        }
+    </script>
+</body>
+
+</html>

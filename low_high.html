@@ -1,0 +1,1550 @@
+<!DOCTYPE html>
+<html class="light" lang="ko">
+
+<head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>Lotto Lab - 저고 비율 (심층분석)</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    
+    <link rel="icon" href="data:,">
+
+    <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css"
+        rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
+        rel="stylesheet" />
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script
+        src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <script src="js/config.js"></script>
+    <script src="js/theme.js"></script>
+    <script src="js/common_v2.js"></script>
+    <script src="js/filter/FilterService.js"></script>
+    <script src="js/layout.js"></script>
+
+    <!-- NLP Modules -->
+    <script src="js/NLPProcessor.js"></script>
+    <script src="js/NLPInputComponent.js"></script>
+    <script src="js/BasicAnalysisNLP.js"></script>
+
+    <style>
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 4px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #c1c1c1;
+            border-radius: 4px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #a8a8a8;
+        }
+
+        .ai-section {
+            background-color: #FFFFFF;
+            border: 1px solid #E5E7EB;
+            border-radius: 1rem;
+        }
+
+        .ball {
+            display: inline-flex;
+            width: 30px;
+            height: 30px;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            color: white;
+            font-weight: 700;
+            font-size: 13px;
+            box-shadow: inset 0 -2px 4px rgba(0, 0, 0, 0.15);
+            margin: 0;
+        }
+
+        .ball-low {
+            background-color: #3B82F6;
+            border: 1px solid #2563EB;
+        }
+
+        .ball-high {
+            background-color: #EF4444;
+            border: 1px solid #DC2626;
+        }
+
+        .correlation-badge {
+            display: inline-flex;
+            width: 32px;
+            height: 32px;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            background-color: #000000;
+            color: white;
+            font-size: 11px;
+            font-weight: 700;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+            border: none;
+        }
+
+        .filter-btn {
+            width: 45px;
+            height: 45px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 0.85rem;
+            border: 1px solid #E5E7EB;
+            background: white;
+            color: #374151;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+
+        .filter-btn:hover {
+            border-color: #3B82F6;
+            color: #3B82F6;
+        }
+
+        .filter-btn.active {
+            background: #3B82F6;
+            color: white;
+            border-color: #3B82F6;
+            box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.3);
+        }
+
+        .stat-card {
+            border: 1px solid #E5E7EB;
+            border-radius: 12px;
+            padding: 12px;
+            background: white;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-2px);
+            border-color: #3B82F6;
+        }
+
+        .stat-card.active {
+            background: #3B82F6;
+            color: white;
+            border-color: #3B82F6;
+            box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.3);
+        }
+
+        .stat-card.active p,
+        .stat-card.active span,
+        .stat-card.active div:not(.ratio-badge) {
+            color: white !important;
+        }
+
+        .stat-card.active .ratio-badge {
+            background-color: #FFFFFF !important;
+            color: #374151 !important;
+            border-color: #FFFFFF !important;
+        }
+
+        .ratio-badge {
+            padding: 4px 10px;
+            border-radius: 9999px;
+            font-weight: 700;
+            font-size: 0.75rem;
+            display: inline-block;
+        }
+
+        /* 🔹 [수정] 행 하이라이트 스타일 (보라색 계열 통일) */
+        tr.row-highlight td {
+            background-color: #F3E8FF !important;
+            /* Light Purple */
+        }
+
+        tr.row-highlight td:first-child {
+            border-left: 4px solid #7C3AED !important;
+            /* Deep Purple */
+        }
+
+        /* 하이라이트 행 호버 효과 제거 */
+        tr.row-highlight:hover td {
+            background-color: #F3E8FF !important;
+        }
+
+        .row-highlight-selected td {
+            background-color: #E9D5FF !important;
+            /* Slightly Darker Purple */
+        }
+
+        /* 값 클릭 하이라이트 (다크그레이 배경 + 흰색 글씨) */
+        .val-highlight {
+            background-color: #334155 !important;
+            color: #ffffff !important;
+            border-radius: 9999px;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+        }
+
+        /* [New] Slider Styling (Blue Fill) */
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: #E5E7EB;
+            outline: none;
+            cursor: pointer;
+            background-image: linear-gradient(#3B82F6, #3B82F6);
+            background-size: var(--value-percent, 0%) 100%;
+            background-repeat: no-repeat;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #3B82F6;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            transition: transform 0.1s;
+            border: 2px solid white;
+        }
+
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.1);
+            background: #2563EB;
+        }
+    </style>
+</head>
+
+<body class="bg-[#F9FAFB] font-sans antialiased">
+    <div class="flex flex-col h-screen w-full">
+        <div id="gnb-container"></div>
+
+        <div class="flex flex-1 overflow-hidden">
+            <aside id="lnb-container"
+                class="w-56 bg-white border-r border-gray-200 overflow-y-auto custom-scrollbar flex-shrink-0">
+            </aside>
+
+            <main class="flex-1 overflow-y-auto p-8 custom-scrollbar">
+                <div class="max-w-7xl mx-auto space-y-6">
+                    <div>
+                        <h1 class="text-3xl font-bold text-gray-900 mb-1">저고 비율 분석</h1>
+                        <p class="text-sm text-gray-600">당첨번호 6개의 저(1~22)와 고(23~45) 비율 및 보너스볼 상관관계를 분석합니다.</p>
+                    </div>
+
+                    <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
+                        <div class="grid grid-cols-7 gap-3 mb-6">
+                            <div id="statCardsContainer" class="col-span-7 grid grid-cols-7 gap-3"></div>
+                        </div>
+
+                        <div class="bg-gray-50 rounded-xl p-5 mb-6 border border-gray-100">
+                            <h4 class="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
+                                <span class="material-symbols-outlined text-blue-500">analytics</span> 패턴 심층 분석 (연속/미출현)
+                            </h4>
+                            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4"
+                                id="advancedStatsContainer">
+                            </div>
+                        </div>
+
+                        <div class="ai-section p-8 pb-10 mb-6">
+                            <div class="flex items-center justify-between mb-6">
+                                <div class="flex items-center gap-2">
+                                    <h3 class="text-2xl font-extrabold text-gray-900 tracking-tight">AI Insight</h3>
+                                    <span id="aiTargetInfo" class="text-sm text-gray-500 font-medium"></span>
+                                </div>
+                                <button onclick="window.AIAnalysis.openPromptLibraryModal('low_high', event)"
+                                    class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors">
+                                    <span class="material-symbols-outlined text-lg">library_books</span>
+                                    프롬프트 라이브러리
+                                </button>
+                            </div>
+
+                            <div id="aiAnalysisContent" class="min-h-[100px] flex items-center justify-center">
+                                <div class="flex items-center gap-2 text-gray-500">
+                                    <span
+                                        class="material-symbols-outlined text-lg animate-spin">progress_activity</span>
+                                    <span>AI가 저고 비율 패턴을 분석하고 있습니다...</span>
+                                </div>
+                            </div>
+
+                            <div class="mt-6 border-t border-gray-100 pt-6">
+                                <div class="flex flex-col gap-3">
+                                    <div class="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                                        <button
+                                            onclick="document.getElementById('aiUserPrompt').value='다음 회차 추천 저고 비율(예: 3:3) 알려줘'; submitCustomAIAnalysis()"
+                                            class="px-3 py-1.5 text-xs font-medium bg-blue-50 text-blue-600 rounded-full hover:bg-blue-100 transition-colors whitespace-nowrap flex-shrink-0">
+                                            ✨ 추천 비율
+                                        </button>
+                                        <button
+                                            onclick="document.getElementById('aiUserPrompt').value='최근 10회차 저고 비율 추세는?'; submitCustomAIAnalysis()"
+                                            class="px-3 py-1.5 text-xs font-medium bg-purple-50 text-purple-600 rounded-full hover:bg-purple-100 transition-colors whitespace-nowrap flex-shrink-0">
+                                            📊 최근 추세
+                                        </button>
+                                        <button
+                                            onclick="document.getElementById('aiUserPrompt').value='저번호(1~22)가 쏠려 나올 가능성은?'; submitCustomAIAnalysis()"
+                                            class="px-3 py-1.5 text-xs font-medium bg-red-50 text-red-600 rounded-full hover:bg-red-100 transition-colors whitespace-nowrap flex-shrink-0">
+                                            🔥 저번호 쏠림
+                                        </button>
+                                        <button
+                                            onclick="document.getElementById('aiUserPrompt').value='고번호(23~45)가 강세를 보일 확률은?'; submitCustomAIAnalysis()"
+                                            class="px-3 py-1.5 text-xs font-medium bg-indigo-50 text-indigo-600 rounded-full hover:bg-indigo-100 transition-colors whitespace-nowrap flex-shrink-0">
+                                            🌊 고번호 집중
+                                        </button>
+                                        <button
+                                            onclick="document.getElementById('aiUserPrompt').value='3:3 또는 4:2 비율이 나올 확률이 높은가?'; submitCustomAIAnalysis()"
+                                            class="px-3 py-1.5 text-xs font-medium bg-teal-50 text-teal-600 rounded-full hover:bg-teal-100 transition-colors whitespace-nowrap flex-shrink-0">
+                                            ⚖️ 3:3/4:2 안정성
+                                        </button>
+                                        <button
+                                            onclick="document.getElementById('aiUserPrompt').value='최근 20회차 중 가장 많이 나온 비율 패턴은?'; submitCustomAIAnalysis()"
+                                            class="px-3 py-1.5 text-xs font-medium bg-orange-50 text-orange-600 rounded-full hover:bg-orange-100 transition-colors whitespace-nowrap flex-shrink-0">
+                                            📈 최다 출현 패턴
+                                        </button>
+                                        <button
+                                            onclick="document.getElementById('aiUserPrompt').value='이번 회차에 6:0 또는 0:6 같은 극단적 비율이 나올까?'; submitCustomAIAnalysis()"
+                                            class="px-3 py-1.5 text-xs font-medium bg-pink-50 text-pink-600 rounded-full hover:bg-pink-100 transition-colors whitespace-nowrap flex-shrink-0">
+                                            🚫 극단적 비율
+                                        </button>
+                                        <button
+                                            onclick="document.getElementById('aiUserPrompt').value='최근 흐름과 반대되는 역발상 패턴이 나올까?'; submitCustomAIAnalysis()"
+                                            class="px-3 py-1.5 text-xs font-medium bg-fuchsia-50 text-fuchsia-600 rounded-full hover:bg-fuchsia-100 transition-colors whitespace-nowrap flex-shrink-0">
+                                            🔄 패턴 반전
+                                        </button>
+                                        <button
+                                            onclick="document.getElementById('aiUserPrompt').value='저번호 또는 고번호 중 전멸(0개) 가능성이 있는 구간은?'; submitCustomAIAnalysis()"
+                                            class="px-3 py-1.5 text-xs font-medium bg-gray-100 text-gray-600 rounded-full hover:bg-gray-200 transition-colors whitespace-nowrap flex-shrink-0">
+                                            📉 멸 구간
+                                        </button>
+                                        <button
+                                            onclick="document.getElementById('aiUserPrompt').value='과거 유사한 패턴 다음에는 어떤 비율이 주로 나왔어?'; submitCustomAIAnalysis()"
+                                            class="px-3 py-1.5 text-xs font-medium bg-cyan-50 text-cyan-600 rounded-full hover:bg-cyan-100 transition-colors whitespace-nowrap flex-shrink-0">
+                                            🕰️ 과거 동일 흐름
+                                        </button>
+                                    </div>
+                                    <div class="relative">
+                                        <input type="text" id="aiUserPrompt"
+                                            class="w-full pl-4 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder-gray-400"
+                                            placeholder="저고 비율 분석에 대해 궁금한 점을 물어보세요..."
+                                            onkeyup="if(event.key === 'Enter') submitCustomAIAnalysis()">
+                                        <button onclick="submitCustomAIAnalysis()"
+                                            class="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors">
+                                            <span class="material-symbols-outlined text-xl">send</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mb-6">
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="text-xl font-bold text-gray-900">저고 비율 분포 (비율 %)</h3>
+                            </div>
+                            <div class="h-80"><canvas id="lowHighChart"></canvas></div>
+                        </div>
+
+                        <div>
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="text-xl font-bold text-gray-900">분석 회차 범위</h3>
+                                <div class="flex items-center gap-2">
+                                    <button onclick="setRange(50)" id="preset50"
+                                        class="px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors">50회</button>
+                                    <button onclick="setRange(100)" id="preset100"
+                                        class="px-3 py-1.5 text-sm font-medium bg-blue-500 text-white rounded-lg transition-colors">100회</button>
+                                    <button onclick="setRange(500)" id="preset500"
+                                        class="px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors">500회</button>
+                                    <button onclick="setRange(1203)" id="preset1203"
+                                        class="px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors">전체</button>
+                                </div>
+                            </div>
+                            <div class="space-y-3">
+                                <input type="range" id="rangeSlider" min="10" max="1203" value="100"
+                                    oninput="updateRange(this.value)" />
+                                <div class="flex items-center justify-between text-sm">
+                                    <span class="text-gray-600">최근 <span id="rangeDisplay"
+                                            class="font-bold text-blue-600">100</span>회 분석</span>
+                                    <span id="totalRangeDisplay" class="text-gray-500">최대 1,203회</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-xl font-bold text-gray-900">필터</h3>
+                            <a href="#filter-page"
+                                class="flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-800 transition-colors"><span
+                                    class="material-symbols-outlined text-sm">open_in_new</span>필터 페이지 가기</a>
+                        </div>
+                        <div class="flex flex-col gap-6">
+                            <div class="flex items-center justify-center gap-4 flex-wrap" id="ratioFilters"></div>
+                            <div class="h-px bg-gray-100 w-full"></div>
+                            <div class="flex items-center justify-between mt-6">
+                                <label class="flex items-center gap-3 cursor-pointer">
+                                    <span class="text-sm font-medium text-gray-700">필터 적용</span>
+                                    <label class="relative inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" id="applyFilterCheck" onchange="applyFilter()"
+                                            class="sr-only peer" checked>
+                                        <div
+                                            class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-500">
+                                        </div>
+                                    </label>
+                                </label>
+                                <button onclick="applyRecent10Filters()" id="recent10FilterBtn"
+                                    class="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 transition-all text-sm font-black min-w-[240px] justify-center whitespace-nowrap">
+                                    <span class="material-symbols-outlined text-[18px]">auto_fix_high</span>
+                                    <span id="recent10BtnText">최근 10회차 필터 적용</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- [표준화] 리스트 섹션 (Integrated Header) -->
+                    <div class="rounded-xl overflow-hidden mt-6">
+                        <div class="flex items-center justify-between mb-4 px-2">
+                            <div>
+                                <h3 class="text-xl font-bold text-gray-900 mb-1">회차별 당첨번호 및 저고 비율</h3>
+                                <p class="text-sm text-gray-600">최근 <span id="displayedCount"
+                                        class="font-bold text-blue-600">100</span>회차 표시 (클릭 시 10회차 하이라이트)</p>
+                            </div>
+                            <button onclick="openStatsModal()"
+                                class="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm font-medium transition-colors">
+                                <span class="material-symbols-outlined text-lg">bar_chart</span>통계 보기
+                            </button>
+                        </div>
+
+                        <div class="overflow-x-auto custom-scrollbar border border-gray-200 rounded-xl bg-white"
+                            style="max-height: 600px;">
+                            <table class="w-full text-sm">
+                                <thead
+                                    class="sticky top-0 bg-[#1e293b] text-white font-semibold border-b border-[#334155] z-30">
+                                    <tr class="text-sm font-semibold uppercase">
+                                        <th class="py-3 px-4 text-center w-14 shrink-0">회차</th>
+                                        <th class="py-3 px-4 text-center w-[270px]">당첨번호</th>
+                                        <th class="py-3 px-4 text-center w-12">보너스</th>
+                                        <th class="py-3 px-4 text-center">저고비율</th>
+                                        <th class="py-3 px-4 text-center">상관</th>
+                                        <th class="py-3 px-4 text-center">총합</th>
+                                        <th class="py-3 px-4 text-center">끝수합</th>
+                                        <th onclick="updatePredictionHeader(10)"
+                                            class="py-3 px-4 text-center cursor-pointer hover:text-blue-200 transition-colors">
+                                            10회</th>
+                                        <th onclick="updatePredictionHeader(15)"
+                                            class="py-3 px-4 text-center cursor-pointer hover:text-blue-200 transition-colors">
+                                            15회</th>
+                                        <th onclick="updatePredictionHeader(20)"
+                                            class="py-3 px-4 text-center cursor-pointer hover:text-blue-200 transition-colors">
+                                            20회</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="drawsList" class="divide-y divide-gray-100">
+                                    <tr>
+                                        <td colspan="10" class="p-10 text-center text-gray-500">
+                                            <div class="flex items-center justify-center">
+                                                <span
+                                                    class="material-symbols-outlined animate-spin mr-2">progress_activity</span>데이터를
+                                                불러오는 중...
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <div id="statsModal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-2xl max-w-5xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+            <div class="p-6 border-b border-gray-200 flex items-center justify-between">
+                <div>
+                    <h2 class="text-xl font-bold text-gray-900">저고 통계</h2>
+                    <p class="text-sm text-gray-600 mt-1">비율별 상세 분석</p>
+                </div>
+                <button onclick="closeStatsModal()" class="p-2 hover:bg-gray-100 rounded-lg"><span
+                        class="material-symbols-outlined text-gray-500">close</span></button>
+            </div>
+            <div class="flex-1 overflow-y-auto custom-scrollbar">
+                <table class="w-full">
+                    <thead class="sticky top-0 bg-gray-100 border-b border-gray-200">
+                        <tr>
+                            <th class="py-3 px-4 text-center text-sm font-semibold text-gray-600 uppercase w-16">선택</th>
+                            <th class="py-3 px-4 text-left text-sm font-semibold text-gray-600 uppercase">비율 (저:고)</th>
+                            <th class="py-3 px-4 text-center text-sm font-semibold text-gray-600 uppercase">조합수</th>
+                            <th class="py-3 px-4 text-center text-sm font-semibold text-gray-600 uppercase">조합비중</th>
+                            <th class="py-3 px-4 text-center text-sm font-semibold text-gray-600 uppercase">출현 횟수</th>
+                            <th class="py-3 px-4 text-center text-sm font-semibold text-gray-600 uppercase">출현 비중</th>
+                            <th class="py-3 px-4 text-center text-sm font-semibold text-gray-600 uppercase w-1/3">분포
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody id="modalStatsBody" class="divide-y divide-gray-100"></tbody>
+                </table>
+            </div>
+            <div class="p-6 border-t border-gray-200 flex justify-end"><button onclick="closeStatsModal()"
+                    class="px-4 py-2 border rounded hover:bg-gray-50">닫기</button></div>
+        </div>
+    </div>
+
+    <script>
+        var allDrawData = [];
+        var featuresMap = new Map(); // 🔥 DB 캐시 추가
+        var lowHighChart = null;
+        var currentRange = 100;
+        var activeFilters = new Set();
+        var advancedStats = {};
+
+        var highlightTargetRound = null;
+        var highlightStartRound = null; // Added for standardized highlighting
+        var selectedHighlight = { col: null, val: null };
+
+        // 🔹 [Optimized] Debounce mechanism for heavy updates
+        let rangeDebounceTimer = null;
+
+        var THEORETICAL_STATS = {
+            '6:0': { count: 74613, percent: 0.92 },
+            '5:1': { count: 605682, percent: 7.44 },
+            '4:2': { count: 1850695, percent: 22.72 },
+            '3:3': { count: 2727340, percent: 33.48 },
+            '2:4': { count: 2045505, percent: 25.11 },
+            '1:5': { count: 740278, percent: 9.09 },
+            '0:6': { count: 100947, percent: 1.24 }
+        };
+
+        var RATIO_COLORS = {
+            '6:0': { bg: '#FEE2E2', text: '#991B1B', border: '#EF4444' },
+            '5:1': { bg: '#FFEDD5', text: '#9A3412', border: '#F97316' },
+            '4:2': { bg: '#FEF9C3', text: '#854D0E', border: '#EAB308' },
+            '3:3': { bg: '#DCFCE7', text: '#166534', border: '#22C55E' },
+            '2:4': { bg: '#DBEAFE', text: '#1E40AF', border: '#3B82F6' },
+            '1:5': { bg: '#E0E7FF', text: '#3730A3', border: '#6366F1' },
+            '0:6': { bg: '#F3E8FF', text: '#6B21A8', border: '#A855F7' }
+        };
+
+        var RATIOS = ['6:0', '5:1', '4:2', '3:3', '2:4', '1:5', '0:6'];
+
+        // [추가됨] 필터 설정 저장 함수 (DB 저장)
+        async function saveFilterSettings() {
+            const toggle = document.getElementById('applyFilterCheck');
+            const data = {
+                selectedRatios: Array.from(activeFilters)
+            };
+            const enabled = toggle ? toggle.checked : true;
+
+            // DB 저장 (FilterService 사용)
+            if (window.filterService && window.filterService.initialized) {
+                await window.filterService.saveSetting('low_high_ratio', data, enabled);
+            } else if (window.Utils && window.Utils.saveFilter) {
+                // Fallback: localStorage
+                window.Utils.saveFilter('low_high_filter', { ...data, enabled });
+            }
+        }
+
+        // [추가됨] 필터 설정 불러오기 함수 (DB 로드)
+        async function loadFilterSettings() {
+            let saved = null;
+
+            // DB에서 로드 (FilterService 사용)
+            if (window.filterService && window.filterService.initialized) {
+                const data = await window.filterService.loadSetting('low_high_ratio');
+                if (data) {
+                    saved = { ...data.settings, enabled: data.enabled };
+                }
+            }
+
+            // Fallback: localStorage
+            if (!saved && window.Utils && window.Utils.loadFilter) {
+                saved = window.Utils.loadFilter('low_high_filter');
+            }
+
+            if (saved) {
+                activeFilters = new Set(saved.selectedRatios);
+                const toggle = document.getElementById('applyFilterCheck');
+                if (toggle) toggle.checked = saved.enabled;
+
+                updateUIState();
+                return true;
+            }
+            return false;
+        }
+
+        function extractNumbers(item) {
+            if (Array.isArray(item.numbers) && item.numbers.length === 6) {
+                return item.numbers.map(Number);
+            }
+            if (item.drwt_no1 !== undefined) {
+                return [
+                    item.drwt_no1, item.drwt_no2, item.drwt_no3,
+                    item.drwt_no4, item.drwt_no5, item.drwt_no6
+                ].map(Number);
+            }
+            if (item.no1 !== undefined) {
+                return [item.no1, item.no2, item.no3, item.no4, item.no5, item.no6].map(Number);
+            }
+            return [];
+        }
+
+        function calculateLowHigh(numbers) {
+            if (!Array.isArray(numbers) || numbers.length === 0) {
+                return { low: 0, high: 0, ratio: '0:0', sum: 0, endSum: 0 };
+            }
+            let lowCount = 0;
+            numbers.forEach(n => { if (n <= 22) lowCount++; });
+            let highCount = 6 - lowCount;
+            const sum = numbers.reduce((a, b) => a + b, 0);
+            const endSum = numbers.reduce((a, b) => a + (b % 10), 0);
+
+            return {
+                low: lowCount,
+                high: highCount,
+                ratio: `${lowCount}:${highCount}`,
+                sum: sum,
+                endSum: endSum
+            };
+        }
+
+        function checkCorrelation(currentDraw, allData) {
+            const prevDraw = allData.find(d => d.round === currentDraw.round - 1);
+            if (!prevDraw) return false;
+
+            const prevBonus = prevDraw.bonus;
+            const currentLow = currentDraw.low;
+            const currentHigh = currentDraw.high;
+
+            if (prevBonus <= 22 && currentLow >= 4) return true;
+            if (prevBonus >= 23 && currentHigh >= 4) return true;
+
+            return false;
+        }
+
+        function calculateAdvancedStats(data) {
+            const stats = {};
+            RATIOS.forEach(r => stats[r] = { currentStreak: 0, maxStreak: 0, currentGap: 0, totalCount: 0 });
+
+            let gapCheck = {};
+            RATIOS.forEach(r => gapCheck[r] = true);
+
+            for (let i = 0; i < data.length; i++) {
+                const ratio = data[i].ratio;
+                for (const r of RATIOS) {
+                    if (r !== ratio && gapCheck[r]) stats[r].currentGap++;
+                    else if (r === ratio) gapCheck[r] = false;
+                }
+                if (i === 0) {
+                    stats[ratio].currentStreak = 1;
+                    let j = 1;
+                    while (j < data.length && data[j].ratio === ratio) {
+                        stats[ratio].currentStreak++;
+                        j++;
+                    }
+                }
+            }
+            let tempStreak = {};
+            RATIOS.forEach(r => tempStreak[r] = 0);
+            const reversedData = [...data].reverse();
+            reversedData.forEach(d => {
+                const r = d.ratio;
+                stats[r].totalCount++;
+                tempStreak[r]++;
+                RATIOS.forEach(other => { if (other !== r) tempStreak[other] = 0; });
+                if (tempStreak[r] > stats[r].maxStreak) stats[r].maxStreak = tempStreak[r];
+            });
+            return stats;
+        }
+
+        function toggleCellHighlight(col, val) {
+            if (selectedHighlight.col === col && selectedHighlight.val === val) {
+                selectedHighlight = { col: null, val: null };
+            } else {
+                selectedHighlight = { col: col, val: val };
+            }
+            applyFilter();
+        }
+
+        document.addEventListener('DOMContentLoaded', async function () {
+            try {
+                const client = window.supabaseClient;
+                if (!client) throw new Error("Supabase Client가 초기화되지 않았습니다.");
+
+                // FilterService 초기화 (DB 필터 저장용)
+                if (window.initFilterService) {
+                    await window.initFilterService();
+                }
+
+                // 🔥 DB 조회 (lotto_draws만 - low_count/high_count는 features에 없으므로 직접 계산)
+                const drawsResult = await client.from('lotto_draws')
+                    .select('*')
+                    .order('round', { ascending: false })
+                    .range(0, 5000);
+
+                if (drawsResult.error) throw drawsResult.error;
+
+                const data = drawsResult.data;
+
+                if (!data || data.length === 0) {
+                    document.getElementById('drawsList').innerHTML = '<div class="p-10 text-center text-gray-500">데이터가 없습니다.</div>';
+                    return;
+                }
+
+                featuresMap = new Map();
+
+                // 🔥 데이터 매핑 (직접 계산)
+                allDrawData = data.map(item => {
+                    const numbers = extractNumbers(item);
+                    const bonus = Number(item.bonus || item.bnus_no || 0);
+                    const lh = calculateLowHigh(numbers);
+                    return { ...item, numbers, bonus, ...lh };
+                });
+                console.log(`✅ 저고 데이터 로드: ${allDrawData.length}개`);
+
+                const totalCount = allDrawData.length;
+                document.getElementById('rangeSlider').max = totalCount;
+                document.getElementById('totalRangeDisplay').textContent = `최대 ${totalCount.toLocaleString()}회`;
+                document.getElementById('preset1203').setAttribute('onclick', `setRange(${totalCount})`);
+                document.getElementById('preset1203').innerText = "전체";
+
+                initUI();
+
+                // [수정됨] 저장된 설정 불러오기, 없으면 기본값(최근 10회) 사용
+                if (!await loadFilterSettings()) {
+                    const recent10Data = allDrawData.slice(0, 10);
+                    recent10Data.forEach(d => activeFilters.add(d.ratio));
+                    updateUIState();
+                }
+
+                updateRange(currentRange);
+                setTimeout(() => { updateSliderBackground(currentRange); }, 100);
+
+                updatePredictionHeader(10);
+                refreshAIAnalysis();
+
+            } catch (err) { console.error('Data Load Error:', err); }
+        });
+
+        function initUI() {
+            const statContainer = document.getElementById('statCardsContainer');
+            statContainer.innerHTML = '';
+            RATIOS.forEach(ratio => {
+                const color = RATIO_COLORS[ratio];
+                const div = document.createElement('div');
+                div.className = `stat-card group transition-all`;
+                div.id = `card-${ratio.replace(':', '_')}`;
+                div.onclick = () => toggleFilter(ratio);
+                div.innerHTML = `
+                    <div class="ratio-badge mb-2" style="background:${color.bg}; color:${color.text}; border:1px solid ${color.border}">
+                        ${ratio}
+                    </div>
+                    <div class="flex items-end gap-1">
+                        <span class="text-xl font-bold text-gray-900 ratio-val" id="val-${ratio.replace(':', '_')}">-</span>
+                        <span class="text-xs text-gray-500 font-medium mb-1">%</span>
+                    </div>
+                `;
+                statContainer.appendChild(div);
+            });
+
+            const filterContainer = document.getElementById('ratioFilters');
+            filterContainer.innerHTML = '';
+            RATIOS.forEach(ratio => {
+                const btn = document.createElement('button');
+                btn.className = 'filter-btn shadow-sm text-sm';
+                btn.id = `btn-${ratio.replace(':', '_')}`;
+                btn.textContent = ratio;
+                btn.onclick = () => toggleFilter(ratio);
+                filterContainer.appendChild(btn);
+            });
+            updateUIState();
+            initChart();
+        }
+
+        function toggleFilter(ratio) {
+            if (activeFilters.has(ratio)) activeFilters.delete(ratio);
+            else activeFilters.add(ratio);
+            updateUIState();
+            applyFilter();
+        }
+
+        function updateUIState() {
+            RATIOS.forEach(ratio => {
+                const safeId = ratio.replace(':', '_');
+                const card = document.getElementById(`card-${safeId}`);
+                const btn = document.getElementById(`btn-${safeId}`);
+                const isActive = activeFilters.has(ratio);
+                if (isActive) {
+                    card.classList.add('active'); card.classList.remove('hover:bg-gray-50');
+                    btn.classList.add('active');
+                } else {
+                    card.classList.remove('active'); card.classList.add('hover:bg-gray-50');
+                    btn.classList.remove('active');
+                }
+            });
+        }
+
+        function updateRange(value) {
+            currentRange = parseInt(value);
+
+            // 1. Immediate UI updates (Lightweight)
+            document.getElementById('rangeDisplay').textContent = value + '회';
+            updateSliderBackground(value);
+            updatePresetButtons(currentRange);
+
+            // 2. Debounced Heavy updates (Chart, Table, AI)
+            if (rangeDebounceTimer) clearTimeout(rangeDebounceTimer);
+
+            rangeDebounceTimer = setTimeout(() => {
+                updateStatistics();
+                applyFilter();
+                refreshAIAnalysis();
+            }, 300); // 300ms delay to prevent jitter during sliding
+        }
+
+        function updateStatistics() {
+            if (!allDrawData.length) return;
+            const data = allDrawData.slice(0, currentRange);
+            const total = data.length;
+
+            advancedStats = calculateAdvancedStats(allDrawData);
+            const counts = {};
+            RATIOS.forEach(r => counts[r] = 0);
+            data.forEach(d => { if (counts[d.ratio] !== undefined) counts[d.ratio]++; });
+
+            RATIOS.forEach(ratio => {
+                const safeId = ratio.replace(':', '_');
+                const count = counts[ratio] || 0;
+                const percent = total > 0 ? ((count / total) * 100).toFixed(1) : 0;
+                document.getElementById(`val-${safeId}`).textContent = percent;
+            });
+
+            const advContainer = document.getElementById('advancedStatsContainer');
+            advContainer.innerHTML = '';
+            RATIOS.forEach(ratio => {
+                const s = advancedStats[ratio];
+                const color = RATIO_COLORS[ratio];
+                const isUrgent = s.currentGap > 10;
+                const urgentClass = isUrgent ? 'border-2 border-red-400 bg-red-50' : 'border border-gray-200 bg-white';
+
+                advContainer.innerHTML += `
+                    <div class="p-3 rounded-lg ${urgentClass} shadow-sm text-center">
+                        <div class="text-xs font-bold mb-1" style="color:${color.text}">${ratio}</div>
+                        <div class="text-[10px] text-gray-500">현재연속 / 최대</div>
+                        <div class="font-bold text-gray-800">${s.currentStreak}회 / ${s.maxStreak}회</div>
+                        <div class="mt-2 text-[10px] text-gray-500">미출현(Gap)</div>
+                        <div class="font-bold ${isUrgent ? 'text-red-600' : 'text-blue-600'}">${s.currentGap}회 전</div>
+                    </div>
+                `;
+            });
+            updateChart(counts, total);
+        }
+
+        function applyFilter() {
+            saveFilterSettings(); // [추가됨] 변경 시 자동 저장
+            const isFilterOn = document.getElementById('applyFilterCheck')?.checked ?? false;
+
+            let data = allDrawData.slice(0, currentRange);
+
+            // 필터가 켜져있고 activeFilters가 있으면 필터링 적용
+            if (isFilterOn && activeFilters.size > 0) {
+                data = data.filter(d => activeFilters.has(d.ratio));
+            }
+
+            document.getElementById('displayedCount').textContent = data.length;
+            renderDrawsList(data);
+        }
+
+        function renderDrawsList(data) {
+            data.sort((a, b) => b.round - a.round);
+            const container = document.getElementById('drawsList');
+            container.innerHTML = '';
+
+            if (data.length === 0) {
+                container.innerHTML = '<tr><td colspan="10" class="p-10 text-center text-gray-500">데이터가 없습니다.</td></tr>';
+                return;
+            }
+
+            // 회차별 예상 표시 업데이트
+            const predictionSummary = document.getElementById('predictionSummary');
+            if (predictionSummary && allDrawData.length > 0) {
+                // updatePredictionHeader 호출 시 내부에서 predictionSummary 업데이트
+                updatePredictionHeader(10);
+            }
+
+            data.forEach(draw => {
+                const tr = document.createElement('tr');
+                tr.onclick = () => highlightRecent10(draw.round);
+                tr.className = 'hover:bg-gray-50 transition-colors cursor-pointer text-center';
+
+                // 🔹 행 하이라이트 (Refined Purple)
+                const isHighlighted = highlightStartRound !== null &&
+                    draw.round <= highlightStartRound &&
+                    draw.round > highlightStartRound - 10;
+
+                if (isHighlighted) {
+                    tr.classList.add('row-highlight');
+                }
+
+                const numbersHtml = draw.numbers.map(num => {
+                    const colorClass = (num <= 22) ? 'ball-low' : 'ball-high';
+                    return `<span class="ball ${colorClass}">${String(num).padStart(2, '0')}</span>`
+                }).join('');
+
+                const bonusColor = (draw.bonus <= 22) ? 'ball-low' : 'ball-high';
+                const bonusHtml = `<span class="ball ${bonusColor}">${String(draw.bonus).padStart(2, '0')}</span>`;
+                const isCorrelated = checkCorrelation(draw, allDrawData);
+
+                const badgeColor = RATIO_COLORS[draw.ratio];
+                const count10 = countInRecent(draw.round, draw.ratio, 10);
+                const count15 = countInRecent(draw.round, draw.ratio, 15);
+                const count20 = countInRecent(draw.round, draw.ratio, 20);
+
+                const getHighlightClass = (col, val) => {
+                    if (selectedHighlight.col === col && String(selectedHighlight.val) === String(val)) {
+                        return 'val-highlight';
+                    }
+                    return '';
+                };
+
+                tr.innerHTML = `
+                    <td class="py-3 px-4 text-sm font-bold text-gray-600 w-14 shrink-0 sticky left-0 bg-inherit z-10">${draw.round}</td>
+                    
+                    <td class="py-3 px-4">
+                         <div class="flex items-center justify-center gap-1 w-[270px] mx-auto"> ${numbersHtml} </div>
+                    </td>
+                    <td class="py-3 px-4 text-center">
+                        <div class="flex justify-center">${bonusHtml}</div>
+                    </td>
+                    
+                    <td class="py-3 px-4">
+                        <div class="flex justify-center">
+                            <span class="ratio-badge ${getHighlightClass('ratio', draw.ratio)}" 
+                                  style="${!getHighlightClass('ratio', draw.ratio) ? `background:${badgeColor.bg}; color:${badgeColor.text}; border:1px solid ${badgeColor.border}` : ''}"
+                                  onclick="event.stopPropagation(); toggleCellHighlight('ratio', '${draw.ratio}')">
+                                ${draw.ratio}
+                            </span>
+                        </div>
+                    </td>
+
+                    <td class="py-3 px-4 text-center">
+                        ${isCorrelated ? '<span class="correlation-badge">상관</span>' : '<span class="text-gray-300">-</span>'}
+                    </td>
+
+                    <td class="py-3 px-4">
+                        <div class="flex justify-center">
+                            <span onclick="event.stopPropagation(); toggleCellHighlight('sum', ${draw.sum})"
+                                  class="text-sm w-10 h-10 flex items-center justify-center cursor-pointer hover:bg-gray-100 rounded-full transition-colors font-bold ${getHighlightClass('sum', draw.sum)} text-gray-700">
+                                ${draw.sum}
+                            </span>
+                        </div>
+                    </td>
+                    
+                    <td class="py-3 px-4">
+                        <div class="flex justify-center">
+                            <span onclick="event.stopPropagation(); toggleCellHighlight('endSum', ${draw.endSum})"
+                                  class="text-sm w-10 h-10 flex items-center justify-center cursor-pointer hover:bg-gray-100 rounded-full transition-colors font-bold ${getHighlightClass('endSum', draw.endSum)} text-gray-700">
+                                ${draw.endSum}
+                            </span>
+                        </div>
+                    </td>
+
+                    <td class="py-3 px-4">
+                        <div class="flex justify-center">
+                            <span onclick="event.stopPropagation(); toggleCellHighlight('10', ${count10})"
+                                  class="text-sm font-bold cursor-pointer hover:bg-gray-100 rounded-full transition-colors flex items-center justify-center w-10 h-10 ${getHighlightClass('10', count10)} text-gray-800">
+                                ${count10}
+                            </span>
+                        </div>
+                    </td>
+                    
+                    <td class="py-3 px-4">
+                        <div class="flex justify-center">
+                             <span onclick="event.stopPropagation(); toggleCellHighlight('15', ${count15})"
+                                  class="text-sm font-bold cursor-pointer hover:bg-gray-100 rounded-full transition-colors flex items-center justify-center w-10 h-10 ${getHighlightClass('15', count15)} text-gray-800">
+                                ${count15}
+                            </span>
+                        </div>
+                    </td>
+                   
+                    <td class="py-3 px-4">
+                        <div class="flex justify-center">
+                             <span onclick="event.stopPropagation(); toggleCellHighlight('20', ${count20})"
+                                  class="text-sm font-bold cursor-pointer hover:bg-gray-100 rounded-full transition-colors flex items-center justify-center w-10 h-10 ${getHighlightClass('20', count20)} text-gray-800">
+                                ${count20}
+                            </span>
+                        </div>
+                    </td>
+                `;
+                container.appendChild(tr);
+            });
+        }
+
+        function countInRecent(targetRound, targetRatio, range) {
+            const index = allDrawData.findIndex(d => d.round === targetRound);
+            if (index === -1) return '-';
+            const slice = allDrawData.slice(index, index + range);
+            return slice.filter(d => d.ratio === targetRatio).length;
+        }
+
+        function highlightRecent10(round) {
+            highlightStartRound = round;
+            applyFilter();
+
+            setTimeout(() => {
+                const rows = document.getElementById('drawsList').children;
+                for (let row of rows) {
+                    if (row.innerHTML.includes(`${round}`)) {
+                        // row.scrollIntoView({ behavior: 'smooth', block: 'center' }); // 스크롤 방지
+                        break;
+                    }
+                }
+            }, 50);
+        }
+
+        function updatePredictionHeader(range) {
+            if (allDrawData.length === 0) return;
+            const recentData = allDrawData.slice(0, range - 1);
+            const counts = {};
+            RATIOS.forEach(r => counts[r] = 0);
+            recentData.forEach(d => { if (counts[d.ratio] !== undefined) counts[d.ratio]++; });
+            const parts = RATIOS.map(r => {
+                const count = counts[r] || 0;
+                return `${r} ${(count + 1)}개`;
+            });
+            const summaryDiv = document.getElementById('predictionSummary');
+            if (summaryDiv) summaryDiv.innerHTML = `<strong>${range}회차 예상 :</strong> ${parts.join(' / ')}`;
+        }
+
+        function initChart() {
+            const ctx = document.getElementById('lowHighChart').getContext('2d');
+            lowHighChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: RATIOS,
+                    datasets: [{
+                        label: '비율(%)',
+                        data: Array(7).fill(0),
+                        backgroundColor: RATIOS.map(r => RATIO_COLORS[r].border),
+                        borderWidth: 0,
+                        borderRadius: 4,
+                        barPercentage: 0.6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        datalabels: {
+                            anchor: 'end', align: 'top', color: '#374151', font: { weight: 'bold', size: 11 },
+                            formatter: (val) => val > 0 ? val + '%' : ''
+                        }
+                    },
+                    scales: {
+                        y: { display: false },
+                        x: { grid: { display: false } }
+                    },
+                    onClick: (e, elements) => {
+                        if (elements.length > 0) {
+                            const index = elements[0].index;
+                            toggleFilter(RATIOS[index]);
+                        }
+                    }
+                },
+                plugins: [ChartDataLabels]
+            });
+        }
+
+        function updateChart(counts, total) {
+            if (!lowHighChart) return;
+            const values = RATIOS.map(r => total > 0 ? ((counts[r] || 0) / total * 100).toFixed(1) : 0);
+            const bgColors = RATIOS.map(r => {
+                const baseColor = RATIO_COLORS[r].border;
+                if (activeFilters.size === 0 || activeFilters.has(r)) return baseColor;
+                return baseColor + '40';
+            });
+            lowHighChart.data.datasets[0].data = values;
+            lowHighChart.data.datasets[0].backgroundColor = bgColors;
+            lowHighChart.update();
+        }
+
+        function openStatsModal() {
+            const tbody = document.getElementById('modalStatsBody');
+            tbody.innerHTML = '';
+            const data = allDrawData.slice(0, currentRange);
+            const total = data.length;
+            const counts = {};
+            RATIOS.forEach(r => counts[r] = 0);
+            data.forEach(d => { if (counts[d.ratio] !== undefined) counts[d.ratio]++; });
+
+            RATIOS.forEach(ratio => {
+                const count = counts[ratio];
+                const percent = total > 0 ? ((count / total) * 100).toFixed(1) : 0;
+                const isSelected = activeFilters.has(ratio);
+                const theo = THEORETICAL_STATS[ratio];
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-gray-50 transition-colors';
+                tr.innerHTML = `
+                    <td class="py-3 px-4 text-center"><input type="checkbox" class="w-4 h-4 text-blue-600 rounded focus:ring-blue-500" ${isSelected ? 'checked' : ''} onchange="toggleFilter('${ratio}'); openStatsModal();" /></td>
+                    <td class="py-3 px-4 font-bold" style="color:${RATIO_COLORS[ratio].text}">${ratio}</td>
+                    <td class="py-3 px-4 text-center text-gray-600">${theo.count.toLocaleString()}</td>
+                    <td class="py-3 px-4 text-center text-gray-600">${theo.percent}%</td>
+                    <td class="py-3 px-4 text-center font-bold text-gray-900">${count}회</td>
+                    <td class="py-3 px-4 text-center font-bold text-blue-600">${percent}%</td>
+                    <td class="py-3 px-4"><div class="w-full bg-gray-200 rounded-full h-2.5"><div class="h-2.5 rounded-full" style="width: ${percent}%; background-color:${RATIO_COLORS[ratio].border}"></div></div></td>
+                `;
+                tbody.appendChild(tr);
+            });
+            document.getElementById('statsModal').classList.remove('hidden');
+        }
+        function closeStatsModal() { document.getElementById('statsModal').classList.add('hidden'); }
+
+        function updateSliderBackground(value) {
+            const total = allDrawData.length || 1203;
+            const slider = document.getElementById('rangeSlider');
+            const percent = ((value - 10) / (total - 10)) * 100;
+            slider.style.setProperty('--value-percent', percent + '%');
+        }
+        function setRange(value) {
+            const maxVal = allDrawData.length || 1203;
+            const safeValue = value > maxVal ? maxVal : value;
+            document.getElementById('rangeSlider').value = safeValue;
+            updateRange(safeValue);
+        }
+        function updatePresetButtons(value) {
+            const maxVal = allDrawData.length || 1203;
+            const ids = { 50: 'preset50', 100: 'preset100', 500: 'preset500', 1203: 'preset1203' };
+            Object.keys(ids).forEach(key => {
+                const btn = document.getElementById(ids[key]);
+                const target = key == 1203 ? maxVal : parseInt(key);
+                if (target == value) btn.className = 'px-3 py-1.5 text-sm font-medium bg-blue-500 text-white rounded-lg transition-colors';
+                else btn.className = 'px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors';
+            });
+        }
+
+        // [New] AI & Drawer Functions
+        function toggleDrawer(show) {
+            const overlay = document.getElementById('drawerOverlay');
+            const drawer = document.getElementById('promptDrawer');
+            if (show) {
+                renderLibrary();
+                if (overlay) overlay.classList.add('active');
+                if (drawer) drawer.classList.add('active');
+            } else {
+                if (overlay) overlay.classList.remove('active');
+                if (drawer) drawer.classList.remove('active');
+            }
+        }
+
+        function setPrompt(text) {
+            document.getElementById('aiUserPrompt').value = text;
+            toggleDrawer(false);
+            submitCustomAIAnalysis();
+        }
+
+        function renderLibrary() {
+            const container = document.getElementById('drawerBody');
+            if (!container) return;
+            container.innerHTML = '<div class="p-4 text-center">프롬프트 라이브러리가 준비중입니다.</div>';
+        }
+
+        // [AI 분석 및 명령 처리]
+        async function submitCustomAIAnalysis() {
+            const inputEl = document.getElementById('aiUserPrompt');
+            const userPrompt = inputEl.value.trim();
+            if (!userPrompt) return;
+
+            // NLP 처리
+            let nlpResult = window.nlpProcessor ? window.nlpProcessor.process(userPrompt) : null;
+            if (nlpResult && nlpResult.intent !== 'unknown' && nlpResult.confidence > 0.6) {
+                if (nlpResult.intent === 'navigate') {
+                    highlightRecent10(nlpResult.params.targetRound || 0); // low_high uses highlightRecent10
+                    inputEl.value = '';
+                    return; // 명령 실행 후 종료
+                }
+                // 다른 인텐트 처리 추가 가능
+            }
+
+            // 사이드바 열기
+            if (window.openQnaModal) window.openQnaModal();
+            const qnaContent = document.getElementById('aiQnaContent');
+            if (!qnaContent) return;
+
+            // 사용자 질문 추가
+            qnaContent.innerHTML += `<div class="flex justify-end mb-4"><div class="bg-blue-600 text-white px-4 py-2 rounded-2xl shadow-sm text-base">${userPrompt}</div></div>`;
+
+            // AI 응답 컨테이너 추가
+            const uniqueId = 'ai-res-' + Date.now();
+            qnaContent.innerHTML += `<div class="flex mb-4"><div class="w-7 h-7 rounded-full bg-blue-500 flex items-center justify-center text-white text-[10px] mr-2 flex-shrink-0">AI</div><div id="${uniqueId}" class="bg-white border text-gray-800 px-4 py-2 rounded-2xl shadow-sm text-base min-h-[40px] flex-1"></div></div>`;
+
+            // 데이터 준비
+            const data = allDrawData.slice(0, currentRange);
+            const recentDraws = data.slice(0, 5).map(d => `${d.round}회(${d.ratio})`).join(', ');
+            const subjectRound = allDrawData[0]?.round || 0;
+            const targetRound = subjectRound + 1;
+
+            // AI 실행
+            await executeLocalAIAnalysis({
+                containerId: uniqueId,
+                subjectRound: subjectRound,
+                targetRound: targetRound,
+                userPrompt: userPrompt,
+                contextData: `최근 저고 비율 흐름: ${recentDraws}`
+            });
+
+            // 스크롤 이동
+            qnaContent.scrollTop = qnaContent.scrollHeight;
+            inputEl.value = '';
+        }
+
+        // [표준화] 최근 10회차 필터 자동 적용 (missing.html 기준)
+        function applyRecent10Filters() {
+            const btn = document.getElementById('recent10FilterBtn');
+            const btnText = document.getElementById('recent10BtnText');
+            const chk = document.getElementById('applyFilterCheck'); // 메인 체크박스 (ID 확인: applyFilterCheck)
+
+            // 토글: 이미 켜져있으면 끄기 (보라색 클래스 존재 여부로 판단)
+            if (btn.classList.contains('from-purple-500')) {
+                btn.classList.remove('from-purple-500', 'to-purple-700');
+                btn.classList.add('from-blue-500', 'to-indigo-600');
+                btnText.textContent = '최근 10회차 필터 적용';
+
+                // 필터 초기화
+                activeFilters.clear();
+                if (chk) chk.checked = false;
+                highlightStartRound = null;
+
+                updateUIState();
+                applyFilter();
+                return;
+            }
+
+            if (!allDrawData || allDrawData.length < 10) return;
+
+            // 1. 최근 10회차 데이터 수집
+            const recent10 = allDrawData.slice(0, 10);
+            const presentRatios = new Set();
+            recent10.forEach(draw => presentRatios.add(draw.ratio));
+
+            // 2. 필터 값 적용
+            activeFilters = new Set(presentRatios);
+
+            // 3. UI 업데이트 (보라색 토글)
+            btn.classList.remove('from-blue-500', 'to-indigo-600');
+            btn.classList.add('from-purple-500', 'to-purple-700');
+            btnText.textContent = '필터 해제';
+
+            // 메인 필터 체크박스 자동 활성화
+            if (chk) chk.checked = true;
+
+            // 4. 하이라이트 및 리스트 갱신
+            highlightStartRound = allDrawData[0].round;
+            updateUIState();
+            applyFilter();
+
+            console.log('최근 10회차 저고 필터 적용 완료');
+        }
+
+        // [New] Global Chat Memory
+        let chatHistory = [];
+
+        async function submitModalFollowUp() {
+            const input = document.getElementById('aiModalInput');
+            if (!input) return;
+            const val = input.value.trim();
+            if (!val) return;
+
+            const qnaContent = document.getElementById('aiQnaContent');
+            if (qnaContent) {
+                qnaContent.innerHTML += `<div class="flex justify-end mb-4"><div class="bg-blue-600 text-white px-4 py-2 rounded-2xl shadow-sm text-base">${val}</div></div>`;
+                const uniqueId = 'ai-res-' + Date.now();
+                qnaContent.innerHTML += `<div class="flex mb-4"><div class="w-7 h-7 rounded-full bg-blue-500 flex items-center justify-center text-white text-[10px] mr-2 flex-shrink-0">AI</div><div id="${uniqueId}" class="bg-white border text-gray-800 px-4 py-2 rounded-2xl shadow-sm text-base min-h-[40px] flex-1"></div></div>`;
+
+                input.value = '';
+
+                // [Modified] Token Optimization: Hybrid Context for Low/High
+                const recentLimit = 20;
+                const recentData = allDrawData.slice(0, recentLimit);
+                const recentStrings = recentData.map(d => `${d.round}회(${d.ratio})`);
+
+                // Summary of older data (Dominant ratios)
+                const olderData = allDrawData.slice(recentLimit);
+                let olderSummary = '';
+                if (olderData.length > 0) {
+                    // Calculate simple stats for older data
+                    const counts = { '3:3': 0, '4:2': 0, '2:4': 0 };
+                    olderData.forEach(d => { if (counts[d.ratio] !== undefined) counts[d.ratio]++; });
+                    olderSummary = ` | 이전 ${olderData.length}회차 주요 비율빈도: 3:3(${counts['3:3']}), 4:2(${counts['4:2']}), 2:4(${counts['2:4']})`;
+                }
+
+                const contextStr = `최근 ${recentLimit}회 흐름: ${recentStrings.join(', ')}${olderSummary}`;
+
+                // [Modified] Chat Memory Context
+                const memoryContext = chatHistory.slice(-5).map(msg =>
+                    `${msg.role === 'user' ? 'User' : 'AI'}: ${msg.content}`
+                ).join('\n');
+
+                const fullContext = `${contextStr}\n\n[Previous Conversation History]\n${memoryContext}`;
+
+                // Add to history
+                chatHistory.push({ role: 'user', content: val });
+
+                await executeLocalAIAnalysis({
+                    containerId: uniqueId,
+                    subjectRound: allDrawData[0]?.round || 0,
+                    targetRound: (allDrawData[0]?.round || 0) + 1,
+                    userPrompt: val,
+                    contextData: fullContext
+                });
+
+                qnaContent.scrollTop = qnaContent.scrollHeight;
+            }
+        }
+
+        // [New] Standardized Local AI Execution
+        async function executeLocalAIAnalysis(params) {
+            const { containerId, subjectRound, targetRound, userPrompt, contextData } = params;
+            const container = document.getElementById(containerId);
+            if (container) {
+                container.innerHTML = `
+                    <div class="flex items-center gap-3 p-2 text-gray-500">
+                        <div class="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                        <span class="text-xs">AI 저고 분석 중...</span>
+                    </div>`;
+            }
+            try {
+                const prompt = `
+# Role: 로또 저고(Low/High) 비율 분석 전문가
+# Target: ${targetRound}회차 전략
+# Context: ${contextData}
+# User Question: "${userPrompt}"
+
+# Instructions:
+1. 답변은 **핵심만 요약된 단일 단락**으로 작성하시오.
+2. 중요 키워드는 JSON의 highlights 배열에 담아주세요. 본문에는 태그를 쓰지 마세요.
+3. 응답은 **반드시 유효한 JSON 포맷**이어야 합니다.
+4. JSON 구조: 
+{
+  "response": "순수 텍스트 답변 내용",
+  "highlights": [
+    {"text": "키워드", "type": "good" | "warn" | "trend"}
+  ]
+}
+`;
+                let data, error;
+                // AIProxy 우선 → Edge Function fallback
+                if (window.AIProxy) {
+                    try {
+                        data = await window.AIProxy.invoke({
+                            prompt: prompt,
+                            analysisType: 'low_high',
+                            topic: '저고 비율 분석',
+                            targetRound: targetRound,
+                            subjectRound: subjectRound,
+                            responseStyle: 'json'
+                        });
+                    } catch (proxyErr) {
+                        console.warn('AIProxy failed, falling back to Edge Function:', proxyErr);
+                        const result = await window.supabaseClient.functions.invoke('analyze-lotto', { body: { context: prompt } });
+                        data = result.data;
+                        error = result.error;
+                    }
+                } else {
+                    const result = await window.supabaseClient.functions.invoke('analyze-lotto', { body: { context: prompt } });
+                    data = result.data;
+                    error = result.error;
+                }
+                if (error) throw error;
+
+                let content = '';
+                let highlights = [];
+
+                if (typeof data === 'string') {
+                    try {
+                        const parsed = JSON.parse(data);
+                        content = parsed.response || parsed.recommendation || JSON.stringify(parsed);
+                        if (parsed.highlights) highlights = parsed.highlights;
+                    } catch (e) {
+                        content = data;
+                    }
+                } else if (data) {
+                    content = data.response || data.recommendation || JSON.stringify(data);
+                    if (data.highlights) highlights = data.highlights;
+                }
+
+                if (container) {
+                    // 1. Sanitize
+                    let safeContent = content.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+                    // 2. Apply Highlights
+                    if (highlights.length > 0) {
+                        const tagColors = { good: 'text-blue-600', warn: 'text-red-600', trend: 'text-teal-600' };
+                        highlights.forEach(h => {
+                            const color = tagColors[h.type] || 'text-blue-600';
+                            const escapedText = h.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                            const regex = new RegExp(escapedText, 'g');
+                            safeContent = safeContent.replace(regex, `<span class="${color} font-bold">${h.text}</span>`);
+                        });
+                    } else if (window.AIAnalysis && typeof window.AIAnalysis.formatText === 'function') {
+                        safeContent = window.AIAnalysis.formatText(safeContent);
+                    }
+
+                    // 3. Render
+                    container.innerHTML = `<div class="prose prose-base max-w-none text-gray-800 leading-relaxed">${safeContent}</div>`;
+
+                    // Add to history
+                    chatHistory.push({ role: 'assistant', content: content });
+                }
+            } catch (err) {
+                console.error('Local AI Error:', err);
+                if (container) {
+                    container.textContent = `분석 실패: ${err.message}. 잠시 후 다시 시도해주세요.`;
+                    container.className = 'text-red-500 text-xs p-2';
+                }
+            }
+        }
+
+        async function refreshAIAnalysis() {
+            if (!allDrawData || allDrawData.length === 0) return;
+
+            const subjectData = allDrawData[0];
+            const subjectRound = subjectData.round;
+            const targetRound = subjectRound + 1;
+
+            // [심화 데이터 추출]
+            // 저(Low) 다출(4개 이상) Gap
+            let lowGap = 0;
+            // 고(High) 다출(4개 이상) Streak
+            let highStreak = 0;
+
+            for (let i = 0; i < allDrawData.length; i++) {
+                const draw = allDrawData[i];
+                const lowCount = draw.ratio.split(':')[0];
+                if (parseInt(lowCount) >= 4) break;
+                lowGap++;
+            }
+            for (let i = 0; i < allDrawData.length; i++) {
+                const draw = allDrawData[i];
+                const highCount = draw.ratio.split(':')[1];
+                if (parseInt(highCount) < 4) break;
+                highStreak++;
+            }
+
+            const targetText = `Target ${targetRound}회차 (based on ${subjectRound}회)`;
+            const targetEl = document.getElementById('aiTargetInfo');
+            if (targetEl) targetEl.textContent = targetText;
+
+            const recentRatios = allDrawData.slice(0, 10).map(d => d.ratio).join(', ');
+
+            if (window.AIAnalysis) {
+                await window.AIAnalysis.executeAnalysis({
+                    containerId: 'aiAnalysisContent',
+                    analysisType: '저고 비율 정밀 분석',
+                    subjectRound,
+                    targetRound,
+                    customData: `
+# [저고 정밀 데이터]
+- 최근 10회차 비율 흐름: ${recentRatios}
+- 저(Low) 4개 이상 출현 Gap: ${lowGap}회차 경과
+- 고(High) 4개 이상 출현 Streak: ${highStreak}회차 연속
+- 분석 범위: 최근 ${currentRange}회차
+                    `,
+                    customRules: `
+# [분석 특명: 데이터 논리(Why)]
+1. 도덕책 같은 뻔한 소리, "운에 맡기라", "확률은 공평하다" 등은 절대 금지하며 즉각 폐기하시오.
+2. 반드시 "왜(Why)" 그런 예상치가 나왔는지 lowGap(${lowGap})과 highStreak(${highStreak}) 데이터를 기반으로 논리적으로 설명하시오.
+3. [패턴 진단]: 저고 비율이 '평균(3:3)'으로 회귀할 타이밍인지, 아니면 한쪽으로의 '쏠림'이 지속될지 진단하시오.
+4. [구체적 전략]: ${targetRound}회차에서 추천하는 저고 비율 필터(권장 비율 범위)를 단호하게 지시하시오.
+5. 수치는 {{trend:내용}}, 결론은 {{recommendation:내용}} 태그를 사용하시오.
+                    `
+                });
+            }
+        }
+
+        function openQnaModal(initialPrompt = '') {
+            const modal = document.getElementById('aiQnaModal');
+            if (!modal) return;
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                modal.classList.remove('translate-x-full');
+                modal.classList.add('translate-x-0');
+            }, 10);
+
+            if (initialPrompt) {
+                const input = document.getElementById('aiModalInput');
+                if (input) input.value = initialPrompt;
+                submitModalFollowUp();
+            }
+
+            setTimeout(() => {
+                const input = document.getElementById('aiModalInput');
+                if (input) input.focus();
+            }, 300);
+        }
+
+        function closeQnaModal() {
+            const modal = document.getElementById('aiQnaModal');
+            if (!modal) return;
+            modal.classList.remove('translate-x-0');
+            modal.classList.add('translate-x-full');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+            }, 300);
+        }
+    </script>
+    <!-- AI Q&A Sidebar (Floating Right) -->
+    <div id="aiQnaModal"
+        class="hidden fixed top-24 right-6 w-[450px] z-[9999] transition-all duration-300 translate-x-full shadow-2xl rounded-2xl border border-gray-200 bg-white"
+        style="height: calc(100vh - 120px);" role="dialog" aria-modal="false">
+
+        <div class="flex flex-col h-full overflow-hidden" id="aiQnaPanel">
+            <!-- Header -->
+            <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-white flex-shrink-0">
+                <h3 class="font-bold text-gray-800 flex items-center gap-2">
+                    <div class="p-1.5 bg-blue-50 rounded-lg">
+                        <span class="material-symbols-outlined text-blue-600">forum</span>
+                    </div>
+                    AI 챗봇
+                </h3>
+                <button onclick="closeQnaModal()"
+                    class="p-2 hover:bg-gray-100 rounded-full transition-colors flex items-center justify-center text-gray-400 hover:text-gray-600">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+
+            <div id="aiQnaContent" class="flex-1 p-5 overflow-y-auto custom-scrollbar flex flex-col gap-4 bg-[#f8fafc]">
+                <!-- 대화 내용이 기록됩니다. -->
+            </div>
+
+            <!-- Input Area -->
+            <div class="p-4 border-t border-gray-100 bg-white flex-shrink-0">
+                <div class="relative">
+                    <input type="text" id="aiModalInput"
+                        class="w-full pl-4 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder-gray-400"
+                        placeholder="추가 질문..." onkeyup="if(event.key === 'Enter') submitModalFollowUp()">
+                    <button onclick="submitModalFollowUp()"
+                        class="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors">
+                        <span class="material-symbols-outlined text-xl">send</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

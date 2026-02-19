@@ -1,0 +1,1953 @@
+<!DOCTYPE html>
+<html class="light" lang="ko">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lotto Lab - 번호별 출현 통계</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    
+    <link rel="icon" href="data:,">
+    <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css"
+        rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
+        rel="stylesheet" />
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script
+        src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"
+        onerror="this.onerror=null;this.src='https://unpkg.com/@supabase/supabase-js@2'"></script>
+    <script src="js/config.js"></script>
+    <script src="js/theme.js"></script>
+    <script src="js/common_v2.js"></script>
+    <script src="js/aiProxy.js"></script>
+    <script src="js/filter/FilterService.js"></script>
+
+    <!-- NLP Modules -->
+    <script src="js/NLPProcessor.js"></script>
+    <script src="js/NLPInputComponent.js"></script>
+    <script src="js/BasicAnalysisNLP.js"></script>
+
+    <script src="js/layout.js"></script>
+
+    <script>
+        // ✅ Supabase 설정 (오류 해결을 위해 명시적 추가)
+        const SUPABASE_URL = 'https://dkcflmyoscudawleglzb.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRrY2ZsbXlvc2N1ZGF3bGVnbHpiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc1NDQ4OTAsImV4cCI6MjA4MzEyMDg5MH0.haAvbpScvMJv1uqH_tk-0fUlJNCpHnlWBtYzX6YFweo';
+
+        // 전역 변수
+        let allData = [];
+        let currentRange = 100;
+        let sortByMissCount = true;
+        let isRecentHighlight = false; // [추가] 최근 10회차 강조 상태
+        let isMissedGroupHighlight = false; // [추가] 미출현 그룹 강조 상태
+
+        // 필터 상태 관리
+        let fixedNumbers = new Set();
+        let excludedNumbers = new Set();
+        let selectedHeaderNumbers = new Set();
+
+        // [수정] 필터 설정 저장 함수 (DB 저장)
+        async function saveFilterSettings() {
+            const toggle = document.getElementById('filterToggle');
+            const data = {
+                fixedNumbers: Array.from(fixedNumbers),
+                excludedNumbers: Array.from(excludedNumbers),
+                sortByMissCount: sortByMissCount
+            };
+            const enabled = toggle ? toggle.checked : true;
+
+            // DB 저장 (FilterService 사용)
+            if (window.filterService && window.filterService.initialized) {
+                await window.filterService.saveSetting('stats_by_number_patterns', data, enabled);
+            } else if (window.Utils && window.Utils.saveFilter) {
+                // Fallback: localStorage
+                window.Utils.saveFilter('stats_by_number_filter', { ...data, enabled });
+            }
+        }
+
+        // [수정] 필터 설정 불러오기 함수 (DB 로드)
+        async function loadFilterSettings() {
+            let saved = null;
+
+            // DB에서 로드 (FilterService 사용)
+            if (window.filterService && window.filterService.initialized) {
+                const data = await window.filterService.loadSetting('stats_by_number_patterns');
+                if (data) {
+                    saved = { ...data.settings, enabled: data.enabled };
+                }
+            }
+
+            // Fallback: localStorage
+            if (!saved && window.Utils && window.Utils.loadFilter) {
+                saved = window.Utils.loadFilter('stats_by_number_filter');
+            }
+
+            if (saved) {
+                if (saved.fixedNumbers) fixedNumbers = new Set(saved.fixedNumbers);
+                if (saved.excludedNumbers) excludedNumbers = new Set(saved.excludedNumbers);
+
+                const toggle = document.getElementById('filterToggle');
+                if (toggle && saved.enabled !== undefined) {
+                    toggle.checked = saved.enabled;
+                }
+                if (saved.sortByMissCount !== undefined) {
+                    sortByMissCount = saved.sortByMissCount;
+                    updateSortButtonUI();
+                }
+
+                renderFilterBoxes();
+                return true;
+            }
+            return false;
+        }
+
+        function updateSortButtonUI() {
+            const btn = document.getElementById("sortBtn");
+            const btnText = document.getElementById("sortButtonText");
+            const icon = btn.querySelector('.material-symbols-outlined');
+
+            if (sortByMissCount) {
+                btn.className = 'w-full py-2.5 text-xs font-bold rounded-xl bg-gray-900 text-white hover:bg-gray-800 flex items-center justify-center gap-2 transition-all shadow-lg shadow-gray-200';
+                btnText.textContent = '미당첨 짧은 순 정렬 중';
+                if (icon) icon.textContent = 'sort';
+            } else {
+                btn.className = 'w-full py-2.5 text-xs font-bold rounded-xl bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 flex items-center justify-center gap-2 transition-all shadow-sm';
+                btnText.textContent = '번호순 정렬';
+                if (icon) icon.textContent = 'format_list_numbered';
+            }
+        }
+    </script>
+    <style>
+        /* 화면 잘림 방지 */
+        html,
+        body {
+            height: 100%;
+            overflow: hidden;
+        }
+
+        /* 로딩 오버레이 */
+        #loadingOverlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.9);
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Table Styling */
+        .stats-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            font-size: 13px;
+            /* Default font size increased */
+            table-layout: fixed;
+        }
+
+        /* 헤더 스타일 (z-index 계층화) */
+        .stats-table th {
+            background: #111827;
+            color: #ffffff;
+            padding: 0;
+            text-align: center;
+            font-weight: 700;
+            position: sticky;
+            top: 0;
+            z-index: 50;
+            height: 36px;
+            cursor: pointer;
+            border-bottom: 1px solid #374151;
+            user-select: none;
+        }
+
+        .stats-table th.selected {
+            background: #3B82F6 !important;
+            color: white !important;
+        }
+
+        /* 셀 스타일 (세로선 제거) */
+        .stats-table td {
+            padding: 4px 2px;
+            text-align: center;
+            /* 가로 정렬 */
+            border-bottom: 1px solid #f1f5f9;
+            font-size: 10px;
+            height: 32px;
+            vertical-align: middle;
+            /* 세로 정렬 */
+            transition: background 0.05s;
+            cursor: default;
+            /* border-right 제거됨 */
+        }
+
+        .stats-table td:hover {
+            background-color: #E0F2FE !important;
+            z-index: 10;
+            position: relative;
+            border-radius: 4px;
+        }
+
+        /* 첫 번째 컬럼(회차) 고정 */
+        .stats-table .round-col {
+            position: sticky;
+            left: 0;
+            background: #ffffff;
+            color: #64748b;
+            z-index: 40;
+            font-weight: 600;
+            min-width: 80px;
+            width: 80px;
+            border-right: 1px solid #e2e8f0;
+            /* 회차 컬럼만 오른쪽 선 유지 */
+        }
+
+        .stats-table th.round-col {
+            z-index: 60;
+            /* 최상위 */
+            background: #111827;
+            color: white;
+            cursor: default;
+            border-bottom: 1px solid #374151;
+        }
+
+        /* 대각선 헤더 */
+        .diagonal-header {
+            background: linear-gradient(to top right, transparent calc(50% - 1px), #4b5563 calc(50%), transparent calc(50% + 1px));
+            position: relative;
+            background-color: #111827;
+        }
+
+        .diagonal-text-top {
+            position: absolute;
+            top: 4px;
+            right: 8px;
+            font-size: 12px;
+            font-weight: 700;
+            color: #e5e7eb;
+        }
+
+        .diagonal-text-bottom {
+            position: absolute;
+            bottom: 4px;
+            left: 8px;
+            font-size: 12px;
+            font-weight: 700;
+            color: #e5e7eb;
+        }
+
+        /* Marker & Cells */
+        .marker {
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+            font-size: 11px;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+        }
+
+        .marker-hit {
+            background-color: #9CA3AF;
+            /* 1회: 회색 */
+            color: white;
+            border: 1px solid #6B7280;
+        }
+
+        .marker-carry {
+            background-color: #3B82F6;
+            /* 2연속: 파란색 */
+            color: white;
+            border: 1px solid #2563EB;
+        }
+
+        .marker-streak {
+            background-color: #EF4444;
+            /* 3연속: 빨간색 */
+            color: white;
+            border: 1px solid #DC2626;
+        }
+
+        .marker-streak-4 {
+            background-color: #8B5CF6;
+            /* 4연속+: 보라색 */
+            color: white;
+            border: 1px solid #7C3AED;
+        }
+
+        .bg-miss-0 {
+            background-color: #ffffff;
+        }
+
+        .bg-miss-blue {
+            background-color: #f0f9ff;
+        }
+
+        .bg-miss-green {
+            background-color: #f0fdf4;
+        }
+
+        .bg-miss-yellow {
+            background-color: #fffbeb;
+        }
+
+        .bg-miss-red {
+            background-color: #fef2f2;
+        }
+
+        .cell-miss {
+            color: #94a3b8;
+            font-weight: 500;
+        }
+
+        .miss-high {
+            color: #f43f5e;
+            font-weight: 700;
+        }
+
+        /* [New] Slider Styling (Blue Fill) - square_number.html 스타일과 동일하게 적용 */
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: #E5E7EB;
+            outline: none;
+            cursor: pointer;
+            background-image: linear-gradient(#3B82F6, #3B82F6);
+            background-size: var(--value-percent, 0%) 100%;
+            background-repeat: no-repeat;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #3B82F6;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            transition: transform 0.1s;
+            border: 2px solid white;
+        }
+
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.1);
+            background: #2563EB;
+        }
+
+        /* Chart */
+        .chart-container {
+            display: grid;
+            grid-template-columns: repeat(45, 1fr);
+            gap: 4px;
+            align-items: end;
+            padding: 0 4px;
+        }
+
+        .chart-bar-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-end;
+            height: 100%;
+        }
+
+        .bar-fill {
+            width: 100%;
+            border-radius: 4px 4px 0 0;
+            transition: all 0.3s;
+            position: relative;
+        }
+
+        .chart-bar-wrapper:hover .bar-fill {
+            filter: brightness(1.1);
+            transform: scaleY(1.05);
+        }
+
+        /* Filter Box Styles */
+        .filter-ball {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            font-size: 12px;
+            font-weight: 700;
+            margin: 2px;
+            color: white;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+
+        .filter-ball:hover {
+            transform: scale(1.1);
+        }
+
+        .ball-fixed {
+            background-color: #3B82F6;
+        }
+
+        .ball-excluded {
+            background-color: #EF4444;
+        }
+
+        .ai-section {
+            background-color: #FFFFFF;
+            border: 1px solid #E5E7EB;
+            border-radius: 1rem;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+    </style>
+</head>
+
+<body class="bg-[#F9FAFB] font-sans antialiased">
+    <div id="loadingOverlay">
+        <div class="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4"></div>
+        <p class="text-gray-700 font-bold text-lg">데이터 분석 중...</p>
+        <p class="text-gray-500 text-sm mt-2">당첨 통계 매트릭스를 생성하고 있습니다.</p>
+    </div>
+
+    <div class="flex flex-col h-screen w-full">
+
+        <div id="gnb-container"></div>
+
+        <div class="flex flex-1 overflow-hidden">
+            <aside class="w-56 bg-white border-r border-gray-200 overflow-y-auto custom-scrollbar flex-shrink-0"
+                id="lnb-container">
+            </aside>
+
+            <main class="flex-1 overflow-hidden flex flex-col h-full">
+                <div class="flex-1 overflow-y-auto custom-scrollbar p-8">
+                    <div class="flex flex-col space-y-5 max-w-[1600px] mx-auto pb-20">
+                        <div class="flex items-end justify-between">
+                            <div>
+                                <h1 class="text-2xl font-bold text-gray-900 mb-1">번호별 출현 통계</h1>
+                                <p class="text-sm text-gray-500">각 회차별 당첨/낙첨 현황을 시각적으로 분석합니다.</p>
+                            </div>
+                        </div>
+
+                        <div class="ai-section p-8 pb-10 mb-8 shadow-sm border border-gray-200">
+                            <div class="flex items-center justify-between mb-6">
+                                <div class="flex items-baseline gap-2">
+                                    <h3 class="text-2xl font-extrabold text-gray-900 tracking-tight">AI Insight</h3>
+                                    <span id="aiTargetInfo" class="text-sm text-gray-500 font-medium"></span>
+                                </div>
+                                <button onclick="window.AIAnalysis.openPromptLibraryModal('stats_by_number', event)"
+                                    class="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-blue-200 text-blue-600 rounded-lg text-sm font-medium hover:bg-blue-50 transition-colors">
+                                    <span class="material-symbols-outlined text-lg">library_books</span>
+                                    프롬프트 라이브러리
+                                </button>
+                            </div>
+
+                            <div id="aiAnalysisContent"
+                                class="min-h-[100px] bg-white rounded-xl border-none overflow-hidden flex items-center justify-center">
+                                <div class="flex items-center gap-2 text-gray-500">
+                                    <span
+                                        class="material-symbols-outlined text-lg animate-spin">progress_activity</span>
+                                    <span>AI가 번호별 통계 데이터를 분석하고 있습니다...</span>
+                                </div>
+                            </div>
+
+                            <div id="nlp-input-container" class="mt-6 border-t border-gray-100 pt-6">
+                                <div class="flex flex-col gap-3">
+                                    <div class="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                                        <button
+                                            onclick="document.getElementById('aiUserPrompt').value='역대 가장 많이 나온 번호(Best 5)는?'; submitCustomAIAnalysis()"
+                                            class="px-3 py-1.5 text-xs font-medium bg-white border border-blue-200 text-blue-600 rounded-full hover:bg-blue-50 transition-colors whitespace-nowrap">
+                                            👑 최다 출현
+                                        </button>
+                                        <button
+                                            onclick="document.getElementById('aiUserPrompt').value='역대 가장 적게 나온 번호(Worst 5)는?'; submitCustomAIAnalysis()"
+                                            class="px-3 py-1.5 text-xs font-medium bg-white border border-purple-200 text-purple-600 rounded-full hover:bg-purple-50 transition-colors whitespace-nowrap">
+                                            📉 최소 출현
+                                        </button>
+                                        <button
+                                            onclick="document.getElementById('aiUserPrompt').value='가장 오랫동안 안 나온 장기 미출현 번호는?'; submitCustomAIAnalysis()"
+                                            class="px-3 py-1.5 text-xs font-medium bg-white border border-red-200 text-red-600 rounded-full hover:bg-red-50 transition-colors whitespace-nowrap">
+                                            🧊 장기 미출현
+                                        </button>
+                                        <button
+                                            onclick="document.getElementById('aiUserPrompt').value='다음 회차에 나올 가능성이 높은 번호 3개 추천해줘'; submitCustomAIAnalysis()"
+                                            class="px-3 py-1.5 text-xs font-medium bg-white border border-green-200 text-green-600 rounded-full hover:bg-green-50 transition-colors whitespace-nowrap">
+                                            ✨ 번호 추천
+                                        </button>
+                                        <button
+                                            onclick="document.getElementById('aiUserPrompt').value='최근 10회차 동안 가장 뜨거운(Hot) 번호는?'; submitCustomAIAnalysis()"
+                                            class="px-3 py-1.5 text-xs font-medium bg-white border border-orange-200 text-orange-600 rounded-full hover:bg-orange-50 transition-colors whitespace-nowrap">
+                                            🔥 최근 Hot
+                                        </button>
+                                        <button
+                                            onclick="document.getElementById('aiUserPrompt').value='특정 번호대(예: 10번대)의 출현 빈도는 어떤가?'; submitCustomAIAnalysis()"
+                                            class="px-3 py-1.5 text-xs font-medium bg-white border border-indigo-200 text-indigo-600 rounded-full hover:bg-indigo-50 transition-colors whitespace-nowrap">
+                                            📊 번호대별 빈도
+                                        </button>
+                                        <button
+                                            onclick="document.getElementById('aiUserPrompt').value='한번 나오면 연속으로 자주 나오는(이월) 번호는?'; submitCustomAIAnalysis()"
+                                            class="px-3 py-1.5 text-xs font-medium bg-white border border-teal-200 text-teal-600 rounded-full hover:bg-teal-50 transition-colors whitespace-nowrap">
+                                            🔄 연속(이월) 분석
+                                        </button>
+                                        <button
+                                            onclick="document.getElementById('aiUserPrompt').value='전체 회차 대비 최근 10회차에 급상승한 번호는?'; submitCustomAIAnalysis()"
+                                            class="px-3 py-1.5 text-xs font-medium bg-white border border-amber-200 text-amber-600 rounded-full hover:bg-amber-50 transition-colors whitespace-nowrap">
+                                            📅 추세 분석
+                                        </button>
+                                        <button
+                                            onclick="document.getElementById('aiUserPrompt').value='보너스볼로 가장 많이 나온 번호는?'; submitCustomAIAnalysis()"
+                                            class="px-3 py-1.5 text-xs font-medium bg-white border border-pink-200 text-pink-600 rounded-full hover:bg-pink-50 transition-colors whitespace-nowrap">
+                                            🎱 보너스볼 통계
+                                        </button>
+                                        <button
+                                            onclick="document.getElementById('aiUserPrompt').value='다음 회차에 쉴 가능성이 높은(제외 예상) 번호는?'; submitCustomAIAnalysis()"
+                                            class="px-3 py-1.5 text-xs font-medium bg-white border border-cyan-200 text-cyan-600 rounded-full hover:bg-cyan-50 transition-colors whitespace-nowrap">
+                                            📉 제외 예상
+                                        </button>
+                                        <!-- 🔹 [New] 추가 퀵버튼 5종 -->
+                                        <button
+                                            onclick="document.getElementById('aiUserPrompt').value='소수(Prime) 번호의 최근 출현 경향은?'; submitCustomAIAnalysis()"
+                                            class="px-3 py-1.5 text-xs font-medium bg-white border border-yellow-200 text-yellow-600 rounded-full hover:bg-yellow-50 transition-colors whitespace-nowrap">
+                                            💎 소수(Prime) 분석
+                                        </button>
+                                        <button
+                                            onclick="document.getElementById('aiUserPrompt').value='3의 배수 번호들의 당첨 확률은 어떤가?'; submitCustomAIAnalysis()"
+                                            class="px-3 py-1.5 text-xs font-medium bg-white border border-emerald-200 text-emerald-600 rounded-full hover:bg-emerald-50 transition-colors whitespace-nowrap">
+                                            🔢 3의 배수 분석
+                                        </button>
+                                        <button
+                                            onclick="document.getElementById('aiUserPrompt').value='최근 당첨번호 합계의 흐름을 분석해줘'; submitCustomAIAnalysis()"
+                                            class="px-3 py-1.5 text-xs font-medium bg-white border border-rose-200 text-rose-600 rounded-full hover:bg-rose-50 transition-colors whitespace-nowrap">
+                                            📊 합계 추이 분석
+                                        </button>
+                                        <button
+                                            onclick="document.getElementById('aiUserPrompt').value='저번호(1-22)와 고번호(23-45)의 균형은?'; submitCustomAIAnalysis()"
+                                            class="px-3 py-1.5 text-xs font-medium bg-white border border-lime-200 text-lime-600 rounded-full hover:bg-lime-50 transition-colors whitespace-nowrap">
+                                            ⚖️ 고저비 분석
+                                        </button>
+                                        <button
+                                            onclick="document.getElementById('aiUserPrompt').value='최근 반복되는 패턴이나 숫자 조합이 있나?'; submitCustomAIAnalysis()"
+                                            class="px-3 py-1.5 text-xs font-medium bg-white border border-violet-200 text-violet-600 rounded-full hover:bg-violet-50 transition-colors whitespace-nowrap">
+                                            🧬 패턴 중복 분석
+                                        </button>
+                                    </div>
+                                    <div id="nlp-input-wrapper" class="relative">
+                                        <!-- NLP 컴포넌트가 여기에 주입됩니다 -->
+                                        <div id="nlp-main-input"></div>
+
+                                        <!-- [Backup] 기존 AI 입력창 (NLP 로드 실패 시 노출용 또는 구조 유지용) -->
+                                        <div id="original-ai-input" class="hidden">
+                                            <input type="text" id="aiUserPrompt"
+                                                class="w-full pl-4 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder-gray-400"
+                                                placeholder="번호 통계에 대해 궁금한 점을 물어보세요..."
+                                                onkeyup="if(event.key === 'Enter') submitCustomAIAnalysis()">
+                                            <button onclick="submitCustomAIAnalysis()"
+                                                class="absolute right-4 top-1/2 -translate-y-1/2 text-blue-500 hover:text-blue-600 active:scale-90 transition-all">
+                                                <svg viewBox="0 0 24 24" class="w-5 h-5" fill="none"
+                                                    xmlns="http://www.w3.org/2000/svg">
+                                                    <path d="M2.01 21L23 12L2.01 3L2 10L17 12L2 14L2.01 21Z"
+                                                        stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                                        stroke-linejoin="round" />
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-2xl p-6 shadow-sm border border-gray-200">
+                            <div class="flex items-center justify-between mb-6">
+                                <div class="flex items-center gap-2">
+                                    <span class="material-symbols-outlined text-gray-400">bar_chart</span>
+                                    <h3 class="text-sm font-bold text-gray-700">번호별 당첨율 분포</h3>
+                                </div>
+                                <div class="flex items-center gap-3">
+                                    <div class="flex items-center gap-1.5">
+                                        <div class="w-3 h-3 rounded-full bg-red-500 shadow-sm"></div>
+                                        <span class="text-xs text-gray-500 font-medium">평균 초과</span>
+                                    </div>
+                                    <div class="flex items-center gap-1.5">
+                                        <div class="w-3 h-3 rounded-full bg-blue-500 shadow-sm"></div>
+                                        <span class="text-xs text-gray-500 font-medium">평균 이하</span>
+                                    </div>
+                                    <span
+                                        class="text-xs font-bold px-2 py-1 bg-gray-100 text-gray-800 rounded text-center ml-2"
+                                        id="chartRangeLegend">100회 통계</span>
+                                </div>
+                            </div>
+                            <div id="chart" class="chart-container w-full" style="height: 180px;"></div>
+                        </div>
+
+                        <div class="bg-white rounded-2xl p-5 shadow-sm border border-gray-200">
+                            <div class="flex items-center justify-between mb-4">
+                                <div class="flex items-center gap-2">
+                                    <h3 class="text-sm font-bold text-gray-700">조합 필터</h3>
+                                    <span class="text-xs text-gray-400 font-medium ml-2">※ 표 상단의 숫자(1~45)를 클릭하여 선택 후
+                                        추가하세요</span>
+                                </div>
+                                <div class="flex items-center gap-4">
+                                    <div class="flex items-center gap-2">
+                                        <label class="relative inline-flex items-center cursor-pointer">
+                                            <input type="checkbox" id="filterToggle" class="sr-only peer" checked
+                                                onchange="saveFilterSettings()">
+                                            <div
+                                                class="w-9 h-5 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600">
+                                            </div>
+                                        </label>
+                                        <span class="text-sm font-bold text-blue-600 cursor-pointer"
+                                            onclick="document.getElementById('filterToggle').click()">필터 적용</span>
+                                    </div>
+
+                                    <a href="#" onclick="alert('필터 페이지로 이동')"
+                                        class="text-xs text-gray-500 hover:text-gray-800 flex items-center gap-1 transition-colors">
+                                        <span class="material-symbols-outlined text-sm">open_in_new</span>
+                                        필터 페이지 가기
+                                    </a>
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div
+                                    class="bg-blue-50 rounded-xl p-3 border border-blue-100 relative group flex flex-col min-h-[80px]">
+                                    <div class="flex justify-between items-center mb-2">
+                                        <h4 class="text-xs font-bold text-blue-700 flex items-center gap-1">
+                                            <span class="material-symbols-outlined text-sm">lock</span> 고정수 (Fixed)
+                                        </h4>
+                                        <button onclick="addSelectedToFilter('fixed')"
+                                            class="px-2 py-1.5 text-[11px] font-bold bg-blue-600 text-white rounded-md hover:bg-blue-700 h-fit transition-colors shadow-sm">
+                                            + 선택 추가
+                                        </button>
+                                    </div>
+                                    <div id="fixedNumContainer"
+                                        class="flex-1 flex flex-wrap gap-1 bg-white p-2 rounded-lg border border-blue-200 items-center">
+                                        <span class="text-xs text-gray-400 px-1">선택된 번호 없음</span>
+                                    </div>
+                                </div>
+                                <div
+                                    class="bg-red-50 rounded-xl p-3 border border-red-100 relative group flex flex-col min-h-[80px]">
+                                    <div class="flex justify-between items-center mb-2">
+                                        <h4 class="text-xs font-bold text-red-700 flex items-center gap-1">
+                                            <span class="material-symbols-outlined text-sm">block</span> 제외수 (Excluded)
+                                        </h4>
+                                        <button type="button" onclick="addSelectedToFilter('excluded')"
+                                            class="bg-red-500 hover:bg-red-600 text-white text-[11px] font-bold px-3 py-1 rounded shadow-sm transition-transform active:scale-95">
+                                            + 선택 추가
+                                        </button>
+                                    </div>
+                                    <div id="excludedNumContainer"
+                                        class="flex-1 flex flex-wrap gap-1 bg-white p-2 rounded-lg border border-red-200 items-center">
+                                        <span class="text-xs text-gray-400 px-1">선택된 번호 없음</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                            <div
+                                class="bg-white rounded-2xl p-5 shadow-sm border border-gray-200 flex flex-col justify-center">
+                                <div class="flex items-center justify-between mb-4">
+                                    <h3 class="text-sm font-bold text-gray-700">분석 회차 범위</h3>
+                                    <span
+                                        class="text-sm font-bold text-white bg-black px-3 py-1 rounded-full shadow-md shadow-gray-200"
+                                        id="rangeLabel">최근 100회차</span>
+                                </div>
+                                <div class="relative px-1 mb-4">
+                                    <input type="range" id="rangeSlider" min="10" max="1203" value="100" step="1"
+                                        class="w-full" oninput="updateRange(this.value)">
+                                </div>
+                                <div class="flex gap-1.5 flex-wrap justify-center">
+                                    <button onclick="setRange(10)"
+                                        class="px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors"
+                                        id="btn10">10회</button>
+                                    <button onclick="setRange(30)"
+                                        class="px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors"
+                                        id="btn30">30회</button>
+                                    <button onclick="setRange(50)"
+                                        class="px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors"
+                                        id="btn50">50회</button>
+                                    <button onclick="setRange(100)"
+                                        class="px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors"
+                                        id="btn100">100회</button>
+                                    <button onclick="setRange(1203)"
+                                        class="px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors"
+                                        id="btn1203">전체</button>
+                                </div>
+                            </div>
+
+                            <div
+                                class="bg-white rounded-2xl p-5 shadow-sm border border-gray-200 flex flex-col justify-between">
+                                <div class="flex items-center justify-between mb-3">
+                                    <h3 class="text-sm font-bold text-gray-700">범례 및 정렬</h3>
+                                </div>
+                                <div class="flex flex-wrap items-center gap-4 mb-4">
+                                    <div class="flex items-center gap-2">
+                                        <span class="marker marker-hit">1</span>
+                                        <span class="text-xs text-gray-600 font-medium">당첨</span>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <span class="marker marker-carry">2</span>
+                                        <span class="text-xs text-gray-600 font-medium">2연속</span>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <span class="marker marker-streak">3</span>
+                                        <span class="text-xs text-gray-600 font-medium">3연속+</span>
+                                    </div>
+                                </div>
+                                <button id="sortBtn" onclick="toggleSort()"
+                                    class="w-full py-2.5 text-xs font-bold rounded-xl bg-gray-900 text-white hover:bg-gray-800 flex items-center justify-center gap-2 transition-all shadow-lg shadow-gray-200">
+                                    <span class="material-symbols-outlined text-sm">swap_vert</span>
+                                    <span id="sortButtonText">미당첨 짧은 순 정렬 중</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="w-full bg-white rounded-2xl border border-gray-200 shadow-sm">
+                            <div
+                                class="p-3 border-b border-gray-100 flex justify-between items-center bg-white rounded-t-2xl">
+                                <div class="flex items-center gap-2">
+                                    <button onclick="applyRecent10Filters()" id="recent10FilterBtn"
+                                        class="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-gray-100 text-gray-700 border border-gray-200 rounded-lg shadow-sm hover:bg-gray-200 transition-all active:scale-95 text-[11px] font-bold min-w-[140px]">
+                                        <span class="material-symbols-outlined text-[16px]">auto_fix_high</span>
+                                        <span id="recent10BtnText">최근 10회차 강조</span>
+                                    </button>
+                                    <button onclick="toggleMissedGroupHighlight()" id="missedGroupBtn"
+                                        class="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-gray-100 text-gray-700 border border-gray-200 rounded-lg shadow-sm hover:bg-gray-200 transition-all active:scale-95 text-[11px] font-bold min-w-[130px]">
+                                        <span class="material-symbols-outlined text-[16px]">history_toggle_off</span>
+                                        <span id="missedGroupBtnText">미출현 그룹 보기</span>
+                                    </button>
+                                    <button onclick="openAdvancedAnalysis()"
+                                        class="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-gray-100 text-gray-700 border border-gray-200 rounded-lg shadow-sm hover:bg-gray-200 transition-all active:scale-95 text-[11px] font-bold min-w-[110px]">
+                                        <span class="material-symbols-outlined text-[16px]">analytics</span>
+                                        고급 분석
+                                    </button>
+                                </div>
+                                <button onclick="openTableModal()"
+                                    class="flex items-center gap-1 text-xs text-gray-500 hover:text-blue-600 font-bold transition-colors">
+                                    <span class="material-symbols-outlined text-base">zoom_in</span> 크게 보기
+                                </button>
+                            </div>
+                            <div class="w-full overflow-x-auto custom-scrollbar">
+                                <table class="stats-table w-full" id="statsTable">
+                                    <thead>
+                                        <tr class="sticky top-0 z-50 bg-white shadow-sm">
+                                            <th class="round-col diagonal-header sticky left-0 z-50 bg-white">
+                                                <span class="diagonal-text-top">번호</span>
+                                                <span class="diagonal-text-bottom">회차</span>
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="tableBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- 고급 분석 모달 -->
+    <div id="advancedAnalysisModal"
+        class="hidden fixed inset-0 bg-black bg-opacity-50 z-[80] flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+            <div class="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                <h3 class="font-bold text-lg text-gray-800 flex items-center gap-2">
+                    <span class="material-symbols-outlined text-blue-600">analytics</span> 고급 분석 도구
+                </h3>
+                <button onclick="document.getElementById('advancedAnalysisModal').classList.add('hidden')"
+                    class="p-2 hover:bg-gray-200 rounded-full transition-colors">
+                    <span class="material-symbols-outlined text-gray-500">close</span>
+                </button>
+            </div>
+            <div class="flex border-b border-gray-200">
+                <button onclick="switchAdvancedTab('color')" id="tab-color"
+                    class="flex-1 py-3 text-sm font-bold text-blue-600 border-b-2 border-blue-600 bg-blue-50">
+                    🎨 색상 분포
+                </button>
+                <button onclick="switchAdvancedTab('heatmap')" id="tab-heatmap"
+                    class="flex-1 py-3 text-sm font-bold text-gray-500 hover:text-gray-700">
+                    🔥 구간 히트맵
+                </button>
+                <button onclick="switchAdvancedTab('compatibility')" id="tab-compatibility"
+                    class="flex-1 py-3 text-sm font-bold text-gray-500 hover:text-gray-700">
+                    🤝 궁합수 분석
+                </button>
+            </div>
+            <div class="p-6 overflow-y-auto custom-scrollbar flex-1 bg-gray-50">
+                <!-- 색상 통계 -->
+                <div id="content-color" class="space-y-4">
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                        <h4 class="font-bold text-gray-700 mb-4 flex items-center gap-2">
+                            <span class="w-2 h-6 bg-blue-500 rounded-full"></span> 당첨 번호 색상 분포
+                        </h4>
+                        <div class="h-64 flex justify-center">
+                            <canvas id="colorChart"></canvas>
+                        </div>
+                        <div class="mt-4 grid grid-cols-5 gap-2 text-center text-xs text-gray-600 font-medium">
+                            <div>🟡 1-10</div>
+                            <div>🔵 11-20</div>
+                            <div>🔴 21-30</div>
+                            <div>⚪ 31-40</div>
+                            <div>🟢 41-45</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 구간 히트맵 -->
+                <div id="content-heatmap" class="hidden space-y-4">
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                        <div class="flex justify-between items-center mb-4">
+                            <h4 class="font-bold text-gray-700 flex items-center gap-2">
+                                <span class="w-2 h-6 bg-red-500 rounded-full"></span> 10주 단위 출현 빈도 히트맵
+                            </h4>
+                            <div class="flex gap-2 text-xs">
+                                <span class="px-2 py-1 bg-red-100 text-red-700 rounded">0회</span>
+                                <span class="px-2 py-1 bg-red-300 text-white rounded">1-2회</span>
+                                <span class="px-2 py-1 bg-red-500 text-white rounded">3회 이상</span>
+                            </div>
+                        </div>
+                        <div id="heatmapGrid" class="overflow-x-auto"></div>
+                    </div>
+                </div>
+
+                <!-- 궁합수 분석 -->
+                <div id="content-compatibility" class="hidden space-y-4">
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                        <h4 class="font-bold text-gray-700 mb-4 flex items-center gap-2">
+                            <span class="w-2 h-6 bg-purple-500 rounded-full"></span> 번호별 최고의 단짝 (Top 3)
+                        </h4>
+                        <div class="flex gap-2 mb-6 overflow-x-auto pb-2" id="compatibilityNumSelector"></div>
+                        <div id="compatibilityResult"
+                            class="text-center p-8 bg-gray-50 rounded-xl border border-dashed border-gray-300">
+                            <span class="text-gray-400">위에서 번호를 선택하면 결과가 표시됩니다.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="bg-white rounded-xl shadow-2xl w-[95%] h-[95%] flex flex-col overflow-hidden">
+        <div class="p-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
+            <div class="flex items-center gap-4">
+                <h2 class="text-lg font-bold text-gray-900 flex items-center gap-2">
+                    <span class="material-symbols-outlined text-blue-600">table_view</span> 상세 통계표
+                </h2>
+            </div>
+            <button onclick="closeTableModal()" class="p-2 hover:bg-gray-200 rounded-full transition-colors">
+                <span class="material-symbols-outlined text-gray-600">close</span>
+            </button>
+        </div>
+        <div class="flex-1 overflow-auto custom-scrollbar p-0 bg-white" id="modalTableContainer">
+        </div>
+    </div>
+    </div>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", async function () {
+            try {
+                // ✅ Supabase 클라이언트 초기화 (명시적)
+                // ✅ Supabase 클라이언트 초기화 (명시적 + 재시도 로직)
+                let client = window.supabaseClient;
+
+                // Supabase 로드 대기 함수
+                const waitForSupabase = async (timeout = 3000) => {
+                    const start = Date.now();
+                    while (Date.now() - start < timeout) {
+                        if (typeof supabase !== 'undefined') return true;
+                        await new Promise(r => setTimeout(r, 100));
+                    }
+                    return false;
+                };
+
+                if (!client) {
+                    // SDK가 아직 로드되지 않았으면 대기
+                    if (typeof supabase === 'undefined') {
+                        console.warn('Supabase SDK not ready, waiting...');
+                        await waitForSupabase();
+                    }
+
+                    if (typeof supabase !== 'undefined') {
+                        client = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                        window.supabaseClient = client;
+                    } else {
+                        throw new Error('Supabase SDK 로드 실패 (Backup CDN도 실패)');
+                    }
+                }
+
+                // FilterService 초기화 (DB 필터 저장용)
+                if (window.initFilterService) {
+                    await window.initFilterService();
+                }
+
+                // 🔥 데이터 로딩 최적화: Promise.all로 병렬 조회
+                const [drawsResult] = await Promise.all([
+                    client.from('lotto_draws').select('*').order('round', { ascending: false }).range(0, 5000)
+                ]);
+
+                if (drawsResult.error) throw drawsResult.error;
+
+                allData = drawsResult.data;
+
+                if (!allData || allData.length === 0) {
+                    document.getElementById('tableBody').innerHTML = '<tr><td colspan="46" class="p-10 text-center">데이터가 없습니다.</td></tr>';
+                    document.getElementById('loadingOverlay').style.display = 'none';
+                    return;
+                }
+
+                console.log(`✅ 번호별통계 DB 데이터 로드: ${allData.length}개`);
+
+                const totalCount = allData.length;
+                const rangeSlider = document.getElementById('rangeSlider');
+                rangeSlider.max = totalCount;
+                document.getElementById('btn1203').setAttribute('onclick', `setRange(${totalCount})`);
+
+                // 초기화
+                // 초기화
+                await loadFilterSettings();
+                updateRange(currentRange);
+
+                // [New] NLP 모듈 초기화 (UI 파괴 방지를 위해 전용 컨테이너 사용)
+                if (window.BasicAnalysisNLP) {
+                    new BasicAnalysisNLP('#nlp-main-input', {
+                        onHighlight: (params) => {
+                            if (params.target === 'recent10') {
+                                applyRecent10Filters();
+                            } else if (params.numbers && params.numbers.length > 0) {
+                                // 번호 하이라이트: 헤더 선택 기능과 연동
+                                params.numbers.forEach(num => toggleNumberSelection(num));
+                            }
+                        },
+                        onNavigate: (round) => {
+                            const row = document.getElementById(`row-${round}`);
+                            if (row) {
+                                row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                row.classList.add('bg-yellow-100');
+                                setTimeout(() => row.classList.remove('bg-yellow-100'), 2000);
+                            }
+                        },
+                        onAnalysisCreate: (params, intent) => {
+                            // 단순 명령(하이라이트 등)이 아닌 경우 사이드바 분석 실행
+                            const query = document.getElementById('nlpInput')?.value;
+                            if (query) {
+                                window.submitCustomAIAnalysis(query);
+                            }
+                        }
+                    });
+                } else {
+                    document.getElementById('original-ai-input').classList.remove('hidden');
+                }
+
+                document.getElementById('loadingOverlay').style.display = 'none';
+
+            } catch (err) {
+                console.error('데이터 로드 실패:', err);
+                document.getElementById('loadingOverlay').innerHTML = `<div class="p-10 text-center text-red-500 font-bold">데이터 로드 실패<br>${err.message}</div>`;
+            }
+        });
+
+        // 🔹 UI Helper Functions
+        function renderFilterBoxes() {
+            const fixedContainer = document.getElementById('fixedNumContainer');
+            const excludedContainer = document.getElementById('excludedNumContainer');
+
+            // 고정수 렌더링
+            if (fixedContainer) {
+                if (fixedNumbers.size > 0) {
+                    const sortedNums = Array.from(fixedNumbers).sort((a, b) => a - b);
+                    fixedContainer.innerHTML = sortedNums
+                        .map(n => `<span class="filter-ball ball-fixed" onclick="removeFilter('fixed', ${n})" title="삭제">${n}</span>`)
+                        .join('');
+                } else {
+                    fixedContainer.innerHTML = '<span class="text-xs text-gray-400 px-1">선택된 번호 없음</span>';
+                }
+            }
+
+            // 제외수 렌더링
+            if (excludedContainer) {
+                if (excludedNumbers.size > 0) {
+                    const sortedNums = Array.from(excludedNumbers).sort((a, b) => a - b);
+                    excludedContainer.innerHTML = sortedNums
+                        .map(n => `<span class="filter-ball ball-excluded" onclick="removeFilter('excluded', ${n})" title="삭제">${n}</span>`)
+                        .join('');
+                } else {
+                    excludedContainer.innerHTML = '<span class="text-xs text-gray-400 px-1">선택된 번호 없음</span>';
+                }
+            }
+        }
+
+        function toggleNumberSelection(num) {
+            num = parseInt(num, 10);
+            const headerCells = document.querySelectorAll(`.header-num-${num}`);
+
+            if (selectedHeaderNumbers.has(num)) {
+                selectedHeaderNumbers.delete(num);
+                headerCells.forEach(cell => cell.classList.remove('selected'));
+            } else {
+                selectedHeaderNumbers.add(num);
+                headerCells.forEach(cell => cell.classList.add('selected'));
+            }
+        }
+
+        function addSelectedToFilter(type) {
+            if (selectedHeaderNumbers.size === 0) {
+                alert("표 상단의 숫자를 클릭하여 선택해주세요.");
+                return;
+            }
+
+            const selectedArray = Array.from(selectedHeaderNumbers).map(n => parseInt(n, 10));
+
+            if (type === 'fixed') {
+                const currentCount = fixedNumbers.size;
+                const newCount = selectedArray.filter(n => !fixedNumbers.has(n)).length;
+                if (currentCount + newCount > 6) {
+                    alert(`고정수는 최대 6개까지만 선택 가능합니다.\n(현재: ${currentCount}개 + 추가: ${newCount}개)`);
+                    return;
+                }
+            }
+
+            selectedArray.forEach(num => {
+                if (type === 'fixed') {
+                    fixedNumbers.add(num);
+                    excludedNumbers.delete(num);
+                } else {
+                    excludedNumbers.add(num);
+                    fixedNumbers.delete(num);
+                }
+            });
+
+            selectedHeaderNumbers.clear();
+            document.querySelectorAll('.stats-table th.selected').forEach(th => th.classList.remove('selected'));
+
+            renderFilterBoxes();
+            saveFilterSettings();
+        }
+
+        function removeFilter(type, num) {
+            if (type === 'fixed') fixedNumbers.delete(num);
+            else excludedNumbers.delete(num);
+
+            renderFilterBoxes();
+            saveFilterSettings();
+        }
+
+        // ==========================================================
+        // [AI 분석 엔진] 번호별 통계 전용
+        // ==========================================================
+        // ==========================================================
+        // [AI 분석 엔진] 번호별 통계 전용
+        // ==========================================================
+        function openAIModal(initialPrompt = '') {
+            const modal = document.getElementById('aiModal');
+            const content = document.getElementById('aiQnaContent');
+            if (modal) {
+                modal.classList.remove('hidden');
+                // 슬라이드 애니메이션을 위해 약간의 지연 후 클래스 변경
+                setTimeout(() => {
+                    modal.querySelector('.sidebar-content').classList.remove('translate-x-full');
+                }, 10);
+
+                if (initialPrompt) {
+                    content.innerHTML = '';
+                    const userMsg = `<div class="flex justify-end mb-4"><div class="bg-blue-600 text-white px-4 py-2 rounded-2xl shadow-sm text-sm max-w-[85%]">${initialPrompt}</div></div>`;
+                    content.innerHTML += userMsg;
+                }
+            }
+        }
+
+        function closeAIModal() {
+            const modal = document.getElementById('aiModal');
+            if (modal) {
+                const sidebar = modal.querySelector('.sidebar-content');
+                sidebar.classList.add('translate-x-full');
+                setTimeout(() => {
+                    modal.classList.add('hidden');
+                }, 300);
+            }
+        }
+
+        async function submitModalFollowUp() {
+            const input = document.getElementById('aiModalInput');
+            if (!input || !input.value.trim()) return;
+
+            const userMessage = input.value.trim();
+            input.value = '';
+
+            const content = document.getElementById('aiQnaContent');
+            content.innerHTML += `<div class="flex justify-end mb-4"><div class="bg-blue-600 text-white px-4 py-2 rounded-2xl shadow-sm text-sm max-w-[85%]">${userMessage}</div></div>`;
+
+            const uniqueId = 'ai-res-' + Date.now();
+            content.innerHTML += `
+                <div class="flex mb-6 animate-fade-in">
+                    <div class="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-xs mr-3 flex-shrink-0 shadow-sm font-bold">AI</div>
+                    <div id="${uniqueId}" class="bg-white border border-gray-100 text-gray-800 px-5 py-4 rounded-2xl shadow-sm text-sm min-h-[50px] flex-1 leading-relaxed">
+                        <div class="flex items-center gap-2 text-gray-400">
+                            <div class="w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                            <span class="text-xs">분석 중...</span>
+                        </div>
+                    </div>
+                </div>`;
+
+            content.scrollTop = content.scrollHeight;
+
+            await executeLocalAIAnalysis({
+                containerId: uniqueId,
+                userPrompt: userMessage,
+                contextData: prepareAIContext(),
+                responseStyle: 'chat'
+            });
+
+            content.scrollTop = content.scrollHeight;
+        }
+
+        function prepareAIContext() {
+            const displayData = allData.slice(0, currentRange);
+            const hitCounts = new Array(46).fill(0);
+            const gaps = new Array(46).fill(0);
+            const activeGaps = new Array(46).fill(true);
+
+            allData.forEach((draw, idx) => {
+                draw.numbers.forEach(num => {
+                    if (idx < currentRange) hitCounts[num]++;
+                    if (activeGaps[num]) {
+                        gaps[num] = idx;
+                        activeGaps[num] = false;
+                    }
+                });
+            });
+
+            // ── 1. 기본 통계 ──
+            const allCounts = hitCounts.slice(1);
+            const avg = allCounts.reduce((a, b) => a + b, 0) / 45;
+            const variance = allCounts.reduce((s, v) => s + Math.pow(v - avg, 2), 0) / 45;
+            const stdDev = Math.sqrt(variance);
+
+            // ── 2. 이동평균 (최근 5회 vs 10회) ──
+            const recent5Data = allData.slice(0, 5);
+            const recent10Data = allData.slice(0, 10);
+            const getDrawAvg = (data) => data.reduce((s, d) => s + d.numbers.reduce((a, b) => a + b, 0) / 6, 0) / (data.length || 1);
+            const r5Avg = getDrawAvg(recent5Data);
+            const r10Avg = getDrawAvg(recent10Data);
+            const trend = r5Avg > r10Avg ? "상승세" : "하락세";
+
+            // ── 3. 주요 번호 리스트 ──
+            let sortedNums = [];
+            for (let i = 1; i <= 45; i++) sortedNums.push({ num: i, count: hitCounts[i], gap: gaps[i] });
+
+            const hotNums = [...sortedNums].sort((a, b) => b.count - a.count).slice(0, 10).map(x => `${x.num}번(${x.count}회)`);
+            const coldNums = [...sortedNums].sort((a, b) => a.count - b.count).slice(0, 5).map(x => `${x.num}번(${x.count}회)`);
+            const gapNums = [...sortedNums].sort((a, b) => b.gap - a.gap).slice(0, 10).map(x => `${x.num}번(${x.gap}회 미출)`);
+
+            return `
+- 분석 범위: 최근 ${currentRange}회차
+- 평균 출현 빈도: ${avg.toFixed(2)} | 표준편차: ${stdDev.toFixed(2)}
+- 출현 추세: ${trend} (5회평균 ${r5Avg.toFixed(1)} vs 10회평균 ${r10Avg.toFixed(1)})
+- 최다 출현(많이 나온 수): ${hotNums.join(', ')}
+- 최소 출현(적게 나온 수): ${coldNums.join(', ')}
+- 장기 미출현(안 나온 수): ${gapNums.join(', ')}
+- 최근 10회 상세: ${allData.slice(0, 10).map(d => `${d.round}회(${d.numbers.join(',')})`).join(' | ')}
+            `;
+        }
+
+        async function executeLocalAIAnalysis(params) {
+            const { containerId, userPrompt, contextData, responseStyle } = params;
+            const container = document.getElementById(containerId);
+            const latestDraw = allData[0];
+            const subjectRound = latestDraw ? latestDraw.round : 0;
+            const targetRound = subjectRound + 1;
+
+            try {
+                const prompt = `
+당신은 로또 번호 출현 통계 분석 전문가입니다. 아래 데이터를 바탕으로 ${targetRound}회차 전략을 분석하세요.
+
+[분석 데이터]
+${contextData}
+
+[사용자 질문]
+${userPrompt}
+
+[응답 작성 규칙 - 반드시 준수]
+1. 반드시 순수 한국어만 사용하세요. 영문 단어(XGBoost, LSTM, momentum, probability, feature, significance 등) 절대 사용 금지.
+2. 소수점 확률값(0.xxxx 형태)을 절대 출력하지 마세요. 대신 "출현 가능성 높음/보통/낮음"으로만 표현하세요.
+3. "통계적 유의성", "앙상블 확률", "표준편차 구간" 같은 학술 전문용어 사용 금지.
+4. 최근 5회차 내 3회 이상 출현한 번호는 "과열 번호"로 분류하여 추천에서 제외하세요.
+5. 미출현 기간이 긴 번호는 "출현 기대 번호"로 표현하세요.
+6. 근거는 "최근 몇 회 중 몇 번 나왔음", "마지막 출현이 몇 회차 전임" 처럼 직관적으로 작성하세요.
+
+[JSON 응답 형식]
+{
+  "trend": "출현 추세 분석 문구 ({{range:수치}} 포함)",
+  "pattern": "핵심 패턴 분석 문구 ({{good:추천번호}} 또는 {{warn:주의번호}} 포함)",
+  "recommendation": "최종 분석 결론"
+}
+`;
+
+                let data, error;
+                if (window.AIProxy) {
+                    try {
+                        data = await window.AIProxy.invoke({
+                            prompt: prompt,
+                            analysisType: 'stats_by_number',
+                            targetRound: targetRound,
+                            subjectRound: subjectRound,
+                            responseStyle: 'chat'
+                        });
+                    } catch (proxyErr) {
+                        console.warn('AIProxy failed, falling back to Edge Function:', proxyErr);
+                        const result = await window.supabaseClient.functions.invoke('analyze-lotto', { body: { context: prompt } });
+                        data = result.data;
+                        error = result.error;
+                    }
+                } else {
+                    const result = await window.supabaseClient.functions.invoke('analyze-lotto', { body: { context: prompt } });
+                    data = result.data;
+                    error = result.error;
+                }
+
+                if (error) throw error;
+
+                let analysis = data;
+                if (typeof analysis === 'string') {
+                    try { analysis = JSON.parse(analysis); }
+                    catch (e) {
+                        const extracted = window.AIAnalysis.extractFirstJsonObject(analysis);
+                        if (extracted) analysis = JSON.parse(extracted);
+                    }
+                }
+
+                if (container) {
+                    container.innerHTML = window.AIAnalysis.renderAnalysis(analysis, targetRound, subjectRound, responseStyle === 'chat' ? 'minimal' : null);
+                }
+            } catch (err) {
+                console.error("AI Analysis Error:", err);
+                if (container) container.innerHTML = `<span class="text-red-500 text-xs">분석 실패: ${err.message}</span>`;
+            }
+        }
+
+        async function submitCustomAIAnalysis() {
+            const inputEl = document.getElementById('aiUserPrompt');
+            const userPrompt = inputEl.value.trim();
+            if (!userPrompt) return;
+
+            openAIModal(userPrompt);
+            const content = document.getElementById('aiQnaContent');
+            const uniqueId = 'ai-res-' + Date.now();
+            content.innerHTML += `
+                <div class="flex mb-6 animate-fade-in">
+                    <div class="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-xs mr-3 flex-shrink-0 shadow-sm font-bold">AI</div>
+                    <div id="${uniqueId}" class="bg-white border border-gray-100 text-gray-800 px-5 py-4 rounded-2xl shadow-sm text-sm min-h-[50px] flex-1 leading-relaxed">
+                        <div class="flex items-center gap-2 text-gray-400">
+                            <div class="w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                            <span class="text-xs">분석 중...</span>
+                        </div>
+                    </div>
+                </div>`;
+
+            executeLocalAIAnalysis({
+                containerId: uniqueId,
+                userPrompt,
+                contextData: prepareAIContext(),
+                responseStyle: 'chat'
+            });
+            inputEl.value = '';
+        }
+
+        async function refreshAIAnalysis() {
+            if (!allData || allData.length === 0) return;
+
+            const latestDraw = allData[0];
+            const subjectRound = latestDraw.round;
+            const targetRound = subjectRound + 1;
+
+            const displayData = allData.slice(0, currentRange);
+            const hitCounts = new Array(46).fill(0);
+            displayData.forEach(draw => draw.numbers.forEach(num => hitCounts[num]++));
+
+            let sortedNums = [];
+            for (let i = 1; i <= 45; i++) sortedNums.push({ num: i, count: hitCounts[i] });
+            sortedNums.sort((a, b) => b.count - a.count);
+
+            const hotNums = sortedNums.slice(0, 5).map(x => x.num).join(', ');
+            const coldNums = sortedNums.slice(-5).map(x => x.num).join(', ');
+            const avgHit = (displayData.length * 6 / 45).toFixed(1);
+
+            // [심화 데이터 추출]
+            // 가장 많이 나온 번호(Hot #1)의 연속 출현(Streak) 또는 미출현(Gap)
+            const topNum = sortedNums[0].num;
+            let topNumGap = 0;
+            let topNumStreak = 0;
+
+            // Gap 계산 (마지막 출현 이후 몇 회차 지났나)
+            for (let i = 0; i < allData.length; i++) {
+                if (allData[i].numbers.includes(topNum)) break;
+                topNumGap++;
+            }
+
+            // Streak 계산 (최근 연속 몇 회차 출현 중인가)
+            for (let i = 0; i < allData.length; i++) {
+                if (!allData[i].numbers.includes(topNum)) break;
+                topNumStreak++;
+            }
+
+            const targetEl = document.getElementById('aiTargetInfo');
+            if (targetEl) targetEl.textContent = '';
+
+            // 공통 AI 모듈 호출 (3섹션 구조 유도)
+            if (window.AIAnalysis) {
+                await window.AIAnalysis.executeAnalysis({
+                    containerId: 'aiAnalysisContent',
+                    analysisType: '번호별 통계',
+                    subjectRound: subjectRound,
+                    targetRound: targetRound,
+                    customData: `
+# [번호별 통계 정밀 데이터]
+- 최근 ${currentRange}회차 기준
+- 자주 나오는 번호(상위 5): ${hotNums}
+- 가끔 나오는 번호(하위 5): ${coldNums}
+- 번호별 평균 출현 횟수: ${avgHit}회
+- 현재 대세 번호(${topNum}번) 미출현 기간: ${topNumGap}회차 / 연속 출현: ${topNumStreak}회차
+                    `,
+                    customRules: `
+[응답 작성 규칙 - 반드시 준수]
+1. 반드시 순수 한국어만 사용하세요. 영문 단어(XGBoost, LSTM, momentum, max_gap, total_freq, feature, probability, significance, Deep Learning 등) 절대 사용 금지.
+2. 소수점 확률값(0.xxxx 형태)을 절대 출력하지 마세요. 출현 빈도는 "출현 가능성 높음/보통/낮음"으로만 표현하세요.
+3. "통계적 유의성", "앙상블 확률", "표준편차 구간", "신뢰구간" 같은 학술 전문용어 사용 절대 금지.
+4. 최근 5회차 내 3회 이상 출현한 번호는 "과열 번호"로 분류하여 제외수로 추천하세요.
+5. 미출현 기간이 긴 번호는 "출현 기대 번호"로 표현하세요.
+6. 근거는 "최근 10회 중 0번 나와 출현 기대됨", "최근 5회에 3번 나와 쉴 때가 됨"처럼 일반인이 이해할 수 있게 직관적으로 작성하세요.
+
+[출력 형식]
+${targetRound}회차 기준으로 다음을 작성하세요:
+- 고정수 추천 3개: 과열되지 않은 출현 기대 번호 위주
+- 제외수 추천 3개: 최근 과열된 번호 또는 너무 오래 미출현한 번호
+- 수치는 {{trend:내용}}, 결론은 {{recommendation:내용}} 태그를 사용하십시오.
+                    `
+                });
+            }
+        }
+
+        // [표준화] 최근 10회차 필터/강조 자동 적용 (missing.html 기준)
+        function applyRecent10Filters() {
+            const btn = document.getElementById('recent10FilterBtn');
+            const btnText = document.getElementById('recent10BtnText');
+            const chk = document.getElementById('filterToggle'); // 메인 체크박스 (ID 확인: filterToggle)
+
+            // 미출현 그룹 강조가 켜져있으면 끄기
+            if (isMissedGroupHighlight) {
+                toggleMissedGroupHighlight();
+            }
+
+            // 토글: 이미 켜져있으면 끄기 (indigo-600 클래스 존재 여부로 판단)
+            if (btn.classList.contains('bg-indigo-600')) {
+                btn.className = "flex items-center justify-center gap-1.5 px-3 py-1.5 bg-white text-indigo-600 border border-indigo-200 rounded-lg shadow-sm hover:bg-indigo-50 transition-all active:scale-95 text-[11px] font-bold min-w-[140px]";
+                btnText.textContent = '최근 10회차 강조';
+
+                // 메인 필터 체크박스 해제
+                if (chk) chk.checked = false;
+
+                isRecentHighlight = false;
+                renderTable();
+                return;
+            }
+
+            if (!allData || allData.length < 10) return;
+
+            // 1. UI 업데이트 (Indigo/Purple Active)
+            btn.className = "flex items-center justify-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-lg shadow-md hover:bg-indigo-700 transition-all active:scale-95 text-[11px] font-bold min-w-[140px]";
+            btnText.textContent = '강조 해제';
+
+            // 메인 필터 체크박스 자동 활성화
+            if (chk) chk.checked = true;
+
+            // 2. 강조 모드 활성화 및 리렌더링
+            isRecentHighlight = true;
+            renderTable();
+
+            console.log('최근 10회차 숫자별 통계 강조 적용 완료');
+        }
+
+        function toggleMissedGroupHighlight() {
+            const btn = document.getElementById('missedGroupBtn');
+            const btnText = document.getElementById('missedGroupBtnText');
+
+            // 최근 10회차 강조가 켜져있으면 끄기
+            if (isRecentHighlight) {
+                applyRecent10Filters(); // 토글 함수 호출하여 끄기
+            }
+
+            isMissedGroupHighlight = !isMissedGroupHighlight;
+
+            if (isMissedGroupHighlight) {
+                btn.className = "flex items-center justify-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white rounded-lg shadow-md hover:bg-emerald-700 transition-all active:scale-95 text-[11px] font-bold min-w-[130px]";
+                btnText.textContent = "미출현 그룹 끄기";
+            } else {
+                btn.className = "flex items-center justify-center gap-1.5 px-3 py-1.5 bg-white text-emerald-600 border border-emerald-200 rounded-lg shadow-sm hover:bg-emerald-50 transition-all active:scale-95 text-[11px] font-bold min-w-[130px]";
+                btnText.textContent = "미출현 그룹 보기";
+            }
+            renderTable();
+        }
+
+        // 구 버전 함수 호환성을 위해 유지 (NLP 등에서 호출 가능)
+        function applyRecent10Highlight() {
+            applyRecent10Filters();
+        }
+
+        function renderChart() {
+            const displayData = allData.slice(0, currentRange);
+            const hitCounts = new Array(46).fill(0);
+
+            displayData.forEach(draw => {
+                draw.numbers.forEach(num => { hitCounts[num]++ });
+            });
+
+            const chartData = [];
+            for (let i = 1; i <= 45; i++) {
+                chartData.push({ num: i, count: hitCounts[i], rate: (hitCounts[i] / currentRange * 100).toFixed(1) });
+            }
+
+            const totalHits = chartData.reduce((sum, item) => sum + item.count, 0);
+            const avgHit = totalHits / 45;
+
+            const maxCount = Math.max(...chartData.map(d => d.count));
+            const chart = document.getElementById('chart');
+            chart.innerHTML = '';
+
+            chartData.forEach(d => {
+                const barHeight = (d.count / maxCount * 100);
+                let bgStyle;
+                if (d.count > avgHit) bgStyle = "background: #EF4444;";
+                else bgStyle = "background: #3B82F6;";
+
+                const wrapper = document.createElement('div');
+                wrapper.className = 'chart-bar-wrapper group relative';
+                wrapper.innerHTML = `
+                        <div class="absolute -top-6 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white text-[10px] py-0.5 px-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none">${d.count}회</div>
+                    <div class="bar-fill" style="height:${Math.max(barHeight, 5)}%; ${bgStyle}"></div>
+                    <div class="text-[9px] font-medium text-gray-500 mt-1.5 text-center w-full">${d.num}</div>
+                `;
+                chart.appendChild(wrapper);
+            });
+        }
+
+        function renderTable() {
+            const displayData = allData.slice(0, currentRange);
+            const hitCounts = new Array(46).fill(0);
+
+            displayData.forEach(draw => {
+                draw.numbers.forEach(num => { hitCounts[num]++ });
+            });
+
+            const currentMiss = {};
+            const missHistory = {};
+            const fullReversedData = [...allData].reverse();
+
+            for (let i = 1; i <= 45; i++) { currentMiss[i] = 0 }
+
+            fullReversedData.forEach(draw => {
+                draw.numbers.forEach(num => { currentMiss[num] = 0 });
+                for (let i = 1; i <= 45; i++) {
+                    if (!draw.numbers.includes(i)) { currentMiss[i]++ }
+                }
+                missHistory[draw.round] = { ...currentMiss };
+            });
+
+            let numberOrder = Array.from({ length: 45 }, (e, i) => i + 1);
+            if (sortByMissCount) {
+                const latestMiss = missHistory[displayData[0].round];
+                numberOrder.sort((a, b) => {
+                    const missA = latestMiss[a];
+                    const missB = latestMiss[b];
+                    if (missA !== missB) return missA - missB;
+                    return hitCounts[b] - hitCounts[a];
+                });
+            }
+
+            const thead = document.querySelector("#statsTable thead");
+            thead.innerHTML = '';
+
+            let trHeadHTML = `
+                <th class="round-col diagonal-header sticky left-0 top-0 z-50 bg-white shadow-sm border-b border-gray-200">
+                    <span class="diagonal-text-top">번호</span>
+                    <span class="diagonal-text-bottom">회차</span>
+                </th>
+            `;
+
+            // [미출현 그룹 계산]
+            const latestMissCounts = {};
+            if (isMissedGroupHighlight && allData.length > 0) {
+                // 최신 회차 기준 미출현 수 계산
+                const latestRound = allData[0].round;
+                // allData는 내림차순 정렬되어 있다고 가정
+
+                for (let num = 1; num <= 45; num++) {
+                    let gap = 0;
+                    for (let i = 0; i < allData.length; i++) {
+                        if (allData[i].numbers.includes(num)) {
+                            break;
+                        }
+                        gap++;
+                    }
+                    latestMissCounts[num] = gap;
+                }
+            }
+
+            numberOrder.forEach(num => {
+                const isSelected = selectedHeaderNumbers.has(num) ? 'selected' : '';
+                let headerStyle = '';
+
+                if (isMissedGroupHighlight) {
+                    const gap = latestMissCounts[num];
+                    if (gap === 0) headerStyle = 'style="background-color: #EF4444; color: white;"'; // 0회 (당첨) - Red
+                    else if (gap === 1) headerStyle = 'style="background-color: #F97316; color: white;"'; // 1회 - Orange
+                    else if (gap === 2) headerStyle = 'style="background-color: #F59E0B; color: white;"'; // 2회 - Amber
+                    else if (gap >= 3 && gap <= 4) headerStyle = 'style="background-color: #EAB308; color: white;"'; // 3-4회 - Yellow
+                    else if (gap >= 5 && gap <= 9) headerStyle = 'style="background-color: #3B82F6; color: white;"'; // 5-9회 - Blue
+                    else headerStyle = 'style="background-color: #64748B; color: white;"'; // 10회 이상 - Gray
+                }
+
+                trHeadHTML += `<th class="number-header header-num-${num} ${isSelected} sticky top-0 z-40 bg-white shadow-sm border-b border-gray-200" onclick="toggleNumberSelection(${num})" ${headerStyle}>${num}</th>`;
+            });
+
+            let trHead = document.createElement("tr");
+            trHead.innerHTML = trHeadHTML;
+            thead.appendChild(trHead);
+
+            const rowData = [];
+
+            displayData.forEach((draw, i) => {
+                const currentIdx = i;
+                const cells = {};
+
+                numberOrder.forEach(num => {
+                    if (draw.numbers.includes(num)) {
+                        let streak = 1;
+                        if (allData[currentIdx + 1] && allData[currentIdx + 1].numbers.includes(num)) {
+                            streak = 2;
+                            if (allData[currentIdx + 2] && allData[currentIdx + 2].numbers.includes(num)) {
+                                streak = 3;
+                                if (allData[currentIdx + 3] && allData[currentIdx + 3].numbers.includes(num)) {
+                                    streak = 4;
+                                }
+                            }
+                        }
+
+                        if (streak >= 4) cells[num] = { type: 'streak-4' };
+                        else if (streak === 3) cells[num] = { type: 'streak' };
+                        else if (streak === 2) cells[num] = { type: 'carry' };
+                        else cells[num] = { type: 'hit' };
+                    } else {
+                        cells[num] = { type: 'miss', count: missHistory[draw.round][num] };
+                    }
+                });
+                rowData.push({ round: draw.round, cells: cells });
+            });
+
+            const tbody = document.getElementById("tableBody");
+            // 당첨횟수 행
+            let html = '<tr class="count-row"><td class="round-col border-b border-gray-200">당첨횟수</td>';
+            numberOrder.forEach(num => { html += `<td>${hitCounts[num]}</td>` });
+            html += '</tr>';
+
+            const recent10Rounds = allData.slice(0, 10).map(d => d.round);
+
+            rowData.forEach(row => {
+                const isRecent = isRecentHighlight && recent10Rounds.includes(row.round);
+                const bgStyle = isRecent ? 'style="background-color: #F3E8FF;"' : '';
+                html += `<tr ${bgStyle} data-round="${row.round}" id="row-${row.round}"><td class="round-col border-b border-gray-200" ${bgStyle}>${row.round}회</td>`;
+                numberOrder.forEach(num => {
+                    const cell = row.cells[num];
+                    if (cell.type === 'hit') {
+                        html += `<td><div class="flex items-center justify-center h-full"><span class="marker marker-hit">1</span></div></td>`;
+                    } else if (cell.type === 'carry') {
+                        html += `<td><div class="flex items-center justify-center h-full"><span class="marker marker-carry">2</span></div></td>`;
+                    } else if (cell.type === 'streak') {
+                        html += `<td><div class="flex items-center justify-center h-full"><span class="marker marker-streak">3</span></div></td>`;
+                    } else if (cell.type === 'streak-4') {
+                        html += `<td><div class="flex items-center justify-center h-full"><span class="marker marker-streak-4">4+</span></div></td>`;
+                    } else {
+                        const count = cell.count;
+                        let bgClass = 'bg-miss-0';
+                        if (count >= 20) bgClass = 'bg-miss-red';
+                        else if (count >= 15) bgClass = 'bg-miss-yellow';
+                        else if (count >= 10) bgClass = 'bg-miss-green';
+                        else if (count >= 5) bgClass = 'bg-miss-blue';
+
+                        const missClass = count >= 10 ? 'miss-high' : 'cell-miss';
+                        html += `<td class="${bgClass}"><span class="${missClass}">${count}</span></td>`;
+                    }
+                });
+                html += '</tr>';
+            });
+
+            tbody.innerHTML = html;
+        }
+
+        function updateRange(e) {
+            currentRange = parseInt(e);
+            document.getElementById("rangeLabel").textContent = allData.length == e ? "전체 회차" : "최근 " + e + "회차";
+            document.getElementById("chartRangeLegend").textContent = e + "회 통계";
+
+            updateSliderBackground(e);
+            updateRangeButtons(e);
+            renderTable();
+            renderChart();
+            refreshAIAnalysis();
+        }
+
+        function setRange(e) {
+            document.getElementById("rangeSlider").value = e;
+            updateRange(e);
+        }
+
+        function updateSliderBackground(value) {
+            const total = allData.length || 1203;
+            const slider = document.getElementById('rangeSlider');
+            if (slider) {
+                const percent = ((value - 10) / (total - 10)) * 100;
+                slider.style.setProperty('--value-percent', percent + '%');
+            }
+        }
+
+        function updateRangeButtons(e) {
+            const maxVal = allData.length;
+            const buttons = { 10: 'btn10', 30: 'btn30', 50: 'btn50', 100: 'btn100', 1203: 'btn1203' };
+
+            Object.keys(buttons).forEach(key => {
+                const btn = document.getElementById(buttons[key]);
+                if (btn) {
+                    const targetValue = key === '1203' ? maxVal : parseInt(key);
+                    if (targetValue === parseInt(e)) {
+                        btn.className = "px-3 py-1.5 text-sm font-medium bg-blue-500 text-white rounded-lg transition-colors";
+                    } else {
+                        btn.className = "px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors";
+                    }
+                }
+            });
+        }
+
+        function toggleSort() {
+            sortByMissCount = !sortByMissCount;
+            updateSortButtonUI();
+            renderTable();
+
+            // 모달이 열려있으면 업데이트
+            const modal = document.getElementById('tableModal');
+            if (!modal.classList.contains('hidden')) {
+                openTableModal();
+            }
+            saveFilterSettings();
+        }
+
+        function openTableModal() {
+            const modal = document.getElementById('tableModal');
+            const modalContainer = document.getElementById('modalTableContainer');
+            const originalTable = document.getElementById('statsTable');
+
+            if (originalTable && modalContainer) {
+                const clonedTable = originalTable.cloneNode(true);
+                clonedTable.removeAttribute('id'); // ID 중복 방지
+                modalContainer.innerHTML = '';
+                modalContainer.appendChild(clonedTable);
+            }
+            modal.classList.remove('hidden');
+        }
+
+        function closeTableModal() {
+            document.getElementById('tableModal').classList.add('hidden');
+        }
+
+        function openAIModal() {
+            const modal = document.getElementById('aiQnaModal');
+            if (modal) {
+                modal.classList.remove('hidden');
+                const sidebar = modal.querySelector('.sidebar-content');
+                if (sidebar) {
+                    setTimeout(() => {
+                        sidebar.classList.remove('translate-x-full');
+                        sidebar.classList.add('translate-x-0');
+                    }, 10);
+                }
+            }
+        }
+
+        function closeAIModal() {
+            const modal = document.getElementById('aiQnaModal');
+            if (modal) {
+                const sidebar = modal.querySelector('.sidebar-content');
+                if (sidebar) {
+                    sidebar.classList.remove('translate-x-0');
+                    sidebar.classList.add('translate-x-full');
+                    setTimeout(() => modal.classList.add('hidden'), 300);
+                } else {
+                    modal.classList.add('hidden');
+                }
+            }
+        }
+        // 고급 분석 - 탭 전환
+        function switchAdvancedTab(tabName) {
+            ['color', 'heatmap', 'compatibility'].forEach(name => {
+                document.getElementById(`content - ${name}`).classList.add('hidden');
+                const tabBtn = document.getElementById(`tab - ${name}`);
+                tabBtn.classList.remove('text-blue-600', 'border-b-2', 'border-blue-600', 'bg-blue-50');
+                tabBtn.classList.add('text-gray-500');
+            });
+
+            document.getElementById(`content - ${tabName}`).classList.remove('hidden');
+            const activeBtn = document.getElementById(`tab - ${tabName}`);
+            activeBtn.classList.remove('text-gray-500');
+            activeBtn.classList.add('text-blue-600', 'border-b-2', 'border-blue-600', 'bg-blue-50');
+
+            if (tabName === 'color') renderColorStats();
+            if (tabName === 'heatmap') renderPeriodHeatmap();
+            if (tabName === 'compatibility') initCompatibility();
+        }
+
+        function openAdvancedAnalysis() {
+            document.getElementById('advancedAnalysisModal').classList.remove('hidden');
+            switchAdvancedTab('color'); // 기본 탭
+        }
+
+        // 1. 색상 통계
+        function renderColorStats() {
+            const ctx = document.getElementById('colorChart').getContext('2d');
+
+            // 색상별 카운트 (Yellow, Blue, Red, Gray, Green)
+            const colors = [0, 0, 0, 0, 0];
+            const recentData = allData.slice(0, currentRange);
+
+            recentData.forEach(draw => {
+                draw.numbers.forEach(num => {
+                    if (num <= 10) colors[0]++;
+                    else if (num <= 20) colors[1]++;
+                    else if (num <= 30) colors[2]++;
+                    else if (num <= 40) colors[3]++;
+                    else colors[4]++;
+                });
+            });
+
+            if (window.myColorChart) window.myColorChart.destroy();
+
+            window.myColorChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['1-10 (노랑)', '11-20 (파랑)', '21-30 (빨강)', '31-40 (회색)', '41-45 (초록)'],
+                    datasets: [{
+                        data: colors,
+                        backgroundColor: ['#FCD34D', '#60A5FA', '#F87171', '#9CA3AF', '#34D399'],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom' }
+                    }
+                }
+            });
+        }
+
+        // 2. 구간 히트맵 (10회차씩)
+        function renderPeriodHeatmap() {
+            const container = document.getElementById('heatmapGrid');
+            container.innerHTML = '';
+
+            // 최근 100회차를 10회씩 10개 구간으로 나눔
+            const range = 100;
+            const blockSize = 10;
+            const blocks = Math.ceil(range / blockSize);
+
+            let html = '<table class="w-full text-center border-collapse text-xs">';
+            // 헤더
+            html += '<thead><tr class="bg-gray-100 text-gray-600"><th>구간</th>';
+            for (let n = 1; n <= 45; n++) html += `< th class= "p-1 border border-gray-200 min-w-[20px]" > ${n}</th > `;
+            html += '</tr></thead><tbody>';
+
+            for (let b = 0; b < blocks; b++) {
+                const startIdx = b * blockSize;
+                const endIdx = startIdx + blockSize;
+                const sliceData = allData.slice(startIdx, endIdx);
+
+                if (sliceData.length === 0) continue;
+
+                const roundLabel = `${sliceData[0].round}~${sliceData[sliceData.length - 1].round}`;
+
+                html += `< tr > <td class="font-bold p-2 border border-gray-200 whitespace-nowrap">${roundLabel}</td>`;
+
+                // 번호별 카운트
+                const counts = new Array(46).fill(0);
+                sliceData.forEach(draw => draw.numbers.forEach(n => counts[n]++));
+
+                for (let n = 1; n <= 45; n++) {
+                    const c = counts[n];
+                    let bgClass = 'bg-white';
+                    if (c >= 3) bgClass = 'bg-red-500 text-white font-bold';
+                    else if (c >= 1) bgClass = 'bg-red-200 text-red-900';
+
+                    html += `< td class= "p-1 border border-gray-200 ${bgClass}" > ${c > 0 ? c : ''}</td > `;
+                }
+                html += '</tr>';
+            }
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        // 3. 궁합수 분석
+        function initCompatibility() {
+            const selector = document.getElementById('compatibilityNumSelector');
+            if (selector.children.length > 0) return; // 이미 생성됨
+
+            let html = '';
+            for (let i = 1; i <= 45; i++) {
+                let colorClass = 'bg-gray-100 text-gray-600 hover:bg-gray-200';
+                if (i <= 10) colorClass = 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200';
+                else if (i <= 20) colorClass = 'bg-blue-100 text-blue-700 hover:bg-blue-200';
+                else if (i <= 30) colorClass = 'bg-red-100 text-red-700 hover:bg-red-200';
+                else if (i <= 40) colorClass = 'bg-gray-200 text-gray-700 hover:bg-gray-300';
+                else colorClass = 'bg-green-100 text-green-700 hover:bg-green-200';
+
+                html += `< button onclick = "analyzeCompatibility(${i})" class="flex-shrink-0 w-8 h-8 rounded-full font-bold text-xs flex items-center justify-center transition-colors ${colorClass}" > ${i}</button > `;
+            }
+            selector.innerHTML = html;
+        }
+
+        function analyzeCompatibility(targetNum) {
+            const resultDiv = document.getElementById('compatibilityResult');
+
+            // 함께 나온 번호 카운트
+            const coupleCounts = new Array(46).fill(0);
+            let appearanceCount = 0;
+
+            const workingData = allData.slice(0, currentRange); // 현재 설정된 범위 내에서 분석
+
+            workingData.forEach(draw => {
+                if (draw.numbers.includes(targetNum)) {
+                    appearanceCount++;
+                    draw.numbers.forEach(n => {
+                        if (n !== targetNum) coupleCounts[n]++;
+                    });
+                }
+            });
+
+            if (appearanceCount === 0) {
+                resultDiv.innerHTML = `< div class="text-gray-500" > 선택한 범위(${currentRange}회) 내에서 < strong > ${targetNum}번</strong > 은 출현하지 않았습니다.</div > `;
+                return;
+            }
+
+            // Top 3 찾기
+            const sorted = [];
+            for (let n = 1; n <= 45; n++) {
+                if (coupleCounts[n] > 0) sorted.push({ num: n, count: coupleCounts[n] });
+            }
+            sorted.sort((a, b) => b.count - a.count);
+            const top3 = sorted.slice(0, 3);
+
+            let html = `< div class="mb-4 text-gray-700" >
+                <span class="text-xl font-bold text-blue-600">${targetNum}번</span>은
+            총 < strong > ${appearanceCount}회</strong > 출현했습니다.
+            </div > `;
+
+            if (top3.length > 0) {
+                html += '<div class="grid grid-cols-3 gap-4">';
+                top3.forEach((item, idx) => {
+                    const rankBadge = idx === 0 ? '🥇 1위' : idx === 1 ? '🥈 2위' : '🥉 3위';
+                    html += `
+                < div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col items-center" >
+                            <span class="text-xs font-bold text-gray-400 mb-2">${rankBadge}</span>
+                            <div class="w-10 h-10 rounded-full bg-gray-900 text-white flex items-center justify-center font-bold text-lg mb-2 shadow-lg">
+                                ${item.num}
+                            </div>
+                            <span class="text-sm font-bold text-gray-600">${item.count}회 <span class="text-xs font-normal text-gray-400">함께</span></span>
+                        </div >
+                    `;
+                });
+                html += '</div>';
+            } else {
+                html += '<div class="text-gray-500">함께 나온 번호가 없습니다.</div>';
+            }
+
+            resultDiv.innerHTML = html;
+        }
+
+    </script>
+    <!-- 🔹 [Modified] AI 챗봇 사이드바 (우측 고정) -->
+    <div id="aiQnaModal" class="fixed inset-0 z-50 hidden overflow-hidden">
+        <div id="aiModalBg" class="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity"
+            onclick="closeAIModal()"></div>
+        <div
+            class="sidebar-content absolute top-0 right-0 w-full md:w-[350px] h-full bg-white shadow-[-10px_0_50px_-15px_rgba(0,0,0,0.2)] transform translate-x-full transition-transform duration-300 ease-out flex flex-col">
+            <div class="flex items-center justify-between p-5 border-b border-gray-100 bg-white sticky top-0 z-10">
+                <div class="flex items-center gap-3">
+                    <div
+                        class="w-10 h-10 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-600 shadow-sm border border-blue-100 font-bold">
+                        <span class="material-symbols-outlined text-2xl font-bold">psychology</span>
+                    </div>
+                    <div>
+                        <h2 class="text-base font-black text-gray-900 leading-tight">AI 분석 챗봇</h2>
+                        <p class="text-[11px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">Lotto Expert AI
+                        </p>
+                    </div>
+                </div>
+                <button onclick="closeAIModal()" class="p-2.5 hover:bg-gray-100 rounded-xl transition-all group">
+                    <span
+                        class="material-symbols-outlined text-gray-400 group-hover:text-gray-900 text-2xl">close</span>
+                </button>
+            </div>
+
+            <div id="aiQnaContent" class="flex-1 p-6 overflow-y-auto custom-scrollbar flex flex-col gap-6 bg-[#FDFDFF]">
+                <!-- 메시지가 여기에 렌더링됩니다 -->
+            </div>
+
+            <div class="p-5 border-t border-gray-100 bg-white flex-shrink-0">
+                <div class="relative flex flex-col gap-3">
+                    <div class="flex gap-2">
+                        <input type="text" id="aiModalInput"
+                            class="flex-1 px-5 py-3.5 bg-gray-50 border border-gray-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all placeholder-gray-400 font-medium"
+                            placeholder="AI에게 무엇이든 물어보세요..." onkeyup="if(event.key === 'Enter') submitModalFollowUp()">
+                        <button onclick="submitModalFollowUp()"
+                            class="w-12 h-12 bg-blue-600 text-white rounded-2xl hover:bg-blue-700 shadow-lg shadow-blue-200 flex items-center justify-center transition-all active:scale-95 group">
+                            <span
+                                class="material-symbols-outlined text-2xl group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform">send</span>
+                        </button>
+                    </div>
+                    <div class="flex justify-center">
+                        <p class="text-[10px] text-gray-400 font-medium flex items-center gap-1.5">
+                            <span class="material-symbols-outlined text-xs">info</span>
+                            분석 결과는 참고용이며 당첨을 보장하지 않습니다.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

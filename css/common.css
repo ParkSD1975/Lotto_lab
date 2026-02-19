@@ -1,0 +1,249 @@
+@charset "utf-8";
+
+/* 1. 폰트 및 아이콘 설정 */
+.material-symbols-outlined {
+    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+.material-symbols-outlined.filled {
+    font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+
+/* 2. 커스텀 스크롤바 */
+.custom-scrollbar::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #a8a8a8;
+}
+
+/* 3. 공통 애니메이션 */
+@keyframes modalFadeIn {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.modal-content {
+    animation: modalFadeIn 0.2s ease-out;
+}
+
+@keyframes highlightFade {
+    0% {
+        background-color: #FEF3C7;
+        transform: scale(1.02);
+    }
+
+    100% {
+        background-color: #FEF3C7;
+        transform: scale(1);
+    }
+}
+
+.row-highlight {
+    animation: highlightFade 0.3s ease-out forwards;
+    border-left: 4px solid #F59E0B;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.animate-fade-in {
+    animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.animate-fade-in-up {
+    animation: fadeInUp 0.4s ease-out forwards;
+}
+
+/* 4. 로또 볼 스타일 (공통) */
+.ball-base {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    font-family: 'Pretendard', sans-serif;
+    font-weight: 700;
+}
+
+/* 기본 투명 원형 볼 (테이블용) */
+.ball-normal {
+    background: transparent;
+    color: #475563;
+    /* Slate-600 */
+    border: 1px solid #CBD5E1;
+    /* Slate-300 */
+    box-shadow: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    font-family: 'Pretendard', sans-serif;
+    font-weight: 700;
+}
+
+/* 색상이 들어간 볼 (커스텀용) */
+.ball-colored {
+    color: white;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+/* 작은 필터용 볼 */
+.ball-mini {
+    width: 24px;
+    height: 24px;
+    font-size: 11px;
+    color: white;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    font-weight: 700;
+}
+
+/* 5. 특수 로또 볼 (이웃수 등) - 추가됨 */
+.ball-neighbor {
+    background: #3B82F6;
+    color: white;
+    border: 2px solid #2563EB;
+    box-shadow: 0 2px 4px rgba(59, 130, 246, 0.3);
+    font-family: 'Pretendard', sans-serif;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+}
+
+.ball-prev {
+    background: #FEF3C7;
+    color: #92400E;
+    border: 2px solid #F59E0B;
+    font-family: 'Pretendard', sans-serif;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+}
+
+.neighbor-ball-mini {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 10px;
+    color: white;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    background: #3B82F6;
+}
+
+/* 6. 슬라이더 스타일 (Range Input) */
+input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 6px;
+    border-radius: 3px;
+    background: #E5E7EB;
+    outline: none;
+    cursor: pointer;
+    background-image: linear-gradient(#3B82F6, #3B82F6);
+    background-size: var(--value-percent, 0%) 100%;
+    background-repeat: no-repeat;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #3B82F6;
+    cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    transition: transform 0.1s;
+    border: 2px solid white;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+    transform: scale(1.1);
+    background: #2563EB;
+}
+
+/* 7. 분석 페이지 공통 스타일 (AI 섹션) - 수정됨 */
+/* hot_cold.html 등 개별 페이지의 디자인(흰색 카드)을 방해하지 않도록 그라데이션 제거 */
+/* .ai-section { background: linear-gradient(135deg, #E0E7FF 0%, #EDE9FE 50%, #FCE7F3 100%); } */
+
+/* 8. 통계 카드 스타일 - 추가됨 */
+.stat-card {
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.stat-card-active {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px -1px rgba(59, 130, 246, 0.4), 0 2px 4px -1px rgba(59, 130, 246, 0.2);
+}
+
+/* 9. 배지 스타일 - 추가됨 */
+.count-badge {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 13px;
+}

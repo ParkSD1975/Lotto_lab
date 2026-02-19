@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>API 테스트</title>
+</head>
+<body>
+    <h1>로또 AI 분석 - 테스트 페이지</h1>
+    <p id="status">로딩 중...</p>
+    <pre id="result"></pre>
+
+    <script>
+        async function test() {
+            try {
+                const res = await fetch('http://localhost:8000/api/deep-analysis/v3/analysis');
+                const data = await res.json();
+                
+                if (data.success) {
+                    document.getElementById('status').innerHTML = '✅ 성공! 필터: ' + Object.keys(data.range_analysis).length;
+                    document.getElementById('result').innerHTML = JSON.stringify(data, null, 2).substring(0, 500);
+                } else {
+                    document.getElementById('status').innerHTML = '❌ API 오류';
+                    document.getElementById('result').innerHTML = JSON.stringify(data, null, 2);
+                }
+            } catch (e) {
+                document.getElementById('status').innerHTML = '❌ 오류: ' + e.message;
+                document.getElementById('result').innerHTML = e.stack;
+            }
+        }
+        
+        test();
+    </script>
+</body>
+</html>

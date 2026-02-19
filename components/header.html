@@ -1,0 +1,164 @@
+<header
+    class="fixed top-0 inset-x-0 z-50 h-16 bg-white/98 backdrop-blur-xl border-b border-slate-100 shadow-[0_1px_0_rgba(0,0,0,0.04)] flex items-center justify-between px-6 lg:px-10">
+
+    <a href="index.html" class="flex items-center gap-3 group flex-shrink-0">
+        <div
+            class="flex items-center justify-center w-9 h-9 bg-gradient-to-br from-[#4c1d95] to-[#1e1b4b] rounded-xl shadow-lg shadow-indigo-900/15 group-hover:shadow-indigo-900/25 transition-all duration-300">
+            <span class="material-symbols-outlined text-white text-[18px] filled">account_balance_wallet</span>
+        </div>
+        <div class="flex flex-col leading-none">
+            <span class="text-[17px] font-black tracking-tight text-slate-900">Lotto <span class="text-[#4c1d95]">Lab</span></span>
+            <span class="text-[9px] font-semibold text-slate-400 tracking-[0.15em] uppercase mt-0.5">AI Analysis</span>
+        </div>
+    </a>
+
+    <nav class="flex items-center gap-0.5 overflow-x-auto no-scrollbar">
+        <a href="#"          class="gnb-link">대시보드</a>
+        <a href="winning-numbers.html" class="gnb-link">당첨번호</a>
+        <a href="properties_matrix.html" class="gnb-link">기초분석</a>
+        <a href="custom_analysis.html"   class="gnb-link">커스텀분석</a>
+        <a href="ai_deep_learning.html"  class="gnb-link">딥러닝 분석</a>
+        <a href="#"          class="gnb-link">필터</a>
+        <a href="#"          class="gnb-link">조합</a>
+        <a href="#"          class="gnb-link">AI 조합</a>
+        <a href="#"          class="gnb-link">출력</a>
+        <a href="#"          class="gnb-link">검증</a>
+    </nav>
+
+    <div class="flex items-center gap-2 flex-shrink-0">
+
+        <!-- ── 바스켓 트리거 ── -->
+        <div class="relative">
+            <button id="basket-trigger" onclick="BasketUI.toggle()"
+                title="번호 바스켓"
+                class="relative flex items-center justify-center w-9 h-9 rounded-full text-slate-400 hover:text-[#4c1d95] transition-colors">
+                <span class="material-symbols-outlined text-[22px]">shopping_basket</span>
+                <!-- 고정수 뱃지 -->
+                <span id="basket-fixed-badge"
+                    class="hidden absolute -top-0.5 -right-0.5 items-center justify-center min-w-[16px] h-[16px] px-1 rounded-full bg-indigo-500 text-white text-[9px] font-bold leading-none"></span>
+                <!-- 제외수 뱃지 (고정수 없을 때만 표시) -->
+                <span id="basket-exclude-badge"
+                    class="hidden absolute -top-0.5 -right-0.5 items-center justify-center min-w-[16px] h-[16px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-bold leading-none"></span>
+            </button>
+
+            <!-- ── 바스켓 패널 ── -->
+            <div id="basket-panel"
+                class="hidden absolute right-0 top-[calc(100%+8px)] w-[320px] bg-white rounded-2xl border border-slate-200 shadow-2xl shadow-slate-900/10 z-[9999] opacity-0 scale-95 transition-all duration-150 origin-top-right overflow-hidden">
+
+                <!-- 헤더 -->
+                <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+                    <span class="text-[13px] font-bold text-slate-700">번호 바스켓</span>
+                    <button onclick="Basket.clear(); BasketUI.refresh();"
+                        class="text-[11px] text-slate-400 hover:text-rose-500 transition-colors font-medium">전체 초기화</button>
+                </div>
+
+                <!-- 고정수 섹션 -->
+                <div class="px-4 py-3 border-b border-slate-100">
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="flex items-center gap-1.5">
+                            <span class="w-2 h-2 rounded-full bg-indigo-500"></span>
+                            <span class="text-[12px] font-bold text-slate-700">고정수</span>
+                            <span class="text-[11px] text-slate-400">반드시 포함</span>
+                        </div>
+                        <button onclick="Basket.clearFixed(); BasketUI.refresh();"
+                            class="text-[11px] text-slate-400 hover:text-rose-500 transition-colors">초기화</button>
+                    </div>
+                    <div id="basket-fixed-list" class="flex flex-wrap gap-1.5 min-h-[32px] items-center mb-2">
+                        <span class="text-slate-400 text-xs">없음</span>
+                    </div>
+                    <div class="flex gap-1.5">
+                        <input id="basket-fixed-input" type="text" placeholder="번호 입력 (예: 7 14 27)"
+                            class="flex-1 text-[12px] px-2.5 py-1.5 rounded-lg border border-slate-200 focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-200 placeholder-slate-300"
+                            onkeydown="if(event.key==='Enter') BasketUI.handleInput('fixed','basket-fixed-input')">
+                        <button onclick="BasketUI.handleInput('fixed','basket-fixed-input')"
+                            class="px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white text-[12px] font-semibold rounded-lg transition-colors">추가</button>
+                    </div>
+                </div>
+
+                <!-- 제외수 섹션 -->
+                <div class="px-4 py-3">
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="flex items-center gap-1.5">
+                            <span class="w-2 h-2 rounded-full bg-rose-500"></span>
+                            <span class="text-[12px] font-bold text-slate-700">제외수</span>
+                            <span class="text-[11px] text-slate-400">반드시 제외</span>
+                        </div>
+                        <button onclick="Basket.clearExclude(); BasketUI.refresh();"
+                            class="text-[11px] text-slate-400 hover:text-rose-500 transition-colors">초기화</button>
+                    </div>
+                    <div id="basket-exclude-list" class="flex flex-wrap gap-1.5 min-h-[32px] items-center mb-2">
+                        <span class="text-slate-400 text-xs">없음</span>
+                    </div>
+                    <div class="flex gap-1.5">
+                        <input id="basket-exclude-input" type="text" placeholder="번호 입력 (예: 3 11)"
+                            class="flex-1 text-[12px] px-2.5 py-1.5 rounded-lg border border-slate-200 focus:outline-none focus:border-rose-400 focus:ring-1 focus:ring-rose-200 placeholder-slate-300"
+                            onkeydown="if(event.key==='Enter') BasketUI.handleInput('exclude','basket-exclude-input')">
+                        <button onclick="BasketUI.handleInput('exclude','basket-exclude-input')"
+                            class="px-3 py-1.5 bg-rose-500 hover:bg-rose-600 text-white text-[12px] font-semibold rounded-lg transition-colors">추가</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── 새 분석 버튼 ── -->
+        <button onclick="GlobalModal.openNewAnalysis()"
+            title="새 분석"
+            class="flex items-center justify-center w-9 h-9 bg-[#4c1d95] hover:bg-[#3b0764] text-white rounded-full transition-all shadow-md shadow-indigo-900/15">
+            <span class="material-symbols-outlined text-[20px]">add</span>
+        </button>
+
+        <div id="loginBtn" class="flex items-center justify-center">
+            <button onclick="signInWithGoogle()"
+                title="구글로 로그인"
+                class="flex items-center justify-center w-9 h-9 rounded-full text-slate-400 hover:text-[#4c1d95] transition-colors">
+                <span class="material-symbols-outlined text-[24px]">account_circle</span>
+            </button>
+        </div>
+    </div>
+
+    <style>
+        nav.flex {
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+        nav.flex::-webkit-scrollbar {
+            display: none;
+        }
+        .gnb-link {
+            position: relative;
+            padding: 6px 14px;
+            font-size: 13.5px;
+            font-weight: 500;
+            color: #64748b;
+            white-space: nowrap;
+            text-decoration: none;
+            transition: color 0.2s;
+            letter-spacing: -0.01em;
+        }
+        .gnb-link::after {
+            content: '';
+            position: absolute;
+            bottom: -1px;
+            left: 14px;
+            right: 14px;
+            height: 2px;
+            background: #4c1d95;
+            border-radius: 2px 2px 0 0;
+            transform: scaleX(0);
+            transition: transform 0.2s ease;
+        }
+        .gnb-link:hover {
+            color: #4c1d95;
+        }
+        .gnb-link:hover::after {
+            transform: scaleX(1);
+        }
+        .gnb-link.active {
+            color: #4c1d95;
+            font-weight: 600;
+        }
+        .gnb-link.active::after {
+            transform: scaleX(1);
+        }
+    </style>
+</header>

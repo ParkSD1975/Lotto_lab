@@ -1,0 +1,25 @@
+# Environment variables (API keys)
+.env
+.env.local
+.env.production
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+
+# Model files (large)
+langchain-backend/saved_models/
+langchain-backend/chroma_db/
+
+# Node
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Problematic files
+langchain-backend/nul

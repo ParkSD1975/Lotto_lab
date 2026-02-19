@@ -1,0 +1,2318 @@
+<!DOCTYPE html>
+<html class="light" lang="ko">
+
+<head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>Lotto Lab - 미출현 그룹 (Supabase AI)</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    
+    <link rel="icon" href="data:,">
+
+    <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css"
+        rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
+        rel="stylesheet" />
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <script src="js/config.js"></script>
+    <script src="js/theme.js"></script>
+
+    <script src="js/common_v2.js"></script>
+    <script src="js/aiProxy.js"></script>
+    <script src="js/filter/FilterService.js"></script>
+    <script src="js/layout.js"></script>
+
+    <!-- NLP Modules -->
+    <script src="js/NLPProcessor.js"></script>
+    <script src="js/NLPInputComponent.js"></script>
+    <script src="js/BasicAnalysisNLP.js"></script>
+
+    <script>
+        // [수정] 필터 설정 저장 함수 (DB 저장)
+        async function saveFilterSettings() {
+            const data = {
+                useRangeFilter: document.getElementById('rangeFilterToggle').checked,
+                useCustomFilter: document.getElementById('customFilterToggle').checked,
+                ranges: {
+                    r1Min: document.getElementById('range1Min').value,
+                    r1Max: document.getElementById('range1Max').value,
+                    r2Min: document.getElementById('range2Min').value,
+                    r2Max: document.getElementById('range2Max').value,
+                    r3Min: document.getElementById('range3Min').value,
+                    r3Max: document.getElementById('range3Max').value,
+                    r4Min: document.getElementById('range4Min').value,
+                    r4Max: document.getElementById('range4Max').value
+                }
+            };
+            const enabled = data.useRangeFilter; // 필터 적용 여부 (메인 토글 기준)
+
+            // DB 저장 (FilterService 사용)
+            if (window.filterService && window.filterService.initialized) {
+                await window.filterService.saveSetting('missing_period', data, enabled);
+            } else if (window.Utils && window.Utils.saveFilter) {
+                // Fallback: localStorage
+                window.Utils.saveFilter('missing_filter', data);
+            }
+        }
+
+        // [수정] 필터 설정 불러오기 함수 (DB 로드)
+        async function loadFilterSettings() {
+            let saved = null;
+
+            // DB에서 로드 (FilterService 사용)
+            if (window.filterService && window.filterService.initialized) {
+                const data = await window.filterService.loadSetting('missing_period');
+                if (data) {
+                    saved = data.settings;
+                    // enabled 값은 settings 내부의 useRangeFilter 등과 동기화됨을 가정하거나, 
+                    // 별도 로직이 필요하다면 여기서 처리. missing.html은 구조가 조금 다름.
+                }
+            }
+
+            // Fallback: localStorage
+            if (!saved && window.Utils && window.Utils.loadFilter) {
+                saved = window.Utils.loadFilter('missing_filter');
+            }
+
+            if (saved) {
+                // 토글 상태 복구
+                const rangeToggle = document.getElementById('rangeFilterToggle');
+                if (rangeToggle) {
+                    rangeToggle.checked = saved.useRangeFilter;
+                    if (typeof useRangeFilter !== 'undefined') useRangeFilter = saved.useRangeFilter;
+                }
+
+                const customToggle = document.getElementById('customFilterToggle');
+                if (customToggle) {
+                    customToggle.checked = saved.useCustomFilter;
+                    if (typeof useCustomFilter !== 'undefined') useCustomFilter = saved.useCustomFilter;
+                }
+
+                // 범위 값 복구
+                if (saved.ranges) {
+                    if (document.getElementById('range1Min')) document.getElementById('range1Min').value = saved.ranges.r1Min;
+                    if (document.getElementById('range1Max')) document.getElementById('range1Max').value = saved.ranges.r1Max;
+                    if (document.getElementById('range2Min')) document.getElementById('range2Min').value = saved.ranges.r2Min;
+                    if (document.getElementById('range2Max')) document.getElementById('range2Max').value = saved.ranges.r2Max;
+                    if (document.getElementById('range3Min')) document.getElementById('range3Min').value = saved.ranges.r3Min;
+                    if (document.getElementById('range3Max')) document.getElementById('range3Max').value = saved.ranges.r3Max;
+                    if (document.getElementById('range4Min')) document.getElementById('range4Min').value = saved.ranges.r4Min;
+                    if (document.getElementById('range4Max')) document.getElementById('range4Max').value = saved.ranges.r4Max;
+                }
+                return true;
+            }
+            return false;
+        }
+    </script>
+
+    <style>
+        /* 페이지 전용 스타일 */
+        /* AI 섹션 스타일 리뉴얼: 심플 & 모던 화이트 카드 */
+        .ai-section {
+            background-color: #FFFFFF;
+            border: 1px solid #E5E7EB;
+            border-radius: 1rem;
+        }
+
+        /* 번호별 출현통계 테이블 */
+        .stats-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            font-size: 11px;
+        }
+
+        .stats-table th {
+            background: #ffffff;
+            padding: 12px 4px;
+            text-align: center;
+            border-bottom: 2px solid #f1f5f9;
+            font-weight: 700;
+            color: #475569;
+            position: sticky;
+            top: 0;
+            z-index: 20;
+        }
+
+        .stats-table td {
+            padding: 4px 2px;
+            text-align: center;
+            border-bottom: 1px solid #f8fafc;
+            background: white;
+            font-size: 10px;
+            height: 28px;
+            vertical-align: middle;
+        }
+
+        .stats-table .round-col {
+            position: sticky;
+            left: 0;
+            background: #ffffff;
+            z-index: 15;
+            font-weight: 600;
+            color: #64748b;
+            min-width: 70px;
+            border-right: 1px solid #f1f5f9;
+        }
+
+        /* 마커 스타일 */
+        .marker {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 9px;
+        }
+
+        .marker-hit {
+            background: #1F2937;
+            color: white;
+        }
+
+        .marker-carry-0-5 {
+            background: #E64A19;
+            color: white;
+        }
+
+        .marker-carry-6-10 {
+            background: #4B5563;
+            color: white;
+        }
+
+        .marker-carry-11-15 {
+            background: #16A34A;
+            color: white;
+        }
+
+        .marker-carry-16-plus {
+            background: #1A6DFF;
+            color: white;
+        }
+
+        .cell-miss {
+            font-size: 9px;
+            color: #94a3b8;
+        }
+
+        .miss-high {
+            font-size: 9px;
+            color: #ef4444;
+            font-weight: 700;
+        }
+
+        /* 로또 번호 원형 */
+        .lotto-number {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 14px;
+            color: white;
+            margin: 2px;
+            cursor: grab;
+            user-select: none;
+        }
+
+        .lotto-number:active {
+            cursor: grabbing;
+        }
+
+        .lotto-number.dragging {
+            opacity: 0.5;
+        }
+
+        /* 미출현 기간별 색상 */
+        .miss-0-5 {
+            background: #E64A19;
+        }
+
+        .miss-6-10 {
+            background: #4B5563;
+        }
+
+        .miss-11-15 {
+            background: #16A34A;
+        }
+
+        .miss-16-plus {
+            background: #1A6DFF;
+        }
+
+        .winning-bg {
+            background: #1F2937;
+        }
+
+        /* 드롭존 */
+        .drop-zone {
+            min-height: 80px;
+            border: 2px dashed #D1D5DB;
+            border-radius: 8px;
+            padding: 12px;
+            transition: all 0.3s;
+        }
+
+        .drop-zone.drag-over {
+            border-color: #4F6AFF;
+            background-color: #EEF2FF;
+        }
+
+        .filter-number {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 14px;
+            color: white;
+            margin: 2px;
+            position: relative;
+            cursor: pointer;
+        }
+
+        /* 테이블 스타일 */
+        .pretty-table th {
+            background-color: #1e293b;
+            /* Slate-800 */
+            color: white;
+            font-weight: 600;
+            padding: 10px 4px;
+            font-size: 12px;
+            border-bottom: 2px solid #e2e8f0;
+            position: sticky;
+            top: 0;
+            z-index: 20;
+        }
+
+        .pretty-table td {
+            padding: 8px 4px;
+            text-align: center;
+            border-bottom: 1px solid #e2e8f0;
+            font-size: 12px;
+            color: #334155;
+            transition: background-color 0.2s;
+        }
+
+        .pretty-table tr:hover td {
+            background-color: #eff6ff;
+            /* Blue-50 */
+        }
+
+        .pretty-table .sticky-col {
+            position: sticky;
+            left: 0;
+            background-color: #f8fafc;
+            /* Slate-50 */
+            border-right: 2px solid #e2e8f0;
+            z-index: 10;
+            font-weight: 600;
+            color: #475569;
+            min-width: 80px;
+            /* Width increased */
+        }
+
+        /* 뱃지 스타일 */
+        .badge {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 9999px;
+            font-size: 10px;
+            font-weight: 700;
+        }
+
+        .badge-hot {
+            background-color: #fee2e2;
+            color: #ef4444;
+        }
+
+        .badge-cold {
+            background-color: #eff6ff;
+            color: #3b82f6;
+        }
+
+        .badge-neutral {
+            background-color: #f3f4f6;
+            color: #6b7280;
+        }
+
+        .filter-number:hover::after {
+            content: '×';
+            position: absolute;
+            top: -4px;
+            right: -4px;
+            width: 16px;
+            height: 16px;
+            background: #EF4444;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+        }
+
+        /* 토글 스위치 */
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 48px;
+            height: 24px;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 24px;
+        }
+
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+
+        input:checked+.toggle-slider {
+            background-color: #4F6AFF;
+        }
+
+        input:checked+.toggle-slider:before {
+            transform: translateX(24px);
+        }
+
+        /* 통계 카드 스타일 */
+        .stat-card {
+            transition: all 0.2s ease;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .stat-card.active {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            border-color: transparent;
+        }
+
+        /* 🔹 [수정됨] 행 하이라이트 스타일 (Standard Purple Theme) */
+        /* 흔들림 방지: 기본 상태에서 투명 보더 추가 */
+        #drawsList tr td:first-child {
+            border-left: 4px solid transparent;
+        }
+
+        .row-highlight td {
+            background-color: #F3E8FF !important;
+            /* purple-100 */
+        }
+
+        .row-highlight td:first-child {
+            border-left: 4px solid #7C3AED !important;
+            /* deep purple border */
+        }
+
+        /* 셀 하이라이트 스타일 (다크그레이 배경, 흰색 글씨, 원형) */
+        .cell-highlight-active {
+            background-color: #374151 !important;
+            /* Gray-700 */
+            color: white !important;
+            border-radius: 9999px;
+            width: 24px;
+            height: 24px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+        }
+
+        /* Custom Range Slider (Blue Track) */
+        input[type=range] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            background: transparent;
+            cursor: pointer;
+            height: 24px;
+            margin: 0;
+            padding: 0;
+        }
+
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 8px;
+            cursor: pointer;
+            background: linear-gradient(to right, #2563EB var(--value-percent, 0%), #E5E7EB var(--value-percent, 0%));
+            border-radius: 4px;
+            border: none;
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            height: 20px;
+            width: 20px;
+            border-radius: 50%;
+            background: #ffffff;
+            border: 2px solid #2563EB;
+            cursor: pointer;
+            -webkit-appearance: none;
+            margin-top: -6px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            transition: transform 0.1s ease;
+        }
+
+        input[type=range]:active::-webkit-slider-thumb {
+            transform: scale(1.1);
+            box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.2);
+        }
+
+        input[type=range]::-moz-range-track {
+            width: 100%;
+            height: 8px;
+            cursor: pointer;
+            background: #E5E7EB;
+            border-radius: 4px;
+            border: none;
+        }
+
+        input[type=range]::-moz-range-progress {
+            background-color: #2563EB;
+            height: 8px;
+            border-radius: 4px;
+        }
+
+        input[type=range]::-moz-range-thumb {
+            height: 20px;
+            width: 20px;
+            border: 2px solid #2563EB;
+            border-radius: 50%;
+            background: #ffffff;
+            cursor: pointer;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        input[type=range]::-ms-track {
+            width: 100%;
+            height: 8px;
+            cursor: pointer;
+            background: transparent;
+            border-color: transparent;
+            color: transparent;
+        }
+
+        input[type=range]::-ms-fill-lower {
+            background: #2563EB;
+            border-radius: 4px;
+        }
+
+        input[type=range]::-ms-fill-upper {
+            background: #E5E7EB;
+            border-radius: 4px;
+        }
+
+        input[type=range]::-ms-thumb {
+            margin-top: 1px;
+            height: 20px;
+            width: 20px;
+            border-radius: 50%;
+            background: #ffffff;
+            border: 2px solid #2563EB;
+            cursor: pointer;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+</head>
+
+<body class="bg-[#F9FAFB] font-sans antialiased">
+    <div class="flex flex-col h-screen w-full">
+        <div id="gnb-container"></div>
+
+        <div class="flex flex-1 overflow-hidden">
+            <aside class="w-56 bg-white border-r border-gray-200 overflow-y-auto custom-scrollbar flex-shrink-0"
+                id="lnb-container"></aside>
+
+            <main class="flex-1 overflow-y-auto p-8 custom-scrollbar">
+                <div class="max-w-7xl mx-auto space-y-6">
+                    <div>
+                        <h1 class="text-2xl font-bold text-gray-900 mb-2">미출현 그룹 분석</h1>
+                        <p class="text-sm text-gray-600">각 번호의 미출현 기간을 분석하여 통계적 회귀 가능성을 식별합니다</p>
+                    </div>
+
+                    <div class="ai-section p-8 pb-10 mb-6">
+                        <div class="flex items-center justify-between mb-6">
+                            <div class="flex items-center gap-2">
+                                <h3 class="text-2xl font-extrabold text-gray-900 tracking-tight">AI Insight</h3>
+                                <span id="aiTargetInfo" class="text-sm text-gray-500 font-medium"></span>
+                            </div>
+                            <!-- [Layout] Prompt Library: Top Right -->
+                            <button onclick="window.AIAnalysis.openPromptLibraryModal('missing_number', event)"
+                                class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors">
+                                <span class="material-symbols-outlined text-lg">library_books</span>
+                                프롬프트 라이브러리
+                            </button>
+                        </div>
+
+                        <div id="aiAnalysisContent" class="min-h-[100px] flex items-center justify-center">
+                            <div class="flex items-center gap-2 text-gray-500">
+                                <span class="material-symbols-outlined text-lg animate-spin">progress_activity</span>
+                                <span>AI가 미출현 번호 데이터를 분석하고 있습니다...</span>
+                            </div>
+                        </div>
+
+                        <div class="mt-6 border-t border-gray-100 pt-6">
+                            <div class="flex flex-col gap-3">
+                                <div class="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                                    <button onclick="openChatWithPrompt('다음 회차 추천 미출현 번호는?')"
+                                        class="px-3 py-1.5 text-xs font-medium bg-blue-50 text-blue-600 rounded-full hover:bg-blue-100 transition-colors whitespace-nowrap">
+                                        ✨ 추천 미출현수
+                                    </button>
+                                    <button onclick="openChatWithPrompt('장기 미출현(10회 이상) 번호 중 나올 가능성이 높은 것은?')"
+                                        class="px-3 py-1.5 text-xs font-medium bg-purple-50 text-purple-600 rounded-full hover:bg-purple-100 transition-colors whitespace-nowrap">
+                                        🧊 장기 미출수 부활?
+                                    </button>
+                                    <button onclick="openChatWithPrompt('최근 5회 이내 나온 번호(Hot) vs 안 나온 번호(Cold) 비율 추천해줘')"
+                                        class="px-3 py-1.5 text-xs font-medium bg-green-50 text-green-600 rounded-full hover:bg-green-100 transition-colors whitespace-nowrap">
+                                        ⚖️ 신구(Hot:Cold) 비율
+                                    </button>
+                                    <button onclick="openChatWithPrompt('가장 오랫동안 안 나온 최장기 미출수(Top 1)는 언제 나올까?')"
+                                        class="px-3 py-1.5 text-xs font-medium bg-red-50 text-red-600 rounded-full hover:bg-red-100 transition-colors whitespace-nowrap">
+                                        👑 최장기 미출수 공략
+                                    </button>
+                                    <button onclick="openChatWithPrompt('미출현 기간 5~10회 사이(보합세) 번호들의 당첨 확률은?')"
+                                        class="px-3 py-1.5 text-xs font-medium bg-orange-50 text-orange-600 rounded-full hover:bg-orange-100 transition-colors whitespace-nowrap">
+                                        🤔 보합 구간(5~10회)
+                                    </button>
+                                    <button onclick="openChatWithPrompt('특정 번호대(예: 30번대)가 통째로 미출현 중인가?')"
+                                        class="px-3 py-1.5 text-xs font-medium bg-indigo-50 text-indigo-600 rounded-full hover:bg-indigo-100 transition-colors whitespace-nowrap">
+                                        🏘️ 번호대별 미출현
+                                    </button>
+                                    <button onclick="openChatWithPrompt('미출현 번호들이 특정 구간(예: 10번대)에 쏠려 있나요?')"
+                                        class="px-3 py-1.5 text-xs font-medium bg-teal-50 text-teal-600 rounded-full hover:bg-teal-100 transition-colors whitespace-nowrap">
+                                        📉 미출현 쏠림 현상?
+                                    </button>
+                                    <button onclick="openChatWithPrompt('이번 회차에 절대 안 나올 것 같은 제외수는?')"
+                                        class="px-3 py-1.5 text-xs font-medium bg-gray-100 text-gray-600 rounded-full hover:bg-gray-200 transition-colors whitespace-nowrap">
+                                        🚫 제외수 추천
+                                    </button>
+                                    <button onclick="openChatWithPrompt('이월수(직전 당첨)와 장기 미출수 중 어디에 비중을 둘까요?')"
+                                        class="px-3 py-1.5 text-xs font-medium bg-cyan-50 text-cyan-600 rounded-full hover:bg-cyan-100 transition-colors whitespace-nowrap">
+                                        🔄 이월수 vs 미출수
+                                    </button>
+                                </div>
+                                <div id="nlp-main-input-container" class="relative">
+                                    <input type="text" id="aiUserPrompt"
+                                        class="w-full pl-4 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder-gray-400"
+                                        placeholder="미출현 번호에 대해 궁금한 점을 물어보세요..."
+                                        onkeyup="if(event.key === 'Enter') submitCustomAIAnalysis()">
+                                    <button onclick="openChatWithPrompt(document.getElementById('aiUserPrompt').value)"
+                                        class="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors">
+                                        <span class="material-symbols-outlined text-xl">send</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-xl border border-gray-200">
+                        <div class="p-6 border-b border-gray-200">
+                            <h3 class="text-lg font-bold text-gray-900">번호별 미출현 통계</h3>
+                            <p class="text-sm text-gray-500 mt-1">미출현 짧은 순으로 정렬 (최장기 미출현 <span id="maxMissRounds"
+                                    class="font-semibold"></span>회차까지 표시)</p>
+                        </div>
+                        <div class="overflow-x-auto custom-scrollbar" style="max-height: 600px;">
+                            <table class="stats-table" id="missStatsTable">
+                                <thead>
+                                    <tr id="missStatsHeader"></tr>
+                                </thead>
+                                <tbody id="missStatsBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-xl p-6 border border-gray-200">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-lg font-bold text-gray-900">미출현 그룹 현황 및 조합 필터</h3>
+                            <!-- [Layout] Filter Shortcut: Top Right -->
+                            <button onclick="alert('필터 페이지로 이동')"
+                                class="flex items-center gap-1.5 px-3 py-1.5 text-gray-600 text-sm font-medium hover:text-gray-900 transition-colors">
+                                <span class="material-symbols-outlined text-lg">open_in_new</span>
+                                필터 바로가기
+                            </button>
+                        </div>
+
+                        <div class="grid grid-cols-4 gap-4 mb-6">
+                            <div onclick="highlightStatCard(1)" id="statCard1"
+                                class="stat-card bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col items-center">
+                                <span class="text-xs font-semibold text-gray-500 mb-1">1~5회 (최근)</span>
+                                <span class="text-2xl font-bold" style="color: #E64A19;" id="cardCount1">-</span>
+                            </div>
+                            <div onclick="highlightStatCard(2)" id="statCard2"
+                                class="stat-card bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col items-center">
+                                <span class="text-xs font-semibold text-gray-500 mb-1">6~10회 (중간)</span>
+                                <span class="text-2xl font-bold" style="color: #4B5563;" id="cardCount2">-</span>
+                            </div>
+                            <div onclick="highlightStatCard(3)" id="statCard3"
+                                class="stat-card bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col items-center">
+                                <span class="text-xs font-semibold text-gray-500 mb-1">11~15회 (장기)</span>
+                                <span class="text-2xl font-bold" style="color: #16A34A;" id="cardCount3">-</span>
+                            </div>
+                            <div onclick="highlightStatCard(4)" id="statCard4"
+                                class="stat-card bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col items-center">
+                                <span class="text-xs font-semibold text-gray-500 mb-1">16회+ (극장기)</span>
+                                <span class="text-2xl font-bold" style="color: #1A6DFF;" id="cardCount4">-</span>
+                            </div>
+                        </div>
+
+                        <div class="overflow-x-auto custom-scrollbar">
+                            <table class="w-full border-collapse">
+                                <thead>
+                                    <tr class="bg-gray-50">
+                                        <th class="py-3 px-6 text-center text-xs font-semibold text-gray-600 border border-gray-200"
+                                            style="width: 120px;">미출현<br />기간</th>
+                                        <th class="py-3 px-8 text-center text-xs font-semibold border border-gray-200"
+                                            style="color: #E64A19; min-width: 200px;">1-5회<br />(최근 출현)</th>
+                                        <th class="py-3 px-6 text-center text-xs font-semibold border border-gray-200"
+                                            style="color: #4B5563;">6-10회<br />(중간 공백)</th>
+                                        <th class="py-3 px-6 text-center text-xs font-semibold border border-gray-200"
+                                            style="color: #16A34A;">11-15회<br />(장기 공백)</th>
+                                        <th class="py-3 px-6 text-center text-xs font-semibold border border-gray-200"
+                                            style="color: #1A6DFF;">16+회<br />(극장기 공백)</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="missGroupTableBody"></tbody>
+                                <tfoot>
+                                    <tr class="bg-gray-100">
+                                        <td
+                                            class="py-2 px-6 text-center text-xs font-semibold text-gray-600 border border-gray-200">
+                                            총 개수</td>
+                                        <td class="py-2 px-8 text-center text-sm font-bold border border-gray-200"
+                                            style="color: #E64A19;" id="count1Total">-</td>
+                                        <td class="py-2 px-6 text-center text-sm font-bold border border-gray-200"
+                                            style="color: #4B5563;" id="count2Total">-</td>
+                                        <td class="py-2 px-6 text-center text-sm font-bold border border-gray-200"
+                                            style="color: #16A34A;" id="count3Total">-</td>
+                                        <td class="py-2 px-6 text-center text-sm font-bold border border-gray-200"
+                                            style="color: #1A6DFF;" id="count4Total">-</td>
+                                    </tr>
+                                    <tr class="bg-gray-50">
+                                        <td
+                                            class="py-3 px-6 text-center text-sm font-semibold text-gray-600 border border-gray-200">
+                                            필터</td>
+                                        <td class="py-3 px-3 border border-gray-200">
+                                            <div class="flex items-center justify-center gap-2">
+                                                <input type="number" id="range1Min" min="0" max="6" value="0"
+                                                    class="px-2 py-1 text-sm border border-gray-300 rounded w-16 text-center"
+                                                    onchange="updateFilters()">
+                                                <span class="text-sm text-gray-500">~</span>
+                                                <input type="number" id="range1Max" min="0" max="6" value="6"
+                                                    class="px-2 py-1 text-sm border border-gray-300 rounded w-16 text-center"
+                                                    onchange="updateFilters()">
+                                            </div>
+                                        </td>
+                                        <td class="py-3 px-3 border border-gray-200">
+                                            <div class="flex items-center justify-center gap-2">
+                                                <input type="number" id="range2Min" min="0" max="6" value="0"
+                                                    class="px-2 py-1 text-sm border border-gray-300 rounded w-16 text-center"
+                                                    onchange="updateFilters()">
+                                                <span class="text-sm text-gray-500">~</span>
+                                                <input type="number" id="range2Max" min="0" max="6" value="6"
+                                                    class="px-2 py-1 text-sm border border-gray-300 rounded w-16 text-center"
+                                                    onchange="updateFilters()">
+                                            </div>
+                                        </td>
+                                        <td class="py-3 px-3 border border-gray-200">
+                                            <div class="flex items-center justify-center gap-2">
+                                                <input type="number" id="range3Min" min="0" max="6" value="0"
+                                                    class="px-2 py-1 text-sm border border-gray-300 rounded w-16 text-center"
+                                                    onchange="updateFilters()">
+                                                <span class="text-sm text-gray-500">~</span>
+                                                <input type="number" id="range3Max" min="0" max="6" value="6"
+                                                    class="px-2 py-1 text-sm border border-gray-300 rounded w-16 text-center"
+                                                    onchange="updateFilters()">
+                                            </div>
+                                        </td>
+                                        <td class="py-3 px-3 border border-gray-200">
+                                            <div class="flex items-center justify-center gap-2">
+                                                <input type="number" id="range4Min" min="0" max="6" value="0"
+                                                    class="px-2 py-1 text-sm border border-gray-300 rounded w-16 text-center"
+                                                    onchange="updateFilters()">
+                                                <span class="text-sm text-gray-500">~</span>
+                                                <input type="number" id="range4Max" min="0" max="6" value="6"
+                                                    class="px-2 py-1 text-sm border border-gray-300 rounded w-16 text-center"
+                                                    onchange="updateFilters()">
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+
+                        <div class="flex items-center justify-between mt-4">
+                            <!-- [Layout] Apply Filter: Bottom Left -->
+                            <!-- [Layout] Recent 10 Filters: Bottom Left (Swapped) -->
+                            <button id="recent10FilterBtn" onclick="applyRecent10Filters()" style="min-width: 210px;"
+                                class="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-lg shadow-md hover:shadow-lg transition-all active:scale-95 text-sm font-bold">
+                                <span class="material-symbols-outlined text-[18px]">auto_fix_high</span>
+                                <span id="recent10FilterText">최근 10회차 필터 적용</span>
+                            </button>
+
+                            <!-- [Layout] Apply Filter: Bottom Right (Swapped) -->
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <span class="text-sm text-gray-600 font-bold">필터 적용</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="rangeFilterToggle" checked
+                                        onchange="toggleRangeFilter()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-xl p-6 border border-gray-200">
+                        <div class="mb-6">
+                            <div class="flex items-center justify-between mb-2">
+                                <h3 class="text-lg font-bold text-gray-900">회차별 미출현 번호</h3>
+                                <select id="roundSelect"
+                                    class="w-48 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                    onchange="selectRound(this.value)">
+                                </select>
+                            </div>
+                            <div id="selectedRoundMiss" class="mt-4"></div>
+                        </div>
+
+                        <div class="border-t border-gray-200 pt-6">
+                            <div id="customFilterContainer" class="transition-all duration-300">
+                                <div class="flex items-center justify-between mb-4">
+                                    <h4 class="text-sm font-semibold text-gray-700">커스텀 필터 (드래그 앤 드롭)</h4>
+                                    <button onclick="addNewFilter()"
+                                        class="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-blue-600 hover:text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors">
+                                        <span class="material-symbols-outlined text-lg">add</span>
+                                        필터 추가
+                                    </button>
+                                </div>
+                                <div id="filtersList" class="space-y-3"></div>
+                            </div>
+
+                            <div class="flex justify-end items-center gap-4 mt-4">
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <span class="text-sm text-gray-600 font-bold">필터 적용</span>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="customFilterToggle" onchange="toggleCustomFilter()">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </label>
+
+                                <!-- Prompt Library Button Removed -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mt-8">
+                        <div class="flex items-center justify-between mb-4 px-2">
+                            <div>
+                                <h3 class="text-lg font-bold text-gray-900">회차별 당첨번호 및 미출현</h3>
+                                <p class="text-sm text-gray-600 mt-1">
+                                    최근 <span id="displayedCount_bottom" class="font-bold text-blue-600">100</span>회차 표시
+                                </p>
+                            </div>
+                        </div>
+
+                        <div
+                            class="flex items-center gap-4 bg-white p-4 rounded-t-xl border border-gray-200 border-b-0 shadow-sm">
+                            <span class="text-sm text-gray-600 whitespace-nowrap">표시 범위:</span>
+                            <div class="flex-1 relative h-6 flex items-center">
+                                <input type="range" id="displayRange" min="10" max="1203" value="100" class="w-full"
+                                    oninput="updateDisplayRange(this.value)">
+                            </div>
+                            <span class="text-sm font-bold text-blue-600 whitespace-nowrap" id="rangeLabel">100회</span>
+                        </div>
+
+                        <div class="overflow-x-auto custom-scrollbar bg-white rounded-b-xl border border-gray-200 shadow-sm overflow-hidden"
+                            style="max-height: 600px;">
+                            <table class="w-full text-center">
+                                <thead class="sticky top-0 z-30">
+                                    <tr class="bg-[#1e293b] text-white">
+                                        <th rowspan="2"
+                                            class="py-3 px-4 text-xs font-semibold uppercase sticky left-0 bg-[#1e293b] z-40 w-20 text-center border-r border-[#334155] border-b border-[#334155]">
+                                            회차</th>
+                                        <th rowspan="2"
+                                            class="py-3 px-4 text-xs font-semibold uppercase sticky bg-[#1e293b] z-40 border-r border-[#334155] border-b border-[#334155]"
+                                            style="left: 80px; min-width: 380px;">당첨번호 (미출현 회수)</th>
+                                        <th colspan="4"
+                                            class="py-2 px-4 text-center text-xs font-semibold border-b border-[#334155]">
+                                            미출현 번호 개수</th>
+                                        <th colspan="4"
+                                            class="py-2 px-4 text-center text-xs font-semibold border-b border-l border-[#334155]">
+                                            당첨 개수</th>
+                                    </tr>
+                                    <tr class="bg-[#1e293b] text-white">
+                                        <th class="py-2 px-3 text-center text-xs font-semibold border-b border-r border-[#334155] w-20"
+                                            style="color: #FF8A65;">1-5회</th>
+                                        <th class="py-2 px-3 text-center text-xs font-semibold border-b border-r border-[#334155] w-20"
+                                            style="color: #9CA3AF;">6-10회</th>
+                                        <th class="py-2 px-3 text-center text-xs font-semibold border-b border-r border-[#334155] w-20"
+                                            style="color: #4ADE80;">11-15회</th>
+                                        <th class="py-2 px-3 text-center text-xs font-semibold border-b border-r border-[#334155] w-20"
+                                            style="color: #60A5FA;">16+회</th>
+
+                                        <th class="py-2 px-3 text-center text-xs font-semibold border-b border-r border-[#334155] w-20"
+                                            style="color: #FF8A65;">1-5회</th>
+                                        <th class="py-2 px-3 text-center text-xs font-semibold border-b border-r border-[#334155] w-20"
+                                            style="color: #9CA3AF;">6-10회</th>
+                                        <th class="py-2 px-3 text-center text-xs font-semibold border-b border-r border-[#334155] w-20"
+                                            style="color: #4ADE80;">11-15회</th>
+                                        <th class="py-2 px-3 text-center text-xs font-semibold border-b border-[#334155] w-20"
+                                            style="color: #60A5FA;">16+회</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="drawsList" class="divide-y divide-gray-100"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script>
+        // 전역 상태 변수
+        let allData = [];
+        let featuresMap = new Map(); // 🔥 DB 캐시 추가
+        let useRangeFilter = true;
+        let useCustomFilter = false;
+
+        let displayLimit = 100;
+        let selectedRound = 1204;
+        let currentMiss = {};
+        let missHistory = {};
+        let hitCounts = new Array(46).fill(0);
+        let customFilters = [];
+        let filterIdCounter = 1;
+        let maxMissCount = 0;
+        let selectedStatGroup = null; // 선택된 통계 그룹 (1, 2, 3, 4)
+
+        // 🔥 추가된 상태: 셀 하이라이트 (컬럼 타입, 값)
+        let selectedCellHighlight = { type: null, val: null };
+
+        async function loadData() {
+            try {
+                if (!window.supabaseClient) {
+                    if (typeof supabase !== 'undefined') {
+                        const URL = 'https://dkcflmyoscudawleglzb.supabase.co';
+                        const KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRrY2ZsbXlvc2N1ZGF3bGVnbHpiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc1NDQ4OTAsImV4cCI6MjA4MzEyMDg5MH0.haAvbpScvMJv1uqH_tk-0fUlJNCpHnlWBtYzX6YFweo';
+                        window.supabaseClient = supabase.createClient(URL, KEY);
+                    } else {
+                        throw new Error('Supabase SDK 스크립트가 로드되지 않았습니다.');
+                    }
+                }
+
+                const client = window.supabaseClient;
+
+                // 🔥 DB 병렬 조회: 당첨번호 + 미출현 데이터(DB)
+                const [drawsResult, featuresResult] = await Promise.all([
+                    client.from('lotto_draws')
+                        .select('*')
+                        .order('round', { ascending: false })
+                        .range(0, 5000),
+                    client.from('number_features_by_round')
+                        .select('round, number, missing_count, last_appearance_round')
+                        .range(0, 60000)  // 충분한 범위 설정
+                ]);
+
+                // FilterService 초기화 (DB 필터 저장용)
+                if (window.initFilterService) {
+                    await window.initFilterService();
+                }
+
+                if (drawsResult.error) throw drawsResult.error;
+                if (featuresResult.error) console.warn('미출현 DB 로드 실패 (Fallback 사용):', featuresResult.error);
+
+                const data = drawsResult.data;
+                if (!data || data.length === 0) {
+                    document.getElementById('drawsList').innerHTML = '<tr><td colspan="10" class="p-10 text-center">데이터가 없습니다.</td></tr>';
+                    return;
+                }
+
+                // 🔥 DB 데이터를 Map으로 변환
+                featuresMap = new Map();
+                if (featuresResult.data && featuresResult.data.length > 0) {
+                    featuresResult.data.forEach(row => {
+                        if (!featuresMap.has(row.round)) {
+                            featuresMap.set(row.round, {});
+                        }
+                        featuresMap.get(row.round)[row.number] = {
+                            missing_count: row.missing_count,
+                            last_appearance_round: row.last_appearance_round
+                        };
+                    });
+                    console.log(`✅ 미출현 DB 데이터 로드: ${featuresResult.data.length}개`);
+                }
+
+                allData = data;
+                if (allData.length > 0) {
+                    const latestRound = allData[0].round;
+                    selectedRound = latestRound + 1;
+                }
+
+                calculateMissData();
+                calculateHitCounts();
+                populateRoundSelect();
+                renderMissStatsTable();
+
+                updateAnalysis();
+                refreshAIAnalysis();
+
+                renderMissGroupTable();
+
+                // [수정됨] 저장된 필터 로드 시도, 없으면 기본값(최근 10회 기준) 적용
+                // [수정됨] 저장된 필터 로드 시도, 없으면 기본값(최근 10회 기준) 적용
+                if (!await loadFilterSettings()) {
+                    applyRecent10Stats();
+                }
+
+                updateFilterMaxValues();
+                renderDrawsList();
+
+                const displaySlider = document.getElementById('displayRange');
+                displaySlider.max = allData.length;
+                updateDisplayRange(displayLimit);
+
+                selectRound(selectedRound);
+
+                const savedLatestRound = localStorage.getItem('latestLottoRound');
+                if (allData.length > 0) {
+                    const currentLatest = allData[0].round;
+                    if (savedLatestRound && parseInt(savedLatestRound) < currentLatest) {
+                        localStorage.removeItem('missGroupFilters');
+                        localStorage.removeItem('missGroupFilterCounter');
+                        customFilters = [];
+                        filterIdCounter = 1;
+                    } else {
+                        loadSavedFilters();
+                    }
+                    localStorage.setItem('latestLottoRound', currentLatest.toString());
+                }
+
+                renderFiltersList();
+
+                // [수정됨] 저장된 필터 로드로 인해 불필요할 수 있으나 안전장치로 유지
+                document.getElementById('customFilterToggle').checked = useCustomFilter;
+
+            } catch (err) {
+                console.error('데이터 로드 실패:', err);
+                document.getElementById('drawsList').innerHTML = `<tr><td colspan="10" class="p-10 text-center text-red-500">데이터 로드 실패<br>${err.message}</td></tr>`;
+            }
+        }
+
+        function updateFilters() {
+            saveFilterSettings(); // [추가됨] 변경사항 저장
+            if (useRangeFilter) renderDrawsList();
+        }
+
+        function toggleRangeFilter() {
+            const toggle = document.getElementById('rangeFilterToggle');
+            useRangeFilter = toggle.checked;
+            saveFilterSettings(); // [추가됨] 변경사항 저장
+            renderDrawsList();
+        }
+
+        function toggleCustomFilter() {
+            const toggle = document.getElementById('customFilterToggle');
+            useCustomFilter = toggle.checked;
+            saveFilterSettings(); // [추가됨] 변경사항 저장
+            renderDrawsList();
+        }
+
+        // --- 통계 카드 하이라이트 기능 ---
+        function highlightStatCard(range) {
+            // 이미 선택된 것을 다시 누르면 해제
+            if (selectedStatGroup === range) {
+                selectedStatGroup = null;
+            } else {
+                selectedStatGroup = range;
+                // 선택 시 해당 그룹 번호들을 필터에 추가
+                addGroupToFilter(range);
+            }
+            updateStatCardStyles();
+        }
+
+        function updateStatCardStyles() {
+            const ranges = [
+                { id: 1, color: '#E64A19' },
+                { id: 2, color: '#4B5563' },
+                { id: 3, color: '#16A34A' },
+                { id: 4, color: '#1A6DFF' }
+            ];
+
+            ranges.forEach(item => {
+                const card = document.getElementById(`statCard${item.id}`);
+                const countSpan = document.getElementById(`cardCount${item.id}`);
+                const titleSpan = card.querySelector('span:first-child');
+
+                if (selectedStatGroup === item.id) {
+                    // 활성화 스타일
+                    card.classList.add('active');
+                    card.style.backgroundColor = item.color;
+                    countSpan.style.color = 'white';
+                    titleSpan.classList.remove('text-gray-500');
+                    titleSpan.classList.add('text-white', 'opacity-90');
+                } else {
+                    // 비활성화(기본) 스타일 복구
+                    card.classList.remove('active');
+                    card.style.backgroundColor = 'white';
+                    countSpan.style.color = item.color;
+                    titleSpan.classList.remove('text-white', 'opacity-90');
+                    titleSpan.classList.add('text-gray-500');
+                }
+            });
+        }
+
+        // ... 기존 함수들 ...
+
+        function applyRecent10Stats() {
+            if (allData.length < 10) return;
+            const recent10 = allData.slice(0, 10);
+            const stats = { 1: { min: 6, max: 0 }, 2: { min: 6, max: 0 }, 3: { min: 6, max: 0 }, 4: { min: 6, max: 0 } };
+
+            recent10.forEach(draw => {
+                const miss = missHistory[draw.round];
+                if (!miss) return;
+                const counts = { 1: 0, 2: 0, 3: 0, 4: 0 };
+                draw.numbers.forEach(num => {
+                    const range = getMissRange(miss[num]);
+                    counts[range]++;
+                });
+                for (let i = 1; i <= 4; i++) {
+                    stats[i].min = Math.min(stats[i].min, counts[i]);
+                    stats[i].max = Math.max(stats[i].max, counts[i]);
+                }
+            });
+
+            for (let i = 1; i <= 4; i++) {
+                document.getElementById(`range${i}Min`).value = stats[i].min;
+                document.getElementById(`range${i}Max`).value = stats[i].max;
+            }
+        }
+
+        function calculateHitCounts() {
+            allData.forEach(draw => {
+                draw.numbers.forEach(num => {
+                    hitCounts[num]++;
+                });
+            });
+        }
+
+        function calculateMissData() {
+            // 🔥 DB 데이터 우선 사용 (최적화)
+            if (featuresMap.size > 0) {
+                missHistory = {};
+                maxMissCount = 0;
+
+                // DB에서 missHistory 생성 (매우 빠름)
+                for (const [round, features] of featuresMap) {
+                    missHistory[round] = {};
+                    for (let num = 1; num <= 45; num++) {
+                        const miss = features[num]?.missing_count || 1;
+                        missHistory[round][num] = miss;
+                        maxMissCount = Math.max(maxMissCount, miss);
+                    }
+                }
+
+                // currentMiss 설정 (가장 최신 회차 데이터)
+                if (allData.length > 0) {
+                    const latestRound = allData[0].round + 1;
+                    // 최신 데이터가 있다면 매핑, 없다면 빈 객체
+                    currentMiss = missHistory[latestRound] || {};
+                }
+
+                console.log(`✅ 미출현 히스토리 생성 완료 (DB 기반)`);
+                return;
+            }
+
+            // ⚠️ Fallback: 기존 계산 방식 (DB 데이터 없을 시 안전장치)
+            console.log(`⚠️ DB 데이터 없음 - Fallback 계산 사용`);
+            const missCount = {};
+            for (let i = 1; i <= 45; i++) { missCount[i] = 1; }
+
+            if (!allData || allData.length === 0) return;
+            const sortedData = [...allData].sort((a, b) => a.round - b.round);
+            if (sortedData.length === 0) return;
+            const latestRoundInDB = sortedData[sortedData.length - 1].round;
+
+            sortedData.forEach(draw => {
+                missHistory[draw.round] = { ...missCount };
+                for (let i = 1; i <= 45; i++) {
+                    if (draw.numbers.includes(i)) { missCount[i] = 1; }
+                    else { missCount[i]++; }
+                }
+            });
+            missHistory[latestRoundInDB + 1] = { ...missCount };
+            currentMiss = { ...missCount };
+            maxMissCount = Math.max(...Object.values(missCount));
+        }
+
+        function renderMissStatsTable() {
+            const displayRounds = Math.max(maxMissCount, 20);
+            const displayData = allData.slice(0, displayRounds);
+            const nextRound = allData[0].round + 1;
+            const latestMiss = missHistory[nextRound] || currentMiss;
+
+            document.getElementById('maxMissRounds').textContent = displayRounds;
+
+            // 정렬 기준을 위한 배열
+            const numberOrder = Array.from({
+                length: 45
+            }, (e, i) => i + 1);
+            numberOrder.sort((a, b) => latestMiss[a] - latestMiss[b]);
+
+            // 최근 출현 빈도 계산
+            const recentHits = {
+                5: {},
+                10: {},
+                15: {},
+                20: {}
+            };
+            for (let num = 1; num <= 45; num++) {
+                recentHits[5][num] = 0;
+                recentHits[10][num] = 0;
+                recentHits[15][num] = 0;
+                recentHits[20][num] = 0;
+            }
+
+            allData.slice(0, 20).forEach((draw, idx) => {
+                draw.numbers.forEach(num => {
+                    if (idx < 5) recentHits[5][num]++;
+                    if (idx < 10) recentHits[10][num]++;
+                    if (idx < 15) recentHits[15][num]++;
+                    if (idx < 20) recentHits[20][num]++;
+                });
+            });
+
+            // 테이블 클래스 업데이트
+            const tableEl = document.getElementById('missStatsTable');
+            tableEl.className = 'pretty-table w-full border-collapse';
+
+            const thead = document.getElementById('missStatsHeader');
+            let headerHTML = '<th class="sticky-col py-3 px-4 bg-slate-800 text-white shadow-md z-30">회차</th>';
+            numberOrder.forEach(num => {
+                headerHTML += `<th class="py-3 px-1 bg-slate-800 text-white font-bold border-b border-slate-600">${num}</th>`;
+            });
+            thead.innerHTML = headerHTML;
+
+            const tbody = document.getElementById('missStatsBody');
+            let bodyHTML = '';
+
+            // 요약 행 스타일
+            const summaryRowClass = "bg-slate-50 font-semibold text-xs border-b border-slate-200";
+
+            // H/N/C Row
+            bodyHTML += `<tr class="${summaryRowClass}"><td class="sticky-col py-3 text-slate-600 shadow-sm text-center">상태</td>`;
+            numberOrder.forEach((num) => {
+                const count = recentHits[10][num];
+                let badgeClass = 'badge-neutral';
+                let label = 'N';
+
+                if (count >= 3) {
+                    label = 'H';
+                    badgeClass = 'badge-hot';
+                } else if (count == 0) {
+                    label = 'C';
+                    badgeClass = 'badge-cold';
+                }
+
+                bodyHTML += `<td><span class="badge ${badgeClass}">${label}</span></td>`;
+            });
+            bodyHTML += '</tr>';
+
+            // 최근 빈도 Rows
+            const ranges = [{
+                r: 5,
+                l: '최근5'
+            }, {
+                r: 10,
+                l: '최근10'
+            }, {
+                r: 15,
+                l: '최근15'
+            }]; // 20은 생략하여 간소화
+            ranges.forEach(item => {
+                bodyHTML += `<tr class="${summaryRowClass}"><td class="sticky-col py-2 text-slate-500 text-xs shadow-sm text-center">${item.l}</td>`;
+                numberOrder.forEach((num) => {
+                    const count = recentHits[item.r][num];
+                    let textColor = 'text-gray-400';
+                    if (count >= 2) textColor = 'text-slate-800 font-bold';
+                    if (count >= 4) textColor = 'text-red-500 font-extrabold';
+                    bodyHTML += `<td class="${textColor}">${count}</td>`;
+                });
+                bodyHTML += '</tr>';
+            });
+
+            // 데이터 행 렌더링
+            displayData.forEach((draw, index) => {
+                const prevDraw = allData[index + 1];
+                const prevNumbers = prevDraw ? prevDraw.numbers : [];
+
+                bodyHTML += `<tr class="hover:bg-blue-50 transition-colors">`;
+                bodyHTML += `<td class="sticky-col py-2 font-mono text-slate-600 font-bold shadow-sm text-center">${draw.round}회</td>`;
+
+                numberOrder.forEach(num => {
+                    if (draw.numbers.includes(num)) {
+                        let streak = 1;
+                        // Calculate streak by looking at previous rounds
+                        let tempIdx = index + 1;
+                        while (tempIdx < allData.length) {
+                            if (allData[tempIdx].numbers.includes(num)) {
+                                streak++;
+                                tempIdx++;
+                            } else {
+                                break;
+                            }
+                        }
+
+                        let markerHtml = '';
+                        // 유저 요청 스타일 적용
+                        // 1: Blue 당, 2: Red 연, 3: Purple 삼, 4+: Pink 사
+                        if (streak >= 4) {
+                            markerHtml = `<div class="w-6 h-6 rounded-full bg-pink-500 flex items-center justify-center text-white text-[10px] font-bold shadow-sm mx-auto">사</div>`;
+                        } else if (streak === 3) {
+                            markerHtml = `<div class="w-6 h-6 rounded-full bg-purple-500 flex items-center justify-center text-white text-[10px] font-bold shadow-sm mx-auto">삼</div>`;
+                        } else if (streak === 2) {
+                            markerHtml = `<div class="w-6 h-6 rounded-full bg-red-500 flex items-center justify-center text-white text-[10px] font-bold shadow-sm mx-auto">연</div>`;
+                        } else {
+                            // 일반 당첨 (1회)
+                            markerHtml = `<div class="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center text-white text-[10px] font-bold shadow-sm mx-auto">당</div>`;
+                        }
+                        bodyHTML += `<td class="p-1">${markerHtml}</td>`;
+                    } else {
+                        const missCount = missHistory[draw.round][num];
+                        // 히트맵 컬러 계산 (미출현 높을수록 붉은색)
+                        let bgClass = '';
+                        let textClass = 'text-gray-400';
+
+                        if (missCount >= 15) {
+                            bgClass = 'bg-red-100';
+                            textClass = 'text-red-600 font-bold';
+                        } else if (missCount >= 10) {
+                            bgClass = 'bg-orange-50';
+                            textClass = 'text-orange-500 font-semibold';
+                        } else if (missCount >= 5) {
+                            textClass = 'text-slate-500';
+                        }
+
+                        bodyHTML += `<td class="${bgClass} p-1"><span class="${textClass} text-xs">${missCount}</span></td>`;
+                    }
+                });
+                bodyHTML += '</tr>';
+            });
+
+            tbody.innerHTML = bodyHTML;
+        }
+
+        function getMissClass(missCount) {
+            if (missCount <= 5) return 'miss-0-5';
+            if (missCount <= 10) return 'miss-6-10';
+            if (missCount <= 15) return 'miss-11-15';
+            return 'miss-16-plus';
+        }
+        function getCarryClass(missCount) {
+            if (missCount <= 5) return 'marker-carry-0-5';
+            if (missCount <= 10) return 'marker-carry-6-10';
+            if (missCount <= 15) return 'marker-carry-11-15';
+            return 'marker-carry-16-plus';
+        }
+        function getMissRange(missCount) {
+            if (missCount <= 5) return 1;
+            if (missCount <= 10) return 2;
+            if (missCount <= 15) return 3;
+            return 4;
+        }
+
+        function populateRoundSelect() {
+            const select = document.getElementById('roundSelect');
+            if (allData.length === 0) return;
+            const latestRound = allData[0].round;
+            const nextRound = latestRound + 1;
+            let options = `<option value="${nextRound}">${nextRound}회</option>`;
+            options += allData.map(d => `<option value="${d.round}">${d.round}회</option>`).join('');
+            select.innerHTML = options;
+            select.value = selectedRound;
+        }
+
+        function selectRound(round) {
+            selectedRound = parseInt(round);
+            updateSelectedRoundDisplay();
+        }
+
+        function dragStart(event, number) {
+            event.dataTransfer.setData('number', number);
+            event.target.classList.add('dragging');
+        }
+        function dragEnd(event) { event.target.classList.remove('dragging'); }
+        function allowDrop(event) { event.preventDefault(); event.currentTarget.classList.add('drag-over'); }
+        function dragLeave(event) { event.currentTarget.classList.remove('drag-over'); }
+
+        function dropNumber(event, filterId) {
+            event.preventDefault();
+            event.currentTarget.classList.remove('drag-over');
+            const number = parseInt(event.dataTransfer.getData('number'));
+            const filter = customFilters.find(f => f.id === filterId);
+
+            if (filter) {
+                const isUsedInOtherFilter = customFilters.some(f => f.id !== filterId && f.numbers.includes(number));
+                if (isUsedInOtherFilter) return;
+
+                const uniqueNumbers = new Set(filter.numbers);
+                uniqueNumbers.add(number);
+                filter.numbers = Array.from(uniqueNumbers).sort((a, b) => a - b);
+                if (filter.maxCount > 6) filter.maxCount = 6;
+                renderFiltersList();
+            }
+        }
+
+        function removeNumberFromFilter(filterId, number) {
+            const filter = customFilters.find(f => f.id === filterId);
+            if (filter) {
+                filter.numbers = filter.numbers.filter(n => n !== number);
+                renderFiltersList();
+            }
+        }
+
+        function addNewFilter() {
+            customFilters.push({
+                id: filterIdCounter++,
+                name: `미출현그룹${customFilters.length + 1}`,
+                numbers: [],
+                enabled: false,
+                minCount: 0,
+                maxCount: 0
+            });
+            renderFiltersList();
+        }
+
+        function updateFilterMinMax(filterId, type, value) {
+            const filter = customFilters.find(f => f.id === filterId);
+            if (filter) {
+                const numValue = parseInt(value) || 0;
+                const maxLimit = 6;
+                if (type === 'min') filter.minCount = Math.max(0, Math.min(maxLimit, numValue));
+                else filter.maxCount = Math.max(0, Math.min(maxLimit, numValue));
+            }
+        }
+
+        function toggleFilter(filterId) {
+            const filter = customFilters.find(f => f.id === filterId);
+            if (filter) filter.enabled = !filter.enabled;
+        }
+
+        function updateFilterName(filterId, newName) {
+            const filter = customFilters.find(f => f.id === filterId);
+            if (filter) filter.name = newName;
+        }
+
+        function deleteFilter(filterId) {
+            customFilters = customFilters.filter(f => f.id !== filterId);
+            renderFiltersList();
+        }
+
+        function saveFilters() {
+            customFilters.forEach(filter => {
+                filter.numbers = [...new Set(filter.numbers)].sort((a, b) => a - b);
+            });
+            localStorage.setItem('missGroupFilters', JSON.stringify(customFilters));
+            localStorage.setItem('missGroupFilterCounter', filterIdCounter.toString());
+        }
+
+        function loadSavedFilters() {
+            const saved = localStorage.getItem('missGroupFilters');
+            const savedCounter = localStorage.getItem('missGroupFilterCounter');
+            if (saved) {
+                customFilters = JSON.parse(saved);
+                customFilters.forEach(filter => {
+                    filter.numbers = [...new Set(filter.numbers)].sort((a, b) => a - b);
+                });
+            }
+            if (savedCounter) filterIdCounter = parseInt(savedCounter);
+            renderFiltersList();
+        }
+
+        function addToActiveFilter(number) {
+            const num = parseInt(number, 10);
+            if (isNaN(num)) return;
+            if (customFilters.length === 0) addNewFilter();
+
+            const activeFilter = customFilters[customFilters.length - 1];
+
+            if (activeFilter) {
+                const isUsedInOtherFilter = customFilters.some(filter =>
+                    filter.id !== activeFilter.id && filter.numbers.includes(num)
+                );
+                if (isUsedInOtherFilter) return;
+
+                const uniqueNumbers = new Set(activeFilter.numbers);
+                uniqueNumbers.add(num);
+                activeFilter.numbers = Array.from(uniqueNumbers).sort((a, b) => a - b);
+                if (activeFilter.maxCount > 6) activeFilter.maxCount = 6;
+                renderFiltersList();
+            }
+        }
+
+        function addGroupToFilter(range) {
+            if (customFilters.length === 0) addNewFilter();
+
+            const miss = missHistory[selectedRound] || currentMiss;
+            const activeFilter = customFilters[customFilters.length - 1];
+
+            if (activeFilter) {
+                const usedNumbers = new Set();
+                customFilters.forEach(filter => {
+                    if (filter.id !== activeFilter.id) {
+                        filter.numbers.forEach(num => usedNumbers.add(num));
+                    }
+                });
+
+                const uniqueNumbers = new Set(activeFilter.numbers);
+                let added = false;
+                for (let num = 1; num <= 45; num++) {
+                    if (getMissRange(miss[num]) === range && !usedNumbers.has(num)) {
+                        uniqueNumbers.add(num);
+                        added = true;
+                    }
+                }
+
+                if (added) {
+                    activeFilter.numbers = Array.from(uniqueNumbers).sort((a, b) => a - b);
+                    if (activeFilter.maxCount > 6) activeFilter.maxCount = 6;
+                    renderFiltersList();
+                }
+            }
+        }
+
+        function renderFiltersList() {
+            const container = document.getElementById('filtersList');
+            if (customFilters.length === 0) {
+                container.innerHTML = '<p class="text-sm text-gray-400 text-center py-4">+ 버튼을 눌러 필터를 추가하세요</p>';
+                return;
+            }
+            const miss = missHistory[selectedRound] || currentMiss;
+
+            let html = '';
+            customFilters.forEach(filter => {
+                const displayNumbers = [...new Set(filter.numbers)].sort((a, b) => a - b);
+                html += `
+                    <div class="border border-gray-200 rounded-lg p-4">
+                        <div class="flex items-center justify-between mb-3">
+                            <div class="flex items-center gap-2 flex-1 flex-wrap">
+                                <input type="checkbox" ${filter.enabled ? 'checked' : ''} onchange="toggleFilter(${filter.id}); renderFiltersList();" class="w-4 h-4 text-blue-600 rounded flex-shrink-0">
+                                <input type="text" value="${filter.name}" onchange="updateFilterName(${filter.id}, this.value)" class="px-2 py-1 text-sm font-semibold border border-gray-300 rounded" style="width: 110px;">
+                                <div class="flex items-center gap-1 text-xs">
+                                    <span class="text-gray-500">구간:</span>
+                                    <input type="number" min="0" max="6" value="${filter.minCount || 0}" onchange="updateFilterMinMax(${filter.id}, 'min', this.value); renderFiltersList();" class="px-1 py-0.5 text-xs border border-gray-300 rounded w-10 text-center">
+                                    <span class="text-gray-400">~</span>
+                                    <input type="number" min="0" max="15" value="${filter.maxCount === undefined ? 6 : filter.maxCount}" onchange="updateFilterMinMax(${filter.id}, 'max', this.value); renderFiltersList();" class="px-1 py-0.5 text-xs border border-gray-300 rounded w-10 text-center">
+                                </div>
+                                <button onclick="saveFilters(); alert('필터가 저장되었습니다')" class="p-1 text-blue-600 hover:text-blue-700 transition-colors" title="저장">
+                                    <span class="material-symbols-outlined text-lg">save</span>
+                                </button>
+                                <button onclick="deleteFilter(${filter.id})" class="p-1 text-red-500 hover:text-red-700 transition-colors" title="삭제">
+                                    <span class="material-symbols-outlined text-lg">delete</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="drop-zone ${filter.enabled ? '' : 'opacity-50'}" ondrop="dropNumber(event, ${filter.id})" ondragover="allowDrop(event)" ondragleave="dragLeave(event)">
+                            ${displayNumbers.length === 0
+                        ? '<p class="text-sm text-gray-400 text-center">번호를 드래그하거나 더블클릭하여 추가하세요</p>'
+                        : displayNumbers.map(n => {
+                            const missCount = miss[n];
+                            const className = getMissClass(missCount);
+                            return `<span class="filter-number ${className}" onclick="removeNumberFromFilter(${filter.id}, ${n})">${n}</span>`;
+                        }).join('')
+                    }
+                        </div>
+                    </div>
+                `;
+            });
+            container.innerHTML = html;
+        }
+
+        function updateSelectedRoundDisplay() {
+            const miss = missHistory[selectedRound];
+            if (!miss) return;
+
+            const latestRoundInDB = allData[0].round;
+            const isPast = selectedRound <= latestRoundInDB;
+            const isDraggable = !isPast;
+
+            const currentDraw = isPast ? allData.find(d => d.round === selectedRound) : null;
+            const groups = { 1: [], 2: [], 3: [], 4: [] };
+
+            for (let num = 1; num <= 45; num++) {
+                const range = getMissRange(miss[num]);
+                groups[range].push({ num, miss: miss[num] });
+            }
+
+            let html = '<div class="grid grid-cols-4 gap-4">';
+
+            [
+                { range: 1, color: '#E64A19', label: '1-5회' },
+                { range: 2, color: '#4B5563', label: '6-10회' },
+                { range: 3, color: '#16A34A', label: '11-15회' },
+                { range: 4, color: '#1A6DFF', label: '16+회' }
+            ].forEach(({ range, color, label }) => {
+                const count = groups[range].length;
+                html += `
+                    <div class="space-y-2">
+                        <div class="flex items-center justify-between">
+                            <h4 class="text-sm font-semibold cursor-pointer hover:opacity-70" style="color: ${color};" onclick="addGroupToFilter(${range})">${label}</h4>
+                            <span class="text-xs font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">${count}개</span>
+                        </div>
+                        <div class="flex flex-wrap gap-1">
+                            ${groups[range].sort((a, b) => a.num - b.num).map(item => {
+                    const isWinning = isPast && currentDraw && currentDraw.numbers.includes(item.num);
+                    const className = isWinning ? 'winning-bg' : getMissClass(item.miss);
+                    const draggable = isDraggable ? `draggable="true" ondragstart="dragStart(event, ${item.num})" ondragend="dragEnd(event)"` : '';
+                    const dblclick = isDraggable ? `ondblclick="addToActiveFilter(${item.num})"` : '';
+                    return `<span class="lotto-number ${className}" ${draggable} ${dblclick} title="${item.num}번: ${item.miss}회 미출현">${item.num}</span>`;
+                }).join('')}
+                        </div>
+                    </div>
+                `;
+            });
+
+            html += '</div>';
+            document.getElementById('selectedRoundMiss').innerHTML = html;
+        }
+
+        function renderMissGroupTable() {
+            const groups = { 1: [], 2: [], 3: [], 4: [] };
+            for (let num = 1; num <= 45; num++) {
+                const range = getMissRange(currentMiss[num]);
+                groups[range].push(num);
+            }
+
+            // 통계 카드 업데이트
+            document.getElementById('cardCount1').textContent = groups[1].length + '개';
+            document.getElementById('cardCount2').textContent = groups[2].length + '개';
+            document.getElementById('cardCount3').textContent = groups[3].length + '개';
+            document.getElementById('cardCount4').textContent = groups[4].length + '개';
+
+            // 기존 테이블 카운트 업데이트
+            document.getElementById('count1Total').textContent = groups[1].length;
+            document.getElementById('count2Total').textContent = groups[2].length;
+            document.getElementById('count3Total').textContent = groups[3].length;
+            document.getElementById('count4Total').textContent = groups[4].length;
+
+            const maxMisses = [0, 0, 0, 0, 0];
+            for (let num = 1; num <= 45; num++) {
+                const range = getMissRange(currentMiss[num]);
+                maxMisses[range] = Math.max(maxMisses[range], currentMiss[num]);
+            }
+
+            let html = '';
+            const maxRows = Math.max(...Object.values(maxMisses));
+
+            for (let miss = maxRows; miss >= 0; miss--) {
+                const row1 = groups[1].filter(n => currentMiss[n] === miss);
+                const row2 = groups[2].filter(n => currentMiss[n] === miss);
+                const row3 = groups[3].filter(n => currentMiss[n] === miss);
+                const row4 = groups[4].filter(n => currentMiss[n] === miss);
+
+                if (row1.length || row2.length || row3.length || row4.length) {
+                    html += `
+                        <tr class="hover:bg-gray-50">
+                            <td class="py-2 px-6 text-center font-semibold text-gray-900 border border-gray-200" style="font-size: 12px;">${miss}회</td>
+                            <td class="py-2 px-8 text-center border border-gray-200" style="font-size: 11px;">
+                                ${row1.length ? row1.sort((a, b) => a - b).join(', ') : '-'}
+                            </td>
+                            <td class="py-2 px-6 text-center border border-gray-200" style="font-size: 11px;">
+                                ${row2.length ? row2.sort((a, b) => a - b).join(', ') : '-'}
+                            </td>
+                            <td class="py-2 px-6 text-center border border-gray-200" style="font-size: 11px;">
+                                ${row3.length ? row3.sort((a, b) => a - b).join(', ') : '-'}
+                            </td>
+                            <td class="py-2 px-6 text-center border border-gray-200" style="font-size: 11px;">
+                                ${row4.length ? row4.sort((a, b) => a - b).join(', ') : '-'}
+                            </td>
+                        </tr>
+                    `;
+                }
+            }
+            document.getElementById('missGroupTableBody').innerHTML = html;
+        }
+
+        // ... 나머지 함수들 (updateFilterMaxValues, updateDisplayRange, renderDrawsList, refreshAIAnalysis, highlightRows) 그대로 유지 ...
+
+        function updateFilterMaxValues() {
+            for (let i = 1; i <= 4; i++) {
+                document.getElementById(`range${i}Min`).max = 6;
+                document.getElementById(`range${i}Max`).max = 6;
+                if (document.getElementById(`range${i}Max`).value === "" || document.getElementById(`range${i}Max`).value === "0") {
+                    document.getElementById(`range${i}Max`).value = 6;
+                }
+            }
+        }
+
+        // Debounce setup
+        let rangeUpdateTimeout;
+
+        function updateDisplayRange(value) {
+            const val = parseInt(value);
+            displayLimit = val;
+
+            // Immediate UI Feedback
+            document.getElementById('rangeLabel').textContent = val == allData.length ? '전체' : val + '회';
+            const dispCountBottom = document.getElementById('displayedCount_bottom');
+            if (dispCountBottom) dispCountBottom.textContent = val == allData.length ? '전체' : val;
+            updateSliderBackground(val);
+
+            renderDrawsList();
+        }
+
+        function updateSliderBackground(value) {
+            const total = allData.length;
+            const slider = document.getElementById('displayRange');
+            if (slider) {
+                const percent = ((value - 10) / (total - 10)) * 100;
+                slider.style.setProperty('--value-percent', percent + '%');
+            }
+        }
+
+        // 🔥 추가된 함수: 셀 하이라이트 토글 - 제거됨 (Magic Square 스타일 적용)
+        function toggleStatHighlight(type, val) {
+            // 셀 하이라이트 기능 제거 -> 로우 하이라이트와 충돌 방지
+            // selectedCellHighlight = { type: null, val: null };
+            // renderDrawsList();
+        }
+
+        function renderDrawsList() {
+            let filteredData = [...allData];
+
+            if (useRangeFilter) {
+                const r1Min = parseInt(document.getElementById('range1Min').value);
+                const r1Max = parseInt(document.getElementById('range1Max').value);
+                const r2Min = parseInt(document.getElementById('range2Min').value);
+                const r2Max = parseInt(document.getElementById('range2Max').value);
+                const r3Min = parseInt(document.getElementById('range3Min').value);
+                const r3Max = parseInt(document.getElementById('range3Max').value);
+                const r4Min = parseInt(document.getElementById('range4Min').value);
+                const r4Max = parseInt(document.getElementById('range4Max').value);
+
+                filteredData = filteredData.filter(draw => {
+                    const miss = missHistory[draw.round];
+                    if (!miss) return false;
+
+                    const hitCounts = [0, 0, 0, 0, 0];
+                    draw.numbers.forEach(num => {
+                        const range = getMissRange(miss[num]);
+                        hitCounts[range]++;
+                    });
+
+                    return hitCounts[1] >= r1Min && hitCounts[1] <= r1Max &&
+                        hitCounts[2] >= r2Min && hitCounts[2] <= r2Max &&
+                        hitCounts[3] >= r3Min && hitCounts[3] <= r3Max &&
+                        hitCounts[4] >= r4Min && hitCounts[4] <= r4Max;
+                });
+            }
+
+            let html = '';
+            const displayData = filteredData.slice(0, displayLimit);
+
+            if (displayData.length === 0) {
+                html = `
+                    <tr>
+                        <td colspan="10" class="py-12 text-center text-gray-500">
+                            <div class="flex flex-col items-center gap-2">
+                                <span class="material-symbols-outlined text-5xl text-gray-300">inbox</span>
+                                <p class="text-sm">필터 조건에 맞는 데이터가 없습니다</p>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            } else {
+                const container = document.getElementById('drawsList');
+                container.innerHTML = '';
+
+                displayData.forEach((draw, index) => {
+                    const miss = missHistory[draw.round];
+                    if (!miss) return;
+
+                    const missCounts = [0, 0, 0, 0, 0];
+                    for (let num = 1; num <= 45; num++) {
+                        if (!draw.numbers.includes(num)) {
+                            const range = getMissRange(miss[num]);
+                            missCounts[range]++;
+                        }
+                    }
+
+                    const hitCounts = [0, 0, 0, 0, 0];
+                    draw.numbers.forEach(num => {
+                        const range = getMissRange(miss[num]);
+                        hitCounts[range]++;
+                    });
+
+                    const tr = document.createElement('tr');
+                    tr.setAttribute('data-index', index);
+                    tr.className = 'border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors';
+                    tr.onclick = () => highlightRows(index);
+
+                    // 10회차 하이라이트 상태 복구
+                    if (highlightStartIndex !== null && index >= highlightStartIndex && index < highlightStartIndex + 10) {
+                        tr.classList.add('row-highlight');
+                    }
+
+                    const numberBalls = draw.numbers.map(num => {
+                        const missCount = miss[num];
+                        const className = getMissClass(missCount);
+                        return `<div class="flex flex-col items-center">
+                            <span class="lotto-number ${className}" title="${num}번: ${missCount}회 미출현">${num}</span>
+                            <span class="text-xs text-gray-500 mt-0.5">${missCount}</span>
+                        </div>`;
+                    }).join('');
+
+                    tr.innerHTML = `
+                        <td class="py-2 px-4 text-xs font-semibold text-gray-900 sticky left-0 bg-inherit z-10 border-r border-gray-100">${draw.round}회</td>
+                        <td class="py-2 px-4 sticky bg-inherit z-10 border-r border-gray-200" style="left: 80px;">
+                            <div class="flex gap-1 justify-center">${numberBalls}</div>
+                        </td>
+                        <td class="py-2 px-3 text-center text-sm font-bold border-r border-gray-100" style="color: #E64A19;">${missCounts[1]}</td>
+                        <td class="py-2 px-3 text-center text-sm font-bold border-r border-gray-100" style="color: #4B5563;">${missCounts[2]}</td>
+                        <td class="py-2 px-3 text-center text-sm font-bold border-r border-gray-100" style="color: #16A34A;">${missCounts[3]}</td>
+                        <td class="py-2 px-3 text-center text-sm font-bold border-r border-gray-100" style="color: #1A6DFF;">${missCounts[4]}</td>
+                        
+                        <td class="py-2 px-3 text-center text-sm font-bold border-r border-gray-100">
+                            <span class="" style="color: #E64A19;">
+                                ${hitCounts[1]}
+                            </span>
+                        </td>
+                        <td class="py-2 px-3 text-center text-sm font-bold border-r border-gray-100">
+                            <span class="" style="color: #4B5563;">
+                                ${hitCounts[2]}
+                            </span>
+                        </td>
+                        <td class="py-2 px-3 text-center text-sm font-bold border-r border-gray-100">
+                            <span class="" style="color: #16A34A;">
+                                ${hitCounts[3]}
+                            </span>
+                        </td>
+                        <td class="py-2 px-3 text-center text-sm font-bold">
+                            <span class="" style="color: #1A6DFF;">
+                                ${hitCounts[4]}
+                            </span>
+                        </td>
+                    `;
+                    container.appendChild(tr);
+                });
+            }
+        }
+
+        let highlightStartIndex = null;
+
+        function highlightRows(startIndex) {
+            if (highlightStartIndex === startIndex) {
+                highlightStartIndex = null;
+                document.querySelectorAll('.row-highlight').forEach(el => el.classList.remove('row-highlight'));
+                return;
+            }
+
+            highlightStartIndex = startIndex;
+            document.querySelectorAll('.row-highlight').forEach(el => el.classList.remove('row-highlight'));
+            const rows = document.querySelectorAll('#drawsList > tr');
+
+            for (let i = 0; i < 10; i++) {
+                const targetIdx = startIndex + i;
+                const row = document.querySelector(`#drawsList tr[data-index="${targetIdx}"]`);
+                if (row) {
+                    row.classList.add('row-highlight');
+                }
+            }
+        }
+
+        // [New] 최근 10회차 필터 자동 적용
+        function applyRecent10Filters() {
+            const btn = document.getElementById('recent10FilterBtn');
+            const btnText = document.getElementById('recent10FilterText');
+
+            // 토글: 이미 켜져있으면 끄기
+            if (btn.classList.contains('from-purple-500')) {
+                btn.classList.remove('from-purple-500', 'to-purple-700');
+                btn.classList.add('from-blue-500', 'to-indigo-600');
+                btnText.textContent = '최근 10회차 필터 적용';
+
+                // 필터 초기화 (기본값)
+                for (let i = 1; i <= 4; i++) {
+                    document.getElementById(`range${i}Min`).value = 0;
+                    document.getElementById(`range${i}Max`).value = 6;
+                }
+                useRangeFilter = false;
+                document.getElementById('rangeFilterToggle').checked = false;
+                highlightStartIndex = null;
+                renderDrawsList();
+                return;
+            }
+
+            if (!allData || allData.length < 10) return;
+
+            // 1. 최근 10회차 데이터 수집
+            const recent10 = allData.slice(0, 10);
+
+            // 2. 각 범위별(1~5, 6~10, 11~15, 16+) 출현 개수 Min/Max 계산
+            const counts = { 1: [], 2: [], 3: [], 4: [] };
+
+            recent10.forEach(draw => {
+                const drawMiss = missHistory[draw.round];
+                if (!drawMiss) return;
+
+                const hitCounts = [0, 0, 0, 0, 0];
+                draw.numbers.forEach(num => {
+                    const range = getMissRange(drawMiss[num]);
+                    hitCounts[range]++;
+                });
+
+                counts[1].push(hitCounts[1]);
+                counts[2].push(hitCounts[2]);
+                counts[3].push(hitCounts[3]);
+                counts[4].push(hitCounts[4]);
+            });
+
+            // 3. 필터 입력창에 값 적용
+            for (let i = 1; i <= 4; i++) {
+                const minVal = Math.min(...counts[i]);
+                const maxVal = Math.max(...counts[i]);
+
+                document.getElementById(`range${i}Min`).value = minVal;
+                document.getElementById(`range${i}Max`).value = maxVal;
+            }
+
+            // 4. UI 및 필터 활성화
+            btn.classList.remove('from-blue-500', 'to-indigo-600');
+            btn.classList.add('from-purple-500', 'to-purple-700');
+            btnText.textContent = '필터 해제';
+
+            useRangeFilter = true;
+            document.getElementById('rangeFilterToggle').checked = true;
+
+            // 5. 리스트 갱신 및 하이라이트
+            renderDrawsList();
+            highlightRows(0);
+
+            console.log('최근 10회차 미출현 필터 적용 완료');
+        }
+
+        // 🔹 [AI 분석 엔진 - 미출현 전용 로직 개선]
+        // common_v2.js의 AIAnalysis 엔진을 사용하여 hot_cold.html과 동일한 디자인 적용
+        // [New] 사용자 AI 질문 처리 함수 (미출현 번호 전용 - AIProxy 통합)
+        // [New] 사용자 AI 질문 처리 함수 (미출현 번호 전용 - AIProxy 통합)
+        async function submitCustomAIAnalysis() {
+            const inputEl = document.getElementById('aiUserPrompt');
+            const userPrompt = inputEl.value.trim();
+
+            if (!userPrompt) {
+                alert("질문을 입력하거나 퀵 버튼을 선택해주세요.");
+                return;
+            }
+
+            if (window.AIAnalysis) {
+                // 기존 common_v2.js 방식 (window.AIAnalysis.executeAnalysis 호출)
+                // 만약 common_v2.js가 업데이트되지 않은 경우를 대비해 직접 호출하지 않고
+                // executeLocalAIAnalysis를 fallback으로 사용할 수도 있음.
+                // 여기서는 Revert 요청이므로 최대한 간단하게 복구.
+                // 하지만 contextData 구성 로직은 유지하는 것이 좋음 (데이터 기반 질문)
+
+                // 분석 데이터 준비
+                const subjectData = allData[0];
+                const subjectRound = subjectData ? subjectData.round : 0;
+                const targetRound = subjectRound + 1;
+
+                // 미출현 데이터 실시간 계산
+                let maxMiss = 0;
+                let maxMissNum = 0;
+                const groups = { recent: [], medium: [], long: [], extra: [] };
+                for (let n = 1; n <= 45; n++) {
+                    let gap = 0;
+                    for (let i = 0; i < allData.length; i++) {
+                        if (allData[i].numbers.includes(n)) break;
+                        gap++;
+                    }
+                    if (gap > maxMiss) { maxMiss = gap; maxMissNum = n; }
+                    if (gap <= 5) groups.recent.push(n);
+                    else if (gap <= 10) groups.medium.push(n);
+                    else if (gap <= 15) groups.long.push(n);
+                    else groups.extra.push(n);
+                }
+
+                const contextData = `
+            # [미출현 번호 데이터]
+            - 사용자 질문: "${userPrompt}"
+            - 기준 회차: ${subjectRound}회
+            - 최장기 미출현: ${maxMissNum}번 (${maxMiss}회)
+            - 구간별 현황: 1~5회(${groups.recent.length}), 6~10회(${groups.medium.length}), 11~15회(${groups.long.length}), 16회+(${groups.extra.length})
+                `;
+
+                await window.AIAnalysis.executeAnalysis({
+                    containerId: 'aiAnalysisContent',
+                    analysisType: '미출현 심층질문',
+                    subjectRound,
+                    targetRound,
+                    userPrompt, // Revert to plain prompt
+                    contextData
+                });
+
+            } else {
+                alert("AI 모듈을 로드할 수 없습니다.");
+            }
+        }
+
+        async function refreshAIAnalysis() {
+            if (!allData || allData.length === 0) return;
+
+            // 1. 데이터 준비
+            const subjectData = allData[0];
+            const subjectRound = subjectData.round;
+            const targetRound = subjectRound + 1;
+
+            // [심화 데이터 추출]
+            // 장기 미출현(Range 3, 4) 번호의 '부활' Gap (1개 이상 출현한 지 얼마나 됐나)
+            let longMissingGap = 0;
+            // 최근 미출현(Range 1) 번호의 '쏠림' Streak (4개 이상 연속 출현 여부)
+            let recentHitStreak = 0;
+
+            for (let i = 0; i < allData.length; i++) {
+                const draw = allData[i];
+                const missAtThatTime = missHistory[draw.round];
+                if (!missAtThatTime) break;
+
+                const longHitCount = draw.numbers.filter(num => getMissRange(missAtThatTime[num]) >= 3).length;
+                if (longHitCount >= 1) break;
+                longMissingGap++;
+            }
+
+            for (let i = 0; i < allData.length; i++) {
+                const draw = allData[i];
+                const missAtThatTime = missHistory[draw.round];
+                if (!missAtThatTime) break;
+
+                const recentHitCount = draw.numbers.filter(num => getMissRange(missAtThatTime[num]) === 1).length;
+                if (recentHitCount < 4) break;
+                recentHitStreak++;
+            }
+
+            // 미출현 통계 요약
+            const missValues = Object.values(currentMiss);
+            const maxMiss = Math.max(...missValues);
+            const maxMissNum = Object.keys(currentMiss).find(k => currentMiss[k] === maxMiss);
+            const groups = { 1: [], 2: [], 3: [], 4: [] };
+            for (let num = 1; num <= 45; num++) {
+                const range = getMissRange(currentMiss[num]);
+                groups[range].push(num);
+            }
+
+            // 2. 헤더 정보 업데이트
+            const targetEl = document.getElementById('aiTargetInfo');
+            if (targetEl) targetEl.textContent = `Target ${targetRound}회차 (based on ${subjectRound}회)`;
+
+            // 3. AI 엔진 실행 (기존 common_v2.js 활용)
+            if (window.AIAnalysis) {
+                const customRules = `
+# [분석 특명: 데이터 논리(Why)]
+1. 도덕책 같은 뻔한 소리, "운에 맡기라", "확률은 공평하다" 등은 절대 금지하며 즉각 폐기하시오.
+2. 반드시 "왜(Why)" 그런 예상치가 나왔는지 longMissingGap(${longMissingGap})과 recentHitStreak(${recentHitStreak}) 데이터를 근거로 논리적으로 설명하시오.
+3. [임계점 진단]: 장기 미출현 번호가 '통계적 한계'에 도달하여 필출할 타이밍인지, 아니면 '정체'가 지속될지 단호하게 진단하시오.
+4. [구체적 전략]: ${targetRound}회차에서 추천하는 미출현 구간별 개수 필터(Min/Max 권장 범위)를 명확한 수치로 제안하시오.
+5. 수치는 {{trend:내용}}, 결론은 {{recommendation:내용}} 태그를 사용하시오.
+                `;
+
+                const contextData = `
+# [미출현 정밀 데이터]
+- 기준 회차: ${subjectRound}회
+- 최장기 미출현: ${maxMissNum}번 (${maxMiss}회 미출)
+- 장기 미출현(11회+) 부활 Gap: ${longMissingGap}회차 경과
+- 최근 미출현(1~5회) 다출 Streak: ${recentHitStreak}회차 연속
+- 구간별 현황: 1~5회(${groups[1].length}), 6~10회(${groups[2].length}), 11~15회(${groups[3].length}), 16회+(${groups[4].length})
+                `;
+
+                await window.AIAnalysis.executeAnalysis({
+                    containerId: 'aiAnalysisContent',
+                    analysisType: '미출현 패턴 정밀 분석',
+                    subjectRound,
+                    targetRound,
+                    userPrompt: customRules,
+                    contextData: contextData
+                });
+            } else {
+                console.error("Window.AIAnalysis modules are missing.");
+            }
+        }
+
+        function updateAnalysis() { }
+
+        document.addEventListener('DOMContentLoaded', function () {
+            loadData();
+
+            // [New] NLP Initialize
+            if (window.BasicAnalysisNLP) {
+                new BasicAnalysisNLP('#nlp-main-input-container', {
+                    onNavigate: (round) => {
+                        selectRound(round); // Reuse existing selectRound function
+                    },
+                    onHighlight: (params) => {
+                        // TODO: Implement specific highlighting logic if needed
+                        console.log('Highlight requested:', params);
+                    }
+                });
+            }
+        });
+    </script>
+    <!-- AI Q&A Sidebar (Floating Right) -->
+    <div id="aiQnaModal"
+        class="hidden fixed top-24 right-6 w-96 z-[9999] transition-all duration-300 translate-x-full shadow-2xl rounded-2xl border border-gray-200 bg-white"
+        style="height: calc(100vh - 120px);" role="dialog" aria-modal="false">
+
+        <div class="flex flex-col h-full overflow-hidden" id="aiQnaPanel">
+            <!-- Header -->
+            <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-white flex-shrink-0">
+                <h3 class="font-bold text-gray-800 flex items-center gap-2">
+                    <div class="p-1.5 bg-blue-50 rounded-lg">
+                        <span class="material-symbols-outlined text-blue-600">forum</span>
+                    </div>
+                    AI 챗봇
+                </h3>
+                <button onclick="closeQnaModal()"
+                    class="p-2 hover:bg-gray-100 rounded-full transition-colors flex items-center justify-center text-gray-400 hover:text-gray-600">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+
+            <!-- Content Area -->
+            <div id="aiQnaContent" class="flex-1 p-5 overflow-y-auto custom-scrollbar flex flex-col gap-4 bg-[#f8fafc]">
+                <!-- 대화 내용이 기록됩니다. -->
+            </div>
+
+            <!-- Input Area -->
+            <div class="p-4 border-t border-gray-100 bg-white flex-shrink-0">
+                <div class="relative">
+                    <input type="text" id="aiModalInput"
+                        class="w-full pl-4 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder-gray-400"
+                        placeholder="추가 질문..." onkeyup="if(event.key === 'Enter') submitModalFollowUp()">
+                    <button onclick="submitModalFollowUp()"
+                        class="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors">
+                        <span class="material-symbols-outlined text-xl">send</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // [New] Quick Button Handler to Open Chatbot
+        function openChatWithPrompt(promptText) {
+            if (!promptText) return;
+            openQnaModal(promptText);
+        }
+
+        // [New] Global Chat Memory
+        let chatHistory = [];
+
+        // Local AI Execution (Fallback)
+        async function executeLocalAIAnalysis(params) {
+            // Reverted to simple implementation
+            try {
+                // 1. Show Loading
+                const container = document.getElementById(params.containerId);
+                if (container) {
+                    container.innerHTML = `
+                        <div class="flex flex-col items-center justify-center p-4">
+                            <span class="material-symbols-outlined animate-spin text-blue-600 mb-2">progress_activity</span>
+                            <span class="text-xs text-gray-500">AI가 분석 중입니다...</span>
+                        </div>
+                    `;
+                }
+
+                // 2. Call Supabase Directly (Old method)
+                const { data, error } = await window.supabaseClient.functions.invoke('analyze-lotto', {
+                    body: {
+                        analysisType: params.analysisType,
+                        subjectRound: params.subjectRound,
+                        targetRound: params.targetRound,
+                        prompt: params.userPrompt,
+                        context: params.contextData
+                    }
+                });
+
+                if (error) throw error;
+
+                // 3. Render
+                if (container && data) {
+                    let content = data.answer || data.message || JSON.stringify(data);
+                    content = content.replace(/\n/g, '<brt>');
+                    container.innerHTML = `<div class="prose prose-sm">${content}</div>`;
+                }
+
+            } catch (e) {
+                console.error(e);
+                const container = document.getElementById(params.containerId);
+                if (container) container.textContent = "Error: " + e.message;
+            }
+        }
+
+        // [Merged] AI 분석 함수 (NLP + QnA Sidebar)
+        // 기존 submitCustomAIAnalysis: 인라인 -> 사이드바 방식으로 변경
+        async function submitCustomAIAnalysis() {
+            const inputEl = document.getElementById('aiUserPrompt');
+            const userPrompt = inputEl.value.trim();
+            if (!userPrompt) return;
+
+            // NLP 처리
+            let nlpResult = window.nlpProcessor ? window.nlpProcessor.process(userPrompt) : null;
+            if (nlpResult && nlpResult.intent !== 'unknown' && nlpResult.confidence > 0.6) {
+                // Navigate 인텐트 등 처리
+            }
+
+            // 사이드바 열기
+            openQnaModal();
+            const qnaContent = document.getElementById('aiQnaContent');
+            if (qnaContent) {
+                // 사용자 질문 추가
+                qnaContent.innerHTML += `<div class="flex justify-end mb-4"><div class="bg-blue-600 text-white px-4 py-2 rounded-2xl shadow-sm text-sm">${userPrompt}</div></div>`;
+
+                // AI 응답 컨테이너 추가
+                const uniqueId = 'ai-res-' + Date.now();
+                qnaContent.innerHTML += `<div class="flex mb-4"><div class="w-7 h-7 rounded-full bg-blue-500 flex items-center justify-center text-white text-[10px] mr-2 flex-shrink-0">AI</div><div id="${uniqueId}" class="bg-white border text-gray-800 px-4 py-2 rounded-2xl shadow-sm text-sm min-h-[40px] flex-1"></div></div>`;
+
+                inputEl.value = '';
+
+                // 컨텍스트 데이터 준비 (현재 페이지 상태 기반)
+                const subjectRound = allData[0]?.round || 0;
+                // 미출현 통계 요약
+                let contextData = '';
+                if (typeof currentMiss !== 'undefined' && currentMiss) {
+                    const missValues = Object.values(currentMiss);
+                    const maxMiss = Math.max(...missValues);
+                    const maxMissNum = Object.keys(currentMiss).find(k => currentMiss[k] === maxMiss);
+                    const useRangeFilter = document.getElementById('rangeFilterToggle')?.checked;
+                    contextData = `
+                        - 현재 최장기 미출현 번호: ${maxMissNum}번 (${maxMiss}회 미출)
+                        - 최근 10회차 필터 적용 여부: ${useRangeFilter ? '적용됨' : '미적용'}
+                    `;
+                }
+
+                await executeLocalAIAnalysis({
+                    containerId: uniqueId,
+                    subjectRound: subjectRound,
+                    targetRound: subjectRound + 1,
+                    userPrompt: userPrompt,
+                    contextData: contextData
+                });
+
+                qnaContent.scrollTop = qnaContent.scrollHeight;
+            }
+        }
+
+        // [New] AI Standard UI Functions for Sidebar
+        function openQnaModal(initialPrompt = '') {
+            const modal = document.getElementById('aiQnaModal');
+            if (modal) {
+                modal.classList.remove('hidden');
+                setTimeout(() => {
+                    modal.classList.remove('translate-x-full');
+                    modal.classList.add('translate-x-0');
+                    const input = document.getElementById('aiModalInput');
+                    if (input) {
+                        input.value = initialPrompt || '';
+                        input.focus();
+                    }
+                    if (initialPrompt) submitModalFollowUp();
+                }, 10);
+            }
+        }
+
+        function closeQnaModal() {
+            const modal = document.getElementById('aiQnaModal');
+            if (modal) {
+                modal.classList.remove('translate-x-0');
+                modal.classList.add('translate-x-full');
+                setTimeout(() => modal.classList.add('hidden'), 300);
+            }
+        }
+
+        // [New] Chat Memory Logic for Sidebar Input
+        async function submitModalFollowUp() {
+            const input = document.getElementById('aiModalInput');
+            if (!input) return;
+            const val = input.value.trim();
+            if (!val) return;
+
+            const qnaContent = document.getElementById('aiQnaContent');
+            if (qnaContent) {
+                qnaContent.innerHTML += `<div class="flex justify-end mb-4"><div class="bg-blue-600 text-white px-4 py-2 rounded-2xl shadow-sm text-sm">${val}</div></div>`;
+                const uniqueId = 'ai-res-' + Date.now();
+                qnaContent.innerHTML += `<div class="flex mb-4"><div class="w-7 h-7 rounded-full bg-blue-500 flex items-center justify-center text-white text-[10px] mr-2 flex-shrink-0">AI</div><div id="${uniqueId}" class="bg-white border text-gray-800 px-4 py-2 rounded-2xl shadow-sm text-sm min-h-[40px] flex-1"></div></div>`;
+
+                input.value = '';
+
+                // Context Preparation
+                const subjectRound = allData[0]?.round || 0;
+                // Chat Memory Context
+                const memoryContext = chatHistory.slice(-5).map(msg =>
+                    `${msg.role === 'user' ? 'User' : 'AI'}: ${msg.content}`
+                ).join('\n');
+
+                const fullContext = `[Previous Conversation History]\n${memoryContext}`;
+
+                // Add to history
+                chatHistory.push({ role: 'user', content: val });
+
+                await executeLocalAIAnalysis({
+                    containerId: uniqueId,
+                    subjectRound: subjectRound,
+                    targetRound: subjectRound + 1,
+                    userPrompt: val,
+                    contextData: fullContext
+                });
+
+                qnaContent.scrollTop = qnaContent.scrollHeight;
+            }
+        }
+
+        // [New] Override Prompt Library Selection for Chatbot (Restored)
+        if (window.AIAnalysis) {
+            window.AIAnalysis.selectPrompt = function (promptText) {
+                // Remove modal
+                const m = document.getElementById('promptLibModal');
+                if (m) m.remove();
+                const o = document.getElementById('promptLibOverlay');
+                if (o) o.remove();
+
+                // Open chatbot with prompt
+                openQnaModal(promptText);
+            };
+        }
+    </script>
+</body>
+
+</html>

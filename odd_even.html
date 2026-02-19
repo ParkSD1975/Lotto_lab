@@ -1,0 +1,1673 @@
+<!DOCTYPE html>
+<html class="light" lang="ko">
+
+<head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>Lotto Lab - 홀짝 비율 (AI)</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    
+    <link rel="icon" href="data:,">
+
+    <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css"
+        rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
+        rel="stylesheet" />
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script
+        src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <script src="js/config.js"></script>
+    <script src="js/theme.js"></script>
+    <script src="js/common_v2.js"></script>
+    <script src="js/filter/FilterService.js"></script>
+    <script src="js/layout.js"></script>
+    <script src="js/aiProxy.js"></script>
+
+    <!-- NLP Modules -->
+    <script src="js/NLPProcessor.js"></script>
+    <script src="js/NLPInputComponent.js"></script>
+    <script src="js/BasicAnalysisNLP.js"></script>
+
+    <script>
+        // 전역 변수 설정
+        // 전역 변수 설정
+        let allDrawData = [];
+        let chatHistory = [];              // 🔥 [New] AI 대화 이력
+        let featuresMap = new Map();
+        let oddEvenChart = null;
+        let currentRange = 100;
+        let activeFilters = new Set();
+        let highlightStartRound = null;
+        let advancedStats = {};
+        let selectedHighlight = { col: null, val: null };
+
+        // 최근 10회차 필터 플래그
+        let isRecentTenFilter = false;
+        let filtersEnabled = false;
+
+        // 🔹 [Optimized] Debounce mechanism for heavy updates
+        let rangeDebounceTimer = null;
+
+        // ==================== 홀짝 분석 특화 함수 ====================
+        function calculateOddEvenRatio(numbers) {
+            if (!numbers || !Array.isArray(numbers)) return 'N/A';
+            let oddCount = 0;
+            numbers.forEach(num => {
+                if (num % 2 !== 0) oddCount++; // 1 is odd
+            });
+            const evenCount = 6 - oddCount;
+            return `${oddCount}:${evenCount}`;
+        }
+
+        function countOddEvenDistribution(data) {
+            const counts = {};
+            RATIOS.forEach(r => counts[r] = 0);
+
+            data.forEach(draw => {
+                const ratio = draw.ratio || calculateOddEvenRatio(draw.numbers);
+                if (counts[ratio] !== undefined) counts[ratio]++;
+            });
+
+            return counts;
+        }
+
+        function getOddEvenStatus(recentCounts) {
+            const total = Object.values(recentCounts).reduce((a, b) => a + b, 0);
+            const ratio33Count = recentCounts['3:3'] || 0;
+            const ratio33Percent = total > 0 ? (ratio33Count / total * 100).toFixed(1) : 0;
+
+            if (ratio33Percent >= 40) return '🟢 안정 (3:3 비율 우세)';
+            else if (ratio33Percent >= 30) return '⚖️ 정상 (3:3 비율 비슷)';
+            else return '🔴 변동 (극단 비율 많음)';
+        }
+
+        // ==================== AI 인사이트 섹션 함수 ====================
+
+        function buildRecentOddEvenContext(recentData) {
+            return recentData.map(draw => {
+                const ratio = draw.ratio || calculateOddEvenRatio(draw.numbers);
+                const stability = ratio === '3:3' ? '(가장 안정)' : '';
+                return `${draw.round}회: ${ratio} ${stability}`;
+            }).join(' | ');
+        }
+
+        function buildOlderOddEvenSummary(olderData) {
+            if (olderData.length === 0) return '(분석 데이터 없음)';
+
+            const counts = countOddEvenDistribution(olderData);
+            const total = olderData.length;
+
+            let mostFrequent = null, leastFrequent = null;
+            let maxCount = 0, minCount = total;
+
+            RATIOS.forEach(ratio => {
+                const count = counts[ratio] || 0;
+                if (count > maxCount) { maxCount = count; mostFrequent = ratio; }
+                if (count < minCount) { minCount = count; leastFrequent = ratio; }
+            });
+
+            const ratio33Percent = total > 0 ? ((counts['3:3'] / total) * 100).toFixed(1) : 0;
+
+            return `이전${total}회: 가장많음[${mostFrequent}(${maxCount}회)] 가장적음[${leastFrequent}(${minCount}회)] | 평균 3:3 비율 ${ratio33Percent}%`;
+        }
+
+        function buildOddEvenStatusContext() {
+            const recent10 = allDrawData.slice(0, 10);
+            const counts = countOddEvenDistribution(recent10);
+
+            let status = '【최근 10회 홀짝 상태】\n';
+            RATIOS.forEach(ratio => {
+                const count = counts[ratio] || 0;
+                const icon = ratio === '3:3' ? '✅' : (count >= 3 ? '🔥' : count === 0 ? '🥶' : '⚖️');
+                status += `${icon} ${ratio}: ${count}회 | `;
+            });
+
+            return status.slice(0, -3);
+        }
+
+        function buildOddEvenMetrics() {
+            const recent30 = allDrawData.slice(0, 30);
+            const counts = countOddEvenDistribution(recent30);
+            const total = recent30.length;
+
+            const ratio33Percent = total > 0 ? ((counts['3:3'] / total) * 100).toFixed(1) : 0;
+            const extreme06Percent = total > 0 ? (((counts['6:0'] || 0) + (counts['0:6'] || 0)) / total * 100).toFixed(1) : 0;
+
+            // 연속 같은 비율 개수
+            let maxStreak = 1, currentStreak = 1;
+            for (let i = 1; i < recent30.length; i++) {
+                if (recent30[i].ratio === recent30[i - 1].ratio) {
+                    currentStreak++;
+                    if (currentStreak > maxStreak) maxStreak = currentStreak;
+                } else {
+                    currentStreak = 1;
+                }
+            }
+
+            return `【홀짝 지표】3:3 비율:${ratio33Percent}% | 극단(0:6/6:0):${extreme06Percent}% | 최대연속:${maxStreak}회`;
+        }
+
+        async function preprocessOddEvenData() {
+            if (!allDrawData || allDrawData.length === 0) return;
+
+            allDrawData.forEach(draw => {
+                if (!draw.ratio && draw.numbers) {
+                    draw.ratio = calculateOddEvenRatio(draw.numbers);
+                }
+            });
+        }
+
+        // ==================== AI 챗봇 모달 함수 ====================
+
+        // ==================== 필터 & 하이라이트 함수 ====================
+
+        function highlightRecentTenRows() {
+            const drawsList = document.getElementById('drawsList');
+            if (!drawsList) return;
+
+            const rows = drawsList.querySelectorAll('tr');
+
+            rows.forEach(row => {
+                row.classList.remove('row-highlight');
+            });
+
+            if (isRecentTenFilter) {
+                for (let i = 0; i < 10 && i < rows.length; i++) {
+                    rows[i].classList.add('row-highlight');
+                }
+            }
+        }
+
+        function updateRecentTenFilterFlag() {
+            if (activeFilters.size === 0) {
+                isRecentTenFilter = false;
+                return;
+            }
+
+            const recent10Data = allDrawData.slice(0, 10);
+            const recent10Ratios = new Set();
+            recent10Data.forEach(d => recent10Ratios.add(d.ratio));
+
+            if (activeFilters.size === recent10Ratios.size) {
+                isRecentTenFilter = Array.from(activeFilters).every(ratio => recent10Ratios.has(ratio));
+            } else {
+                isRecentTenFilter = false;
+            }
+        }
+
+        function applyFilterWithHighlight() {
+            updateRecentTenFilterFlag();
+            applyFilter();
+            highlightRecentTenRows();
+            saveFilterSettings();
+        }
+
+        // [표준화] 최근 10회차 필터 자동 적용 (missing.html 기준)
+        function applyRecent10Filters() {
+            const btn = document.getElementById('recent10FilterBtn');
+            const btnText = document.getElementById('recent10BtnText');
+            const chk = document.getElementById('applyFilterCheck'); // 메인 체크박스 (ID 확인: applyFilterCheck)
+
+            // 토글: 이미 켜져있으면 끄기 (보라색 클래스 존재 여부로 판단)
+            if (btn.classList.contains('from-purple-500')) {
+                btn.classList.remove('from-purple-500', 'to-purple-700');
+                btn.classList.add('from-blue-500', 'to-indigo-600');
+                btnText.textContent = '최근 10회차 필터 적용';
+
+                // 필터 초기화
+                activeFilters.clear();
+                if (chk) chk.checked = false;
+                isRecentTenFilter = false;
+                highlightStartRound = null;
+
+                updateUIState();
+                applyFilter(); // Filter logic will handle the reset
+                return;
+            }
+
+            if (!allDrawData || allDrawData.length < 10) return;
+
+            // 1. 최근 10회차 데이터 수집
+            const recent10Data = allDrawData.slice(0, 10);
+
+            // 2. 최근 10회차의 홀짝 비율 수집
+            activeFilters.clear();
+            recent10Data.forEach(d => activeFilters.add(d.ratio));
+
+            // 3. UI 업데이트 (보라색 토글)
+            btn.classList.remove('from-blue-500', 'to-indigo-600');
+            btn.classList.add('from-purple-500', 'to-purple-700');
+            btnText.textContent = '필터 해제';
+
+            // 메인 필터 체크박스 자동 활성화
+            if (chk) chk.checked = true;
+            isRecentTenFilter = true;
+
+            // 4. 리스트 갱신 및 하이라이트
+            updateUIState();
+            highlightStartRound = allDrawData[0].round;
+            applyFilter();
+
+            // AI 분석 갱신 (Optional)
+            refreshAIAnalysis();
+
+            console.log('최근 10회차 홀짝 필터 적용 완료');
+        }
+
+        async function initializeRecentTenFilter() {
+            const loaded = await loadFilterSettings();
+
+            if (!loaded) {
+                const recent10Data = allDrawData.slice(0, 10);
+                recent10Data.forEach(d => activeFilters.add(d.ratio));
+
+                isRecentTenFilter = true;
+
+                updateUIState();
+                applyFilterWithHighlight();
+            } else {
+                updateRecentTenFilterFlag();
+                highlightRecentTenRows();
+            }
+        }
+
+        // ==================== AI 분석 엔진 ====================
+
+        const THEORETICAL_STATS = {
+            '6:0': { count: 100947, percent: 1.24 },
+            '5:1': { count: 740278, percent: 9.09 },
+            '4:2': { count: 2045505, percent: 25.11 },
+            '3:3': { count: 2727340, percent: 33.48 },
+            '2:4': { count: 1850695, percent: 22.72 },
+            '1:5': { count: 605682, percent: 7.44 },
+            '0:6': { count: 74613, percent: 0.92 }
+        };
+
+        // 🎨 패턴별 고유 색상
+        const RATIO_COLORS = {
+            '6:0': { bg: '#FEE2E2', text: '#991B1B', border: '#EF4444' }, // 빨강 (극단)
+            '5:1': { bg: '#FFEDD5', text: '#9A3412', border: '#F97316' }, // 주황
+            '4:2': { bg: '#FEF9C3', text: '#854D0E', border: '#EAB308' }, // 노랑
+            '3:3': { bg: '#DCFCE7', text: '#166534', border: '#22C55E' }, // 초록 (가장 안정)
+            '2:4': { bg: '#DBEAFE', text: '#1E40AF', border: '#3B82F6' }, // 파랑
+            '1:5': { bg: '#E0E7FF', text: '#3730A3', border: '#6366F1' }, // 남색
+            '0:6': { bg: '#F3E8FF', text: '#6B21A8', border: '#A855F7' }  // 보라 (극단)
+        };
+
+        // [수정] 필터 설정 저장 함수 (DB 저장)
+        async function saveFilterSettings() {
+            const toggle = document.getElementById('applyFilterCheck');
+            const data = {
+                selectedRatios: Array.from(activeFilters)
+            };
+            const enabled = toggle ? toggle.checked : true;
+
+            // DB 저장 (FilterService 사용)
+            if (window.filterService && window.filterService.initialized) {
+                await window.filterService.saveSetting('odd_even_patterns', data, enabled);
+            } else if (window.Utils && window.Utils.saveFilter) {
+                // Fallback: localStorage
+                window.Utils.saveFilter('odd_even_filter', { ...data, enabled });
+            }
+        }
+
+        // [수정] 필터 설정 불러오기 함수 (DB 로드)
+        async function loadFilterSettings() {
+            let saved = null;
+
+            // DB에서 로드 (FilterService 사용)
+            if (window.filterService && window.filterService.initialized) {
+                const data = await window.filterService.loadSetting('odd_even_patterns');
+                if (data) {
+                    saved = { ...data.settings, enabled: data.enabled };
+                }
+            }
+
+            // Fallback: localStorage
+            if (!saved && window.Utils && window.Utils.loadFilter) {
+                saved = window.Utils.loadFilter('odd_even_filter');
+            }
+
+            if (saved) {
+                activeFilters = new Set(saved.selectedRatios);
+                const toggle = document.getElementById('applyFilterCheck');
+                if (toggle) toggle.checked = saved.enabled;
+
+                updateUIState();
+                return true;
+            }
+            return false;
+        }
+    </script>
+    <style>
+        /* 페이지 전용 스타일 */
+        .ball-base {
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            font-size: 14px;
+            font-weight: 700;
+            color: white;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+        }
+
+        .ball-odd {
+            background-color: #EF4444;
+            border: 1px solid #DC2626;
+        }
+
+        .ball-even {
+            background-color: #3B82F6;
+            border: 1px solid #2563EB;
+        }
+
+        /* 필터 버튼 스타일 */
+        .filter-btn {
+            width: 45px;
+            height: 45px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 0.85rem;
+            border: 1px solid #E5E7EB;
+            background: white;
+            color: #374151;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+
+        .filter-btn:hover {
+            border-color: #3B82F6;
+            color: #3B82F6;
+        }
+
+        .filter-btn.active {
+            background: #3B82F6;
+            color: white;
+            border-color: #3B82F6;
+            box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.3);
+        }
+
+        /* 통계 카드 스타일 */
+        .stat-card {
+            border: 1px solid #E5E7EB;
+            border-radius: 12px;
+            padding: 12px;
+            background: white;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-2px);
+            border-color: #3B82F6;
+        }
+
+        .stat-card.active {
+            background: #3B82F6;
+            color: white;
+            border-color: #3B82F6;
+            box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.3);
+        }
+
+        .stat-card.active p,
+        .stat-card.active span,
+        .stat-card.active div {
+            color: white !important;
+        }
+
+        .stat-card.active .ratio-badge {
+            background-color: #FFFFFF !important;
+            color: #374151 !important;
+            border-color: #FFFFFF !important;
+        }
+
+        /* AI 섹션 스타일 리뉴얼 */
+        .ai-section {
+            background-color: #FFFFFF;
+            border: 1px solid #E5E7EB;
+            border-radius: 1rem;
+        }
+
+        /* 🔹 [수정] 행 하이라이트 스타일 (보라색 계열 통일) */
+        tr.row-highlight td {
+            background-color: #F3E8FF !important;
+            /* Light Purple */
+        }
+
+        tr.row-highlight td:first-child {
+            border-left: 4px solid #7C3AED !important;
+            /* Deep Purple */
+        }
+
+        /* [New] Slider Styling (Blue Fill) */
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: #E5E7EB;
+            outline: none;
+            cursor: pointer;
+            background-image: linear-gradient(#3B82F6, #3B82F6);
+            background-size: var(--value-percent, 0%) 100%;
+            background-repeat: no-repeat;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #3B82F6;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            transition: transform 0.1s;
+            border: 2px solid white;
+        }
+
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.1);
+            background: #2563EB;
+        }
+
+        /* 하이라이트 행 호버 효과 제거 */
+        tr.row-highlight:hover td {
+            background-color: #F3E8FF !important;
+        }
+
+        .row-highlight-selected td {
+            background-color: #E9D5FF !important;
+            /* Slightly Darker Purple */
+        }
+
+        /* 값 클릭 하이라이트 (다크그레이 배경 + 흰색 글씨) */
+        /* [수정됨] 패딩과 보더 반경 제거 (개별 요소에서 형태 제어) */
+        .val-highlight {
+            background-color: #374151 !important;
+            /* gray-700 */
+            color: #ffffff !important;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            transform: scale(1.1);
+        }
+
+        /* 뱃지 스타일 */
+        .ratio-badge {
+            padding: 4px 10px;
+            border-radius: 9999px;
+            font-weight: 700;
+            font-size: 0.75rem;
+            display: inline-block;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .ratio-badge:hover {
+            transform: scale(1.05);
+        }
+
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 4px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #c1c1c1;
+            border-radius: 4px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #a8a8a8;
+        }
+    </style>
+</head>
+
+<body class="bg-[#F9FAFB] font-sans antialiased">
+    <div class="flex flex-col h-screen w-full">
+        <div id="gnb-container"></div>
+
+        <div class="flex flex-1 overflow-hidden">
+            <aside id="lnb-container"
+                class="w-56 bg-white border-r border-gray-200 overflow-y-auto custom-scrollbar flex-shrink-0">
+            </aside>
+
+            <main class="flex-1 overflow-y-auto p-8 custom-scrollbar">
+                <div class="max-w-7xl mx-auto space-y-6">
+                    <div>
+                        <h1 class="text-3xl font-bold text-gray-900 mb-1">홀짝 비율 분석</h1>
+                        <p class="text-sm text-gray-600">당첨번호 6개의 홀수와 짝수 비율을 분석합니다. (홀:짝 형태로 표시)</p>
+                    </div>
+
+                    <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
+                        <div class="grid grid-cols-7 gap-3 mb-6">
+                            <div id="statCardsContainer" class="col-span-7 grid grid-cols-7 gap-3"></div>
+                        </div>
+
+                        <div class="bg-gray-50 rounded-xl p-5 mb-6 border border-gray-100">
+                            <h4 class="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
+                                <span class="material-symbols-outlined text-blue-500">analytics</span> 패턴 심층 분석 (연속/미출현)
+                            </h4>
+                            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4"
+                                id="advancedStatsContainer">
+                            </div>
+                        </div>
+
+                        <div class="ai-section p-8 pb-10 mb-6">
+                            <div class="flex items-center justify-between mb-6">
+                                <div class="flex items-center gap-2">
+                                    <h3 class="text-2xl font-extrabold text-gray-900 tracking-tight">AI Insight</h3>
+                                    <span id="aiTargetInfo" class="text-sm text-gray-500 font-medium"></span>
+                                </div>
+                                <button onclick="window.AIAnalysis.openPromptLibraryModal('odd_even', event)"
+                                    class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors">
+                                    <span class="material-symbols-outlined text-lg">library_books</span>
+                                    프롬프트 라이브러리
+                                </button>
+                            </div>
+
+                            <!-- [Standardized AI Loading UI] -->
+                            <div id="aiLoadingIndicator"
+                                class="hidden flex-col items-center justify-center py-10 transition-opacity duration-300 opacity-0">
+                                <div class="relative w-12 h-12 mb-4">
+                                    <div
+                                        class="absolute inset-0 border-4 border-blue-50 relative border-4 border-blue-100 rounded-full">
+                                    </div>
+                                    <div
+                                        class="absolute inset-0 border-4 border-blue-500 rounded-full border-t-transparent animate-spin">
+                                    </div>
+                                </div>
+                                <p class="text-sm font-medium text-gray-500 animate-pulse">AI가 데이터를 분석하고 있습니다...</p>
+                            </div>
+
+                            <div id="aiAnalysisContent" class="opacity-0 transition-opacity duration-300"></div>
+
+                            <div class="mt-6 border-t border-gray-100 pt-6">
+                                <div class="flex flex-col gap-3">
+                                    <div class="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                                        <button
+                                            onclick="document.getElementById('aiUserPrompt').value='최근 홀수와 짝수의 출현 비율 및 규칙 상세 분석'; submitCustomAIAnalysis()"
+                                            class="px-3 py-1.5 text-xs font-medium bg-blue-50 text-blue-600 rounded-full hover:bg-blue-100 transition-colors whitespace-nowrap">
+                                            ✨ 홀짝 출현 종합 진단
+                                        </button>
+                                        <button
+                                            onclick="document.getElementById('aiUserPrompt').value='각 비율 패턴(3:3, 4:2 등)의 당첨 비중 통계 분석'; submitCustomAIAnalysis()"
+                                            class="px-3 py-1.5 text-xs font-medium bg-indigo-50 text-indigo-600 rounded-full hover:bg-indigo-100 transition-colors whitespace-nowrap">
+                                            📊 패턴별 비중 분석
+                                        </button>
+                                        <button
+                                            onclick="document.getElementById('aiUserPrompt').value='극단적 비율(6:0, 0:6) 출현 후의 평균 회귀 지점 진단'; submitCustomAIAnalysis()"
+                                            class="px-3 py-1.5 text-xs font-medium bg-purple-50 text-purple-600 rounded-full hover:bg-purple-100 transition-colors whitespace-nowrap">
+                                            🔄 평균 회귀 분석
+                                        </button>
+                                        <button
+                                            onclick="document.getElementById('aiUserPrompt').value='홀수 또는 짝수 중 특정 번호대가 전멸할 가능성 분석'; submitCustomAIAnalysis()"
+                                            class="px-3 py-1.5 text-xs font-medium bg-red-50 text-red-600 rounded-full hover:bg-red-100 transition-colors whitespace-nowrap">
+                                            🚫 멸(Zero) 구간 예측
+                                        </button>
+                                        <button
+                                            onclick="document.getElementById('aiUserPrompt').value='최근 10회차 홀짝 데이터의 상하 이동 추세 분석'; submitCustomAIAnalysis()"
+                                            class="px-3 py-1.5 text-xs font-medium bg-teal-50 text-teal-600 rounded-full hover:bg-teal-100 transition-colors whitespace-nowrap">
+                                            📈 홀짝 추세 추적
+                                        </button>
+                                        <button
+                                            onclick="document.getElementById('aiUserPrompt').value='최근 100회차 기준 가장 안정적인 홀짝 비율 범위 추천'; submitCustomAIAnalysis()"
+                                            class="px-3 py-1.5 text-xs font-medium bg-orange-50 text-orange-600 rounded-full hover:bg-orange-100 transition-colors whitespace-nowrap">
+                                            🎯 최적 비율 범위 제안
+                                        </button>
+                                        <button
+                                            onclick="document.getElementById('aiUserPrompt').value='동일한 비율 패턴이 연속으로 나올 확률 및 기록 분석'; submitCustomAIAnalysis()"
+                                            class="px-3 py-1.5 text-xs font-medium bg-green-50 text-green-600 rounded-full hover:bg-green-100 transition-colors whitespace-nowrap">
+                                            ⚠️ 연속성 감지
+                                        </button>
+                                        <button
+                                            onclick="document.getElementById('aiUserPrompt').value='단번대, 10번대 등 특정 구간에서의 홀짝 분포 분석'; submitCustomAIAnalysis()"
+                                            class="px-3 py-1.5 text-xs font-medium bg-yellow-50 text-yellow-600 rounded-full hover:bg-yellow-100 transition-colors whitespace-nowrap">
+                                            🔍 특정 번호대 홀짝 분석
+                                        </button>
+                                        <button
+                                            onclick="document.getElementById('aiUserPrompt').value='최근 통계상 출현 확률이 가장 낮은 홀짝 패턴 식별'; submitCustomAIAnalysis()"
+                                            class="px-3 py-1.5 text-xs font-medium bg-slate-50 text-slate-600 rounded-full hover:bg-slate-100 transition-colors whitespace-nowrap">
+                                            🧼 제외 전략
+                                        </button>
+                                        <button
+                                            onclick="document.getElementById('aiUserPrompt').value='분석된 홀짝 비중을 반영한 최적의 조합 필터링 전략 제안'; submitCustomAIAnalysis()"
+                                            class="px-3 py-1.5 text-xs font-medium bg-pink-50 text-pink-600 rounded-full hover:bg-pink-100 transition-colors whitespace-nowrap">
+                                            💡 홀짝 조합 최적화
+                                        </button>
+                                    </div>
+                                    <div class="relative">
+                                        <input type="text" id="aiUserPrompt"
+                                            class="w-full pl-4 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder-gray-400"
+                                            placeholder="홀짝 분석에 대해 궁금한 점을 물어보세요..."
+                                            onkeyup="if(event.key === 'Enter') submitCustomAIAnalysis()">
+                                        <button onclick="submitCustomAIAnalysis()"
+                                            class="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors">
+                                            <span class="material-symbols-outlined text-xl">send</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mb-6">
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="text-xl font-bold text-gray-900">홀짝 비율 분포 (비율 %)</h3>
+                            </div>
+                            <div class="h-80"><canvas id="oddEvenChart"></canvas></div>
+                        </div>
+
+                        <div>
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="text-lg font-bold text-gray-900">분석 회차 범위</h3>
+                                <div class="flex items-center gap-2">
+                                    <button onclick="setRange(50)" id="preset50"
+                                        class="px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors">50회</button>
+                                    <button onclick="setRange(100)" id="preset100"
+                                        class="px-3 py-1.5 text-sm font-medium bg-blue-500 text-white rounded-lg transition-colors">100회</button>
+                                    <button onclick="setRange(500)" id="preset500"
+                                        class="px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors">500회</button>
+                                    <button onclick="setRange(1203)" id="preset1203"
+                                        class="px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors">전체</button>
+                                </div>
+                            </div>
+                            <div class="space-y-3">
+                                <input type="range" id="rangeSlider" min="10" max="1203" value="100"
+                                    oninput="updateRange(this.value)"
+                                    class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                                <div class="flex items-center justify-between text-sm">
+                                    <span class="text-gray-600">최근 <span id="rangeDisplay"
+                                            class="font-bold text-blue-600">100</span>회 분석</span>
+                                    <span id="totalRangeDisplay" class="text-gray-500">최대 1,203회</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm" id="filter-page">
+                        <div class="flex items-center justify-between mb-6">
+                            <h3 class="text-xl font-bold text-gray-900">조합 필터</h3>
+                            <a href="#filter-page"
+                                class="flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-800 transition-colors"><span
+                                    class="material-symbols-outlined text-sm">open_in_new</span>필터 페이지 가기</a>
+                        </div>
+                        <div class="flex flex-col gap-6">
+                            <div class="flex items-center justify-center gap-4 flex-wrap" id="ratioFilters"></div>
+                        </div>
+                        <div class="flex items-center justify-end gap-3 mt-6 pt-4 border-t border-gray-100">
+                            <!-- [Magic Square Style] Recent 10 Filters Button & Toggle -->
+                            <div class="flex items-center gap-4 w-full justify-between">
+                                <div class="flex items-center gap-3">
+                                    <label class="relative inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" id="applyFilterCheck"
+                                            onchange="applyFilterWithHighlight()" class="sr-only peer" checked>
+                                        <div
+                                            class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500">
+                                        </div>
+                                    </label>
+                                    <span class="text-sm font-medium text-gray-700">필터 적용</span>
+                                </div>
+
+                                <button onclick="applyRecent10Filters()" id="recent10FilterBtn"
+                                    class="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 transition-all text-sm font-black min-w-[240px] justify-center whitespace-nowrap">
+                                    <span class="material-symbols-outlined text-[18px]">auto_fix_high</span>
+                                    <span id="recent10BtnText">최근 10회차 필터 적용</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="rounded-xl overflow-hidden mt-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <div>
+                                <h3 class="text-xl font-bold text-gray-900 mb-1">회차별 당첨번호 및 홀짝 비율</h3>
+                                <p class="text-sm text-gray-600">최근 <span id="displayedCount">100</span>회차 표시</p>
+                            </div>
+                            <button onclick="openStatsModal()"
+                                class="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm font-medium transition-colors">
+                                <span class="material-symbols-outlined text-lg">bar_chart</span>통계 보기
+                            </button>
+                        </div>
+
+                        <div class="overflow-x-auto custom-scrollbar" style="max-height: 600px; overflow-y: auto;">
+                            <table class="w-full">
+                                <thead class="bg-[#1e293b] text-white border-b border-[#334155] sticky top-0 z-10">
+                                    <tr>
+                                        <th
+                                            class="py-3 px-4 text-left text-sm font-semibold w-20 bg-[#1e293b] sticky left-0 z-20">
+                                            회차</th>
+                                        <th class="py-3 px-4 text-center text-sm font-semibold w-[250px] bg-[#1e293b] sticky z-20"
+                                            style="left: 80px;">당첨번호</th>
+                                        <th class="py-3 px-4 text-center text-sm font-semibold w-24 bg-[#1e293b]">홀짝 비율
+                                        </th>
+                                        <th class="py-3 px-4 text-center text-sm font-semibold w-24 bg-[#1e293b]">홀수
+                                        </th>
+                                        <th class="py-3 px-4 text-center text-sm font-semibold w-24 bg-[#1e293b]">짝수
+                                        </th>
+                                        <th class="py-3 px-4 text-center text-sm font-semibold w-24 bg-[#1e293b]">10회출현
+                                        </th>
+                                        <th class="py-3 px-4 text-center text-sm font-semibold w-24 bg-[#1e293b]">15회출현
+                                        </th>
+                                        <th class="py-3 px-4 text-center text-sm font-semibold w-24 bg-[#1e293b]">20회출현
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody id="drawsList"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <div id="statsModal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-2xl max-w-5xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+            <div class="p-6 border-b border-gray-200 flex items-center justify-between">
+                <div>
+                    <h2 class="text-xl font-bold text-gray-900">홀짝 통계</h2>
+                    <p class="text-sm text-gray-600 mt-1">비율별 출현 빈도 및 분포</p>
+                </div>
+                <button onclick="closeStatsModal()" class="p-2 hover:bg-gray-100 rounded-lg"><span
+                        class="material-symbols-outlined text-gray-500">close</span></button>
+            </div>
+            <div class="flex-1 overflow-y-auto custom-scrollbar">
+                <table class="w-full">
+                    <thead class="sticky top-0 bg-gray-100 border-b border-gray-200">
+                        <tr>
+                            <th class="py-3 px-4 text-center text-sm font-semibold text-gray-600 uppercase w-16">선택</th>
+                            <th class="py-3 px-4 text-left text-sm font-semibold text-gray-600 uppercase">비율 (홀:짝)</th>
+                            <th class="py-3 px-4 text-center text-sm font-semibold text-gray-600 uppercase">조합수</th>
+                            <th class="py-3 px-4 text-center text-sm font-semibold text-gray-600 uppercase">조합비중</th>
+                            <th class="py-3 px-4 text-center text-sm font-semibold text-gray-600 uppercase">출현 횟수</th>
+                            <th class="py-3 px-4 text-center text-sm font-semibold text-gray-600 uppercase">출현 비중</th>
+                            <th class="py-3 px-4 text-center text-sm font-semibold text-gray-600 uppercase w-1/3">분포
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody id="modalStatsBody" class="divide-y divide-gray-100"></tbody>
+                </table>
+            </div>
+            <div class="p-6 border-t border-gray-200 flex justify-end"><button onclick="closeStatsModal()"
+                    class="px-4 py-2 border rounded hover:bg-gray-50">닫기</button></div>
+        </div>
+    </div>
+
+    <script>
+        const RATIOS = ['6:0', '5:1', '4:2', '3:3', '2:4', '1:5', '0:6'];
+
+        function calculateOddEven(numbers) {
+            let oddCount = 0;
+            numbers.forEach(n => { if (n % 2 !== 0) oddCount++; });
+            let evenCount = 6 - oddCount;
+            return { odd: oddCount, even: evenCount, ratio: `${oddCount}:${evenCount}` };
+        }
+
+        // 심층 통계 계산 (연속 출현, 미출현 등)
+        function calculateAdvancedStats(data) {
+            const stats = {};
+            RATIOS.forEach(r => stats[r] = { currentStreak: 0, maxStreak: 0, currentGap: 0, totalCount: 0 });
+
+            // 1. 역순 순회 (Gap 및 Current Streak 계산)
+            let gapCheck = {};
+            RATIOS.forEach(r => gapCheck[r] = true);
+
+            for (let i = 0; i < data.length; i++) {
+                const ratio = data[i].ratio;
+
+                // Gap 계산
+                for (const r of RATIOS) {
+                    if (r !== ratio && gapCheck[r]) stats[r].currentGap++;
+                    else if (r === ratio) gapCheck[r] = false;
+                }
+
+                // Current Streak 계산
+                if (i === 0) {
+                    stats[ratio].currentStreak = 1;
+                    let j = 1;
+                    while (j < data.length && data[j].ratio === ratio) {
+                        stats[ratio].currentStreak++;
+                        j++;
+                    }
+                }
+            }
+
+            // 2. 전체 순회 (Max Streak 및 Count 계산)
+            let tempStreak = {};
+            RATIOS.forEach(r => tempStreak[r] = 0);
+
+            // 데이터는 최신순(내림차순)이므로 역순(오름차순)으로 처리해야 Streak 계산 정확
+            const reversedData = [...data].reverse();
+
+            reversedData.forEach(d => {
+                const r = d.ratio;
+                stats[r].totalCount++;
+                tempStreak[r]++;
+                RATIOS.forEach(other => {
+                    if (other !== r) tempStreak[other] = 0;
+                });
+                if (tempStreak[r] > stats[r].maxStreak) stats[r].maxStreak = tempStreak[r];
+            });
+
+            return stats;
+        }
+
+        document.addEventListener('DOMContentLoaded', async function () {
+            try {
+                // 🔥 데이터 로딩 최적화: draws와 features를 병렬로 호출 (Promise.all)
+                const client = window.supabaseClient || supabaseClient;
+
+                const [drawsResult, featuresResult] = await Promise.all([
+                    client.from('lotto_draws').select('*').order('round', { ascending: false }).range(0, 5000),
+                    client.from('lotto_features').select('*').range(0, 5000)
+                ]);
+
+                // FilterService 초기화 (DB 필터 저장용)
+                if (window.initFilterService) {
+                    await window.initFilterService();
+                }
+
+                if (drawsResult.error) throw drawsResult.error;
+
+                const data = drawsResult.data;
+                const featureData = featuresResult.data || [];
+
+                if (!data || data.length === 0) {
+                    document.getElementById('drawsList').innerHTML = '<tr><td colspan="8" class="p-10 text-center text-gray-500">데이터가 없습니다.</td></tr>';
+                    return;
+                }
+                console.log(`✅ 홀짝 DB 데이터 로드: ${data.length}개`);
+
+                // 🔥 DB 분석 데이터 메모리 맵핑
+                featuresMap = new Map();
+                featureData.forEach(row => {
+                    featuresMap.set(row.round, row);
+                });
+
+                allDrawData = data.map(item => {
+                    const numbers = item.numbers || [];
+
+                    // 기본 계산
+                    let oe = calculateOddEven(numbers);
+
+                    // 🔥 [핵심] DB 데이터가 있으면 우선 사용 (데이터 무결성 강화)
+                    if (featuresMap.has(item.round)) {
+                        const feat = featuresMap.get(item.round);
+                        // DB 컬럼명이 명확하지 않으므로, 일반적인 경우를 가정하거나
+                        // 현재는 안전하게 클라이언트 계산값을 사용하되 구조만 잡아둡니다.
+                        // 만약 DB에 odd_count, even_count가 있다면 아래와 같이 사용:
+                        if (feat.odd_count !== undefined && feat.even_count !== undefined) {
+                            oe = {
+                                odd: feat.odd_count,
+                                even: feat.even_count,
+                                ratio: `${feat.odd_count}:${feat.even_count}`
+                            };
+                        }
+                    }
+
+                    return { ...item, numbers, ...oe };
+                });
+
+                // 🔥 [NEW] 홀짝 정보 사전 계산
+                await preprocessOddEvenData();
+
+                const totalCount = allDrawData.length;
+                document.getElementById('rangeSlider').max = totalCount;
+                document.getElementById('totalRangeDisplay').textContent = `최대 ${totalCount.toLocaleString()}회`;
+                document.getElementById('preset1203').setAttribute('onclick', `setRange(${totalCount})`);
+                document.getElementById('preset1203').innerText = "전체";
+
+                initUI();
+
+                // 🔥 [NEW] 최근 10회차 필터 초기화
+                await initializeRecentTenFilter();
+
+                updateRange(currentRange);
+                setTimeout(() => { updateSliderBackground(currentRange); }, 100);
+            } catch (err) { console.error('Data Load Error:', err); }
+        });
+
+        function initUI() {
+            const statContainer = document.getElementById('statCardsContainer');
+            statContainer.innerHTML = '';
+            RATIOS.forEach(ratio => {
+                const color = RATIO_COLORS[ratio];
+                const div = document.createElement('div');
+                div.className = `stat-card group hover:bg-gray-50 transition-all`;
+                div.id = `card-${ratio.replace(':', '_')}`;
+                div.onclick = () => toggleFilter(ratio);
+                div.innerHTML = `
+                    <div class="ratio-badge mb-2" style="background:${color.bg}; color:${color.text}; border:1px solid ${color.border}">
+                        ${ratio}
+                    </div>
+                    <div class="flex items-end gap-1">
+                        <span class="text-xl font-bold text-gray-900 ratio-val" id="val-${ratio.replace(':', '_')}">-</span>
+                        <span class="text-xs text-gray-500 font-medium mb-1">%</span>
+                    </div>
+                `;
+                statContainer.appendChild(div);
+            });
+
+            const filterContainer = document.getElementById('ratioFilters');
+            filterContainer.innerHTML = '';
+            RATIOS.forEach(ratio => {
+                const btn = document.createElement('button');
+                btn.className = 'filter-btn shadow-sm text-sm';
+                btn.id = `btn-${ratio.replace(':', '_')}`;
+                btn.textContent = ratio;
+                btn.onclick = () => toggleFilter(ratio);
+                filterContainer.appendChild(btn);
+            });
+
+            updateUIState();
+            initChart();
+        }
+
+        function toggleFilter(ratio) {
+            if (activeFilters.has(ratio)) activeFilters.delete(ratio);
+            else activeFilters.add(ratio);
+
+            updateUIState();
+
+            // 🔥 [NEW] 필터 + 하이라이트 함께 처리
+            applyFilterWithHighlight();
+        }
+
+        function updateUIState() {
+            RATIOS.forEach(ratio => {
+                const safeId = ratio.replace(':', '_');
+                const card = document.getElementById(`card-${safeId}`);
+                const btn = document.getElementById(`btn-${safeId}`);
+                const isActive = activeFilters.has(ratio);
+
+                if (isActive) {
+                    card.classList.add('active'); card.classList.remove('hover:bg-gray-50');
+                    btn.classList.add('active');
+                } else {
+                    card.classList.remove('active'); card.classList.add('hover:bg-gray-50');
+                    btn.classList.remove('active');
+                }
+            });
+        }
+
+        function updateRange(value) {
+            currentRange = parseInt(value);
+            document.getElementById('rangeDisplay').textContent = value + '회';
+            updateSliderBackground(currentRange);
+            updatePresetButtons(currentRange);
+            updateStatistics();
+            applyFilterWithHighlight();
+            refreshAIAnalysis();
+        }
+
+        function updateStatistics() {
+            if (!allDrawData.length) return;
+            const data = allDrawData.slice(0, currentRange);
+            const total = data.length;
+
+            advancedStats = calculateAdvancedStats(allDrawData);
+
+            const counts = {};
+            RATIOS.forEach(r => counts[r] = 0);
+            data.forEach(d => { if (counts[d.ratio] !== undefined) counts[d.ratio]++; });
+
+            // 1. 통계 카드 업데이트
+            RATIOS.forEach(ratio => {
+                const safeId = ratio.replace(':', '_');
+                const count = counts[ratio] || 0;
+                const percent = total > 0 ? ((count / total) * 100).toFixed(1) : 0;
+                document.getElementById(`val-${safeId}`).textContent = percent;
+            });
+
+            // 2. 심층 분석 테이블 업데이트
+            const advContainer = document.getElementById('advancedStatsContainer');
+            advContainer.innerHTML = '';
+            RATIOS.forEach(ratio => {
+                const s = advancedStats[ratio];
+                const color = RATIO_COLORS[ratio];
+
+                // Gap이 크면 강조
+                const isUrgent = s.currentGap > 10;
+                const urgentClass = isUrgent ? 'border-2 border-red-400 bg-red-50' : 'border border-gray-200 bg-white';
+
+                advContainer.innerHTML += `
+                    <div class="p-3 rounded-lg ${urgentClass} shadow-sm text-center">
+                        <div class="text-xs font-bold mb-1" style="color:${color.text}">${ratio}</div>
+                        <div class="text-[10px] text-gray-500">현재연속 / 최대</div>
+                        <div class="font-bold text-gray-800">${s.currentStreak}회 / ${s.maxStreak}회</div>
+                        <div class="mt-2 text-[10px] text-gray-500">미출현(Gap)</div>
+                        <div class="font-bold ${isUrgent ? 'text-red-600' : 'text-blue-600'}">${s.currentGap}회 전</div>
+                    </div>
+                `;
+            });
+
+            updateChart(counts, total);
+        }
+
+        function applyFilter() {
+            saveFilterSettings(); // [수정됨] 변경 시 자동 저장
+            const isFilterOn = document.getElementById('applyFilterCheck')?.checked ?? false;
+
+            let data = allDrawData.slice(0, currentRange);
+
+            // 필터가 켜져있고 activeFilters가 있으면 필터링 적용
+            if (isFilterOn && activeFilters.size > 0) {
+                data = data.filter(d => activeFilters.has(d.ratio));
+            }
+
+            document.getElementById('displayedCount').textContent = data.length;
+            renderDrawsList(data);
+
+            const counts = {};
+            RATIOS.forEach(r => counts[r] = 0);
+            data.forEach(d => { if (counts[d.ratio] !== undefined) counts[d.ratio]++; });
+            updateChart(counts, data.length);
+        }
+
+        // 하이라이트 토글 (값 일치)
+        function toggleCellHighlight(col, val) {
+            if (selectedHighlight.col === col && selectedHighlight.val === val) {
+                selectedHighlight = { col: null, val: null };
+            } else {
+                selectedHighlight = { col: col, val: val };
+            }
+            applyFilter(); // 리스트 다시 그리기
+        }
+
+        function renderDrawsList(data) {
+            const tbody = document.getElementById('drawsList');
+            tbody.innerHTML = '';
+
+            if (data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="8" class="p-10 text-center text-gray-500">데이터가 없습니다.</td></tr>';
+                return;
+            }
+
+            data.forEach((draw, index) => {
+                let rowClass = 'border-b border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer';
+                const isHighlighted = highlightStartRound !== null &&
+                    draw.round <= highlightStartRound &&
+                    draw.round > highlightStartRound - 10;
+
+                if (isHighlighted) {
+                    rowClass += ' row-highlight';
+                }
+
+                const tr = document.createElement('tr');
+                tr.id = `row-${draw.round}`;
+                tr.className = rowClass;
+                tr.onclick = () => highlightTenDraws(draw.round);
+
+                const numbersHtml = draw.numbers.map(num => {
+                    const colorClass = (num % 2 !== 0) ? 'ball-odd' : 'ball-even';
+                    return `<span class="ball-base ${colorClass} mr-1">${String(num).padStart(2, '0')}</span>`
+                }).join('');
+
+                const badgeColor = RATIO_COLORS[draw.ratio];
+
+                // 최근 출현 횟수 계산
+                const recent10Count = countInRecentX(draw.round, draw.ratio, 10);
+                const recent15Count = countInRecentX(draw.round, draw.ratio, 15);
+                const recent20Count = countInRecentX(draw.round, draw.ratio, 20);
+
+                // 하이라이트 적용 여부 체크 함수
+                const getHighlightClass = (col, val) => {
+                    if (selectedHighlight.col === col && String(selectedHighlight.val) === String(val)) {
+                        return 'val-highlight';
+                    }
+                    return '';
+                };
+
+                tr.innerHTML = `
+                    <td class="py-3 px-4 text-sm font-bold text-gray-600 text-left sticky left-0 bg-inherit">${draw.round}회</td>
+                    <td class="py-3 px-4 sticky bg-inherit" style="left: 80px;"><div class="flex justify-center">${numbersHtml}</div></td>
+                    <td class="py-3 px-4 text-center">
+                        <span class="ratio-badge ${getHighlightClass('ratio', draw.ratio)}" 
+                              style="${!getHighlightClass('ratio', draw.ratio) ? `background:${badgeColor.bg}; color:${badgeColor.text}; border:1px solid ${badgeColor.border}` : ''}"
+                              onclick="event.stopPropagation(); toggleCellHighlight('ratio', '${draw.ratio}')">
+                            ${draw.ratio}
+                        </span>
+                    </td>
+                    <td class="py-3 px-4 text-center">
+                        <span class="inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-medium text-gray-700 cursor-pointer transition-colors ${getHighlightClass('odd', draw.odd)}"
+                              onclick="event.stopPropagation(); toggleCellHighlight('odd', ${draw.odd})">${draw.odd}</span>
+                    </td>
+                    <td class="py-3 px-4 text-center">
+                        <span class="inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-medium text-gray-700 cursor-pointer transition-colors ${getHighlightClass('even', draw.even)}"
+                              onclick="event.stopPropagation(); toggleCellHighlight('even', ${draw.even})">${draw.even}</span>
+                    </td>
+                    <td class="py-3 px-4 text-center">
+                        <span class="inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold text-gray-800 cursor-pointer transition-colors ${getHighlightClass('count10', recent10Count)}"
+                              onclick="event.stopPropagation(); toggleCellHighlight('count10', ${recent10Count})">${recent10Count}</span>
+                    </td>
+                    <td class="py-3 px-4 text-center">
+                        <span class="inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold text-gray-800 cursor-pointer transition-colors ${getHighlightClass('count15', recent15Count)}"
+                              onclick="event.stopPropagation(); toggleCellHighlight('count15', ${recent15Count})">${recent15Count}</span>
+                    </td>
+                    <td class="py-3 px-4 text-center">
+                        <span class="inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold text-gray-800 cursor-pointer transition-colors ${getHighlightClass('count20', recent20Count)}"
+                              onclick="event.stopPropagation(); toggleCellHighlight('count20', ${recent20Count})">${recent20Count}</span>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function countInRecentX(targetRound, targetRatio, range) {
+            const index = allDrawData.findIndex(d => d.round === targetRound);
+            if (index === -1) return '-';
+            // 해당 회차 포함하여 과거 range개
+            if (index + range > allDrawData.length) return '-';
+            const slice = allDrawData.slice(index, index + range);
+            const count = slice.filter(d => d.ratio === targetRatio).length;
+            return count;
+        }
+
+        function highlightTenDraws(round) {
+            highlightStartRound = round;
+            applyFilter();
+
+            setTimeout(() => {
+                const rows = document.getElementById('drawsList').children;
+                for (let row of rows) {
+                    if (row.innerHTML.includes(`${round}회`)) {
+                        // row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        break;
+                    }
+                }
+            }, 50);
+        }
+
+        // [New] AI & Drawer Functions
+        function toggleDrawer(show) {
+            const overlay = document.getElementById('drawerOverlay');
+            const drawer = document.getElementById('promptDrawer');
+            if (show) {
+                renderLibrary();
+                if (overlay) overlay.classList.add('active');
+                if (drawer) drawer.classList.add('active');
+            } else {
+                if (overlay) overlay.classList.remove('active');
+                if (drawer) drawer.classList.remove('active');
+            }
+        }
+
+        function setPrompt(text) {
+            document.getElementById('aiUserPrompt').value = text;
+            toggleDrawer(false);
+            submitCustomAIAnalysis();
+        }
+
+        function renderLibrary() {
+            const container = document.getElementById('drawerBody');
+            if (!container) return;
+            container.innerHTML = '<div class="p-4 text-center">프롬프트 라이브러리가 준비중입니다.</div>';
+        }
+
+        async function submitCustomAIAnalysis() {
+            const inputEl = document.getElementById('aiUserPrompt');
+            const userPrompt = inputEl.value.trim();
+            if (!userPrompt) {
+                alert("질문을 입력하거나 퀵 버튼을 선택해주세요.");
+                return;
+            }
+
+            if (window.nlpProcessor) {
+                const result = window.nlpProcessor.process(userPrompt);
+                if (result.intent === 'navigate') {
+                    highlightTenDraws(result.params.targetRound || allDrawData[0].round);
+                }
+            }
+
+            openQnaModal();
+            const qnaContent = document.getElementById('aiQnaContent');
+            if (!qnaContent) return;
+
+            // Add to Memory
+            chatHistory.push({ role: 'user', text: userPrompt });
+
+            qnaContent.innerHTML += `<div class="flex justify-end mb-4"><div class="bg-blue-600 text-white px-4 py-2 rounded-2xl shadow-sm text-sm">${userPrompt}</div></div>`;
+            const uniqueId = 'ai-res-' + Date.now();
+            qnaContent.innerHTML += `<div class="flex mb-4"><div class="w-7 h-7 rounded-full bg-blue-500 flex items-center justify-center text-white text-[10px] mr-2 flex-shrink-0">AI</div><div id="${uniqueId}" class="bg-white border text-gray-800 px-4 py-2 rounded-2xl shadow-sm text-sm min-h-[40px] flex-1"></div></div>`;
+
+            // [Modified] Rich Data Context for Custom Analysis
+            const subjectRound = allDrawData[0]?.round || 0;
+            const targetRound = subjectRound + 1;
+            const data = allDrawData.slice(0, currentRange);
+
+            // 1. Statistics
+            const counts = countOddEvenDistribution(data);
+            const total = data.length;
+            const distribution = Object.entries(counts).map(([r, c]) => `${r}(${(c / total * 100).toFixed(1)}%)`).join(', ');
+
+            // 2. Recent Trends (Last 10)
+            const recent10 = allDrawData.slice(0, 10).map(d => `${d.round}회:${d.ratio}`).join(', ');
+
+            // 3. Current State Specifics
+            let oddGap = 0;
+            for (let i = 0; i < allDrawData.length; i++) {
+                if (allDrawData[i].odd >= 4) break;
+                oddGap++;
+            }
+
+            const richContext = `
+# [홀짝 비율 성문화 데이터]
+- 분석 기준: ${currentRange}회차 범위
+- 분포 비율: ${distribution}
+- 최근 10회차 흐름: ${recent10}
+- 홀수 우세(4개 이상) 미출현(Gap): ${oddGap}회차 경과
+- 이론적 기대치 대비 편차: 3:3 비율이 이론상 31.2% 대비 실측 가동률 확인 필요
+            `;
+
+            const memoryStr = chatHistory.slice(-6).map(m => `${m.role.toUpperCase()}: ${m.text}`).join('\n');
+
+            await executeLocalAIAnalysis({
+                containerId: uniqueId,
+                subjectRound: subjectRound,
+                targetRound: targetRound,
+                userPrompt: userPrompt,
+                contextData: richContext + `\n\n[Chat History]\n${memoryStr}`
+            });
+
+            qnaContent.scrollTop = qnaContent.scrollHeight;
+            inputEl.value = '';
+        }
+
+        async function submitModalFollowUp() {
+            const input = document.getElementById('aiModalInput');
+            if (!input) return;
+            const val = input.value.trim();
+            if (!val) return;
+
+            const qnaContent = document.getElementById('aiQnaContent');
+            qnaContent.innerHTML += `<div class="flex justify-end mb-4"><div class="bg-blue-600 text-white px-4 py-2 rounded-2xl shadow-sm text-base">${val}</div></div>`;
+            const uniqueId = 'ai-res-' + Date.now();
+            qnaContent.innerHTML += `<div class="flex mb-4"><div class="w-7 h-7 rounded-full bg-blue-500 flex items-center justify-center text-white text-[10px] mr-2 flex-shrink-0">AI</div><div id="${uniqueId}" class="bg-white border text-gray-800 px-4 py-2 rounded-2xl shadow-sm text-base min-h-[40px] flex-1"></div></div>`;
+
+            input.value = '';
+
+            const data = allDrawData.slice(0, 5);
+            const recentTrends = data.map(d => `[${d.round}회:${d.ratio}]`).join(', ');
+
+            await executeLocalAIAnalysis({
+                containerId: uniqueId,
+                subjectRound: allDrawData[0]?.round || 0,
+                targetRound: (allDrawData[0]?.round || 0) + 1,
+                userPrompt: val,
+                contextData: `최근 홀짝 비율 흐름: ${recentTrends}`
+            });
+
+            qnaContent.scrollTop = qnaContent.scrollHeight;
+        }
+
+        async function executeLocalAIAnalysis(params) {
+            const { containerId, subjectRound, targetRound, userPrompt, contextData } = params;
+            const container = document.getElementById(containerId);
+            if (container) {
+                container.innerHTML = `
+                    <div class="flex items-center gap-3 p-2 text-gray-500">
+                        <div class="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                        <span class="text-xs">AI 홀짝 분석 중...</span>
+                    </div>`;
+            }
+            try {
+                const prompt = `
+# Role: 로또 홀짝 비율 분석 전문가
+# Target: ${targetRound}회차 전략
+# Context: ${contextData}
+# User Question: "${userPrompt}"
+# Instructions:
+1. 답변은 통계적 근거를 바탕으로 자연스럽게 작성하시오.
+2. 중요 키워드는 {{trend:내용}}, {{pattern:내용}}, {{recommendation:내용}} 태그로 감싸시오.
+3. 오직 순수 JSON 포맷 {"response": "질문에 대한 전체 답변 내용"} 으로만 응답하시오.`;
+
+                let data, error;
+
+                // AIProxy Priority
+                if (window.AIProxy) {
+                    try {
+                        data = await window.AIProxy.invoke({
+                            prompt: prompt,
+                            analysisType: 'odd_even',
+                            targetRound: targetRound,
+                            subjectRound: subjectRound,
+                            responseStyle: 'chat'
+                        });
+                    } catch (proxyErr) {
+                        console.log("📡 [Fallback] 기존 Edge Function으로 요청 (AIProxy 미감지)");
+                        const result = await window.supabaseClient.functions.invoke('analyze-lotto', { body: { context: prompt } });
+                        data = result.data;
+                        error = result.error;
+                    }
+                } else {
+                    console.log("📡 [Fallback] 기존 Edge Function으로 요청 (AIProxy 미감지)");
+                    const result = await window.supabaseClient.functions.invoke('analyze-lotto', { body: { context: prompt } });
+                    data = result.data;
+                    error = result.error;
+                }
+
+                if (error) throw error;
+
+                let content = '';
+                if (typeof data === 'string') {
+                    try {
+                        const parsed = JSON.parse(data);
+                        content = parsed.response || parsed.recommendation || parsed.trend || data;
+                    } catch (e) {
+                        content = data;
+                    }
+                } else {
+                    content = data.response || data.recommendation || data.trend || JSON.stringify(data);
+                }
+
+                if (container) {
+                    container.innerHTML = `<div class="prose prose-base max-w-none text-gray-800 leading-relaxed">${window.AIAnalysis ? window.AIAnalysis.formatText(content) : content}</div>`;
+                    // Add to history (Standardized field name: 'text')
+                    chatHistory.push({ role: 'assistant', text: content });
+                }
+            } catch (err) {
+                console.error('Local AI Error:', err);
+                if (container) container.innerHTML = `<div class="text-red-500 text-xs">오류 발생: ${err.message}</div>`;
+            }
+        }
+
+        function initChart() {
+            const ctx = document.getElementById('oddEvenChart').getContext('2d');
+            oddEvenChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: RATIOS,
+                    datasets: [{
+                        label: '비율(%)',
+                        data: Array(7).fill(0),
+                        backgroundColor: RATIOS.map(r => RATIO_COLORS[r].border),
+                        borderWidth: 0,
+                        borderRadius: 6,
+                        barPercentage: 0.6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: 'rgba(17, 24, 39, 0.9)',
+                            titleFont: { family: 'Pretendard', size: 13 },
+                            bodyFont: { family: 'Pretendard', size: 13 },
+                            padding: 10,
+                            cornerRadius: 8,
+                            displayColors: false
+                        },
+                        datalabels: {
+                            anchor: 'end', align: 'top', color: '#4B5563', font: { weight: 'bold', size: 11 },
+                            formatter: (val) => val > 0 ? val + '%' : ''
+                        }
+                    },
+                    scales: {
+                        y: { beginAtZero: true, grid: { display: false }, max: 100, ticks: { display: false } },
+                        x: { grid: { display: false }, ticks: { font: { family: 'Pretendard', weight: '600' } } }
+                    },
+                    onClick: (e, elements) => {
+                        if (elements.length > 0) {
+                            const index = elements[0].index;
+                            toggleFilter(RATIOS[index]);
+                        }
+                    }
+                },
+                plugins: [ChartDataLabels]
+            });
+        }
+
+        function updateChart(counts, total) {
+            if (!oddEvenChart) return;
+            const values = RATIOS.map(r => total > 0 ? ((counts[r] || 0) / total * 100).toFixed(1) : 0);
+
+            const bgColors = RATIOS.map(r => {
+                const baseColor = RATIO_COLORS[r].border;
+                if (activeFilters.size === 0 || activeFilters.has(r)) return baseColor;
+                return baseColor + '40';
+            });
+
+            oddEvenChart.data.datasets[0].data = values;
+            oddEvenChart.data.datasets[0].backgroundColor = bgColors;
+            oddEvenChart.update();
+        }
+
+        function openStatsModal() {
+            const tbody = document.getElementById('modalStatsBody');
+            tbody.innerHTML = '';
+            const data = allDrawData.slice(0, currentRange);
+            const total = data.length;
+            const counts = {};
+            RATIOS.forEach(r => counts[r] = 0);
+            data.forEach(d => { if (counts[d.ratio] !== undefined) counts[d.ratio]++; });
+
+            RATIOS.forEach(ratio => {
+                const count = counts[ratio];
+                const percent = total > 0 ? ((count / total) * 100).toFixed(1) : 0;
+                const isSelected = activeFilters.has(ratio);
+                const theo = THEORETICAL_STATS[ratio];
+
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-gray-50 transition-colors';
+                tr.innerHTML = `
+                    <td class="py-3 px-4 text-center"><input type="checkbox" class="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500" ${isSelected ? 'checked' : ''} onchange="toggleFilter('${ratio}'); openStatsModal();" /></td>
+                    <td class="py-3 px-4 font-bold text-gray-700">${ratio}</td>
+                    <td class="py-3 px-4 text-center text-gray-600">${theo.count.toLocaleString()}</td>
+                    <td class="py-3 px-4 text-center text-gray-600">${theo.percent}%</td>
+                    <td class="py-3 px-4 text-center font-bold text-gray-900">${count}회</td>
+                    <td class="py-3 px-4 text-center font-bold text-indigo-600">${percent}%</td>
+                    <td class="py-3 px-4"><div class="w-full bg-gray-200 rounded-full h-2.5"><div class="bg-indigo-600 h-2.5 rounded-full" style="width: ${percent}%"></div></div></td>
+                `;
+                tbody.appendChild(tr);
+            });
+            document.getElementById('statsModal').classList.remove('hidden');
+        }
+        function closeStatsModal() { document.getElementById('statsModal').classList.add('hidden'); }
+
+        // 유틸리티
+        function updateSliderBackground(value) {
+            const total = allDrawData.length || 1203;
+            const slider = document.getElementById('rangeSlider');
+            const percent = ((value - 10) / (total - 10)) * 100;
+            slider.style.setProperty('--value-percent', percent + '%');
+        }
+        function setRange(value) {
+            const maxVal = allDrawData.length || 1203;
+            const safeValue = value > maxVal ? maxVal : value;
+            document.getElementById('rangeSlider').value = safeValue;
+            updateRange(safeValue);
+        }
+        function updatePresetButtons(value) {
+            const maxVal = allDrawData.length || 1203;
+            const ids = { 50: 'preset50', 100: 'preset100', 500: 'preset500', 1203: 'preset1203' };
+            Object.keys(ids).forEach(key => {
+                const btn = document.getElementById(ids[key]);
+                const target = key == 1203 ? maxVal : parseInt(key);
+                if (target == value) btn.className = 'px-3 py-1.5 text-sm font-medium bg-blue-500 text-white rounded-lg transition-colors';
+                else btn.className = 'px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors';
+            });
+        }
+
+        // ==========================================================
+        // [AI 분석 엔진] common_v2.js 기반 자동 분석
+        // ==========================================================
+        async function refreshAIAnalysis() {
+            if (!allDrawData || allDrawData.length === 0) return;
+
+            // [UI 준비] 로딩 표시 시작
+            const loader = document.getElementById('aiLoadingIndicator');
+            const content = document.getElementById('aiAnalysisContent');
+            if (loader) {
+                loader.style.display = 'flex';
+                loader.classList.remove('opacity-0');
+            }
+            if (content) {
+                content.classList.add('hidden');
+                content.classList.remove('opacity-100');
+            }
+
+            const subjectData = allDrawData[0];
+            const subjectRound = subjectData.round;
+            const targetRound = subjectRound + 1;
+
+            // [심화 데이터 추출]
+            // 구간별 이동평균 (Moving Average)
+            const getAvgOdd = (range) => allDrawData.slice(0, range).reduce((a, b) => a + b.odd, 0) / range;
+            const avg5 = getAvgOdd(5);
+            const avg10 = getAvgOdd(10);
+            const avg20 = getAvgOdd(20);
+
+            // 홀(Odd) 다출(4개 이상) Gap
+            let oddGap = 0;
+            for (let i = 0; i < allDrawData.length; i++) {
+                if (allDrawData[i].odd >= 4) break;
+                oddGap++;
+            }
+            // 짝(Even) 다출(4개 이상) Streak
+            let evenStreak = 0;
+            for (let i = 0; i < allDrawData.length; i++) {
+                if (allDrawData[i].even < 4) break;
+                evenStreak++;
+            }
+
+            // 표준 편차 (최근 20회)
+            const recent20 = allDrawData.slice(0, 20);
+            const mean20 = recent20.reduce((s, d) => s + d.odd, 0) / 20;
+            const variance = recent20.reduce((s, d) => s + Math.pow(d.odd - mean20, 2), 0) / 20;
+            const stdDev = Math.sqrt(variance);
+
+            const targetEl = document.getElementById('aiTargetInfo');
+            if (targetEl) targetEl.textContent = `Target ${targetRound}회차 (based on ${subjectRound}회)`;
+
+            const recentRatios = allDrawData.slice(0, 10).map(d => d.ratio).join(', ');
+
+            if (window.AIAnalysis) {
+                await window.AIAnalysis.executeAnalysis({
+                    containerId: 'aiAnalysisContent',
+                    analysisType: '홀짝 패턴 정밀 분석',
+                    subjectRound,
+                    targetRound,
+                    customData: `
+# [홀짝 정밀 상위 데이터]
+- 최근 10회차 비율 흐름: ${recentRatios}
+- 이동평균(5/10/20회): ${avg5.toFixed(2)} / ${avg10.toFixed(2)} / ${avg20.toFixed(2)}
+- 표준편차(20회): ${stdDev.toFixed(2)}
+- 홀(Odd) 다출(4개+) Gap: ${oddGap}회차 경과
+- 짝(Even) 다출(4개+) Streak: ${evenStreak}회차 연속
+- 분석 범위: 최근 ${currentRange}회차
+                    `,
+                    customRules: `
+# [분석 특명: 데이터 논리(Why)]
+1. 도덕책 같은 뻔한 소리, "운에 맡기라", "확률은 공평하다" 등은 절대 금지하며 즉각 폐기하시오.
+2. 반드시 "왜(Why)" 그런 예상치가 나왔는지 이동평균 추세(${avg5 < avg10 ? '하락세' : '상승세'})와 표준편차(${stdDev.toFixed(2)}) 데이터를 기반으로 논리적으로 설명하시오.
+3. [패턴 진단]: 홀짝 비율이 '평균(3:3)'으로 회귀할 타이밍인지, 아니면 특정 쪽으로의 '쏠림'이 지속될지 진단하시오.
+4. [구체적 전략]: ${targetRound}회차에서 추천하는 홀짝 비율 필터(권장 비율 범위)를 단호하게 제시하시오.
+5. 수치는 {{range:내용}}, 결론은 {{good:내용}}, 주의는 {{warn:내용}} 태그를 사용하시오. (한글 태그 사용)
+                    `
+                });
+            }
+
+            // [UI 갱신] 로딩 완료 후 결과 표시
+            if (loader) {
+                loader.style.display = 'none';
+                loader.classList.add('opacity-0');
+            }
+            if (content) {
+                content.classList.remove('hidden');
+                setTimeout(() => content.classList.add('opacity-100'), 50);
+            }
+        }
+
+        function openQnaModal(initialPrompt = '') {
+            const modal = document.getElementById('aiQnaModal');
+            if (!modal) return;
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                modal.classList.remove('translate-x-full');
+                modal.classList.add('translate-x-0');
+            }, 10);
+
+            if (initialPrompt) {
+                const input = document.getElementById('aiModalInput');
+                if (input) input.value = initialPrompt;
+                submitModalFollowUp();
+            }
+
+            setTimeout(() => {
+                const input = document.getElementById('aiModalInput');
+                if (input) input.focus();
+            }, 300);
+        }
+
+        function closeQnaModal() {
+            const modal = document.getElementById('aiQnaModal');
+            if (!modal) return;
+            modal.classList.remove('translate-x-0');
+            modal.classList.add('translate-x-full');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+            }, 300);
+        }
+    </script>
+    <!-- AI Q&A Sidebar (Floating Right) -->
+    <div id="aiQnaModal"
+        class="hidden fixed top-24 right-6 w-[450px] z-[9999] transition-all duration-300 translate-x-full shadow-2xl rounded-2xl border border-gray-200 bg-white"
+        style="height: calc(100vh - 120px);" role="dialog" aria-modal="false">
+
+        <div class="flex flex-col h-full overflow-hidden" id="aiQnaPanel">
+            <!-- Header -->
+            <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-white flex-shrink-0">
+                <h3 class="font-bold text-gray-800 flex items-center gap-2">
+                    <div class="p-1.5 bg-blue-50 rounded-lg">
+                        <span class="material-symbols-outlined text-blue-600">forum</span>
+                    </div>
+                    AI 챗봇
+                </h3>
+                <button onclick="closeQnaModal()"
+                    class="p-2 hover:bg-gray-100 rounded-full transition-colors flex items-center justify-center text-gray-400 hover:text-gray-600">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+
+            <div id="aiQnaContent" class="flex-1 p-5 overflow-y-auto custom-scrollbar flex flex-col gap-4 bg-[#f8fafc]">
+                <!-- 대화 내용이 기록됩니다. -->
+            </div>
+
+            <!-- Input Area -->
+            <div class="p-4 border-t border-gray-100 bg-white flex-shrink-0">
+                <div class="relative">
+                    <input type="text" id="aiModalInput"
+                        class="w-full pl-4 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder-gray-400"
+                        placeholder="추가 질문..." onkeyup="if(event.key === 'Enter') submitModalFollowUp()">
+                    <button onclick="submitModalFollowUp()"
+                        class="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors">
+                        <span class="material-symbols-outlined text-xl">send</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

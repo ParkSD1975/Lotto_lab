@@ -1,0 +1,10 @@
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pydantic\_internal\_fields.py:132: UserWarning: Field "model_version" in PredictionResponse has conflict with protected namespace "model_".
+
+You may be able to resolve this warning by setting `model_config['protected_namespaces'] = ()`.
+  warnings.warn(
+Traceback (most recent call last):
+  File "C:\Users\psdet\Desktop\로또개발\langchain-backend\main.py", line 12, in <module>
+    from routes import deep_analysis_v2, deep_analysis_v3
+  File "C:\Users\psdet\Desktop\로또개발\langchain-backend\routes\deep_analysis_v3.py", line 9, in <module>
+    from db.supabase_client import fetch_all_draws, supabase
+ImportError: cannot import name 'supabase' from 'db.supabase_client' (C:\Users\psdet\Desktop\로또개발\langchain-backend\db\supabase_client.py)

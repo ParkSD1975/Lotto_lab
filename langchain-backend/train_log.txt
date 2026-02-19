@@ -1,0 +1,59 @@
+[Phase 3] Initial model training system starting...
+   5-Model Ensemble: Transformer + LSTM + CNN + XGBoost + Markov
+
+[Step 1] Fetching all lotto data from Supabase...
+   [OK] Loaded 1211 rounds successfully.
+
+[Step 2] Starting 5-model deep learning ensemble training...
+   (Markov -> XGBoost -> CNN -> LSTM -> Transformer)
+============================================================
+[START] Starting 5-Model Ensemble Training...
+============================================================
+
+[1/5] Training Markov Model...
+  [OK] Markov training complete
+
+[2/5] Training XGBoost Model...
+  Training XGBoost on 500 recent draws...
+  [OK] XGBoost training complete
+
+[3/5] Training 1D-CNN Model...
+  [CNN] Epoch  10 | Train Loss: 0.166138 | Val Loss: 0.176125 | LR: 0.000976
+  [CNN] Epoch  20 | Train Loss: 0.158189 | Val Loss: 0.177853 | LR: 0.000905
+  [CNN] Early stopping at epoch 24
+  [OK] CNN training complete (Epochs: 24, Val Loss: 0.175217)
+
+[4/5] Training LSTM Model...
+  Epoch  10 | Train Loss: 0.174535 | Val Loss: 0.174564 | LR: 0.000976
+  Early stopping at epoch 17
+  [OK] LSTM training complete (Epochs: 17, Val Loss: 0.174365)
+
+[5/5] Training Transformer Model...
+  [Transformer] Epoch  10 | Train Loss: 0.170215 | Val Loss: 0.178158 | LR: 0.000488
+  [Transformer] Early stopping at epoch 18
+  [OK] Transformer training complete (Epochs: 18, Val Loss: 0.175109)
+
+[Stacking] Adjusting weights based on validation loss...
+  -> Model cnn: Val Loss 0.1752 => Adjusted Weight 0.2330
+  -> Model lstm: Val Loss 0.1744 => Adjusted Weight 0.2340
+  -> Model transformer: Val Loss 0.1751 => Adjusted Weight 0.2331
+
+============================================================
+[DONE] Ensemble Training Complete: 5/5 models succeeded
+============================================================
+
+[COMPLETE] All model training finished! (Elapsed: 45.87s)
+[SAVE] Model files saved to: C:\Users\psdet\Desktop\로또개발\langchain-backend\saved_models
+   - transformer_model.pt  (Self-Attention)
+   - lstm_model.pt         (BiLSTM+Attention)
+   - cnn_model.pt          (1D-CNN)
+   - xgboost_models.pkl    (XGBoost)
+   - markov_matrices.json  (Markov)
+   - ensemble_weights.json (5-model weights)
+
+[SUMMARY] Per-model training results:
+   [OK] markov
+   [OK] xgboost
+   [OK] cnn (Epochs: 24, Val Loss: 0.175217)
+   [OK] lstm (Epochs: 17, Val Loss: 0.174365)
+   [OK] transformer (Epochs: 18, Val Loss: 0.175109)

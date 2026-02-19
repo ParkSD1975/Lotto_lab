@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lotto DB 데이터 생성기 (확장판)</title>
+    <link rel="icon" href="data:,">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        /* 기존 스타일 유지 */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            color: #e2e8f0;
+            padding: 40px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-size: 2.5rem;
+        }
+
+        .card {
+            background: rgba(30, 41, 59, 0.8);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .card h2 {
+            font-size: 1.2rem;
+            margin-bottom: 16px;
+            color: #a5b4fc;
+        }
+
+        .config-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 0.9rem;
+            color: #94a3b8;
+        }
+
+        input,
+        select {
+            width: 100%;
+            padding: 12px;
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            color: #e2e8f0;
+            font-size: 1rem;
+        }
+
+        input:focus,
+        select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 14px 28px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #334155;
+            color: #e2e8f0;
+        }
+
+        .btn-danger {
+            background: #dc2626;
+            color: white;
+        }
+
+        .progress-container {
+            margin-top: 20px;
+        }
+
+        .progress-bar {
+            height: 8px;
+            background: #1e293b;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            width: 0%;
+            transition: width 0.3s;
+        }
+
+        .progress-text {
+            font-size: 0.9rem;
+            color: #94a3b8;
+        }
+
+        .log-container {
+            background: #0f172a;
+            border-radius: 8px;
+            padding: 16px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+        }
+
+        .log-entry {
+            padding: 4px 0;
+            border-bottom: 1px solid #1e293b;
+        }
+
+        .log-entry.success {
+            color: #4ade80;
+        }
+
+        .log-entry.error {
+            color: #f87171;
+        }
+
+        .log-entry.info {
+            color: #60a5fa;
+        }
+
+        .log-entry.warning {
+            color: #fbbf24;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-top: 20px;
+        }
+
+        .stat-item {
+            background: #1e293b;
+            padding: 16px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: #a5b4fc;
+        }
+
+        .stat-label {
+            font-size: 0.8rem;
+            color: #64748b;
+            margin-top: 4px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🎰 Lotto DB 데이터 생성기 (확장판)</h1>
+
+        <div class="card">
+            <h2>⚙️ Supabase 설정</h2>
+            <div class="config-grid">
+                <div>
+                    <label>Supabase URL</label>
+                    <input type="text" id="supabaseUrl" placeholder="https://xxxxx.supabase.co">
+                </div>
+                <div>
+                    <label>Anon Key</label>
+                    <input type="password" id="supabaseKey" placeholder="eyJhbGciOiJIUzI1NiIs...">
+                </div>
+            </div>
+            <div class="config-grid">
+                <div>
+                    <label>시작 회차</label>
+                    <input type="number" id="startRound" value="1" min="1">
+                </div>
+                <div>
+                    <label>종료 회차 (빈칸=최신)</label>
+                    <input type="number" id="endRound" placeholder="자동 감지">
+                </div>
+            </div>
+            <button class="btn-secondary" onclick="testConnection()">🔌 연결 테스트</button>
+        </div>
+
+        <div class="card">
+            <h2>🚀 데이터 생성</h2>
+            <div class="btn-group">
+                <button class="btn-primary" onclick="generateNumberStats()" id="btnNumberStats">
+                    📊 번호별 통계 (5,10,15,20회) 생성
+                </button>
+                <button class="btn-primary" onclick="generateRegressionData()" id="btnRegression">
+                    🔄 회귀 분석 데이터 생성
+                </button>
+                <button class="btn-danger" onclick="clearAllData()" id="btnClear">
+                    🗑️ 전체 삭제
+                </button>
+            </div>
+
+            <div class="progress-container" id="progressContainer" style="display:none;">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <div class="progress-text" id="progressText">준비 중...</div>
+            </div>
+
+            <div class="stats-grid" id="statsGrid" style="display:none;">
+                <div class="stat-item">
+                    <div class="stat-value" id="statProcessed">0</div>
+                    <div class="stat-label">처리 회차</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" id="statInserted">0</div>
+                    <div class="stat-label">삽입 행</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" id="statTime">0s</div>
+                    <div class="stat-label">경과 시간</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" id="statSpeed">0</div>
+                    <div class="stat-label">행/초</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>📝 로그</h2>
+            <div class="log-container" id="logContainer">
+                <div class="log-entry info">데이터 생성기가 준비되었습니다.</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let supabaseClient = null;
+        let allDraws = [];
+        let drawsMap = new Map();
+        let isRunning = false;
+        let startTime = null;
+        let stats = { processed: 0, inserted: 0 };
+
+        function log(message, type = 'info') {
+            const container = document.getElementById('logContainer');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            container.appendChild(entry);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function updateProgress(current, total, text) {
+            const pct = Math.round((current / total) * 100);
+            document.getElementById('progressFill').style.width = pct + '%';
+            document.getElementById('progressText').textContent = text || `${current}/${total} (${pct}%)`;
+        }
+
+        function updateStats() {
+            const elapsed = (Date.now() - startTime) / 1000;
+            document.getElementById('statProcessed').textContent = stats.processed;
+            document.getElementById('statInserted').textContent = stats.inserted.toLocaleString();
+            document.getElementById('statTime').textContent = elapsed.toFixed(1) + 's';
+            document.getElementById('statSpeed').textContent = Math.round(stats.inserted / elapsed);
+        }
+
+        async function testConnection() {
+            const url = document.getElementById('supabaseUrl').value.trim();
+            const key = document.getElementById('supabaseKey').value.trim();
+
+            if (!url || !key) {
+                log('URL과 Key를 입력해주세요.', 'error');
+                return;
+            }
+
+            try {
+                supabaseClient = supabase.createClient(url, key);
+                const { data, error } = await supabaseClient.from('lotto_draws').select('round').order('round', { ascending: false }).limit(1);
+
+                if (error) throw error;
+
+                const maxRound = data[0]?.round || 0;
+                log(`✅ 연결 성공! 최신 회차: ${maxRound}`, 'success');
+
+                log('📥 전체 추첨 데이터 로드 중...', 'info');
+                const { data: draws, error: drawsError } = await supabaseClient
+                    .from('lotto_draws')
+                    .select('*')
+                    .order('round', { ascending: true })
+                    .limit(2000);
+
+                if (drawsError) throw drawsError;
+
+                allDraws = draws;
+                drawsMap = new Map(draws.map(d => [d.round, d]));
+                log(`✅ ${draws.length}개 회차 데이터 로드 완료`, 'success');
+
+                if (!document.getElementById('endRound').value) {
+                    document.getElementById('endRound').value = maxRound;
+                }
+
+            } catch (err) {
+                log(`❌ 연결 실패: ${err.message}`, 'error');
+            }
+        }
+
+        // [핵심] 기간별 Hot/Cold 상태 판별 함수
+        function determineHotCold(count, period) {
+            // 기준: 기간별 Hot 최소 횟수, Cold 최대 횟수
+            // 5회: Hot(2+), Cold(0)
+            // 10회: Hot(3+), Cold(0)
+            // 15회: Hot(4+), Cold(0~1)
+            // 20회: Hot(5+), Cold(0~1)
+
+            if (period === 5) {
+                if (count >= 2) return 'hot';
+                if (count === 0) return 'cold';
+            } else if (period === 10) {
+                if (count >= 3) return 'hot';
+                if (count === 0) return 'cold';
+            } else if (period === 15) {
+                if (count >= 4) return 'hot';
+                if (count <= 1) return 'cold';
+            } else if (period === 20) {
+                if (count >= 5) return 'hot';
+                if (count <= 1) return 'cold';
+            }
+            return 'warm';
+        }
+
+        async function generateNumberStats() {
+            if (!supabaseClient || allDraws.length === 0) {
+                log('먼저 연결 테스트를 실행해주세요.', 'error');
+                return;
+            }
+            if (isRunning) return;
+            isRunning = true;
+
+            const startRound = parseInt(document.getElementById('startRound').value) || 1;
+            const endRound = parseInt(document.getElementById('endRound').value) || Math.max(...allDraws.map(d => d.round));
+
+            document.getElementById('progressContainer').style.display = 'block';
+            document.getElementById('statsGrid').style.display = 'grid';
+            document.getElementById('btnNumberStats').disabled = true;
+
+            startTime = Date.now();
+            stats = { processed: 0, inserted: 0 };
+            log(`🚀 확장 통계 생성 시작 (${startRound} ~ ${endRound}회차)`, 'info');
+
+            try {
+                const targetDraws = allDraws.filter(d => d.round >= startRound && d.round <= endRound);
+                const totalRounds = targetDraws.length;
+                const BATCH_SIZE = 10;
+
+                for (let i = 0; i < targetDraws.length; i += BATCH_SIZE) {
+                    const batch = targetDraws.slice(i, i + BATCH_SIZE);
+                    const rows = [];
+
+                    for (const draw of batch) {
+                        const round = draw.round;
+                        const winningNumbers = new Set(draw.numbers);
+
+                        for (let num = 1; num <= 45; num++) {
+                            // 1. 미출현(Gap) 계산
+                            let gap = 0;
+                            for (let r = round - 1; r >= 1; r--) {
+                                const pastDraw = drawsMap.get(r);
+                                if (!pastDraw) continue;
+                                if (pastDraw.numbers.includes(num)) break;
+                                gap++;
+                            }
+
+                            // 2. 기간별 빈도 계산
+                            const freq5 = countFrequency(num, round, 5);
+                            const freq10 = countFrequency(num, round, 10);
+                            const freq15 = countFrequency(num, round, 15);
+                            const freq20 = countFrequency(num, round, 20);
+
+                            // 3. [업데이트] 기간별 Hot/Cold 상태 판별
+                            const hc5 = determineHotCold(freq5, 5);
+                            const hc10 = determineHotCold(freq10, 10);
+                            const hc15 = determineHotCold(freq15, 15);
+                            const hc20 = determineHotCold(freq20, 20);
+
+                            // 4. 회귀 적중 횟수
+                            let regressionHitCount = 0;
+                            for (let dist = 2; dist <= 200; dist++) {
+                                const pastDraw = drawsMap.get(round - dist);
+                                if (pastDraw && pastDraw.numbers.includes(num)) {
+                                    regressionHitCount++;
+                                }
+                            }
+
+                            rows.push({
+                                round,
+                                number: num,
+                                gap,
+                                freq_5: freq5,
+                                freq_10: freq10,
+                                freq_15: freq15,
+                                freq_20: freq20,
+                                // DB 컬럼명에 맞게 매핑
+                                hot_cold_5: hc5,
+                                hot_cold_10: hc10,
+                                hot_cold_15: hc15,
+                                hot_cold_20: hc20,
+                                regression_hit_count: regressionHitCount,
+                                is_winner: winningNumbers.has(num)
+                            });
+                        }
+                    }
+
+                    const { error } = await supabaseClient
+                        .from('number_round_stats')
+                        .upsert(rows, { onConflict: 'round,number' });
+
+                    if (error) {
+                        log(`❌ 삽입 오류: ${error.message}`, 'error');
+                        continue;
+                    }
+
+                    stats.processed += batch.length;
+                    stats.inserted += rows.length;
+                    updateProgress(stats.processed, totalRounds);
+                    updateStats();
+                    await new Promise(r => setTimeout(r, 10));
+                }
+                log(`✅ 통계 생성 완료! ${stats.inserted.toLocaleString()}행 삽입`, 'success');
+
+            } catch (err) {
+                log(`❌ 오류 발생: ${err.message}`, 'error');
+            } finally {
+                isRunning = false;
+                document.getElementById('btnNumberStats').disabled = false;
+            }
+        }
+
+        function countFrequency(num, round, range) {
+            let count = 0;
+            for (let r = round - 1; r >= round - range && r >= 1; r--) {
+                const draw = drawsMap.get(r);
+                if (draw && draw.numbers.includes(num)) count++;
+            }
+            return count;
+        }
+
+        async function generateRegressionData() {
+            if (!supabaseClient || allDraws.length === 0) {
+                log('먼저 연결 테스트를 실행해주세요.', 'error');
+                return;
+            }
+            if (isRunning) return;
+            isRunning = true;
+
+            const startRound = parseInt(document.getElementById('startRound').value) || 1;
+            const endRound = parseInt(document.getElementById('endRound').value) || Math.max(...allDraws.map(d => d.round));
+
+            document.getElementById('progressContainer').style.display = 'block';
+            document.getElementById('statsGrid').style.display = 'grid';
+            document.getElementById('btnRegression').disabled = true;
+
+            startTime = Date.now();
+            stats = { processed: 0, inserted: 0 };
+            log(`🚀 회귀 분석 데이터 생성 시작 (${startRound} ~ ${endRound}회차)`, 'info');
+
+            try {
+                const targetDraws = allDraws.filter(d => d.round >= startRound && d.round <= endRound);
+                const totalRounds = targetDraws.length;
+                const BATCH_SIZE = 5;
+
+                for (let i = 0; i < totalRounds; i += BATCH_SIZE) {
+                    const batch = targetDraws.slice(i, i + BATCH_SIZE);
+                    let batchRows = [];
+
+                    for (const draw of batch) {
+                        const round = draw.round;
+                        const winningNumbers = new Set(draw.numbers);
+                        for (let dist = 1; dist <= 300; dist++) {
+                            const sourceRound = round - dist;
+                            if (sourceRound < 1) break;
+                            const sourceDraw = drawsMap.get(sourceRound);
+                            if (!sourceDraw) continue;
+                            const matching = sourceDraw.numbers.filter(n => winningNumbers.has(n));
+                            batchRows.push({
+                                target_round: round,
+                                regression_distance: dist,
+                                source_round: sourceRound,
+                                source_numbers: sourceDraw.numbers,
+                                matching_numbers: matching,
+                                match_count: matching.length
+                            });
+                        }
+                    }
+
+                    if (batchRows.length > 0) {
+                        const { error } = await supabaseClient
+                            .from('regression_details')
+                            .upsert(batchRows, { onConflict: 'target_round,regression_distance' });
+                        if (error) throw error;
+                        stats.inserted += batchRows.length;
+                    }
+                    stats.processed += batch.length;
+                    updateProgress(Math.min(stats.processed, totalRounds), totalRounds);
+                    updateStats();
+                    await new Promise(r => setTimeout(r, 0));
+                }
+                log(`✅ 회귀 분석 데이터 생성 완료! ${stats.inserted.toLocaleString()}행 삽입`, 'success');
+            } catch (err) {
+                log(`❌ 오류 발생: ${err.message}`, 'error');
+            } finally {
+                isRunning = false;
+                document.getElementById('btnRegression').disabled = false;
+            }
+        }
+
+        async function clearAllData() {
+            if (!supabaseClient) {
+                log('먼저 연결 테스트를 실행해주세요.', 'error');
+                return;
+            }
+            if (!confirm('모든 생성된 데이터를 삭제하시겠습니까?')) return;
+            try {
+                log('🗑️ number_round_stats 테이블 삭제 중...', 'warning');
+                await supabaseClient.from('number_round_stats').delete().neq('id', 0);
+                log('🗑️ regression_details 테이블 삭제 중...', 'warning');
+                await supabaseClient.from('regression_details').delete().neq('id', 0);
+                log('✅ 전체 삭제 완료', 'success');
+            } catch (err) {
+                log(`❌ 삭제 오류: ${err.message}`, 'error');
+            }
+        }
+    </script>
+</body>
+
+</html>
