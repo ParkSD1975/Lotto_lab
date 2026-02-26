@@ -125,6 +125,7 @@ serve(async (req: Request) => {
         // 기존 분석 모드 (analyze) - 데이터 기반 정밀 분석
         // ========================================
         const context = body.context || "데이터가 없습니다.";
+        const targetRound: number | null = body.target_round ? Number(body.target_round) : null;
 
         const systemPrompt = `당신은 감정과 조언이 제거된 '로또 번호 통계 분석 엔진'입니다.
 사용자가 제공한 [분석 데이터]를 정밀하게 읽고, 오직 해당 데이터에 포함된 숫자와 통계만을 근거로 답변하세요.
@@ -246,6 +247,71 @@ serve(async (req: Request) => {
         }
 
         // ========================================
+        // [Phase 3.5] 전문가 메모 파싱 & 저장
+        // user_checkpoints 테이블에서 해당 회차 메모를 읽어
+        // Gemini로 구조화된 규칙(excluded/boost/fixed)으로 변환
+        // ========================================
+        let memoRules: {
+            summary?: string;
+            excluded_numbers?: number[];
+            boost_ranges?: Array<{ start: number; end: number }>;
+            fixed_numbers?: number[];
+        } | null = null;
+        let rawMemoText: string | null = null;
+
+        if (targetRound) {
+            try {
+                const { data: memoRow } = await supabaseClient
+                    .from('user_checkpoints')
+                    .select('memo')
+                    .eq('round', targetRound)
+                    .limit(1)
+                    .single();
+
+                if (memoRow?.memo) {
+                    rawMemoText = memoRow.memo;
+                    const memoParsedPrompt = `당신은 로또 전문가의 분석 메모를 구조화된 JSON 규칙으로 변환하는 전문가입니다.
+아래 메모를 분석하여 다음 JSON 형식으로만 응답하세요. 마크다운 없이 순수 JSON만 반환하세요.
+
+{
+  "summary": "메모 요약 (한 문장)",
+  "excluded_numbers": [제외할 번호 리스트 (없으면 빈 배열)],
+  "boost_ranges": [{"start": 시작번호, "end": 끝번호} (확률을 높일 구간, 없으면 빈 배열)],
+  "fixed_numbers": [고정 추천 번호 리스트 (없으면 빈 배열)]
+}
+
+[메모]
+${rawMemoText}`;
+
+                    const memoResponse = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ contents: [{ parts: [{ text: memoParsedPrompt }] }] })
+                    });
+                    const memoAiData = await memoResponse.json();
+                    let memoJsonText = memoAiData?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+                    memoJsonText = memoJsonText.replace(/```json/g, "").replace(/```/g, "").trim();
+
+                    try {
+                        memoRules = JSON.parse(memoJsonText);
+                        console.log("[Phase3.5] 전문가 메모 파싱 성공:", memoRules?.summary);
+                    } catch (e) {
+                        console.error("[Phase3.5] 메모 JSON 파싱 실패:", e);
+                    }
+
+                    // pipeline에 메모 정보 추가
+                    parsedData.pipeline = {
+                        ...(parsedData.pipeline || {}),
+                        expertMemo: rawMemoText,
+                        expertMemoRules: memoRules,
+                    };
+                }
+            } catch (memoErr) {
+                console.error("[Phase3.5] 전문가 메모 조회/적용 실패:", memoErr);
+            }
+        }
+
+        // ========================================
         // [Phase 4] RL 조합 생성
         // GNN 보정된 번호 점수 + 궁합 + 필터로
         // 최적 조합 10게임을 시뮬레이션하여
@@ -282,6 +348,26 @@ serve(async (req: Request) => {
                 const numberScores: Record<number, number> = {};
                 for (const [k, v] of Object.entries(numberProbs)) {
                     numberScores[parseInt(k)] = Number(v);
+                }
+
+                // ▶ 전문가 메모 규칙 적용
+                if (memoRules) {
+                    // 1. 제외 번호: 확률 0으로
+                    (memoRules.excluded_numbers || []).forEach((n: number) => {
+                        if (numberScores[n] !== undefined) numberScores[n] = 0;
+                    });
+                    // 2. 부스트 범위: 1.5배
+                    (memoRules.boost_ranges || []).forEach((range: { start: number; end: number }) => {
+                        for (let n = range.start; n <= range.end; n++) {
+                            if (numberScores[n] !== undefined) numberScores[n] *= 1.5;
+                        }
+                    });
+                    // 3. 고정 번호: 최대값의 2배 (강제 우선)
+                    const maxScore = Math.max(...Object.values(numberScores).filter(v => v > 0));
+                    (memoRules.fixed_numbers || []).forEach((n: number) => {
+                        if (numberScores[n] !== undefined) numberScores[n] = maxScore * 2;
+                    });
+                    console.log("[Phase3.5] 전문가 메모 규칙 numberScores 적용 완료");
                 }
 
                 // 필터: Gemini 전략 권장값에서 추출 (없으면 기본 범위)
@@ -369,7 +455,8 @@ serve(async (req: Request) => {
 - 상위 궁합 쌍: ${topPairs || '데이터 없음'}
 - RL 생성 여부: ${pipelineSnapshot.rlGenerated ? '예 (7,000회 Monte Carlo 시뮬레이션 완료)' : '아니오'}
 - 생성 조합 수: ${(parsedData.combinations || []).length}게임
-- 전략 요약: ${parsedData?.strategy?.summary || '없음'}`;
+- 전략 요약: ${parsedData?.strategy?.summary || '없음'}
+- 전문가 메모: ${rawMemoText ? `"${rawMemoText}" → ${memoRules?.summary || '규칙 적용됨'}` : '없음 (메모 미등록)'}`;
 
             const reportResponse = await fetch(apiUrl, {
                 method: 'POST',

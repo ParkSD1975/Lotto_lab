@@ -147,6 +147,19 @@ const DeepLearning = {
             console.log("⚠️ [DeepLearning] Already analyzing, skipping.");
             return;
         }
+
+        // [NEW] 중복 분석 방지: 이미 해당 회차의 분석 데이터가 있다면 다시 부르지 않음
+        if (this.state.analysisData && this.state.analysisData.target_round === this.state.targetRound) {
+            console.log(`✅ [DeepLearning] ${this.state.targetRound}회차는 이미 분석되었습니다. 기존 데이터를 유지합니다.`);
+            // 화면이 비어있을 수 있으므로 렌더링만 다시 수행 (필요 시)
+            if (!document.getElementById('aiSummaryText')?.innerText) {
+                this.renderAll(this.state.analysisData);
+            }
+            return;
+        }
+
+        this.state.isAnalyzing = true;
+
         // 1. Python 서버 시도
         if (!this.state.isConnected) {
             await this.checkConnection();
@@ -176,68 +189,78 @@ const DeepLearning = {
         this.showLoading(true, 'AI가 현재 페이지 데이터를 분석 중...');
         const url = this._getBaseUrl();
 
-        // [신규] 현재 페이지의 주제를 자동 감지
         const context = this.getAnalysisTopic();
         console.log(`🤖 AI 분석 주제 자동 감지: [${context.topic}]`);
 
-        // ★ [추가] 화면에 있는 통계 데이터를 긁어모읍니다 (Context Scraping)
-        // 차트, 통계 카드 등에 적힌 텍스트를 AI에게 참고 자료로 줍니다.
         let pageStats = "";
         document.querySelectorAll('.stat-card, .card, .analysis-section').forEach(el => {
             pageStats += el.innerText + "\n";
         });
-        // 만약 긁어온 게 없으면 기본 메시지
         if (pageStats.length < 10) pageStats = "현재 페이지의 통계 데이터가 감지되지 않았습니다.";
 
-        console.log(`📊 Context Data Length: ${pageStats.length} characters`);
-
-        // 폴백 호출 여부 플래그 (finally에서 중복 로딩 종료 방지)
         let _fallbackCalled = false;
 
         try {
-            this.setProgress(10, 'LSTM 시계열 분석 중...');
+            this.setProgress(10, 'LSTM·GNN·RL 동시 분석 중...');
 
-            console.log("📡 [DeepLearning] Fetching from:", url + '/api/deep-analysis/v3/analysis?round_num=' + this.state.targetRound);
-            const res = await fetch(url + '/api/deep-analysis/v3/analysis?round_num=' + this.state.targetRound, {
+            // ① Python ML 분석 + Edge Function 파이프라인 병렬 호출
+            const pythonPromise = fetch(url + '/api/deep-analysis/v3/analysis?round_num=' + this.state.targetRound, {
                 method: 'GET',
                 headers: { 'Content-Type': 'application/json' },
                 signal: AbortSignal.timeout(60000)
             });
-            console.log("xxxx [DeepLearning] Fetch status:", res.status);
 
-            this.setProgress(60, 'LLM 전략 수립 중...');
+            const edgePromise = window.supabaseClient
+                ? window.supabaseClient.functions.invoke('ai-lotto-analyst', {
+                    body: {
+                        context: `대상: 제 ${this.state.targetRound}회차\n${pageStats.slice(0, 500)}`,
+                        target_round: this.state.targetRound
+                    }
+                  })
+                : Promise.resolve({ data: null });
 
-            if (!res.ok) {
-                const errText = await res.text();
-                throw new Error('서버 오류 (' + res.status + '): ' + errText.slice(0, 200));
+            const [pythonRes, edgeRes] = await Promise.all([pythonPromise, edgePromise]);
+
+            this.setProgress(70, '분석 결과 병합 중...');
+
+            if (!pythonRes.ok) {
+                const errText = await pythonRes.text();
+                throw new Error('서버 오류 (' + pythonRes.status + '): ' + errText.slice(0, 200));
             }
 
-            const result = await res.json();
+            const result = await pythonRes.json();
+            if (!result.success) throw new Error(result.error || '분석 실패');
 
-            if (!result.success) {
-                throw new Error(result.error || '분석 실패');
+            // ② Edge Function 결과 병합: pipeline(모델 컨디션바·AI리포트) + RL 조합
+            const edgeData = edgeRes?.data;
+            if (edgeData) {
+                if (edgeData.pipeline) {
+                    result.pipeline = edgeData.pipeline;
+                    console.log('✅ Edge Function pipeline 병합 완료 (모델 컨디션바·AI리포트)');
+                }
+                if (edgeData.combinations && edgeData.combinations.length > 0) {
+                    result.combinations = edgeData.combinations;
+                    console.log('✅ Edge Function RL 조합 병합 완료');
+                }
             }
 
             this.setProgress(85, '결과 렌더링 중...');
-
             this.state.analysisData = result;
-            console.log('✅ Deep Analysis v3 완료:', result);
-
+            console.log('✅ 풀스택 분석 완료 (Python ML + Edge Function 파이프라인):', result);
             this.renderAll(result);
-
             this.setProgress(100, '완료!');
             this.loadHistoryList();
 
         } catch (err) {
             console.error('❌ Python Analysis Failed, trying Edge Function fallback:', err);
-            // 폴백 호출 플래그 설정 (finally에서 showLoading(false) 중복 실행 방지)
             _fallbackCalled = true;
-            // Python 실패 시 Edge Function 폴백 (_runEdgeFunctionFallback이 로딩 종료를 담당)
             await this._runEdgeFunctionFallback();
         } finally {
-            // 폴백이 호출된 경우 로딩 종료는 _runEdgeFunctionFallback()이 담당하므로 여기서는 스킵
             if (!_fallbackCalled) {
-                setTimeout(() => this.showLoading(false), 500);
+                setTimeout(() => {
+                    this.showLoading(false);
+                    this.state.isAnalyzing = false;
+                }, 500);
             }
         }
     },
@@ -270,7 +293,7 @@ const DeepLearning = {
             const recentStr = (recentDraws || []).slice(0, 10)
                 .map(d => d.round + '회: [' + d.numbers.join(', ') + ']').join('\n');
 
-            this.setProgress(30, 'AI 분석 요청 전송 중...');
+            this.setProgress(30, 'AI 분석 요청 전송 중 (Meta-Learning · GNN · RL · Anomaly)...');
 
             // Edge Function으로 심층 분석 요청 (타임아웃 적용)
             const prompt = `
@@ -332,15 +355,15 @@ ${recentStr}
             );
 
             // 실제 요청
-            const invokePromise = window.supabaseClient.functions.invoke('analyze-lotto', {
-                body: { context: prompt }
+            const invokePromise = window.supabaseClient.functions.invoke('ai-lotto-analyst', {
+                body: { context: prompt, target_round: this.state.targetRound }
             });
 
             const { data: aiResult, error } = await Promise.race([invokePromise, timeoutPromise]);
 
             if (error) throw new Error('Edge Function 오류: ' + (error.message || error));
 
-            this.setProgress(70, '응답 파싱 중...');
+            this.setProgress(70, 'RL 최적 조합 검증 중...');
 
             let result = aiResult;
             if (typeof result === 'string') {
@@ -381,7 +404,7 @@ ${recentStr}
                 const rawExcluded = result.analysis.excluded || [];
                 result.top_5 = rawRecommended.slice(0, 10);
                 result.exclude_10 = rawExcluded.slice(0, 10);
-                result.model_weights = result.analysis.model_weights || { lstm: 0.4, xgboost: 0.35, markov: 0.25 };
+                result.model_weights = result.analysis.model_weights || { lstm: 0.2, xgboost: 0.2, cnn: 0.2, transformer: 0.2, markov: 0.1, autoencoder: 0.1 };
 
                 // number_probabilities → matrix_data 형태로 변환
                 if (result.analysis.number_probabilities) {
@@ -396,7 +419,8 @@ ${recentStr}
                                 xgboost: { score },
                                 cnn: { score },
                                 transformer: { score },
-                                markov: { score }
+                                markov: { score },
+                                autoencoder: { score }
                             }
                         };
                     });
@@ -425,17 +449,27 @@ ${recentStr}
                 summaryEl.innerHTML = '<span class="text-amber-600 font-bold">⚠️ 서버 연결 실패로 데모 데이터를 표시합니다.</span>';
             }
         } finally {
-            setTimeout(() => this.showLoading(false), 500);
+            setTimeout(() => {
+                this.showLoading(false);
+                this.state.isAnalyzing = false; // 분석 상태 해제
+            }, 500);
         }
     },
 
     // ── 전체 렌더링 ──
     renderAll(result) {
         console.log("🎨 [DeepLearning] renderAll() Called", result);
+        // pipeline 데이터를 state에 저장 (renderCombinations 등에서 접근)
+        this.state.pipeline = result.pipeline || null;
         const combinations = result.combinations;
         const strategy = result.strategy;
-        const rangeAnalysis = result.range_analysis;
-        const matrixData = result.matrix_data;
+        const top5 = result.top_5;
+        const exclude10 = result.exclude_10;
+
+        // v4: 통계 데이터는 result.analysis 내부에 존재합니다.
+        const analysisData = result.analysis || {};
+        const rangeAnalysis = analysisData.range_analysis;
+        const matrixData = analysisData.matrix_data;
 
         // v3: matrix_data에서 번호 확률 재구성
         const numberProbs = {};
@@ -449,7 +483,7 @@ ${recentStr}
         const modelTop10 = {};
         const modelWeights = result.model_weights || {};
         if (matrixData && matrixData.length > 0) {
-            const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov'];
+            const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder'];
             models.forEach(function (m) {
                 const sorted = [...matrixData].sort((a, b) => {
                     const sa = (a.models[m] || {}).score || 0;
@@ -464,38 +498,43 @@ ${recentStr}
         }
 
         // analysis 호환 객체 구성 (추천 최대 10개, 제외 최대 10개 강제)
-        const analysis = {
+        const compatAnalysis = {
             number_probabilities: numberProbs,
             model_top10: modelTop10,
             model_weights: modelWeights,
-            top_6: (result.top_5 || []).slice(0, 6),
-            recommended: (result.top_5 || []).slice(0, 10),
-            excluded: (result.exclude_10 || []).slice(0, 10)
+            top_6: (top5 || []).slice(0, 6),
+            recommended: (top5 || []).slice(0, 10),
+            excluded: (exclude10 || []).slice(0, 10)
         };
 
         // Tab 1: 대시보드
         this.renderStrategy(strategy, result.elapsed_seconds);
         this.renderHotColdRisk(strategy);
-        this.renderHeatmap(analysis.number_probabilities);
-        this.renderModelTop10(analysis.model_top10, modelWeights);
+        this.renderHeatmap(compatAnalysis.number_probabilities);
+        this.renderModelTop10(compatAnalysis.model_top10, modelWeights);
 
         // Tab 2: 심화분석
         if (rangeAnalysis) this.renderRangeAnalysis(rangeAnalysis);
         if (matrixData) this.renderMatrixData(matrixData);
-        // 기존 range-container, tail-body, regression-body
-        if (result.tail_analysis) this.renderTailAnalysis(result.tail_analysis);
-        if (result.lotto_paper_analysis) this.renderLottoPaperAnalysis(result.lotto_paper_analysis);
-        if (result.magic_square_analysis) this.renderMagicSquareAnalysis(result.magic_square_analysis);
-        if (result.number_band_analysis) this.renderNumberBandAnalysis(result.number_band_analysis);
-        if (result.missing_group_data) this.renderMissingGroupAnalysis(result.missing_group_data);
-        if (result.hot_cold_data) this.renderHotColdAnalysis(result.hot_cold_data);
-        if (result.regression_analysis) this.renderRegressionAnalysis(result.regression_analysis);
-        if (result.custom_evaluations) this.renderCustomEvaluations(result.custom_evaluations);
+        // 기존 통계 데이터들
+        if (analysisData.tail_analysis) this.renderTailAnalysis(analysisData.tail_analysis);
+        if (analysisData.lotto_paper_analysis) this.renderLottoPaperAnalysis(analysisData.lotto_paper_analysis);
+        if (analysisData.magic_square_analysis) this.renderMagicSquareAnalysis(analysisData.magic_square_analysis);
+        if (analysisData.number_band_analysis) this.renderNumberBandAnalysis(analysisData.number_band_analysis);
+        if (analysisData.missing_group_data) this.renderMissingGroupAnalysis(analysisData.missing_group_data);
+        if (analysisData.hot_cold_data) this.renderHotColdAnalysis(analysisData.hot_cold_data);
+        if (analysisData.regression_analysis) this.renderRegressionAnalysis(analysisData.regression_analysis);
+        if (analysisData.custom_evaluations) this.renderCustomEvaluations(analysisData.custom_evaluations);
 
         // Tab 3(맨끝): 추천
-        this.renderExcludeFixed(strategy, analysis);
+        this.renderExcludeFixed(strategy, compatAnalysis);
         this.renderFilterRecommendations(strategy);
-        this.renderCombinations(combinations, analysis, matrixData);
+        this.renderCombinations(combinations, compatAnalysis, matrixData);
+
+        // [Phase 6] pipeline 신규 렌더링 (pipeline 필드가 있을 때만)
+        if (result.pipeline) {
+            this.renderPipelineInfo(result.pipeline);
+        }
     },
 
     // ══════════════════════════════════
@@ -583,7 +622,10 @@ ${recentStr}
         const modelConfig = {
             lstm: { label: 'LSTM (시계열)', icon: 'timeline', gradient: 'from-indigo-500 to-indigo-600', barColor: '#818cf8' },
             xgboost: { label: 'XGBoost (패턴)', icon: 'account_tree', gradient: 'from-blue-500 to-blue-600', barColor: '#60a5fa' },
-            markov: { label: 'Markov (통계)', icon: 'analytics', gradient: 'from-emerald-500 to-emerald-600', barColor: '#34d399' }
+            cnn: { label: 'CNN (공간)', icon: 'grid_view', gradient: 'from-pink-500 to-pink-600', barColor: '#f472b6' },
+            transformer: { label: 'Transformer (맥락)', icon: 'psychology', gradient: 'from-orange-500 to-orange-600', barColor: '#fb923c' },
+            markov: { label: 'Markov (통계)', icon: 'analytics', gradient: 'from-emerald-500 to-emerald-600', barColor: '#34d399' },
+            autoencoder: { label: 'Autoencoder (압축)', icon: 'compress', gradient: 'from-purple-500 to-purple-600', barColor: '#a855f7' }
         };
 
         var self = this;
@@ -592,6 +634,7 @@ ${recentStr}
         Object.keys(modelConfig).forEach(function (key) {
             var cfg = modelConfig[key];
             var items = modelTop10[key] || [];
+            if (items.length === 0) return; // 데이터가 없는 모델은 숨김
             var weight = weights ? (weights[key] * 100).toFixed(1) : '--';
             var maxProb = items.length > 0 ? Math.max.apply(null, items.map(function (i) { return i.prob; })) : 1;
 
@@ -620,6 +663,8 @@ ${recentStr}
             html += '</div></div>';
         });
 
+        // 컬럼이 6개가 되므로 UI 깨짐 방지를 위해 grid-cols를 3개로 맞추기
+        container.className = "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4";
         container.innerHTML = html;
     },
 
@@ -649,9 +694,10 @@ ${recentStr}
             xgboost: { label: 'XGBoost', color: '#60a5fa', bg: '#eff6ff' },
             cnn: { label: 'CNN', color: '#f472b6', bg: '#fdf2f8' },
             transformer: { label: 'Transformer', color: '#fb923c', bg: '#fff7ed' },
-            markov: { label: 'Markov', color: '#34d399', bg: '#f0fdf4' }
+            markov: { label: 'Markov', color: '#34d399', bg: '#f0fdf4' },
+            autoencoder: { label: 'Auto', color: '#a855f7', bg: '#faf5ff' }
         };
-        const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov'];
+        const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder'];
 
         // 헤더
         let html = '<div class="overflow-x-auto rounded-xl border border-slate-200 shadow-sm">';
@@ -768,8 +814,8 @@ ${recentStr}
         if (!matrixData) return;
 
         // 버튼 활성 스타일
-        const colors = { total: '#6366f1', lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399' };
-        ['total', 'lstm', 'xgboost', 'cnn', 'transformer', 'markov'].forEach(k => {
+        const colors = { total: '#6366f1', lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7' };
+        ['total', 'lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder'].forEach(k => {
             const btn = document.getElementById('sort-btn-' + k);
             if (!btn) return;
             if (k === key) { btn.style.background = colors[k]; btn.style.color = '#fff'; btn.style.borderColor = colors[k]; }
@@ -781,9 +827,10 @@ ${recentStr}
             xgboost: { label: 'XGBoost', color: '#60a5fa' },
             cnn: { label: 'CNN', color: '#f472b6' },
             transformer: { label: 'Transformer', color: '#fb923c' },
-            markov: { label: 'Markov', color: '#34d399' }
+            markov: { label: 'Markov', color: '#34d399' },
+            autoencoder: { label: 'Autoencoder', color: '#a855f7' }
         };
-        const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov'];
+        const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder'];
         const self = this;
         const container = document.getElementById('matrixDataContainer');
 
@@ -822,7 +869,7 @@ ${recentStr}
 
             html += `<div class="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">`;
             html += `<div class="flex items-center gap-3 px-4 py-2.5 bg-slate-50 border-b border-slate-100">`;
-            html += `<span class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-black text-white flex-shrink-0" style="background:${ballColor}">${num}</span>`;
+            html += `<span class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-black text-white flex-shrink-0 cursor-pointer hover:ring-2 hover:ring-slate-300 transition-all" style="background:${ballColor}" onclick="window.DeepLearning.explainNumber(${num})">${num}</span>`;
             html += `<div class="flex-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">`;
             html += `<span>Gap <strong class="text-slate-700">${gap}회</strong></span>`;
             html += `<span>빈도 <strong class="text-slate-700">${freq}%</strong></span>`;
@@ -832,7 +879,7 @@ ${recentStr}
             html += `<span class="font-black text-sm" style="color:${scoreColor}">${total}점</span>`;
             html += `</div>`;
 
-            // 모델별 근거 (기존 그대로)
+            // 모델별 근거 렌더링 (6개 모델)
             html += `<div class="grid grid-cols-1 divide-y divide-slate-50 px-4 py-2">`;
             models.forEach(m => {
                 const cfg = MODEL_CONFIG[m];
@@ -842,7 +889,7 @@ ${recentStr}
                 const isActive = key === m;
                 html += `<div class="flex items-center gap-2 py-1.5 text-xs">`;
                 html += `<span class="font-bold w-20 flex-shrink-0${isActive ? ' underline' : ''}" style="color:${cfg.color}">${cfg.label}</span>`;
-                html += `<div class="flex-1 bg-slate-100 h-1.5 rounded-full overflow-hidden"><div class="h-full rounded-full" style="width:${Math.min(score, 100)}%;background:${cfg.color}"></div></div>`;
+                html += `<div class="flex-1 bg-slate-100 h-1.5 rounded-full overflow-hidden"><div class="h-full rounded-full" style="width:${Math.min(score === '-' ? 0 : score, 100)}%;background:${cfg.color}"></div></div>`;
                 html += `<span class="font-bold w-8 text-right" style="color:${cfg.color}">${score}</span>`;
                 html += `<span class="text-slate-500 flex-1 truncate ml-2" title="${reason}">${reason}</span>`;
                 html += `</div>`;
@@ -1051,9 +1098,18 @@ ${recentStr}
         // 각 번호별 모델별 상위10 포함 여부
         const modelTop = {};
         if (matrixData) {
-            ['lstm', 'xgboost', 'cnn', 'transformer', 'markov'].forEach(m => {
+            ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder'].forEach(m => {
                 const sorted = [...matrixData].sort((a, b) => ((b.models || {})[m] || {}).score - ((a.models || {})[m] || {}).score);
                 modelTop[m] = new Set(sorted.slice(0, 10).map(d => d.num));
+            });
+        }
+
+        // pipeline anomaly 결과 맵 구성 (combo key → passed/reason)
+        const anomalyMap = {};
+        const pipeline = this.state.pipeline || {};
+        if (pipeline.anomalyResults) {
+            pipeline.anomalyResults.forEach(function(r) {
+                anomalyMap[r.combo.join('-')] = r;
             });
         }
 
@@ -1062,6 +1118,8 @@ ${recentStr}
             const rank = combo.rank || idx + 1;
             const score = combo.score || 0;
             const scorePct = maxScore > 0 ? score / maxScore : 0;
+            const anomaly = anomalyMap[nums.join('-')];
+            const isVerified = pipeline.rlGenerated && (!anomaly || anomaly.passed !== false);
 
             // Top5 포함 번호
             const topIncluded = nums.filter(n => top5Set.has(n));
@@ -1090,16 +1148,16 @@ ${recentStr}
             const ballsHtml = nums.map(n => {
                 const color = self.getBallColor(n);
                 const isTop = top5Set.has(n);
-                return `<span style="position:relative;display:inline-flex;flex-direction:column;align-items:center;gap:1px">
+                return `<span style="position:relative;display:inline-flex;flex-direction:column;align-items:center;gap:1px;cursor:pointer" onclick="window.DeepLearning.explainNumber(${n})">
                     <span style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:${color};color:#fff;font-size:11px;font-weight:900;box-shadow:${isTop ? '0 0 0 2px #6366f1,0 0 0 4px #e0e7ff' : ''}">${n}</span>
                     ${isTop ? '<span style="font-size:7px;font-weight:800;color:#6366f1;line-height:1">TOP</span>' : '<span style="font-size:7px;line-height:1;opacity:0">&nbsp;</span>'}
                 </span>`;
             }).join('');
 
             // 모델 동의 바
-            const modelBar = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov'].map(m => {
-                const colors = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399' };
-                const labels = { lstm: 'L', xgboost: 'X', cnn: 'C', transformer: 'T', markov: 'M' };
+            const modelBar = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder'].map(m => {
+                const colors = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7' };
+                const labels = { lstm: 'L', xgboost: 'X', cnn: 'C', transformer: 'T', markov: 'M', autoencoder: 'A' };
                 const agree = nums.some(n => modelTop[m] && modelTop[m].has(n));
                 return `<span style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:3px;font-size:9px;font-weight:900;background:${agree ? colors[m] : '#f1f5f9'};color:${agree ? '#fff' : '#cbd5e1'}">${labels[m]}</span>`;
             }).join('');
@@ -1116,10 +1174,107 @@ ${recentStr}
                         <span>AC<b style="color:#1e293b;margin-left:2px">${ac}</b></span>
                         <span style="color:${topIncluded.length >= 2 ? '#6366f1' : '#94a3b8'};font-weight:700">Top${topIncluded.length}</span>
                         <span style="color:${scoreColor};font-weight:700">${(score * 100).toFixed(1)}점</span>
+                        ${isVerified ? '<span style="background:#dcfce7;color:#16a34a;font-size:9px;font-weight:800;padding:1px 5px;border-radius:4px;border:1px solid #bbf7d0">✓AI검증</span>' : (pipeline.rlGenerated ? '<span style="background:#fef9c3;color:#ca8a04;font-size:9px;font-weight:800;padding:1px 5px;border-radius:4px;border:1px solid #fef08a">⚠주의</span>' : '')}
                     </div>
                 </div>
             </div>`;
         }).join('');
+    },
+
+    // ══════════════════════════════════
+    // [Phase 6] Pipeline 정보 렌더링
+    // Task 6.3: Tab1 모델 컨디션 바
+    // Task 6.4: Tab3 AI 분석 리포트 카드
+    // ══════════════════════════════════
+    renderPipelineInfo(pipeline) {
+        if (!pipeline) return;
+
+        // ── Task 6.3: 모델 컨디션 바 (Tab 1) ──
+        const condContainer = document.getElementById('modelConditionContainer');
+        if (condContainer && pipeline.modelWeights) {
+            const MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7' };
+            const MODEL_LABELS = { lstm: 'LSTM', xgboost: 'XGBoost', cnn: 'CNN', transformer: 'Transformer', markov: 'Markov', autoencoder: 'Autoenc.' };
+            const weights = pipeline.modelWeights;
+            const maxW = Math.max(...Object.values(weights));
+
+            const barsHtml = Object.entries(weights).map(([name, w]) => {
+                const pct = (w * 100).toFixed(1);
+                const barW = maxW > 0 ? (w / maxW * 100).toFixed(1) : 0;
+                const color = MODEL_COLORS[name] || '#94a3b8';
+                return `<div style="display:flex;align-items:center;gap:8px;font-size:11px">
+                    <span style="width:64px;color:#475569;font-weight:700;text-align:right">${MODEL_LABELS[name] || name}</span>
+                    <div style="flex:1;height:14px;background:#f1f5f9;border-radius:7px;overflow:hidden">
+                        <div style="width:${barW}%;height:100%;background:${color};border-radius:7px;transition:width 0.6s ease"></div>
+                    </div>
+                    <span style="width:36px;color:${color};font-weight:800;text-align:right">${pct}%</span>
+                </div>`;
+            }).join('');
+
+            const reason = pipeline.weightReasons || '';
+            // 전문가 메모 배지
+            const memoRules = pipeline.expertMemoRules;
+            const memoText = pipeline.expertMemo;
+            let memoBadgeHtml = '';
+            if (memoText) {
+                const excluded = (memoRules?.excluded_numbers || []).join(', ') || '없음';
+                const fixed = (memoRules?.fixed_numbers || []).join(', ') || '없음';
+                const boostDesc = (memoRules?.boost_ranges || []).map(r => `${r.start}~${r.end}`).join(', ') || '없음';
+                memoBadgeHtml = `
+                <div style="margin-top:8px;background:linear-gradient(135deg,#fefce8,#fef9c3);border:1px solid #fde047;border-radius:10px;padding:10px 12px">
+                    <div style="font-size:11px;font-weight:800;color:#854d0e;margin-bottom:6px;display:flex;align-items:center;gap:5px">
+                        <span>💡</span> 전문가 메모 적용
+                    </div>
+                    <div style="font-size:10.5px;color:#713f12;margin-bottom:4px;font-style:italic">"${memoText}"</div>
+                    <div style="font-size:10px;color:#92400e;display:flex;flex-wrap:wrap;gap:6px;margin-top:4px">
+                        ${excluded !== '없음' ? `<span style="background:#fee2e2;color:#991b1b;padding:1px 6px;border-radius:4px;font-weight:700">제외: ${excluded}</span>` : ''}
+                        ${fixed !== '없음' ? `<span style="background:#dcfce7;color:#166534;padding:1px 6px;border-radius:4px;font-weight:700">고정: ${fixed}</span>` : ''}
+                        ${boostDesc !== '없음' ? `<span style="background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:4px;font-weight:700">부스트: ${boostDesc}</span>` : ''}
+                    </div>
+                </div>`;
+            }
+
+            condContainer.innerHTML = `
+                <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px 16px;margin-top:12px">
+                    <div style="font-size:12px;font-weight:800;color:#1e293b;margin-bottom:10px;display:flex;align-items:center;gap:6px">
+                        <span style="width:8px;height:8px;border-radius:50%;background:#6366f1;display:inline-block"></span>
+                        모델 컨디션 (Meta-Learning)
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:6px">${barsHtml}</div>
+                    ${reason ? `<div style="margin-top:8px;font-size:10px;color:#64748b;border-top:1px solid #e2e8f0;padding-top:6px">${reason}</div>` : ''}
+                    ${memoBadgeHtml}
+                </div>`;
+            condContainer.style.display = 'block';
+        }
+
+        // ── Task 6.4: AI 분석 리포트 카드 (Tab 3) ──
+        const reportContainer = document.getElementById('aiReportContainer');
+        if (reportContainer && pipeline.aiReport) {
+            const reportId = 'aiReportBody_' + Date.now();
+
+            // 중요 키워드 하이라이트
+            const highlighted = pipeline.aiReport
+                .replace(/(\d+(?:\.\d+)?%)/g, '<b style="color:#6366f1">$1</b>')
+                .replace(/(LSTM|XGBoost|CNN|Transformer|Markov|Autoencoder)/gi, '<b style="color:#0ea5e9">$1</b>')
+                .replace(/(몬테카를로|강화학습|RL|GNN|Meta-Learning)/gi, '<b style="color:#8b5cf6">$1</b>')
+                .replace(/(\d+(?:,\d+)*회)/g, '<b style="color:#f59e0b">$1</b>')
+                .replace(/(\d{1,2}-\d{1,2})/g, '<b style="color:#10b981">$1</b>')
+                .replace(/(높은|최고|우수)/g, '<b style="color:#16a34a">$1</b>')
+                .replace(/(낮은|부족|없어|미실행)/g, '<b style="color:#ef4444">$1</b>');
+
+            reportContainer.innerHTML = `
+                <div style="background:linear-gradient(135deg,#f8faff,#f0f4ff);border:1px solid #c7d2fe;border-radius:12px;overflow:hidden;margin-top:16px">
+                    <div style="padding:12px 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #e0e7ff;cursor:pointer"
+                         onclick="(function(){var b=document.getElementById('${reportId}');var arr=document.getElementById('${reportId}_arr');var open=b.style.display!=='none';b.style.display=open?'none':'block';arr.textContent=open?'펼치기 ▼':'접기 ▲'})()">
+                        <span style="font-size:12px;font-weight:800;color:#4338ca;display:flex;align-items:center;gap:6px">
+                            <span style="width:8px;height:8px;border-radius:50%;background:#6366f1;display:inline-block;box-shadow:0 0 6px #6366f188"></span>
+                            AI 종합 분석 리포트
+                        </span>
+                        <span id="${reportId}_arr" style="font-size:10px;color:#6366f1;font-weight:600">접기 ▲</span>
+                    </div>
+                    <div id="${reportId}" style="display:block;padding:14px 16px;font-size:12.5px;line-height:1.9;color:#334155">${highlighted}</div>
+                </div>`;
+            reportContainer.style.display = 'block';
+        }
     },
 
     // ══════════════════════════════════
@@ -1128,8 +1283,8 @@ ${recentStr}
     renderTailAnalysis(tailData) {
         const tbody = document.getElementById('tail-body');
         if (!tbody || !tailData) return;
-        const MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399' };
-        const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov'];
+        const MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7' };
+        const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder'];
 
         tbody.innerHTML = tailData.map(item => {
             const exp = typeof item.exp === 'number' ? item.exp.toFixed(2) : item.exp;
@@ -1157,9 +1312,9 @@ ${recentStr}
         const container = document.getElementById('lottoPaperContainer');
         if (!container || !paperData) return;
 
-        const MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399' };
-        const MODEL_LABELS = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV' };
-        const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov'];
+        const MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7' };
+        const MODEL_LABELS = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV', autoencoder: 'ATC' };
+        const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder'];
 
         // 백엔드가 이미 '가로1'/'세로1' 형태로 전송하므로 별도 라벨 변환 불필요
         const buildTable = (title, items) => {
@@ -1208,9 +1363,9 @@ ${recentStr}
         const container = document.getElementById('numberBandContainer');
         if (!container || !bandData || !bandData.length) return;
 
-        const MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399' };
-        const MODEL_LABELS = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV' };
-        const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov'];
+        const MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7' };
+        const MODEL_LABELS = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV', autoencoder: 'ATC' };
+        const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder'];
         let html = '<div class="overflow-x-auto rounded-xl border border-slate-200 shadow-sm">';
         html += '<table class="w-full text-xs">';
         html += '<thead><tr class="bg-slate-800 text-white">';
@@ -1249,9 +1404,9 @@ ${recentStr}
         const container = document.getElementById('magicSquareContainer');
         if (!container || !squareData || !squareData.length) return;
 
-        const MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399' };
-        const MODEL_LABELS = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV' };
-        const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov'];
+        const MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7' };
+        const MODEL_LABELS = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV', autoencoder: 'ATC' };
+        const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder'];
         let html = '<div class="overflow-x-auto rounded-xl border border-slate-200 shadow-sm">';
         html += '<table class="w-full text-xs">';
         html += '<thead><tr class="bg-slate-800 text-white">';
@@ -1375,10 +1530,10 @@ ${recentStr}
             deadcold: { label: 'Dead', sub: 'Gap > 25', dot: '#cbd5e1', accent: '#cbd5e1' },
         };
         const MC = {
-            lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399'
+            lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7'
         };
-        const ML = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV' };
-        const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov'];
+        const ML = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV', autoencoder: 'ATC' };
+        const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder'];
         const statusOrder = ['hot', 'active', 'cooling', 'cold', 'deadcold'];
 
         const sigBadge = (sig) => {
@@ -1458,6 +1613,7 @@ ${recentStr}
                                 <th style="padding:7px 6px;text-align:center;font-weight:600;color:#f472b6;white-space:nowrap">CNN</th>
                                 <th style="padding:7px 6px;text-align:center;font-weight:600;color:#fb923c;white-space:nowrap">TF</th>
                                 <th style="padding:7px 6px;text-align:center;font-weight:600;color:#34d399;white-space:nowrap">MKV</th>
+                                <th style="padding:7px 6px;text-align:center;font-weight:600;color:#a855f7;white-space:nowrap">ATC</th>
                             </tr>
                         </thead>
                         <tbody>`;
@@ -1574,9 +1730,9 @@ ${recentStr}
         const container = document.getElementById('custom-container');
         if (!container || !customData) return;
         const self = this;
-        const MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399' };
-        const MODEL_LABELS = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV' };
-        const MODEL_ORDER = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov'];
+        const MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7' };
+        const MODEL_LABELS = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV', autoencoder: 'ATC' };
+        const MODEL_ORDER = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder'];
 
         if (!customData || customData.length === 0) {
             container.innerHTML = '<p class="text-sm text-slate-400 col-span-full py-8 text-center">커스텀 분석 데이터가 없습니다.</p>';
@@ -1743,6 +1899,34 @@ ${recentStr}
             // evidence가 있으면 우선 사용
             var evidenceText = (d.evidence && d.evidence[number]) ? d.evidence[number] : null;
 
+            // 만약 evidenceText가 없으면 백엔드에서 실시간 XAI 예측
+            if (!evidenceText) {
+                try {
+                    const url = this._getBaseUrl();
+                    const reqBody = { number: number, user_query: "이 번호에 대한 심층 분석을 해줘" };
+                    if (d.target_round) reqBody.target_round = d.target_round;
+
+                    const res = await fetch(url + '/api/explain/', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(reqBody),
+                        signal: AbortSignal.timeout(30000)
+                    });
+
+                    if (res.ok) {
+                        const xaiData = await res.json();
+                        evidenceText = xaiData.explanation;
+                        // 결과 캐싱
+                        if (!d.evidence) d.evidence = {};
+                        d.evidence[number] = evidenceText;
+                    } else {
+                        console.warn(`[XAI] Server returned ${res.status}`);
+                    }
+                } catch (e) {
+                    console.warn(`[XAI] Failed to fetch explanation for ${number}:`, e);
+                }
+            }
+
             // v3: matrix_data에서 번호 정보 추출 (기존 로직 유지)
             var matrixItem = null;
             if (d.matrix_data) {
@@ -1836,25 +2020,18 @@ ${recentStr}
 
             // 기존 모델별 점수
             if (matrixItem && matrixItem.models) {
-                var MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399' };
-                var MODEL_LABELS = { lstm: 'LSTM (시계열)', xgboost: 'XGBoost (패턴)', cnn: 'CNN (공간)', transformer: 'Transformer (맥락)', markov: 'Markov (전이)' };
+                var MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7' };
+                var MODEL_LABELS = { lstm: 'LSTM (시계열)', xgboost: 'XGBoost (패턴)', cnn: 'CNN (공간)', transformer: 'Transformer (맥락)', markov: 'Markov (전이)', autoencoder: 'Autoencoder (압축)' };
 
                 var modelHtml = '';
-                Object.entries(matrixItem.models).forEach(function (entry) {
-                    var mKey = entry[0], mVal = entry[1];
+                ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder'].forEach(mKey => {
+                    var mVal = matrixItem.models[mKey] || {};
                     var score = mVal.score || 0;
                     var color = MODEL_COLORS[mKey] || '#94a3b8';
                     var label = MODEL_LABELS[mKey] || mKey;
-                    modelHtml += '<div class="flex items-center gap-3 mb-2">' +
-                        '<span class="text-[10px] font-bold w-24 text-slate-500 flex-shrink-0">' + label + '</span>' +
-                        '<div class="flex-1 bg-slate-100 h-1.5 rounded-full overflow-hidden">' +
-                        '<div class="h-full rounded-full" style="width:' + score + '%;background:' + color + '"></div></div>' +
-                        '<span class="text-[10px] font-bold w-8 text-right text-slate-600">' + score + '</span>' +
-                        '</div>';
+                    modelHtml += `<div class="flex items-center gap-3 mb-2"><span class="text-[10px] font-bold w-28 text-slate-500 flex-shrink-0">${label}</span><div class="flex-1 bg-slate-100 h-1.5 rounded-full overflow-hidden"><div class="h-full rounded-full" style="width:${score}%;background:${color}"></div></div><span class="text-[10px] font-bold w-8 text-right text-slate-600">${score}</span></div>`;
                 });
-                localInfo += '<div class="bg-slate-50 rounded-xl p-4 border border-slate-100 mt-4">' +
-                    '<h5 class="font-bold text-slate-600 text-xs mb-3">5개 모델별 기여도</h5>' +
-                    modelHtml + '</div>';
+                localInfo += `<div class="bg-slate-50 rounded-xl p-4 border border-slate-100 mt-4"><h5 class="font-bold text-slate-600 text-xs mb-3">6개 모델별 기여도</h5>${modelHtml}</div>`;
             }
         }
 
@@ -2006,9 +2183,10 @@ ${recentStr}
                 model_top10: {
                     transformer: [{ number: 3, prob: 0.031 }, { number: 11, prob: 0.029 }, { number: 19, prob: 0.027 }, { number: 27, prob: 0.025 }, { number: 35, prob: 0.024 }, { number: 7, prob: 0.022 }, { number: 42, prob: 0.021 }, { number: 15, prob: 0.020 }, { number: 23, prob: 0.019 }, { number: 44, prob: 0.018 }],
                     lstm: [{ number: 11, prob: 0.030 }, { number: 3, prob: 0.028 }, { number: 27, prob: 0.026 }, { number: 19, prob: 0.024 }, { number: 42, prob: 0.023 }, { number: 35, prob: 0.021 }, { number: 7, prob: 0.020 }, { number: 23, prob: 0.019 }, { number: 15, prob: 0.018 }, { number: 44, prob: 0.017 }],
-                    markov: [{ number: 19, prob: 0.029 }, { number: 11, prob: 0.027 }, { number: 3, prob: 0.025 }, { number: 35, prob: 0.023 }, { number: 27, prob: 0.021 }, { number: 42, prob: 0.020 }, { number: 7, prob: 0.019 }, { number: 15, prob: 0.018 }, { number: 23, prob: 0.017 }, { number: 44, prob: 0.016 }]
+                    markov: [{ number: 19, prob: 0.029 }, { number: 11, prob: 0.027 }, { number: 3, prob: 0.025 }, { number: 35, prob: 0.023 }, { number: 27, prob: 0.021 }, { number: 42, prob: 0.020 }, { number: 7, prob: 0.019 }, { number: 15, prob: 0.018 }, { number: 23, prob: 0.017 }, { number: 44, prob: 0.016 }],
+                    autoencoder: [{ number: 27, prob: 0.032 }, { number: 19, prob: 0.028 }, { number: 35, prob: 0.025 }, { number: 3, prob: 0.022 }, { number: 11, prob: 0.020 }, { number: 42, prob: 0.019 }, { number: 15, prob: 0.018 }, { number: 7, prob: 0.017 }, { number: 44, prob: 0.016 }, { number: 23, prob: 0.015 }]
                 },
-                model_weights: { transformer: 0.3, lstm: 0.2, cnn: 0.2, xgboost: 0.2, markov: 0.1 }
+                model_weights: { transformer: 0.2, lstm: 0.2, cnn: 0.2, xgboost: 0.2, markov: 0.1, autoencoder: 0.1 }
             },
             strategy: {
                 confidence: 50,
@@ -2016,7 +2194,7 @@ ${recentStr}
                 keywords: ['데모', '연결실패', '백엔드확인'],
                 hot_cold_analysis: '데모 데이터입니다.',
                 risk_assessment: '서버 연결 후 정확한 분석이 가능합니다.',
-                overall_strategy: '백엔드 서버(localhost:8000) 실행 후 새로고침해주세요.',
+                overall_strategy: '백엔드 서버(https://lotto-api-server.onrender.com) 응답 대기 중입니다.',
                 fixed_numbers: { numbers: [3, 11, 19], evidence: '데모 데이터' },
                 exclude_numbers: { numbers: [1, 6, 13], evidence: '데모 데이터' },
                 filter_recommendations: [
@@ -2056,7 +2234,7 @@ ${recentStr}
         if (window.AIProxy && window.AIProxy._langchainUrl) {
             return window.AIProxy._langchainUrl;
         }
-        return 'http://localhost:8000';
+        return 'https://lotto-api-server.onrender.com';
     },
 
     getBallColor(n) {
