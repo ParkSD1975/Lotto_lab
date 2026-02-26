@@ -1733,14 +1733,17 @@ ${recentStr}
         if (!modal || !content) return;
 
         modal.classList.remove('hidden');
-        if (title) title.textContent = number + '번 XAI 분석';
+        if (title) title.textContent = number + '번 XAI 심층 분석';
         content.innerHTML = '<div class="text-center text-slate-400 py-8"><div class="w-10 h-10 border-3 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mx-auto mb-3"></div><p>' + number + '번 분석 중...</p></div>';
 
         var localInfo = '';
         if (this.state.analysisData) {
             var d = this.state.analysisData;
 
-            // v3: matrix_data에서 번호 정보 추출
+            // evidence가 있으면 우선 사용
+            var evidenceText = (d.evidence && d.evidence[number]) ? d.evidence[number] : null;
+
+            // v3: matrix_data에서 번호 정보 추출 (기존 로직 유지)
             var matrixItem = null;
             if (d.matrix_data) {
                 matrixItem = d.matrix_data.find(function (m) { return m.num === number; });
@@ -1748,59 +1751,110 @@ ${recentStr}
 
             var prob = matrixItem ? (matrixItem.total || 0) / 100 : null;
             var isRecommended = (d.top_5 || []).indexOf(number) >= 0;
+            if (!isRecommended && d.recommended) isRecommended = d.recommended.indexOf(number) >= 0;
+
             var isExcluded = (d.exclude_10 || []).indexOf(number) >= 0;
+            if (!isExcluded && d.excluded) isExcluded = d.excluded.indexOf(number) >= 0;
 
             var statusClass = isRecommended ? 'bg-emerald-50 text-emerald-600 border border-emerald-200'
                 : isExcluded ? 'bg-rose-50 text-rose-600 border border-rose-200'
                     : 'bg-slate-50 text-slate-500 border border-slate-200';
-            var statusText = isRecommended ? '추천' : isExcluded ? '제외' : '보통';
+            var statusText = isRecommended ? '강력추천' : isExcluded ? '제외예상' : '일반';
 
-            // 헤더
+            // 헤더 구성
             localInfo = '<div class="space-y-4 mb-4">' +
                 '<div class="flex items-center gap-3">' +
-                '<span class="w-12 h-12 rounded-full flex items-center justify-center text-lg font-black text-white shadow-lg" style="background-color: ' + this.getBallColor(number) + '">' + number + '</span>' +
-                '<div>' +
-                '<p class="font-bold text-slate-900 text-lg">번호 ' + number + '</p>' +
-                '<p class="text-sm text-slate-500">앙상블 확률: <span class="font-bold text-indigo-600">' + (prob !== null ? (prob * 100).toFixed(2) : '--') + '%</span></p>' +
-                (matrixItem ? (function (mi) {
-                    var corrInfo = '';
-                    if (mi.penalty != null && mi.penalty < 1.0) {
-                        corrInfo += ' <span class="text-red-500 font-bold">⚠️과출현×' + mi.over_ratio + '→' + Math.round((1 - mi.penalty) * 100) + '%하향</span>';
-                    }
-                    if (mi.boost != null && mi.boost > 1.0) {
-                        corrInfo += ' <span class="text-emerald-600 font-bold">⚡출현임박(Gap×' + mi.gap_ratio + '배)</span>';
-                    }
-                    return '<p class="text-xs text-slate-400">Gap: ' + mi.gap + '회  |  HOT: ' + mi.hot + '연속  |  빈도: ' + (mi.freq * 100).toFixed(1) + '%' + corrInfo + '</p>';
-                })(matrixItem) : '') +
+                '<span class="w-14 h-14 rounded-full flex items-center justify-center text-xl font-black text-white shadow-xl ring-4 ring-white" style="background-color: ' + this.getBallColor(number) + '">' + number + '</span>' +
+                '<div class="flex-1">' +
+                '<div class="flex items-center justify-between mb-1">' +
+                '<p class="font-bold text-slate-900 text-lg">번호 ' + number + ' 분석결과</p>' +
+                '<span class="px-3 py-1 rounded-full text-xs font-bold ' + statusClass + '">' + statusText + '</span>' +
                 '</div>' +
-                '<span class="ml-auto px-3 py-1 rounded-full text-xs font-bold ' + statusClass + '">' + statusText + '</span>' +
+                '<p class="text-sm text-slate-500">앙상블 예측 확률: <span class="font-black text-indigo-600 text-base">' + (prob !== null ? (prob * 100).toFixed(2) : '--') + '%</span></p>' +
                 '</div></div>';
 
-            // 모델별 점수/근거
+            // 추가 정보 (Gap, Hot, 빈도 등)
+            if (matrixItem) {
+                var corrInfo = '';
+                if (matrixItem.penalty != null && matrixItem.penalty < 1.0) {
+                    corrInfo += ' <span class="text-rose-500 font-bold ml-1">⚠️과출현제어(' + Math.round((1 - matrixItem.penalty) * 100) + '%)</span>';
+                }
+                if (matrixItem.boost != null && matrixItem.boost > 1.0) {
+                    corrInfo += ' <span class="text-emerald-600 font-bold ml-1">⚡주기임박</span>';
+                }
+                localInfo += '<div class="flex items-center gap-4 text-xs text-slate-500 bg-slate-50 px-4 py-2 rounded-lg border border-slate-100">' +
+                    '<span>Gap: <strong class="text-slate-700">' + matrixItem.gap + '</strong></span>' +
+                    '<span class="w-px h-3 bg-slate-300"></span>' +
+                    '<span>빈도: <strong class="text-slate-700">' + (matrixItem.freq * 100).toFixed(1) + '%</strong></span>' +
+                    corrInfo +
+                    '</div></div>';
+            } else {
+                localInfo += '</div>';
+            }
+
+            // XAI Evidence 영역
+            if (evidenceText) {
+                const reasons = evidenceText.split(" | ");
+                let reasonsHtml = '<ul class="space-y-2">';
+
+                reasons.forEach(reason => {
+                    const isWarning = reason.includes("[경고]") || reason.includes("제외") || reason.includes("부족") || reason.includes("높음");
+                    const isPositive = reason.includes("추천") || reason.includes("유력") || reason.includes("매우") || reason.includes("적합");
+
+                    let boxClass = "bg-white border-slate-100 text-slate-600";
+                    let icon = "check_circle";
+                    let iconClass = "text-slate-400";
+
+                    if (isWarning) {
+                        boxClass = "bg-rose-50/50 border-rose-100 text-rose-700";
+                        icon = "warning";
+                        iconClass = "text-rose-500";
+                    } else if (isPositive) {
+                        boxClass = "bg-indigo-50/50 border-indigo-100 text-indigo-700";
+                        icon = "auto_awesome";
+                        iconClass = "text-indigo-500";
+                    }
+
+                    reasonsHtml += `
+                        <li class="flex items-start gap-3 p-3 rounded-xl border ${boxClass}">
+                            <span class="material-symbols-outlined ${iconClass} text-lg mt-0.5 flex-shrink-0">${icon}</span>
+                            <span class="text-sm leading-relaxed font-medium">${reason}</span>
+                        </li>
+                    `;
+                });
+                reasonsHtml += '</ul>';
+
+                localInfo += `
+                    <div class="mb-5">
+                        <h4 class="font-bold text-slate-800 text-sm mb-3 flex items-center gap-2">
+                            <span class="material-symbols-outlined text-indigo-600">psychology</span> AI 심층 분석 리포트
+                        </h4>
+                        ${reasonsHtml}
+                    </div>
+                `;
+            }
+
+            // 기존 모델별 점수
             if (matrixItem && matrixItem.models) {
                 var MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399' };
-                var MODEL_LABELS = { lstm: 'LSTM', xgboost: 'XGBoost', cnn: 'CNN', transformer: 'Transformer', markov: 'Markov' };
+                var MODEL_LABELS = { lstm: 'LSTM (시계열)', xgboost: 'XGBoost (패턴)', cnn: 'CNN (공간)', transformer: 'Transformer (맥락)', markov: 'Markov (전이)' };
+
                 var modelHtml = '';
                 Object.entries(matrixItem.models).forEach(function (entry) {
                     var mKey = entry[0], mVal = entry[1];
                     var score = mVal.score || 0;
-                    var reason = mVal.reason || '-';
                     var color = MODEL_COLORS[mKey] || '#94a3b8';
                     var label = MODEL_LABELS[mKey] || mKey;
-                    modelHtml += '<div class="flex items-start gap-3 py-2 border-b border-slate-100 last:border-0">' +
-                        '<div class="w-20 flex-shrink-0">' +
-                        '<span class="text-[11px] font-bold" style="color:' + color + '">' + label + '</span>' +
-                        '<div class="mt-1 bg-slate-100 h-1.5 rounded-full overflow-hidden">' +
+                    modelHtml += '<div class="flex items-center gap-3 mb-2">' +
+                        '<span class="text-[10px] font-bold w-24 text-slate-500 flex-shrink-0">' + label + '</span>' +
+                        '<div class="flex-1 bg-slate-100 h-1.5 rounded-full overflow-hidden">' +
                         '<div class="h-full rounded-full" style="width:' + score + '%;background:' + color + '"></div></div>' +
-                        '</div>' +
-                        '<span class="text-[11px] text-slate-500 leading-4">' + reason + '</span>' +
-                        '<span class="ml-auto text-[11px] font-black flex-shrink-0" style="color:' + color + '">' + score + '</span>' +
+                        '<span class="text-[10px] font-bold w-8 text-right text-slate-600">' + score + '</span>' +
                         '</div>';
                 });
-                localInfo += '<div class="bg-slate-50 border border-slate-100 rounded-xl p-4">' +
-                    '<h4 class="font-bold text-slate-700 text-sm mb-3 flex items-center gap-1.5">' +
-                    '<span class="material-symbols-outlined text-sm">model_training</span> 5개 모델 분석 근거</h4>' +
-                    '<div>' + modelHtml + '</div></div>';
+                localInfo += '<div class="bg-slate-50 rounded-xl p-4 border border-slate-100 mt-4">' +
+                    '<h5 class="font-bold text-slate-600 text-xs mb-3">5개 모델별 기여도</h5>' +
+                    modelHtml + '</div>';
             }
         }
 

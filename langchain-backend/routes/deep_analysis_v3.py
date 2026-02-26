@@ -1452,7 +1452,7 @@ async def get_deep_analysis(round_num: int = None):
                 model_scores, gap, streak, avg_hit, sample_count, hit_dist = score_for_nums(nums)
             except Exception as e:
                 print(f"[custom] {analysis.get('title')} 처리 오류: {e}")
-                import traceback; traceback.print_exc()
+                traceback.print_exc()
                 continue
             custom_evaluations.append({
                 "id": analysis.get("id"),
@@ -1576,7 +1576,8 @@ async def get_deep_analysis(round_num: int = None):
             "top_5": top_5,
             "exclude_10": exclude_10,
             "combinations": combinations,
-            "strategy": strategy  # LLM 전략 추가
+            "strategy": strategy,  # LLM 전략 추가
+            "evidence": prediction.get("evidence", {})  # XAI 근거 데이터 추가
         }
 
         # [10] 이력 저장 (비동기, 실패해도 무시)

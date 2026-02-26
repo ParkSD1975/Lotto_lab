@@ -395,6 +395,9 @@
             <!-- 1. 번호별 분석 탭 -->
             <div id="tab-summary" class="content-grid pb-8">
 
+                <!-- [Phase 6] 모델 컨디션 바 (Meta-Learning 가중치) -->
+                <div id="modelConditionContainer" style="display:none" class="col-span-1 lg:col-span-2"></div>
+
                 <!-- AI 강력 추천 + AI 제외수 가로 2열 -->
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 col-span-1 lg:col-span-2">
                     <!-- AI 강력 추천 카드 -->
@@ -473,6 +476,8 @@
                             <span><b>Top포함</b>: 상위 추천번호 몇 개 포함했는지</span>
                         </div>
                         <div id="combos" class="space-y-2"></div>
+                        <!-- [Phase 6] AI 분석 리포트 카드 -->
+                        <div id="aiReportContainer" style="display:none"></div>
                     </div>
                 </div>
             </div>
