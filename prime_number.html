@@ -6,7 +6,7 @@
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>Lotto Lab - 소수 (Supabase AI)</title>
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-    
+
     <link rel="icon" href="data:,">
 
     <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css"
@@ -708,9 +708,10 @@
                     <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
                         <div class="flex items-center justify-between mb-4">
                             <h3 class="text-lg font-bold text-gray-900">조합 필터</h3>
-                            <a href="#filter-page"
-                                class="flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-800 transition-colors">
-                                <span class="material-symbols-outlined text-sm">open_in_new</span>필터 페이지 가기
+                            <a href="filter.html?id=prime_number_patterns"
+                                class="text-sm font-medium text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
+                                <span class="material-symbols-outlined text-[18px]">tune</span>
+                                필터 페이지 가기
                             </a>
                         </div>
 
@@ -751,7 +752,7 @@
                                         <input type="checkbox" id="applyFilterCheck" onchange="applyFilter()"
                                             class="sr-only peer" checked>
                                         <div
-                                            class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500">
+                                            class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600">
                                         </div>
                                     </label>
                                     <label for="applyFilterCheck"
@@ -992,8 +993,13 @@
         function applyFilter() {
             saveFilterSettings();
             const isFilterEnabled = document.getElementById('applyFilterCheck').checked;
-            let filteredData = allDrawData.slice(0, currentRange);
 
+            // [표준화] 리스트 렌더링은 필터링하지 않음 (Range 동기화만 유지)
+            const displayData = allDrawData.slice(0, currentRange);
+            renderDrawsList(displayData);
+
+            // [표준화] AI 정보와 기타 요소들은 필터링된 데이터 사용 가능
+            let filteredData = displayData;
             if (isFilterEnabled) {
                 // 1. 소수 개수 필터
                 const activeCounts = [];
@@ -1007,17 +1013,19 @@
                     filteredData = filteredData.filter(d => activeCounts.includes(d.primeCount));
                 }
 
-                // 2. [추가됨] 제외수 필터 (통계 모달 체크박스)
+                // 2. 제외수 필터
                 if (excludedPrimes.size > 0) {
                     filteredData = filteredData.filter(d => {
-                        // 해당 회차의 번호 중 하나라도 제외수에 포함되어 있으면 필터링
                         return !d.numbers.some(num => excludedPrimes.has(num));
                     });
                 }
             }
-            renderDrawsList(filteredData);
+
             updateRecentTenFilterFlag();
             highlightRecentTenRows();
+
+            // 필터링된 데이터로 AI/차트 등 업데이트 로직이 필요한 경우 여기서 수행
+            // refreshAIAnalysis(filteredData); 
         }
 
         document.addEventListener('DOMContentLoaded', async function () {
@@ -1093,13 +1101,57 @@
 
                 updateSliderBackground(currentRange);
                 await initializeRecentTenFilter();
-                refreshAIAnalysis();
 
+                // 🔥 [New] 토요일 새 회차 자동 최근 10회차 필터 적용
+                await autoApplyFilterOnSaturdayUpdate();
+                refreshAIAnalysis();
             } catch (err) {
                 console.error('데이터 로드 실패:', err);
                 document.getElementById('drawsList').innerHTML = `<tr><td colspan="5" class="p-10 text-center text-red-500">데이터 로드 실패<br>${err.message}</td></tr>`;
             }
         });
+
+        // 🔥 대시보드(filter.html) 혹은 다른 페이지에서의 설정을 실시간 동기화
+        window.addEventListener('storage', (e) => {
+            if (e.key === 'prime_number_patterns') {
+                console.log('🔄 Dashboard -> Prime Number Sync Detected');
+                if (typeof loadFilterSettings === 'function') {
+                    loadFilterSettings().then(() => {
+                        applyFilter();
+                    });
+                }
+            }
+        });
+
+        // [New] 토요일 새 회차 업데이트 감지 후 최근 10회차 필터 자동 적용
+        async function autoApplyFilterOnSaturdayUpdate() {
+            if (!allDrawData || allDrawData.length === 0) return;
+
+            const latestRound = allDrawData[0].round;
+            const storageKey = 'prime_number_lastKnownRound';
+            const savedRound = parseInt(localStorage.getItem(storageKey) || '0');
+
+            // 새 회차가 감지된 경우 (저장 값과 다를 때)
+            if (latestRound !== savedRound) {
+                // 오늘이 토요일인지 확인 (0=일, 6=토)
+                const today = new Date();
+                const isNewRoundDay = (today.getDay() === 6); // 토요일
+
+                // 새 회차 저장
+                localStorage.setItem(storageKey, String(latestRound));
+
+                // 토요일이거나 저장된 회차가 없을 때(최초 실행) 필터 자동 적용
+                if (isNewRoundDay || savedRound === 0) {
+                    console.log(`🎯 [자동 필터] 새 회차 감지: ${latestRound}회 → 최근 10회차 필터 자동 적용`);
+
+                    // 이미 필터가 켜져있지 않은 경우만 자동 적용
+                    const btn = document.getElementById('recent10FilterBtn');
+                    if (btn && !btn.classList.contains('from-purple-500')) {
+                        applyRecent10Filters();
+                    }
+                }
+            }
+        }
 
         // [표준화] 최근 10회차 필터 자동 적용 (missing.html 기준)
         function applyRecent10Filters() {
@@ -1110,7 +1162,7 @@
             // 토글: 이미 켜져있으면 끄기 (보라색 클래스 존재 여부로 판단)
             if (btn.classList.contains('from-purple-500')) {
                 btn.classList.remove('from-purple-500', 'to-purple-700');
-                btn.classList.add('from-blue-500', 'to-indigo-600');
+                btn.classList.add('from-indigo-500', 'to-indigo-600');
                 btnText.textContent = '최근 10회차 필터 적용';
 
                 // 필터 초기화
@@ -1170,7 +1222,7 @@
             }
 
             // 3. UI 업데이트 (보라색 토글)
-            btn.classList.remove('from-blue-500', 'to-indigo-600');
+            btn.classList.remove('from-indigo-500', 'to-indigo-600');
             btn.classList.add('from-purple-500', 'to-purple-700');
             btnText.textContent = '필터 해제';
 
@@ -1341,6 +1393,33 @@
                 },
                 plugins: [minMaxLabelsPlugin]
             });
+        }
+
+        async function saveFilterSettings() {
+            if (!window.filterService || !window.filterService.initialized) return;
+
+            const isEnabled = document.getElementById('applyFilterCheck')?.checked || false;
+            const activeCounts = [];
+            for (let i = 0; i <= 6; i++) {
+                const btn = document.getElementById(`filter-btn-${i}`);
+                if (btn && (btn.classList.contains('filter-btn-active') || btn.classList.contains('bg-purple-600'))) {
+                    activeCounts.push(i);
+                }
+            }
+
+            const settings = {
+                selectedCounts: activeCounts,
+                excludedPrimes: Array.from(excludedPrimes || []),
+                recent10FilterActive: isRecentTenFilter
+            };
+
+            await window.filterService.saveSetting('prime_number_patterns', settings, isEnabled);
+
+            // localStorage fallback (for dashboard sync)
+            localStorage.setItem('prime_number_patterns', JSON.stringify({
+                enabled: isEnabled,
+                ...settings
+            }));
         }
 
         function generateDistributionData(range) {

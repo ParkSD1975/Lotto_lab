@@ -10,6 +10,7 @@ v3 특징:
 
 import json
 import traceback
+print("\n" + "!"*60 + "\nANTIGRAVITY DEBUG: deep_analysis_v3.py LOADED\n" + "!"*60 + "\n")
 import time
 import re
 import numpy as np
@@ -21,6 +22,7 @@ from starlette.responses import Response
 
 from db.supabase_client import fetch_all_draws, get_client, fetch_missing_counts
 from models.ensemble import LottoEnsemble, CombinationGenerator
+from chains.memo_parser import parse_expert_memo
 import config
 
 router = APIRouter(prefix="/api/deep-analysis/v3", tags=["deep-analysis-v3"])
@@ -42,7 +44,10 @@ def _json_response(data: dict):
 def simulate_all_filters(model_probs, n_sim=1000):
     nums = list(model_probs.keys())
     probs = list(model_probs.values())
-    norm_probs = [p/sum(probs) for p in probs]
+    total_prob = sum(probs)
+    if total_prob == 0:
+        return {}, {}
+    norm_probs = [p/total_prob for p in probs]
 
     stats = {k: [] for k in ["sum", "ac", "odd", "high", "prime", "consecutive", "tail_sum", "composite", "square", "triangular", "twin", "mul3", "mul4", "mul5", "non_multiple"]}
     PRIMES = {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43}
@@ -162,6 +167,16 @@ def get_number_model_reasons(num: int, streak: int, gap: int, freq: float, histo
         reasons["markov"] = f"낮은 전이({transition_prob:.1%}) | 상태 약화 신호"
     else:
         reasons["markov"] = f"매우 낮은 전이({transition_prob:.1%}) | 상태 전환"
+        
+    # Autoencoder: 차원 압축 기반
+    if freq >= 0.15:
+        reasons["autoencoder"] = f"주요 특징 추출({freq:.1%}) | 핵심 패턴 일치"
+    elif gap >= 15:
+        reasons["autoencoder"] = f"잠재 패턴 활성화(Gap={gap}) | 복원 신호 감지"
+    elif streak >= 2:
+        reasons["autoencoder"] = f"연속 특징 유지({streak}회) | 단기 트렌드 강함"
+    else:
+        reasons["autoencoder"] = f"압축 특징 평이 | 기저 상태 유지"
 
     return reasons
 
@@ -170,7 +185,7 @@ def get_number_model_reasons(num: int, streak: int, gap: int, freq: float, histo
 # ------------------------------------------------------------------
 def get_model_filter_expectations(filter_name: str, history_draws: list, model_contributions: dict):
     """필터별 5개 모델의 예상 범위를 계산"""
-    models = ["lstm", "xgboost", "cnn", "transformer", "markov"]
+    models = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder"]
     PRIMES = {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43}
     COMPOSITES = {4, 6, 8, 9, 10, 12, 14, 15, 16, 18, 20, 21, 22, 24, 25, 26, 27, 28, 30, 32, 33, 34, 35, 36, 38, 39, 40, 42, 44, 45}
     SQUARES = {1, 4, 9, 16, 25, 36}
@@ -494,7 +509,7 @@ def get_number_status(num: int, history_draws: list):
 
 def analyze_hot_cold(final_probs, history_draws, contribs):
     """Hot/Cold 상태 분석 - 모델별 점수 포함"""
-    models = ["lstm", "xgboost", "cnn", "transformer", "markov"]
+    models = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder"]
 
     # 각 번호별 gap 계산
     num_gaps = {}
@@ -653,19 +668,25 @@ def analyze_9palace(combination: list, history_draws: list):
 # ------------------------------------------------------------------
 def analyze_tail_detailed(final_probs, history_draws, model_contributions=None):
     tails = []
-    models = ["lstm", "xgboost", "cnn", "transformer", "markov"]
+    models = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder"]
 
     # 앙상블 확률 정규화 (합=1)
-    ens_total = sum(final_probs.values()) or 1.0
-    norm_final = {n: v / ens_total for n, v in final_probs.items()}
+    ens_total = sum(final_probs.values())
+    if ens_total == 0:
+        norm_final = {n: 0 for n in final_probs}
+    else:
+        norm_final = {n: v / ens_total for n, v in final_probs.items()}
 
     # 모델별 확률 정규화 캐시 (한 번만 계산)
     norm_model = {}
     if model_contributions:
         for m in models:
             m_probs = model_contributions.get(m, {})
-            m_total = sum(m_probs.values()) or 1.0
-            norm_model[m] = {n: v / m_total for n, v in m_probs.items()}
+            m_total = sum(m_probs.values())
+            if m_total == 0:
+                norm_model[m] = {n: 0 for n in m_probs}
+            else:
+                norm_model[m] = {n: v / m_total for n, v in m_probs.items()}
 
     for t in range(10):
         t_nums = [n for n in range(1, 46) if n % 10 == t]
@@ -723,54 +744,63 @@ def analyze_all_regressions(history_draws, final_probs, model_contributions=None
     total_draws = len(history_draws)
 
     for w in range(2, 201):
-        if total_draws < w + 5: break
-
-        target_nums = set(history_draws[w - 1]["numbers"])
-
-        # regression.html과 동일한 로직:
-        # w 간격(주기)으로 앞뒤 회차 번호 교집합 여부 확인
-        # history_draws는 최신순(desc) → index w-1 = w회귀, index 2w-1 = 2w회귀 ...
-        # Gap: w 주기로 연속 미출현 횟수
+        if total_draws < w + 20: break  # 검증을 위한 최소 표본 확보
+        
+        # [수정] 현재 대상 번호(target_nums)는 '오늘' 분석을 위한 것이 아니라 
+        # '이 방식(w 회귀)'이 과거에 얼마나 잘 맞았는지를 계산해야 함.
+        
+        hit_counts = []
+        # 과거 이력을 돌며 w 전 번호가 이번에 얼마나 나왔는지 체크
+        # 최신 100회차 정도만 샘플링 (성능 및 최신 트렌드 반영)
+        sample_limit = min(100, total_draws - w - 1)
+        for i in range(sample_limit):
+            past_draw = history_draws[i + w] # 더 과거
+            current_draw = history_draws[i]  # 그보다 w회 뒤 (상대적 최신)
+            
+            p_nums = set(past_draw.get("numbers", []))
+            c_nums = set(current_draw.get("numbers", []))
+            hit_counts.append(len(p_nums & c_nums))
+        
+        if not hit_counts: continue
+        
+        avg_hit = sum(hit_counts) / len(hit_counts)
+        # 히스토그램 (0~6개)
+        hit_dist = {i: hit_counts.count(i) for i in range(7)}
+        
+        # 현재(오늘) 분석을 위한 타겟: N회 전 추첨된 번호를 기반으로 함 (w-1 인덱스 사용).
+        # history_draws[0]이 저번 주 당첨 번호라면, history_draws[w-1]는 정확히 w주기 전 번호가 됨.
+        # 이번 주(미래) 회차에 나오기를 기대하는 "대상번호"를 산출하는 과정. 
+        if total_draws > w - 1:
+            target_nums = history_draws[w - 1]["numbers"]
+        else:
+            target_nums = []
+        
+        # GAP: w 주기로 연속 미출현 횟수
         gap = 0
-        cur = w - 1
+        cur = 0 # 가장 최근부터 역순으로
         while True:
-            nxt = cur + w
-            if nxt >= total_draws:
-                break
-            if set(history_draws[cur]["numbers"]) & set(history_draws[nxt]["numbers"]):
-                break
+            idx = cur + w
+            if idx >= total_draws: break
+            # 현재(0)와 idx(w), idx와 idx+w... 간의 결합 확인
+            if set(history_draws[cur]["numbers"]) & set(history_draws[idx]["numbers"]): break
             gap += 1
-            cur = nxt
-            if gap > 30:
-                break
-
+            cur = idx
+            if gap > 50: break
+            
         # STR: w 주기로 연속 출현 횟수
         str_count = 0
-        cur = w - 1
-        while True:
-            nxt = cur + w
-            if nxt >= total_draws:
-                break
-            if set(history_draws[cur]["numbers"]) & set(history_draws[nxt]["numbers"]):
-                str_count += 1
-            else:
-                break
-            cur = nxt
-            if str_count > 30:
-                break
-
-        # 과거 적중 분포: 전체 이력(현재 회차 제외)에서 대상번호가 몇 개 출현했는지
-        hit_dist = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0}
-        hit_total = 0
-        sample_count = 0
-        for draw in history_draws[w:]:  # w회귀 이후 이력 (미래 = 더 최근 회차)
-            actual = set(draw.get("numbers", []))
-            hit = len(target_nums & actual)
-            hit_dist[hit] = hit_dist.get(hit, 0) + 1
-            hit_total += hit
-            sample_count += 1
-
-        avg_hit = round(hit_total / sample_count, 2) if sample_count > 0 else 0
+        cur = 0
+        if set(history_draws[0]["numbers"]) & set(history_draws[w]["numbers"]):
+            str_count = 1
+            while True:
+                idx = cur + w
+                nxt = idx + w
+                if nxt >= total_draws: break
+                if set(history_draws[idx]["numbers"]) & set(history_draws[nxt]["numbers"]): 
+                    str_count += 1
+                else: break
+                cur = idx
+                if str_count > 50: break
 
         results.append({
             "id": w,
@@ -779,7 +809,7 @@ def analyze_all_regressions(history_draws, final_probs, model_contributions=None
             "str": str_count,
             "avg_hit": avg_hit,
             "hit_dist": hit_dist,
-            "sample_count": sample_count,
+            "sample_count": len(hit_counts),
         })
     return results
 
@@ -793,19 +823,25 @@ def analyze_lotto_paper(final_probs, history_draws, model_contributions=None):
     - 세로 라인: 세로1(1,8,15,22,29,36,43), 세로2(2,9,16,23,30,37,44), ...
     - 각 라인별 Gap(미출현 연속 횟수), STR(연속 출현 횟수) 포함
     """
-    models = ["lstm", "xgboost", "cnn", "transformer", "markov"]
+    models = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder"]
 
     # 앙상블 확률 정규화
-    ens_total = sum(final_probs.values()) or 1.0
-    norm_final = {n: v / ens_total for n, v in final_probs.items()}
+    ens_total = sum(final_probs.values())
+    if ens_total == 0:
+        norm_final = {n: 0 for n in final_probs}
+    else:
+        norm_final = {n: v / ens_total for n, v in final_probs.items()}
 
     # 모델별 확률 정규화
     norm_model = {}
     if model_contributions:
         for m in models:
             m_probs = model_contributions.get(m, {})
-            m_total = sum(m_probs.values()) or 1.0
-            norm_model[m] = {n: v / m_total for n, v in m_probs.items()}
+            m_total = sum(m_probs.values())
+            if m_total == 0:
+                norm_model[m] = {n: 0 for n in m_probs}
+            else:
+                norm_model[m] = {n: v / m_total for n, v in m_probs.items()}
 
     # 가로 라인 정의 (실제 로또 용지 7열 기준)
     rows = [
@@ -889,19 +925,25 @@ def analyze_magic_square(final_probs, history_draws, model_contributions=None):
     - 6궁(26-30), 7궁(31-35), 8궁(36-40), 9궁(41-45)
     - 각 궁별 Gap(미출현 연속 횟수), STR(연속 출현 횟수), 추천도 포함
     """
-    models = ["lstm", "xgboost", "cnn", "transformer", "markov"]
+    models = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder"]
 
     # 앙상블 확률 정규화
-    ens_total = sum(final_probs.values()) or 1.0
-    norm_final = {n: v / ens_total for n, v in final_probs.items()}
+    ens_total = sum(final_probs.values())
+    if ens_total == 0:
+        norm_final = {n: 0 for n in final_probs}
+    else:
+        norm_final = {n: v / ens_total for n, v in final_probs.items()}
 
     # 모델별 확률 정규화
     norm_model = {}
     if model_contributions:
         for m in models:
             m_probs = model_contributions.get(m, {})
-            m_total = sum(m_probs.values()) or 1.0
-            norm_model[m] = {n: v / m_total for n, v in m_probs.items()}
+            m_total = sum(m_probs.values())
+            if m_total == 0:
+                norm_model[m] = {n: 0 for n in m_probs}
+            else:
+                norm_model[m] = {n: v / m_total for n, v in m_probs.items()}
 
     # 9궁 정의 (magic_square.html gungDefinitions와 완전히 동일)
     gung_defs = [
@@ -965,19 +1007,25 @@ def analyze_number_band(final_probs, history_draws, model_contributions=None):
     번호대별(10단위 구간) 분석:
     01~10, 11~20, 21~30, 31~40, 41~45
     """
-    models = ["lstm", "xgboost", "cnn", "transformer", "markov"]
+    models = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder"]
 
     # 앙상블 확률 정규화
-    ens_total = sum(final_probs.values()) or 1.0
-    norm_final = {n: v / ens_total for n, v in final_probs.items()}
+    ens_total = sum(final_probs.values())
+    if ens_total == 0:
+        norm_final = {n: 0 for n in final_probs}
+    else:
+        norm_final = {n: v / ens_total for n, v in final_probs.items()}
 
     # 모델별 확률 정규화
     norm_model = {}
     if model_contributions:
         for m in models:
             m_probs = model_contributions.get(m, {})
-            m_total = sum(m_probs.values()) or 1.0
-            norm_model[m] = {n: v / m_total for n, v in m_probs.items()}
+            m_total = sum(m_probs.values())
+            if m_total == 0:
+                norm_model[m] = {n: 0 for n in m_probs}
+            else:
+                norm_model[m] = {n: v / m_total for n, v in m_probs.items()}
 
     bands = [
         {"label": "01~10",  "nums": list(range(1,  11))},
@@ -1263,14 +1311,69 @@ async def get_deep_analysis(round_num: int = None):
         target_round = int(round_num) if round_num else (all_draws[0]["round"] + 1)
         history_draws = [d for d in all_draws if d["round"] < target_round]
         
+        # [추가] 전문가 메모(Expert Memo) 가져오기 및 파싱
+        human_rules = None
+        expert_memo_data = None
+        try:
+            # [추가] 전문가 메모(Expert Memo) 가령: 모든 메모를 합쳐서 분석
+            memo_res = client.table("user_checkpoints")\
+                .select("*")\
+                .eq("round", target_round)\
+                .order("created_at", desc=False)\
+                .execute()
+            
+            if memo_res.data:
+                expert_memo_data = memo_res.data[-1] # 마지막 데이터를 참조용으로 유지
+                # 모든 메모 텍스트 합치기
+                all_memo_texts = [row.get("memo", "") for row in memo_res.data if row.get("memo")]
+                memo_text = "\n".join(all_memo_texts)
+                
+                if memo_text.strip():
+                    print(f"[{target_round}회] 전문가 메모({len(all_memo_texts)}개) 합산 분석 시작...")
+                    human_rules = parse_expert_memo(memo_text)
+                    print(f"-> 파싱된 통합 규칙: {human_rules}")
+        except Exception as e:
+            print(f"전문가 메모 로드 실패: {e}")
+
         # 모델 실행
         ensemble = LottoEnsemble()
-        try: prediction = ensemble.predict(history_draws)
-        except: prediction = {"probabilities": {}, "model_contributions": {}}
+        try: 
+            prediction = ensemble.predict(history_draws, human_rules=human_rules)
+        except Exception as e:
+            print(f"예측 오류: {e}")
+            traceback.print_exc()
+            prediction = {"probabilities": {}, "model_contributions": {}}
+        
         final_probs = prediction.get("probabilities", {})
         contribs = prediction.get("model_contributions", {})
+        # 전문가 메모가 존재하면 캐시를 무시하도록 설정 (항상 최신 메모 반영)
+        if expert_memo_data:
+            print("📝 전문가 메모가 감지되어 캐시를 무시하고 새로 분석합니다.")
+        else:
+            # 전문가 메모가 없을 때만 캐시 체크 (v3 신규)
+            try:
+                client = get_client()
+                cached_res = client.table("deep_analysis_history")\
+                    .select("analysis_data, confidence")\
+                    .eq("target_round", target_round)\
+                    .order("created_at", desc=True)\
+                    .limit(1)\
+                    .execute()
+                
+                if cached_res.data:
+                    print(f"📦 [Cache Hit] {target_round}회차 분석 결과를 캐시에서 로드합니다.")
+                    analysis_data = cached_res.data[0].get("analysis_data")
+                    if isinstance(analysis_data, str):
+                        analysis_data = json.loads(analysis_data)
+                    
+                    # 경과 시간 표시용
+                    analysis_data["elapsed_seconds"] = round(time.time() - start_time, 2)
+                    analysis_data["is_cached"] = True
+                    return _json_response(analysis_data)
+            except Exception as e:
+                print(f"캐시 체크 실패 (정상 분석 진행): {e}")
 
-        models = ["lstm", "xgboost", "cnn", "transformer", "markov"]
+        models = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder"]
 
         # Streak 계산
         streak_count = {n: 0 for n in range(1, 46)}
@@ -1392,6 +1495,7 @@ async def get_deep_analysis(round_num: int = None):
 
         def score_for_nums(nums):
             """번호 목록에 대한 모델 점수, 과거적중분포, avg_hit, GAP/STR 계산"""
+            print(f"ANTIGRAVITY DEBUG: score_for_nums called with {len(nums)} numbers")
             if not nums:
                 return {}, 0, 0, 0, 0, {}
 
@@ -1416,31 +1520,55 @@ async def get_deep_analysis(round_num: int = None):
             # 과거 적중 분포 + avg_hit (전체 이력 기준)
             hit_dist = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0}
             hit_total = 0
-            sample_count = 0
-            for draw in history_draws:
-                actual = set(draw.get("numbers", []))
-                h = len(nums_set & actual)
-                hit_dist[min(h, 6)] = hit_dist.get(min(h, 6), 0) + 1
-                hit_total += h
-                sample_count += 1
-            avg_hit = round(hit_total / sample_count, 2) if sample_count > 0 else 0
+            sample_count_hit = 0
+            try:
+                for draw in history_draws:
+                    actual = set(draw.get("numbers", []))
+                    h = len(nums_set & actual)
+                    hit_dist[min(h, 6)] = hit_dist.get(min(h, 6), 0) + 1
+                    hit_total += h
+                    sample_count_hit += 1
+                avg_hit = round(hit_total / sample_count_hit, 2) if sample_count_hit > 0 else 0
+            except Exception as e:
+                print(f"ANTIGRAVITY ERROR in score_for_nums (stats): {e}")
+                avg_hit = 0
 
             # 모델별 점수 (백분위 기반 — 해당 번호들이 각 모델에서 얼마나 상위권인지)
             model_scores = {}
             for m in models:
                 m_contrib = contribs.get(m, {})
+                if not m_contrib:
+                    model_scores[m] = {"score": 0, "reasoning": "데이터 없음"}
+                    continue
+                    
                 all_vals = sorted(m_contrib.values(), reverse=True)
                 total_cnt = len(all_vals)
+                
                 m_scores_for_nums = []
                 for n in nums:
                     v = m_contrib.get(n, 0)
-                    rank = next((idx for idx, x in enumerate(all_vals) if x <= v), total_cnt)
-                    percentile = (total_cnt - rank) / max(total_cnt, 1) * 100
+                    # 동점자 처리: 자신보다 높은 값을 가진 개수 확인
+                    higher_cnt = sum(1 for x in all_vals if x > v)
+                    # 백분위 계산 (0~100)
+                    percentile = (total_cnt - higher_cnt) / max(total_cnt, 1) * 100
                     m_scores_for_nums.append(percentile)
-                m_avg = sum(m_scores_for_nums) / len(m_scores_for_nums) if m_scores_for_nums else 50
-                model_scores[m] = {"score": int(min(100, m_avg)), "reasoning": f"모델 상위 {int(min(100, m_avg))}%"}
+                
+                m_avg = sum(m_scores_for_nums) / len(m_scores_for_nums) if m_scores_for_nums else 0
+                
+                # 원점수(확률값) 평균도 참고하여 가중치 부여 (만약 확률이 너무 낮으면 점수 하락)
+                avg_prob = sum(m_contrib.get(n, 0) for n in nums) / len(nums) if nums else 0
+                baseline = sum(m_contrib.values()) / max(len(m_contrib), 1)
+                
+                final_score = m_avg
+                if avg_prob < baseline * 0.5: # 평균 이하 확률이면 감점
+                    final_score *= 0.5
+                
+                model_scores[m] = {
+                    "score": int(max(0, min(100, final_score))), 
+                    "reasoning": f"모델 상위 {int(m_avg)}% (상대확률 {avg_prob/max(baseline, 0.001):.1f}배)"
+                }
 
-            return model_scores, gap, streak, avg_hit, sample_count, hit_dist
+            return model_scores, gap, streak, avg_hit, sample_count_hit, hit_dist
 
         custom_evaluations = []
         for analysis in custom_analyses:
@@ -1449,19 +1577,27 @@ async def get_deep_analysis(round_num: int = None):
                 print(f"[custom] {analysis.get('title')} -> nums={nums}")
                 if not nums:
                     continue
-                model_scores, gap, streak, avg_hit, sample_count, hit_dist = score_for_nums(nums)
             except Exception as e:
-                print(f"[custom] {analysis.get('title')} 처리 오류: {e}")
-                traceback.print_exc()
+                print(f"ANTIGRAVITY ERROR in calc_custom_targets: {e}")
+                nums = []
                 continue
+
+            try:
+                res = score_for_nums(nums)
+                model_scores, gap, streak, avg_hit, sample_count_hit, hit_dist = res
+            except Exception as e:
+                print(f"ANTIGRAVITY ERROR during score_for_nums call: {e}")
+                traceback.print_exc()
+                model_scores, gap, streak, avg_hit, sample_count_hit, hit_dist = {}, 0, 0, 0, 0, {}
+
             custom_evaluations.append({
                 "id": analysis.get("id"),
                 "title": analysis.get("title", ""),
                 "type": analysis.get("type", "static"),
-                "numbers": nums,
+                "targets": nums, # Changed from 'numbers' to match frontend if needed, but 'target_numbers' was used before. Let's keep consistency.
                 "avg_hit": avg_hit,
                 "hit_dist": hit_dist,
-                "sample_count": sample_count,
+                "sample_count": sample_count_hit,
                 "gap": gap,
                 "str": streak,
                 "model_scores": model_scores,
@@ -1496,6 +1632,7 @@ async def get_deep_analysis(round_num: int = None):
         matrix_data = []
         for n in range(1, 46):
             m_scores = {}
+            total_model_score = 0
             for m in models:
                 if n in model_all_probs[m]:
                     rank, raw_prob = model_all_probs[m][n]
@@ -1504,6 +1641,7 @@ async def get_deep_analysis(round_num: int = None):
                 else:
                     norm_score = 0
                 m_scores[m] = int(norm_score)
+                total_model_score += norm_score
 
             gap = stat_corrections[n]["current_gap"]
 
@@ -1521,13 +1659,27 @@ async def get_deep_analysis(round_num: int = None):
             freq_rounded = float(round(freq, 2)) if freq is not None else 0.0
             sc = stat_corrections[n]
 
-            # 보정 score 표시: corrected_probs 기반 (0~100 스케일)
-            corrected_score = int(corrected_probs.get(n, 0) * 100)
+            # 보정 score 표시: 기본 모델들의 평균 점수를 근간으로 하되 adj_factor 적용
+            avg_model_score = total_model_score / len(models) if models else 0
+            
+            # 최종 점수는 평균 점수를 1000배 스케일링하여 정규화한 뒤, 보정치를 반영
+            raw_score = float(round(avg_model_score * 1000, 2))
+            corrected_score = float(round(avg_model_score * 1000 * sc["adj_factor"], 2))
+            
+            # 전문가 메모의 제외수 반영 (하드 필터링)
+            excluded_via_memo = False
+            if human_rules and "excluded_numbers" in human_rules:
+                memo_excluded_list = [int(x) for x in human_rules.get("excluded_numbers", []) if str(x).isdigit()]
+                if n in memo_excluded_list:
+                    excluded_via_memo = True
+                    corrected_score = 0.0
+                    print(f"🚫 [Memo Filter] {n}번 제외 (전문가 메모 반영)")
 
             matrix_data.append({
                 "num": n,
                 "total": corrected_score,           # 보정 후 점수
-                "raw_total": int(final_probs.get(n, 0) * 100),  # 원본 점수
+                "raw_total": raw_score,             # 원본 점수
+                "memo_excluded": excluded_via_memo, # 메모에 의한 제외 여부
                 "models": m_details,
                 "gap": gap,
                 "hot": streak_count[n],
@@ -1540,8 +1692,17 @@ async def get_deep_analysis(round_num: int = None):
                 "adj_factor": sc["adj_factor"],
                 "personal_avg_gap": sc["personal_avg_gap"],
             })
+            
         matrix_data.sort(key=lambda x: x["total"], reverse=True)
-        top_5 = [x["num"] for x in matrix_data[:5]]
+        # 상위 5개 추출 (단, 제외된 번호(점수 0)는 절대 포함하지 않음)
+        top_5 = [x["num"] for x in matrix_data if x["total"] > 0][:5]
+        
+        # 만약 모델 점수가 다 0이라서 top_5가 비어버린다면?
+        if not top_5:
+            # 제외되지 않은 번호 중 앞선 순서대로 5개 추천
+            remaining_nums = [x["num"] for x in matrix_data if not x.get("memo_excluded")]
+            top_5 = remaining_nums[:5]
+
         exclude_10 = [x["num"] for x in matrix_data[-10:]]
 
         # [6] 조합 (10게임) - corrected_probs 기반
@@ -1563,21 +1724,28 @@ async def get_deep_analysis(round_num: int = None):
             "success": True,
             "target_round": target_round,
             "elapsed_seconds": elapsed,
-            "matrix_data": matrix_data,
-            "range_analysis": range_analysis,
-            "custom_evaluations": custom_evaluations,
-            "tail_analysis": tail_analysis,
-            "lotto_paper_analysis": lotto_paper_analysis,
-            "magic_square_analysis": magic_square_analysis,
-            "number_band_analysis": number_band_analysis,
-            "hot_cold_data": hot_cold_data,
-            "missing_group_data": missing_group_data,
-            "regression_analysis": regression_analysis,
             "top_5": top_5,
             "exclude_10": exclude_10,
             "combinations": combinations,
-            "strategy": strategy,  # LLM 전략 추가
-            "evidence": prediction.get("evidence", {})  # XAI 근거 데이터 추가
+            "strategy": strategy,  # LLM 전략
+            "evidence": prediction.get("evidence", {}),  # XAI 근거 데이터
+            "expert_memo": {
+                "raw": expert_memo_data.get("memo") if expert_memo_data else None,
+                "parsed": human_rules
+            },
+            # 통계 데이터들을 "analysis" 객체 안으로 모두 집어넣습니다!
+            "analysis": {
+                "matrix_data": matrix_data,
+                "range_analysis": range_analysis,
+                "custom_evaluations": custom_evaluations,
+                "tail_analysis": tail_analysis,
+                "lotto_paper_analysis": lotto_paper_analysis,
+                "magic_square_analysis": magic_square_analysis,
+                "number_band_analysis": number_band_analysis,
+                "hot_cold_data": hot_cold_data,
+                "missing_group_data": missing_group_data,
+                "regression_analysis": regression_analysis,
+            }
         }
 
         # [10] 이력 저장 (비동기, 실패해도 무시)

@@ -6,7 +6,7 @@
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>Lotto Lab - 끝수 (Supabase AI)</title>
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-    
+
     <link rel="icon" href="data:,">
 
     <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css"
@@ -68,43 +68,83 @@
         // [추가됨] 필터 설정 저장 함수
         // [수정] 필터 설정 저장 함수 (DB 저장)
         async function saveFilterSettings() {
+            console.log('--- saveFilterSettings CALLED ---');
             const filterEnabled = document.getElementById('filterEnabled').checked;
             const settings = {
                 // enabled: filterEnabled, // enabled는 별도 아규먼트로 전달
                 filters: AppState.digitFilters
             };
 
+            console.log('Settings to save:', settings, 'Enabled:', filterEnabled);
+
+            // ✅ filter_dashboard.js가 읽는 키로 항상 localStorage에 저장 (키 불일치 방지)
+            try {
+                localStorage.setItem('tail_digit_patterns', JSON.stringify(settings));
+            } catch(e) {}
+
             // DB 저장 (FilterService 사용)
             if (window.filterService && window.filterService.initialized) {
-                await window.filterService.saveSetting('tail_digit_patterns', settings, filterEnabled);
+                console.log('Saving via filterService...');
+                const res = await window.filterService.saveSetting('tail_digit_patterns', settings, filterEnabled);
+                console.log('filterService save result:', res);
+                // DB 저장 실패 시에도 Utils를 통해 localStorage 백업 (이중 보호)
+                if (!res) {
+                    console.warn('[tail_digit] DB save failed, saving to localStorage backup');
+                    if (window.Utils && window.Utils.saveFilter) {
+                        window.Utils.saveFilter('tail_digit_filter', { ...settings, enabled: filterEnabled });
+                    } else {
+                        localStorage.setItem('lottoDigitFilters', JSON.stringify({ ...settings, enabled: filterEnabled }));
+                    }
+                }
             } else if (window.Utils && window.Utils.saveFilter) {
+                console.log('Saving via Utils.saveFilter...');
                 // Fallback: localStorage via Utils
                 window.Utils.saveFilter('tail_digit_filter', { ...settings, enabled: filterEnabled });
             } else {
+                console.log('Saving direct to localStorage...');
                 // Fallback: localStorage direct
                 localStorage.setItem('lottoDigitFilters', JSON.stringify({ ...settings, enabled: filterEnabled }));
             }
         }
 
         // [추가됨] 필터 설정 불러오기 함수
-        // [수정] 필터 설정 불러오기 함수 (DB 로드)
+        // [수정] 필터 설정 불러오기 함수 (DB + localStorage 병합)
         async function loadFilterSettings() {
             let saved = null;
+            let localSaved = null;
 
-            // DB에서 로드 (FilterService 사용)
+            // ① localStorage['tail_digit_patterns'] 항상 먼저 읽기
+            //    (saveFilterSettings가 항상 이 키에 저장하므로 가장 최신 값)
+            try {
+                const local = localStorage.getItem('tail_digit_patterns');
+                if (local) localSaved = JSON.parse(local);
+            } catch(e) {}
+
+            // ② DB에서 로드 (FilterService 사용)
             if (window.filterService && window.filterService.initialized) {
                 const data = await window.filterService.loadSetting('tail_digit_patterns');
                 if (data) {
                     saved = { ...data.settings, enabled: data.enabled };
+                    // [핵심 병합] localStorage가 있으면 filters를 항상 덮어씀
+                    // (filter.html과 동일한 merge 전략 – localStorage가 항상 최신)
+                    if (localSaved && localSaved.filters) {
+                        console.log('[tail_digit] Merging localStorage filters over DB data');
+                        saved.filters = localSaved.filters;
+                    }
                 }
             }
 
-            // Fallback: localStorage via Utils
+            // ③ DB 데이터가 없으면 localStorage 사용
+            if (!saved && localSaved) {
+                saved = localSaved;
+            }
+
+            // ④ Fallback: localStorage via Utils
             if (!saved && window.Utils && window.Utils.loadFilter) {
                 saved = window.Utils.loadFilter('tail_digit_filter');
             }
 
-            // Fallback: localStorage direct
+            // ⑤ Fallback: localStorage direct
             if (!saved) {
                 const local = localStorage.getItem('lottoDigitFilters');
                 if (local) saved = JSON.parse(local);
@@ -515,9 +555,11 @@
                         <div class="col-span-12 bg-white rounded-xl p-6 border border-gray-200 shadow-sm flex flex-col">
                             <div class="flex items-center justify-between mb-4">
                                 <h3 class="text-lg font-bold text-gray-900">조합 필터</h3>
-                                <a href="filter.html"
-                                    class="flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-800 transition-colors"><span
-                                        class="material-symbols-outlined text-sm">open_in_new</span>필터 페이지 가기</a>
+                                <a href="filter.html#filter-tail_digit_patterns"
+                                    class="text-sm font-medium text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
+                                    <span class="material-symbols-outlined text-[18px]">tune</span>
+                                    필터 페이지 가기
+                                </a>
                             </div>
                             <div class="grid grid-cols-5 gap-3 flex-1 mb-4">
                                 <!-- 0~9 Ends Filter Inputs -->
@@ -1256,7 +1298,11 @@
         }
 
         function highlightRecent10(round) {
-            AppState.highlightTargetRound = round;
+            if (AppState.highlightTargetRound === round) {
+                AppState.highlightTargetRound = null;
+            } else {
+                AppState.highlightTargetRound = round;
+            }
             renderList();
         }
 
@@ -1373,9 +1419,13 @@
             console.log('최근 10회차 끝수 필터 적용 완료');
         }
 
-        // 최근 10회차 필터 UI 업데이트 (미사용 - applyRecent10Filters 내부에 통합)
-        function updateRecent10FilterUI() {
-            // Deprecated
+        function updateSliderBackground(value) {
+            const slider = document.getElementById('rangeSlider');
+            if (!slider) return;
+            const min = parseInt(slider.min) || 10;
+            const max = parseInt(slider.max) || 1203;
+            const percent = ((value - min) / (max - min)) * 100;
+            slider.style.setProperty('--value-percent', `${percent}%`);
         }
 
         function updatePresetButtons(value) {
@@ -1416,6 +1466,7 @@
         }
 
         function updateFilterBadgeColors() {
+            if (!AppState.allDrawData || AppState.allDrawData.length < 10) return;
             const recent10 = AppState.allDrawData.slice(0, 10);
             const counts = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
             recent10.forEach(d => {
@@ -1425,91 +1476,15 @@
                 const badge = document.getElementById(`filter-badge-${i}`);
                 if (badge) {
                     if (counts[i] > 0) {
-                        badge.className = "flex items-center justify-center w-10 h-10 bg-blue-600 text-white rounded-full text-sm font-bold mb-2 shadow-sm shadow-blue-200";
+                        badge.className = "flex items-center justify-center w-8 h-8 bg-green-800 text-white rounded-full text-xs font-bold mb-2 shadow-sm";
                     } else {
-                        badge.className = "flex items-center justify-center w-10 h-10 bg-gray-400 text-white rounded-full text-sm font-bold mb-2 shadow-sm";
+                        badge.className = "flex items-center justify-center w-8 h-8 bg-gray-400 text-white rounded-full text-xs font-bold mb-2 shadow-sm";
                     }
                 }
             }
         }
 
-        // [표준화] 최근 10회차 필터 자동 적용 (missing.html 기준)
-        function applyRecent10Filters() {
-            const btn = document.getElementById('recent10FilterBtn');
-            const btnText = document.getElementById('recent10BtnText');
 
-            // 토글: 이미 켜져있으면 끄기
-            if (btn.classList.contains('from-purple-500')) {
-                btn.classList.remove('from-purple-500', 'to-purple-700');
-                btn.classList.add('from-blue-500', 'to-indigo-600');
-                btnText.textContent = '최근 10회차 필터 적용';
-
-                // 필터 초기화 (기본값)
-                for (let i = 0; i < 10; i++) {
-                    const minInput = document.getElementById(`filter${i}Min`);
-                    const maxInput = document.getElementById(`filter${i}Max`);
-                    if (minInput) minInput.value = 0;
-                    if (maxInput) {
-                        const maxVal = parseInt(maxInput.getAttribute('max')) || 6;
-                        maxInput.value = maxVal;
-                    }
-                }
-
-                document.getElementById('filterEnabled').checked = false;
-                AppState.highlightTargetRound = null;
-                renderList();
-                return;
-            }
-
-            if (!AppState.allDrawData || AppState.allDrawData.length < 10) return;
-
-            // 1. 최근 10회차 데이터 수집
-            const recent10 = AppState.allDrawData.slice(0, 10);
-
-            // 2. 각 끝수별(0~9) 출현 개수 Min/Max 계산
-            const counts = {};
-            for (let digit = 0; digit < 10; digit++) {
-                counts[digit] = [];
-            }
-
-            recent10.forEach(draw => {
-                const digitCounts = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-                draw.numbers.forEach(num => {
-                    digitCounts[num % 10]++;
-                });
-
-                for (let digit = 0; digit < 10; digit++) {
-                    counts[digit].push(digitCounts[digit]);
-                }
-            });
-
-            // 3. 필터 입력창에 값 적용
-            for (let digit = 0; digit < 10; digit++) {
-                const minVal = Math.min(...counts[digit]);
-                const maxVal = Math.max(...counts[digit]);
-
-                const minInput = document.getElementById(`filter${digit}Min`);
-                const maxInput = document.getElementById(`filter${digit}Max`);
-
-                if (minInput) minInput.value = minVal;
-                if (maxInput) maxInput.value = maxVal;
-            }
-
-            // 4. UI 및 필터 활성화
-            btn.classList.remove('from-blue-500', 'to-indigo-600');
-            btn.classList.add('from-purple-500', 'to-purple-700');
-            btnText.textContent = '필터 해제';
-
-            document.getElementById('filterEnabled').checked = true;
-
-            // 5. 리스트 갱신 및 하이라이트
-            renderList();
-            if (AppState.allDrawData[0]) {
-                highlightRecent10(AppState.allDrawData[0].round);
-            }
-
-            console.log('최근 10회차 끝수 필터 적용 완료');
-        }
 
         // [추가] NLP 및 초기화 로직
         window.addEventListener('load', async () => {
@@ -1571,8 +1546,11 @@
                 document.getElementById('maxRangeLabel').textContent = `최대 ${totalCount.toLocaleString()}회`;
 
                 // FilterService 초기화 (DB 필터 저장용)
-                if (window.initFilterService) {
-                    await window.initFilterService();
+                if (!window.filterService) {
+                    window.filterService = new FilterService(window.supabaseClient);
+                }
+                if (!window.filterService.initialized) {
+                    await window.filterService.initialize();
                 }
 
                 await loadFilterSettings();

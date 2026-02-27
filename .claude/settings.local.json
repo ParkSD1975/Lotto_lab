@@ -73,7 +73,14 @@
       "Bash(APIKEY=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRrY2ZsbXlvc2N1ZGF3bGVnbHpiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc1NDQ4OTAsImV4cCI6MjA4MzEyMDg5MH0.haAvbpScvMJv1uqH_tk-0fUlJNCpHnlWBtYzX6YFweo\":*)",
       "Bash(BASE=\"https://dkcflmyoscudawleglzb.supabase.co/rest/v1\")",
       "Bash(__NEW_LINE_94e1ef57786f6563__ echo \"=== user_filter_presets INSERT 권한 테스트 ===\")",
-      "Bash(# filter_settings의 migration SQL 파일에서 인덱스 확인 grep -r \"\"filter_settings\\\\|idx_settings\"\" \"\"C:\\\\Users\\\\psdet\\\\Desktop\\\\로또개발\\\\supabase\\\\migrations\\\\\"\" 2>/dev/null grep -r \"\"filter_settings\\\\|idx_settings\"\" \"\"C:\\\\Users\\\\psdet\\\\Desktop\\\\로또개발\\\\supabase\\\\\"\" --include=\"\"*.sql\"\")"
+      "Bash(# filter_settings의 migration SQL 파일에서 인덱스 확인 grep -r \"\"filter_settings\\\\|idx_settings\"\" \"\"C:\\\\Users\\\\psdet\\\\Desktop\\\\로또개발\\\\supabase\\\\migrations\\\\\"\" 2>/dev/null grep -r \"\"filter_settings\\\\|idx_settings\"\" \"\"C:\\\\Users\\\\psdet\\\\Desktop\\\\로또개발\\\\supabase\\\\\"\" --include=\"\"*.sql\"\")",
+      "Bash(fly version)",
+      "Bash(fly auth whoami)",
+      "Bash(fly deploy)",
+      "Bash(fly launch --no-deploy --name lotto-filter-api-psd --region nrt --yes)",
+      "Bash(fly status --app lotto-filter-api-psd)",
+      "Bash(fly logs --app lotto-filter-api-psd)",
+      "Bash(fly logs --app lotto-filter-api-psd --no-tail)"
     ]
   }
 }

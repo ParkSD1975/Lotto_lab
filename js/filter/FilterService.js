@@ -394,7 +394,7 @@ class FilterService {
             'ac_filter': 'ac_value',
             'total_sum_filter': 'total_sum',
             'tail_sum_filter': 'last_digit_sum',
-            'tail_digit_filter': 'end_digit_0_count',  // 끝수는 별도 처리 필요
+            'tail_digit_filter': 'tail_digit_patterns',  // 끝수 통합 패턴 키로 마이그레이션
             'carryover_filter': 'carryover_count',
             'odd_even_filter': 'odd_even_pattern',
             'low_high_filter': 'high_low_pattern',
@@ -412,7 +412,8 @@ class FilterService {
             // 새로 추가된 필터
             'lotto_paper_filter': 'lotto_paper_pattern',
             'gung_filter': 'magic_square_pattern',
-            'triangular_filter': 'triangular_count'
+            'triangular_filter': 'triangular_count',
+            'regression_patterns': 'regression_analysis'
         };
 
         let migratedCount = 0;
@@ -441,6 +442,29 @@ class FilterService {
         if (migratedCount > 0) {
             localStorage.setItem(migrationKey, new Date().toISOString());
             console.log(`✅ ${migratedCount}개 필터 마이그레이션 완료`);
+        }
+
+        // ── tail_digit_patterns 전용 보정 마이그레이션 (1회) ──────────────
+        // 기존 사용자가 이미 마이그레이션 완료했더라도 tail_digit_filter 데이터를
+        // 올바른 키(tail_digit_patterns)로 저장하지 못한 경우를 보정합니다.
+        const tailFixKey = `lotto_tail_digit_fixed_${this.userId}`;
+        if (!localStorage.getItem(tailFixKey)) {
+            const tailOldData = localStorage.getItem('tail_digit_filter');
+            if (tailOldData) {
+                try {
+                    const parsed = JSON.parse(tailOldData);
+                    // tail_digit_patterns DB에 아직 데이터가 없으면 저장
+                    const existing = await this.loadSetting('tail_digit_patterns');
+                    if (!existing) {
+                        const { enabled, ...settings } = parsed;
+                        await this.saveSetting('tail_digit_patterns', settings, enabled || false);
+                        console.log('✅ tail_digit_filter → tail_digit_patterns 보정 마이그레이션 완료');
+                    }
+                } catch(e) {
+                    console.warn('⚠️ tail_digit 보정 마이그레이션 실패:', e);
+                }
+            }
+            localStorage.setItem(tailFixKey, new Date().toISOString());
         }
 
         return { migrated: migratedCount, skipped: false };
@@ -706,6 +730,8 @@ class FilterService {
 // 전역 FilterService 인스턴스
 window.filterService = null;
 
+let _isFilterServiceInitializing = false;
+
 /**
  * FilterService 초기화 (페이지 로드 시 호출)
  */
@@ -715,8 +741,31 @@ async function initFilterService() {
         return null;
     }
 
-    window.filterService = new FilterService(window.supabaseClient);
-    await window.filterService.initialize();
+    if (window.filterService?.initialized) {
+        return window.filterService;
+    }
+
+    if (_isFilterServiceInitializing) {
+        // 이미 다른 곳에서 초기화 중이면 대기
+        return new Promise(resolve => {
+            const checkT = setInterval(() => {
+                if (window.filterService?.initialized) {
+                    clearInterval(checkT);
+                    resolve(window.filterService);
+                }
+            }, 100);
+        });
+    }
+
+    _isFilterServiceInitializing = true;
+    try {
+        if (!window.filterService) {
+            window.filterService = new FilterService(window.supabaseClient);
+        }
+        await window.filterService.initialize();
+    } finally {
+        _isFilterServiceInitializing = false;
+    }
 
     return window.filterService;
 }

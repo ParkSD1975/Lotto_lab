@@ -4,9 +4,9 @@
 <head>
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
-    <title>Lotto Lab - 저고 비율 (심층분석)</title>
+    <title>Lotto Lab - 저고 (심층분석)</title>
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-    
+
     <link rel="icon" href="data:,">
 
     <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css"
@@ -195,8 +195,14 @@
         .val-highlight {
             background-color: #334155 !important;
             color: #ffffff !important;
-            border-radius: 9999px;
+            border-radius: 50% !important;
             box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+            width: 30px !important;
+            height: 30px !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            margin: 0 !important;
         }
 
         /* [New] Slider Styling (Blue Fill) */
@@ -246,8 +252,8 @@
             <main class="flex-1 overflow-y-auto p-8 custom-scrollbar">
                 <div class="max-w-7xl mx-auto space-y-6">
                     <div>
-                        <h1 class="text-3xl font-bold text-gray-900 mb-1">저고 비율 분석</h1>
-                        <p class="text-sm text-gray-600">당첨번호 6개의 저(1~22)와 고(23~45) 비율 및 보너스볼 상관관계를 분석합니다.</p>
+                        <h1 class="text-3xl font-bold text-gray-900 mb-1">저고 분석</h1>
+                        <p class="text-sm text-gray-600">당첨번호 6개의 저(1~22)와 고(23~45) 비중 및 보너스볼 상관관계를 분석합니다.</p>
                     </div>
 
                     <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
@@ -355,7 +361,7 @@
 
                         <div class="mb-6">
                             <div class="flex items-center justify-between mb-4">
-                                <h3 class="text-xl font-bold text-gray-900">저고 비율 분포 (비율 %)</h3>
+                                <h3 class="text-xl font-bold text-gray-900">저고 분포 (비율 %)</h3>
                             </div>
                             <div class="h-80"><canvas id="lowHighChart"></canvas></div>
                         </div>
@@ -388,27 +394,40 @@
 
                     <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
                         <div class="flex items-center justify-between mb-4">
-                            <h3 class="text-xl font-bold text-gray-900">필터</h3>
-                            <a href="#filter-page"
-                                class="flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-800 transition-colors"><span
-                                    class="material-symbols-outlined text-sm">open_in_new</span>필터 페이지 가기</a>
+                            <h3 class="text-xl font-bold text-gray-900">조합 필터</h3>
+                            <a href="filter.html#filter-high_low_pattern"
+                                class="text-sm font-medium text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
+                                <span class="material-symbols-outlined text-[18px]">tune</span>
+                                필터 페이지 가기
+                            </a>
                         </div>
                         <div class="flex flex-col gap-6">
                             <div class="flex items-center justify-center gap-4 flex-wrap" id="ratioFilters"></div>
                             <div class="h-px bg-gray-100 w-full"></div>
-                            <div class="flex items-center justify-between mt-6">
+                            <!-- [New] 제외 배지 영역 -->
+                            <div id="excludedBadgesWrap" class="hidden">
+                                <div class="text-[11px] font-bold text-slate-400 mb-2 px-1 flex items-center gap-1">
+                                    <span class="material-symbols-outlined text-[13px]">block</span>
+                                    현재 제외된 저고 조합:
+                                </div>
+                                <div id="excludedBadgesContainer" class="flex flex-wrap gap-2">
+                                    <!-- 제외 배지 동적 생성 -->
+                                </div>
+                            </div>
+                            <div class="h-px bg-gray-100 w-full"></div>
+                            <div class="flex items-center justify-between mt-2">
                                 <label class="flex items-center gap-3 cursor-pointer">
                                     <span class="text-sm font-medium text-gray-700">필터 적용</span>
                                     <label class="relative inline-flex items-center cursor-pointer">
                                         <input type="checkbox" id="applyFilterCheck" onchange="applyFilter()"
                                             class="sr-only peer" checked>
                                         <div
-                                            class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-500">
+                                            class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600">
                                         </div>
                                     </label>
                                 </label>
                                 <button onclick="applyRecent10Filters()" id="recent10FilterBtn"
-                                    class="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 transition-all text-sm font-black min-w-[240px] justify-center whitespace-nowrap">
+                                    class="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 transition-all text-sm font-black min-w-[240px] justify-center whitespace-nowrap">
                                     <span class="material-symbols-outlined text-[18px]">auto_fix_high</span>
                                     <span id="recent10BtnText">최근 10회차 필터 적용</span>
                                 </button>
@@ -436,9 +455,8 @@
                                 <thead
                                     class="sticky top-0 bg-[#1e293b] text-white font-semibold border-b border-[#334155] z-30">
                                     <tr class="text-sm font-semibold uppercase">
-                                        <th class="py-3 px-4 text-center w-14 shrink-0">회차</th>
+                                        <th class="py-3 px-4 text-center w-20 shrink-0 whitespace-nowrap">회차</th>
                                         <th class="py-3 px-4 text-center w-[270px]">당첨번호</th>
-                                        <th class="py-3 px-4 text-center w-12">보너스</th>
                                         <th class="py-3 px-4 text-center">저고비율</th>
                                         <th class="py-3 px-4 text-center">상관</th>
                                         <th class="py-3 px-4 text-center">총합</th>
@@ -507,18 +525,81 @@
 
     <script>
         var allDrawData = [];
-        var featuresMap = new Map(); // 🔥 DB 캐시 추가
-        var lowHighChart = null;
-        var currentRange = 100;
         var activeFilters = new Set();
+        var currentRange = 100;
+        var lowHighChart = null;
         var advancedStats = {};
-
-        var highlightTargetRound = null;
-        var highlightStartRound = null; // Added for standardized highlighting
+        var chatHistory = [];
+        var highlightStartRound = null;
         var selectedHighlight = { col: null, val: null };
+        var excludedHighLows = []; // [New] 수동 제외된 저고 비율
+        var restoredAutoHighLows = []; // [New] 자동 제외에서 복원된 저고 비율
+        var isRecentTenFilter = false; // [New] 최근 10회차 필터 활성화 여부
 
         // 🔹 [Optimized] Debounce mechanism for heavy updates
         let rangeDebounceTimer = null;
+
+        // [New] 신규 회차 당첨번호 업데이트 시 자동 필터 및 초기화 로직
+        // 토요일 당첨번호 발표 후 첫 접속 시 "최근 10회차" 자동 적용
+        // 월요일 또는 토요일 이후 첫 접속 시 수동 제외 내역 초기화 (새 분석 시작)
+        async function checkAndResetOnNewDraw() {
+            if (!allDrawData || allDrawData.length === 0) return;
+            const latestRound = allDrawData[0].round;
+            const lastProcessed = localStorage.getItem('low_high_last_processed_round');
+
+            const now = new Date();
+            const day = now.getDay(); // 0:일, 1:월, ..., 6:토
+            const hour = now.getHours();
+
+            // 신규 회차 감지 (토요일 20:45 이후 데이터 업데이트 시)
+            if (!lastProcessed || parseInt(lastProcessed) < latestRound) {
+                // 토요일 밤~일요일 사이면 "최근 10회차" 자동 활성화
+                if ((day === 6 && hour >= 20) || day === 0) {
+                    console.log('✨ 신규 회차 감지: 최근 10회차 필터 자동 적용');
+                    applyRecent10Filters(true); // 수동 제외 초기화 포함
+                } else if (day === 1) {
+                    // 월요일이면 수동 제외 내역 초기화 (새로운 주 시작)
+                    console.log('📅 월요일 감지: 제외 내역 초기화');
+                    excludedHighLows = [];
+                    restoredAutoHighLows = [];
+                    saveFilterSettings();
+                }
+                localStorage.setItem('low_high_last_processed_round', latestRound.toString());
+                saveFilterSettings();
+            }
+        }
+
+        async function initializeRecentTenFilter() {
+            const loaded = await loadFilterSettings();
+
+            if (!loaded) {
+                const recent10Data = allDrawData.slice(0, 10);
+                recent10Data.forEach(d => activeFilters.add(d.ratio));
+
+                isRecentTenFilter = true;
+
+                updateUIState();
+                applyFilter();
+            } else {
+                updateRecentTenFilterFlag();
+            }
+        }
+
+        function updateRecentTenFilterFlag() {
+            const btn = document.getElementById('recent10FilterBtn');
+            const btnText = document.getElementById('recent10BtnText');
+            if (!btn || !btnText) return;
+
+            if (isRecentTenFilter) {
+                btn.classList.remove('from-blue-500', 'to-indigo-600');
+                btn.classList.add('from-purple-500', 'to-purple-700');
+                btnText.textContent = '필터 해제';
+            } else {
+                btn.classList.add('from-indigo-500', 'to-indigo-600');
+                btn.classList.remove('from-purple-500', 'to-purple-700');
+                btnText.textContent = '최근 10회차 필터 적용';
+            }
+        }
 
         var THEORETICAL_STATS = {
             '6:0': { count: 74613, percent: 0.92 },
@@ -545,18 +626,28 @@
         // [추가됨] 필터 설정 저장 함수 (DB 저장)
         async function saveFilterSettings() {
             const toggle = document.getElementById('applyFilterCheck');
+            const btn = document.getElementById('recent10FilterBtn');
+            const recent10Active = btn && btn.classList.contains('from-purple-500');
+
             const data = {
-                selectedRatios: Array.from(activeFilters)
+                selectedRatios: Array.from(activeFilters),
+                excludedHighLows: excludedHighLows || [],
+                restoredAutoHighLows: restoredAutoHighLows || [],
+                recent10FilterActive: recent10Active
             };
             const enabled = toggle ? toggle.checked : true;
+            const settingsWithEnabled = { ...data, enabled };
 
             // DB 저장 (FilterService 사용)
             if (window.filterService && window.filterService.initialized) {
-                await window.filterService.saveSetting('low_high_ratio', data, enabled);
+                await window.filterService.saveSetting('high_low_pattern', data, enabled);
             } else if (window.Utils && window.Utils.saveFilter) {
                 // Fallback: localStorage
-                window.Utils.saveFilter('low_high_filter', { ...data, enabled });
+                window.Utils.saveFilter('high_low_pattern', settingsWithEnabled);
             }
+            // localStorage 동기화 (filter_dashboard.js 감지용)
+            localStorage.setItem('high_low_pattern', JSON.stringify(settingsWithEnabled));
+            localStorage.setItem('high_low_pattern_filter', JSON.stringify(settingsWithEnabled));
         }
 
         // [추가됨] 필터 설정 불러오기 함수 (DB 로드)
@@ -565,23 +656,32 @@
 
             // DB에서 로드 (FilterService 사용)
             if (window.filterService && window.filterService.initialized) {
-                const data = await window.filterService.loadSetting('low_high_ratio');
+                const data = await window.filterService.loadSetting('high_low_pattern');
                 if (data) {
                     saved = { ...data.settings, enabled: data.enabled };
                 }
             }
 
             // Fallback: localStorage
-            if (!saved && window.Utils && window.Utils.loadFilter) {
-                saved = window.Utils.loadFilter('low_high_filter');
+            if (!saved) {
+                const raw = localStorage.getItem('high_low_pattern') || localStorage.getItem('high_low_pattern_filter') || localStorage.getItem('high_low_filter') || localStorage.getItem('low_high_filter') || localStorage.getItem('high_low_ratio');
+                if (raw) try { saved = JSON.parse(raw); } catch (e) { }
             }
 
             if (saved) {
-                activeFilters = new Set(saved.selectedRatios);
+                activeFilters = new Set(saved.selectedRatios || []);
+                excludedHighLows = saved.excludedHighLows || [];
+                restoredAutoHighLows = saved.restoredAutoHighLows || [];
+                isRecentTenFilter = saved.recent10FilterActive || false;
+
                 const toggle = document.getElementById('applyFilterCheck');
-                if (toggle) toggle.checked = saved.enabled;
+                if (toggle) toggle.checked = saved.enabled !== undefined ? saved.enabled : true;
 
                 updateUIState();
+                updateRecentTenFilterFlag();
+                setTimeout(() => {
+                    renderExcludedLowHighBadges();
+                }, 0);
                 return true;
             }
             return false;
@@ -858,15 +958,13 @@
             saveFilterSettings(); // [추가됨] 변경 시 자동 저장
             const isFilterOn = document.getElementById('applyFilterCheck')?.checked ?? false;
 
+            // [표준화] 리스트 렌더링은 필터링하지 않음 (Range 동기화만 유지)
             let data = allDrawData.slice(0, currentRange);
-
-            // 필터가 켜져있고 activeFilters가 있으면 필터링 적용
-            if (isFilterOn && activeFilters.size > 0) {
-                data = data.filter(d => activeFilters.has(d.ratio));
-            }
-
             document.getElementById('displayedCount').textContent = data.length;
             renderDrawsList(data);
+
+            // 필터링된 데이터 기반 AI/차트 업데이트가 필요한 경우 여기서 수행
+            // refreshAIAnalysis(filteredData);
         }
 
         function renderDrawsList(data) {
@@ -875,7 +973,7 @@
             container.innerHTML = '';
 
             if (data.length === 0) {
-                container.innerHTML = '<tr><td colspan="10" class="p-10 text-center text-gray-500">데이터가 없습니다.</td></tr>';
+                container.innerHTML = '<tr><td colspan="9" class="p-10 text-center text-gray-500">데이터가 없습니다.</td></tr>';
                 return;
             }
 
@@ -922,13 +1020,10 @@
                 };
 
                 tr.innerHTML = `
-                    <td class="py-3 px-4 text-sm font-bold text-gray-600 w-14 shrink-0 sticky left-0 bg-inherit z-10">${draw.round}</td>
+                    <td class="py-3 px-4 text-sm font-bold text-gray-600 w-20 shrink-0 sticky left-0 bg-inherit z-10 whitespace-nowrap">${draw.round}회</td>
                     
                     <td class="py-3 px-4">
                          <div class="flex items-center justify-center gap-1 w-[270px] mx-auto"> ${numbersHtml} </div>
-                    </td>
-                    <td class="py-3 px-4 text-center">
-                        <div class="flex justify-center">${bonusHtml}</div>
                     </td>
                     
                     <td class="py-3 px-4">
@@ -1002,7 +1097,11 @@
         }
 
         function highlightRecent10(round) {
-            highlightStartRound = round;
+            if (highlightStartRound === round) {
+                highlightStartRound = null;
+            } else {
+                highlightStartRound = round;
+            }
             applyFilter();
 
             setTimeout(() => {
@@ -1092,25 +1191,135 @@
             RATIOS.forEach(r => counts[r] = 0);
             data.forEach(d => { if (counts[d.ratio] !== undefined) counts[d.ratio]++; });
 
+            // [New] 최근 10회차 기준 자동 제외 대상 계산
+            const recent10 = allDrawData.slice(0, 10);
+            const r10counts = {};
+            recent10.forEach(d => { r10counts[d.ratio] = (r10counts[d.ratio] || 0) + 1; });
+            const autoExcludedCandidates = Object.entries(r10counts)
+                .filter(([r, cnt]) => cnt > 5)
+                .map(([r]) => r);
+
             RATIOS.forEach(ratio => {
                 const count = counts[ratio];
                 const percent = total > 0 ? ((count / total) * 100).toFixed(1) : 0;
                 const isSelected = activeFilters.has(ratio);
+                const isExcluded = excludedHighLows.includes(ratio);
+                const isAutoExcluded = autoExcludedCandidates.includes(ratio) && !restoredAutoHighLows.includes(ratio);
+
                 const theo = THEORETICAL_STATS[ratio];
                 const tr = document.createElement('tr');
                 tr.className = 'hover:bg-gray-50 transition-colors';
+
+                // 수동 제외 체크 시 Indigo 배지로 표시되는 자동 제외 복원은 별도 로직
                 tr.innerHTML = `
-                    <td class="py-3 px-4 text-center"><input type="checkbox" class="w-4 h-4 text-blue-600 rounded focus:ring-blue-500" ${isSelected ? 'checked' : ''} onchange="toggleFilter('${ratio}'); openStatsModal();" /></td>
-                    <td class="py-3 px-4 font-bold" style="color:${RATIO_COLORS[ratio].text}">${ratio}</td>
-                    <td class="py-3 px-4 text-center text-gray-600">${theo.count.toLocaleString()}</td>
+                    <td class="py-3 px-4 text-center">
+                        <input type="checkbox" class="w-4 h-4 text-blue-600 rounded focus:ring-blue-500" 
+                               ${isSelected ? 'checked' : ''} 
+                               onchange="toggleFilter('${ratio}'); openStatsModal();" />
+                    </td>
+                    <td class="py-3 px-4 font-bold" style="color:${RATIO_COLORS[ratio].text}">
+                        <div class="flex items-center gap-2">
+                            ${ratio}
+                            ${isExcluded ? '<span class="px-1.5 py-0.5 bg-red-100 text-red-600 text-[10px] rounded">제외됨</span>' : ''}
+                            ${isAutoExcluded ? '<span class="px-1.5 py-0.5 bg-indigo-100 text-indigo-600 text-[10px] rounded">자동제외</span>' : ''}
+                        </div>
+                    </td>
+                    <td class="py-3 px-4 text-center">
+                        <button onclick="toggleManualExclusion('${ratio}')" 
+                                class="text-[10px] font-bold px-2 py-1 rounded shadow-sm transition-all ${isExcluded ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-500 hover:bg-red-50'}">
+                            ${isExcluded ? '제외 취소' : '수동 제외'}
+                        </button>
+                    </td>
                     <td class="py-3 px-4 text-center text-gray-600">${theo.percent}%</td>
                     <td class="py-3 px-4 text-center font-bold text-gray-900">${count}회</td>
                     <td class="py-3 px-4 text-center font-bold text-blue-600">${percent}%</td>
-                    <td class="py-3 px-4"><div class="w-full bg-gray-200 rounded-full h-2.5"><div class="h-2.5 rounded-full" style="width: ${percent}%; background-color:${RATIO_COLORS[ratio].border}"></div></div></td>
+                    <td class="py-3 px-4">
+                        <div class="w-full bg-gray-200 rounded-full h-2.5">
+                            <div class="h-2.5 rounded-full" style="width: ${percent}%; background-color:${RATIO_COLORS[ratio].border}"></div>
+                        </div>
+                    </td>
                 `;
                 tbody.appendChild(tr);
             });
             document.getElementById('statsModal').classList.remove('hidden');
+        }
+
+        function toggleManualExclusion(ratio) {
+            const idx = excludedHighLows.indexOf(ratio);
+            if (idx > -1) {
+                excludedHighLows.splice(idx, 1);
+            } else {
+                excludedHighLows.push(ratio);
+                activeFilters.delete(ratio); // 제외 시 선택 해제
+            }
+            saveFilterSettings();
+            updateUIState();
+            openStatsModal();
+            renderExcludedLowHighBadges();
+            applyFilter();
+        }
+
+        function renderExcludedLowHighBadges() {
+            const container = document.getElementById('excludedBadgesContainer');
+            if (!container) return;
+            container.innerHTML = '';
+
+            // 1. 자동 제외 계산
+            const recent10 = allDrawData.slice(0, 10);
+            const r10counts = {};
+            recent10.forEach(d => { r10counts[d.ratio] = (r10counts[d.ratio] || 0) + 1; });
+            const systemExcluded = Object.entries(r10counts)
+                .filter(([r, cnt]) => cnt > 6 && !restoredAutoHighLows.includes(r))
+                .map(([r]) => r)
+                .sort();
+
+            // 2. 수동 제외 배치
+            excludedHighLows.forEach(r => {
+                const badge = document.createElement('div');
+                badge.className = 'flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 border border-red-100 rounded-lg text-[11px] font-black group';
+                badge.innerHTML = `
+                    <span>저고 ${r} 수동제외</span>
+                    <button onclick="removeExcludedLowHigh('${r}')" class="hover:text-red-800"><span class="material-symbols-outlined text-[14px]">close</span></button>
+                `;
+                container.appendChild(badge);
+            });
+
+            // 3. 자동 제외 배치
+            systemExcluded.forEach(r => {
+                const badge = document.createElement('div');
+                badge.className = 'flex items-center gap-1 px-2 py-1 bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-lg text-[11px] font-black';
+                badge.innerHTML = `
+                    <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[13px]">auto_awesome</span>저고 ${r} 자동제외 (빈도과다)</span>
+                    <button onclick="restoreAutoExcludedLowHigh('${r}')" class="ml-1 hover:text-indigo-800"><span class="material-symbols-outlined text-[14px]">history</span></button>
+                `;
+                container.appendChild(badge);
+            });
+
+            const wrap = document.getElementById('excludedBadgesWrap');
+            if (wrap) {
+                if (excludedHighLows.length > 0 || systemExcluded.length > 0) wrap.classList.remove('hidden');
+                else wrap.classList.add('hidden');
+            }
+        }
+
+        function removeExcludedLowHigh(ratio) {
+            excludedHighLows = excludedHighLows.filter(r => r !== ratio);
+            activeFilters.add(ratio);
+            saveFilterSettings();
+            updateUIState();
+            renderExcludedLowHighBadges();
+            applyFilter();
+        }
+
+        function restoreAutoExcludedLowHigh(ratio) {
+            if (!restoredAutoHighLows.includes(ratio)) {
+                restoredAutoHighLows.push(ratio);
+            }
+            activeFilters.add(ratio);
+            saveFilterSettings();
+            updateUIState();
+            renderExcludedLowHighBadges();
+            applyFilter();
         }
         function closeStatsModal() { document.getElementById('statsModal').classList.add('hidden'); }
 
@@ -1212,56 +1421,53 @@
             inputEl.value = '';
         }
 
-        // [표준화] 최근 10회차 필터 자동 적용 (missing.html 기준)
-        function applyRecent10Filters() {
+        // [표준화] 최근 10회차 필터 자동 적용
+        function applyRecent10Filters(resetExclusions = false) {
             const btn = document.getElementById('recent10FilterBtn');
             const btnText = document.getElementById('recent10BtnText');
-            const chk = document.getElementById('applyFilterCheck'); // 메인 체크박스 (ID 확인: applyFilterCheck)
+            const chk = document.getElementById('applyFilterCheck');
 
-            // 토글: 이미 켜져있으면 끄기 (보라색 클래스 존재 여부로 판단)
-            if (btn.classList.contains('from-purple-500')) {
-                btn.classList.remove('from-purple-500', 'to-purple-700');
-                btn.classList.add('from-blue-500', 'to-indigo-600');
-                btnText.textContent = '최근 10회차 필터 적용';
-
-                // 필터 초기화
-                activeFilters.clear();
-                if (chk) chk.checked = false;
-                highlightStartRound = null;
-
-                updateUIState();
-                applyFilter();
-                return;
+            if (resetExclusions) {
+                excludedHighLows = [];
+                restoredAutoHighLows = [];
             }
 
-            if (!allDrawData || allDrawData.length < 10) return;
+            // 토글: 이미 켜져있으면 끄기
+            if (isRecentTenFilter && !resetExclusions) {
+                isRecentTenFilter = false;
+                highlightStartRound = null;
+                activeFilters.clear();
+                RATIOS.forEach(r => activeFilters.add(r)); // 전체 선택 복원
+                updateRecentTenFilterFlag();
+            } else {
+                isRecentTenFilter = true;
+                highlightStartRound = allDrawData.length > 0 ? allDrawData[0].round : null;
+                activeFilters.clear();
+                const recent10Data = allDrawData.slice(0, 10);
 
-            // 1. 최근 10회차 데이터 수집
-            const recent10 = allDrawData.slice(0, 10);
-            const presentRatios = new Set();
-            recent10.forEach(draw => presentRatios.add(draw.ratio));
+                // 최근 10회차 출현 빈도 계산
+                const counts = {};
+                recent10Data.forEach(d => counts[d.ratio] = (counts[d.ratio] || 0) + 1);
 
-            // 2. 필터 값 적용
-            activeFilters = new Set(presentRatios);
+                recent10Data.forEach(d => {
+                    activeFilters.add(d.ratio);
+                    // 5회 초과 출현 시 자동 제외 (excludedHighLows에 추가)
+                    if (counts[d.ratio] > 5 && !excludedHighLows.includes(d.ratio)) {
+                        excludedHighLows.push(d.ratio);
+                    }
+                });
 
-            // 3. UI 업데이트 (보라색 토글)
-            btn.classList.remove('from-blue-500', 'to-indigo-600');
-            btn.classList.add('from-purple-500', 'to-purple-700');
-            btnText.textContent = '필터 해제';
+                if (chk) chk.checked = true;
+                updateRecentTenFilterFlag();
+            }
 
-            // 메인 필터 체크박스 자동 활성화
-            if (chk) chk.checked = true;
-
-            // 4. 하이라이트 및 리스트 갱신
-            highlightStartRound = allDrawData[0].round;
             updateUIState();
+            renderExcludedLowHighBadges();
             applyFilter();
-
-            console.log('최근 10회차 저고 필터 적용 완료');
+            saveFilterSettings();
         }
 
-        // [New] Global Chat Memory
-        let chatHistory = [];
+        // [New] Global Chat Memory (already declared at top)
 
         async function submitModalFollowUp() {
             const input = document.getElementById('aiModalInput');

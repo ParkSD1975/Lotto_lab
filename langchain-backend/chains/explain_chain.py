@@ -73,8 +73,9 @@ async def explain_number(number: int, user_query: str, draws_data: list):
         
         # XAI 근거 (XGBoost 중요 피처 or Markov 설명)
         xai_text = "복합적인 패턴 분석 결과"
-        if number in result['xgb_feature_importance']:
-            feats = result['xgb_feature_importance'][number]
+        xgb_feats = result.get('xgb_feature_importance', {})
+        if number in xgb_feats and xgb_feats[number]:
+            feats = xgb_feats[number]
             xai_text = f"XGBoost 주요 패턴: {feats[0][0]} 영향력 높음"
             
     except Exception as e:

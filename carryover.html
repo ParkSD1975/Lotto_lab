@@ -146,6 +146,7 @@
 
         /* GAP 당첨 표시 스타일 (표준화) */
         .ball-gap-hit {
+
             width: 32px;
             height: 32px;
             background-color: #2563EB;
@@ -270,7 +271,15 @@
             border-color: #4338CA !important;
         }
 
-        /* [표준화] 하이라이트 스타일 (Purple Theme) */
+        /* [수정] 이월수 필터 활성 (블루) */
+        .filter-btn-blue-active {
+            background: linear-gradient(135deg, #3B82F6 0%, #1D4ED8 100%) !important;
+            color: white !important;
+            border-color: #1D4ED8 !important;
+            box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.2);
+        }
+
+        /* [표준화] 하이라이트 스타일 (Purple Theme Reverted) */
         .row-highlight {
             background-color: #F3E8FF !important;
             /* 옅은 보라색 */
@@ -492,8 +501,10 @@
                     <div class="bg-white rounded-xl p-8 border border-gray-200 shadow-sm" id="filter-section">
                         <div class="flex items-center justify-between mb-8">
                             <h3 class="text-xl font-bold text-gray-900">조합 필터</h3>
-                            <a href="#" class="text-sm text-gray-500 hover:text-gray-800 flex items-center gap-1">
-                                <span class="material-symbols-outlined text-base">open_in_new</span>필터 페이지 가기
+                            <a href="filter.html?tab=foundation"
+                                class="text-sm font-medium text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
+                                <span class="material-symbols-outlined text-[18px]">tune</span>
+                                필터 페이지 가기
                             </a>
                         </div>
 
@@ -616,6 +627,9 @@
                 }
 
                 updateRange(currentRange);
+
+                // [New] 새 회차 감지 및 자동 필터 리셋
+                checkAndResetOnNewDraw();
 
                 // AI 분석 자동 실행 (페이지 로드 시)
                 refreshAIAnalysis();
@@ -874,16 +888,16 @@
 
                 if (isActive) {
                     card.classList.remove('bg-white', 'border-gray-200');
-                    card.classList.add('bg-purple-600', 'border-purple-600', 'shadow-md');
+                    card.classList.add('bg-blue-600', 'border-blue-600', 'shadow-md');
                     if (valueText) { valueText.classList.remove('text-gray-900'); valueText.classList.add('text-white'); }
-                    if (titleText) { titleText.classList.remove('text-gray-500'); titleText.classList.add('text-purple-100'); }
-                    if (btn) btn.classList.add('filter-btn-active');
+                    if (titleText) { titleText.classList.remove('text-gray-500'); titleText.classList.add('text-blue-100'); }
+                    if (btn) btn.classList.add('filter-btn-blue-active');
                 } else {
-                    card.classList.remove('bg-purple-600', 'border-purple-600', 'shadow-md');
+                    card.classList.remove('bg-blue-600', 'border-blue-600', 'shadow-md');
                     card.classList.add('bg-white', 'border-gray-200');
                     if (valueText) { valueText.classList.remove('text-white'); valueText.classList.add('text-gray-900'); }
-                    if (titleText) { titleText.classList.remove('text-purple-100'); titleText.classList.add('text-gray-500'); }
-                    if (btn) btn.classList.remove('filter-btn-active');
+                    if (titleText) { titleText.classList.remove('text-blue-100'); titleText.classList.add('text-gray-500'); }
+                    if (btn) btn.classList.remove('filter-btn-blue-active');
                 }
             }
         }
@@ -894,7 +908,7 @@
                 const btn = document.getElementById(`bonus-filter-btn-${i}`);
                 if (!btn) continue;
                 btn.className = 'filter-btn-circle';
-                if (isActive) btn.classList.add('filter-btn-teal-active');
+                if (isActive) btn.classList.add('filter-btn-blue-active');
             }
         }
 
@@ -969,14 +983,16 @@
             const chk = document.getElementById('applyFilterCheck');
             const isFilterEnabled = chk ? chk.checked : false;
 
-            let filteredData = allDrawData.slice(0, currentRange);
+            const displayData = allDrawData.slice(0, currentRange);
 
-            // 필터가 활성화된 경우만 필터링 수행
+            // [Modified] List rendering is decoupled from filters
+            renderDrawsList(displayData);
+
+            // [Modified] Charts still use filtered data if filter is enabled
+            let filteredData = displayData;
             if (isFilterEnabled) {
-                filteredData = filteredData.filter(d => checkDrawFilter(d));
+                filteredData = displayData.filter(d => checkDrawFilter(d));
             }
-
-            renderDrawsList(filteredData);
             updateCharts(filteredData);
             updateRecentTenButtonState(); // 버튼 상태 업데이트
         }
@@ -1396,9 +1412,9 @@
                 hotStreak++;
             }
 
-            // 3. 헤더 정보 업데이트
+            // 3. 헤더 정보 업데이트 (Target 정보 노출 제거)
             const targetEl = document.getElementById('aiTargetInfo');
-            if (targetEl) targetEl.textContent = `Target ${targetRound}회차_based on ${subjectRound}회차`;
+            if (targetEl) targetEl.textContent = '';
 
             // 4. AI 엔진 실행 (hot_cold.html과 동일한 방식)
             if (window.AIAnalysis) {
@@ -1452,6 +1468,24 @@
             if (modal) {
                 modal.classList.remove('translate-x-0');
                 modal.classList.add('translate-x-full');
+            }
+        }
+
+        // [New] 새 회차 감지 및 자동 필터 자동 적용
+        function checkAndResetOnNewDraw() {
+            if (!allDrawData || allDrawData.length === 0) return;
+            const latestRound = allDrawData[0].round;
+            const storedRound = parseInt(localStorage.getItem('carryover_last_round') || '0');
+
+            // 새 회차가 로드된 경우 (토요일 업데이트 등)
+            if (latestRound > storedRound) {
+                localStorage.setItem('carryover_last_round', String(latestRound));
+
+                // 페이지 최초 로드가 아닌 업데이트인 경우만 자동 필터 적용
+                if (storedRound !== 0) {
+                    applyRecent10Filters();
+                    console.log(`➕ 이월수 새 회차 감지: ${latestRound}회 - 필터 자동 적용`);
+                }
             }
         }
 

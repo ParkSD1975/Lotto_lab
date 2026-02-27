@@ -38,6 +38,15 @@ window.onHistoryLimitChange = function (val) {
 // [SPA Navigation Support] global exposure
 window.initAnalysis = initAnalysis;
 
+/**
+ * [New] 필터 바로가기: filter.html의 해당 커스텀 필터로 이동
+ */
+window.goToFilterPage = function () {
+    if (!currentAnalysis?.id) return;
+    const tab = 'custom';
+    window.location.href = `filter.html?tab=${tab}&id=${currentAnalysis.id}`;
+};
+
 document.addEventListener('DOMContentLoaded', async () => {
     const params = new URLSearchParams(window.location.search);
     let analysisId = params.get('id');
@@ -332,7 +341,27 @@ function calculateStats(analysis, draws) {
     let totalHitCount = 0;
     let hitRounds = 0;
 
-    const history = ascDraws.map((draw, idx) => {
+    // [New] 분석 생성일(created_at) 기준 필터링 로직 추가
+    // 사용자의 요청에 따라 '분석 페이지 생성 후 부터' 계산하도록 함.
+    const createdAt = analysis.created_at ? new Date(analysis.created_at) : null;
+    let filteredAscDraws = ascDraws;
+
+    if (createdAt && (type === 'manual' || type === 'direct')) {
+        // 생성일보다 늦게 추첨된 회차(date 기반) 혹은 생성 시점의 최신 회차를 찾아 필터링
+        // allDrawData는 DESC(최신순)이므로 ascDraws(과거순)에서 찾음
+        filteredAscDraws = ascDraws.filter(draw => {
+            const drawDate = new Date(draw.date);
+            // 추첨일이 생성일 이후이거나, 추첨일 정보가 없으면 생성 시점 최신 회차 판단 로직 필요
+            // 여기서는 안전하게 '추첨일 >= 생성일' 기준으로 필터링 (시간 정보 포함)
+            return drawDate >= createdAt;
+        });
+
+        // 만약 필터링 결과가 너무 적다면(방금 생성한 경우), 
+        // 최소한 생성 시점의 최신 회차 1개는 포함하거나 혹은 빈 상태로 둠.
+        // 현재 로직은 생성 이후 실적만 수집함.
+    }
+
+    const history = filteredAscDraws.map((draw, idx) => {
         let targets = [];
 
         // [유형별 타겟 결정]
@@ -591,7 +620,9 @@ function renderBaseInfo() {
 
 function renderHeaderBalls(stats) {
     const container = document.getElementById('targetBallContainer');
-    if (!container) return;
+    const filterContainer = document.getElementById('targetBallContainerFilter');
+
+    if (!container && !filterContainer) return;
 
     // [Mod] calculateStats에서 계산된 최신 회차(Next Round)의 타겟 번호를 가져와서 표시
     // stats가 없으면 기존 로직(static) fallback
@@ -603,15 +634,15 @@ function renderHeaderBalls(stats) {
         targets = (currentAnalysis.target_numbers || []).sort((a, b) => a - b);
     }
 
-    if (targets.length === 0) {
-        container.innerHTML = '<span class="text-sm text-gray-400">선택된 번호가 없습니다.</span>';
-        return;
-    }
+    const html = targets.length === 0 ?
+        '<span class="text-sm text-gray-400">선택된 번호가 없습니다.</span>' :
+        targets.map(num => {
+            const color = window.Utils?.getBallColor(num) || '#6B7280';
+            return `<div class="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm" style="background-color: ${color}">${num}</div>`;
+        }).join('');
 
-    container.innerHTML = targets.map(num => {
-        const color = window.Utils?.getBallColor(num) || '#6B7280';
-        return `<div class="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm" style="background-color: ${color}">${num}</div>`;
-    }).join('');
+    if (container) container.innerHTML = html;
+    if (filterContainer) filterContainer.innerHTML = html;
 }
 
 // Zone B: 대시보드
@@ -703,54 +734,86 @@ function renderManualGrid(container) {
     const targetRound = latestRound + 1;
     const targets = (currentAnalysis.target_numbers || []).sort((a, b) => a - b);
 
-    container.innerHTML = `
-        <div class="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-xl shadow-slate-200/50 space-y-6">
-            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div class="flex items-center gap-4">
-                    <div class="w-10 h-10 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600 shadow-inner">
-                        <span class="material-symbols-outlined text-xl font-bold">touch_app</span>
+    // [Optimize] 컨테이너가 이미 그려져 있다면 헤더 텍스트만 갱신
+    let grid = document.getElementById('numberGrid');
+    if (!grid) {
+        container.innerHTML = `
+            <div class="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-xl shadow-slate-200/50 space-y-6">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div class="flex items-center gap-4">
+                        <div class="w-10 h-10 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600 shadow-inner">
+                            <span class="material-symbols-outlined text-xl font-bold">touch_app</span>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-black text-slate-900" id="manualTargetTitle">${targetRound}회차 번호 선택</h3>
+                            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">다음 회차 번호 선택</p>
+                        </div>
                     </div>
-                    <div>
-                        <h3 class="text-lg font-black text-slate-900">${targetRound}회차 번호 선택</h3>
-                        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">다음 회차 번호 선택</p>
+                    <div class="flex gap-1">
+                        <button onclick="window.clearManual()" class="w-9 h-9 flex items-center justify-center text-slate-400 hover:text-slate-600 rounded-lg transition-all" title="전체 해제">
+                            <span class="material-symbols-outlined text-xl">backspace</span>
+                        </button>
+                        <button onclick="window.saveManual()" class="w-9 h-9 flex items-center justify-center text-slate-400 hover:text-slate-600 rounded-lg transition-all" title="저장">
+                            <span class="material-symbols-outlined text-xl">save</span>
+                        </button>
                     </div>
                 </div>
-                <div class="flex gap-1">
-                    <button onclick="window.clearManual()" class="w-9 h-9 flex items-center justify-center text-slate-400 hover:text-slate-600 rounded-lg transition-all" title="전체 해제">
-                        <span class="material-symbols-outlined text-xl">backspace</span>
-                    </button>
-                    <button onclick="window.saveManual()" class="w-9 h-9 flex items-center justify-center text-slate-400 hover:text-slate-600 rounded-lg transition-all" title="저장">
-                        <span class="material-symbols-outlined text-xl">save</span>
-                    </button>
+                <div class="overflow-x-auto custom-scrollbar pb-2">
+                    <div id="numberGrid" class="grid grid-rows-2 grid-flow-col gap-1.5 min-w-max"></div>
                 </div>
             </div>
-            
-            <!-- [Refinement] 2줄 나열을 위한 그리드 (가로로 길게) -->
-            <div class="overflow-x-auto custom-scrollbar pb-2">
-                <div id="numberGrid" class="grid grid-rows-2 grid-flow-col gap-1.5 min-w-max"></div>
-            </div>
-        </div>
-    `;
+        `;
+        grid = document.getElementById('numberGrid');
+    } else {
+        const titleEl = document.getElementById('manualTargetTitle');
+        if (titleEl) titleEl.innerText = `${targetRound}회차 번호 선택`;
+    }
 
-    const grid = document.getElementById('numberGrid');
     if (!grid) return;
 
+    // [Optimize] 버튼이 이미 생성되어 있다면 상태만 갱신
+    if (grid.children.length === 0) {
+        for (let i = 1; i <= 45; i++) {
+            const btn = document.createElement('button');
+            btn.id = `manual-btn-${i}`;
+            // 이벤트 리스너를 한 번만 등록
+            btn.onclick = (e) => {
+                e.preventDefault(); // 화면 움직임 방지 보강
+                const idx = currentAnalysis.target_numbers.indexOf(i);
+                if (idx >= 0) currentAnalysis.target_numbers.splice(idx, 1);
+                else currentAnalysis.target_numbers.push(i);
+
+                // 전역 상태 업데이트 및 디스플레이 갱신 (리스트 등)
+                updateAnalysisDisplay(true); // AI 분석은 스킵
+
+                // 버튼 스타일만 즉시 업데이트 (전체 리렌더링 방지)
+                updateManualGridUI();
+                renderHeaderBalls(); // 상단 볼 영역은 별도로 갱신
+            };
+            grid.appendChild(btn);
+        }
+    }
+
+    updateManualGridUI();
+}
+
+/**
+ * [New] 직접 입력형 그리드의 버튼 스타일만 부분적으로 업데이트하여 성능 개선 및 떨림 방지
+ */
+function updateManualGridUI() {
+    const targets = (currentAnalysis.target_numbers || []).map(Number);
     for (let i = 1; i <= 45; i++) {
+        const btn = document.getElementById(`manual-btn-${i}`);
+        if (!btn) continue;
+
         const active = targets.includes(i);
         const color = window.Utils?.getBallColor(i) || '#64748b';
-        const btn = document.createElement('button');
-        // 크기 축소 (w-9 h-9)
-        btn.className = `w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold border transition-all ${active ? 'text-white border-transparent scale-105 shadow-md' : 'bg-white border-slate-100 text-slate-300 hover:border-indigo-100 hover:text-indigo-400'}`;
-        if (active) btn.style.backgroundColor = color;
+
+        // 클래스 및 스타일만 조절
+        btn.className = `w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold border transition-all ${active ? 'text-white border-transparent scale-105 shadow-md' : 'bg-white border-slate-100 text-slate-300 hover:border-indigo-100 hover:text-indigo-400'
+            }`;
+        btn.style.backgroundColor = active ? color : 'white';
         btn.innerText = i;
-        btn.onclick = () => {
-            const idx = currentAnalysis.target_numbers.indexOf(i);
-            if (idx >= 0) currentAnalysis.target_numbers.splice(idx, 1);
-            else currentAnalysis.target_numbers.push(i);
-            updateAnalysisDisplay();
-            renderManualGrid(container);
-        };
-        grid.appendChild(btn);
     }
 }
 

@@ -148,16 +148,6 @@ const DeepLearning = {
             return;
         }
 
-        // [NEW] 중복 분석 방지: 이미 해당 회차의 분석 데이터가 있다면 다시 부르지 않음
-        if (this.state.analysisData && this.state.analysisData.target_round === this.state.targetRound) {
-            console.log(`✅ [DeepLearning] ${this.state.targetRound}회차는 이미 분석되었습니다. 기존 데이터를 유지합니다.`);
-            // 화면이 비어있을 수 있으므로 렌더링만 다시 수행 (필요 시)
-            if (!document.getElementById('aiSummaryText')?.innerText) {
-                this.renderAll(this.state.analysisData);
-            }
-            return;
-        }
-
         this.state.isAnalyzing = true;
 
         // 1. Python 서버 시도
@@ -216,7 +206,7 @@ const DeepLearning = {
                         context: `대상: 제 ${this.state.targetRound}회차\n${pageStats.slice(0, 500)}`,
                         target_round: this.state.targetRound
                     }
-                  })
+                })
                 : Promise.resolve({ data: null });
 
             const [pythonRes, edgeRes] = await Promise.all([pythonPromise, edgePromise]);
@@ -1108,7 +1098,7 @@ ${recentStr}
         const anomalyMap = {};
         const pipeline = this.state.pipeline || {};
         if (pipeline.anomalyResults) {
-            pipeline.anomalyResults.forEach(function(r) {
+            pipeline.anomalyResults.forEach(function (r) {
                 anomalyMap[r.combo.join('-')] = r;
             });
         }

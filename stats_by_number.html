@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Lotto Lab - 번호별 출현 통계</title>
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-    
+
     <link rel="icon" href="data:,">
     <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css"
         rel="stylesheet" />
@@ -19,11 +19,11 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"
         onerror="this.onerror=null;this.src='https://unpkg.com/@supabase/supabase-js@2'"></script>
-    <script src="js/config.js"></script>
+    <script src="js/config.js?v=20240224_4"></script>
     <script src="js/theme.js"></script>
-    <script src="js/common_v2.js"></script>
-    <script src="js/aiProxy.js"></script>
-    <script src="js/filter/FilterService.js"></script>
+    <script src="js/common_v2.js?v=20240224_4"></script>
+    <script src="js/aiProxy.js?v=20240224_4"></script>
+    <script src="js/filter/FilterService.js?v=20240224_4"></script>
 
     <!-- NLP Modules -->
     <script src="js/NLPProcessor.js"></script>
@@ -44,17 +44,18 @@
         let isRecentHighlight = false; // [추가] 최근 10회차 강조 상태
         let isMissedGroupHighlight = false; // [추가] 미출현 그룹 강조 상태
 
-        // 필터 상태 관리
-        let fixedNumbers = new Set();
-        let excludedNumbers = new Set();
+        // 필터 상태 관리 (Basket API 연동)
+        // let fixedNumbers = new Set();  <-- 삭제
+        // let excludedNumbers = new Set(); <-- 삭제
         let selectedHeaderNumbers = new Set();
 
         // [수정] 필터 설정 저장 함수 (DB 저장)
         async function saveFilterSettings() {
             const toggle = document.getElementById('filterToggle');
+            const basket = window.Basket.get();
             const data = {
-                fixedNumbers: Array.from(fixedNumbers),
-                excludedNumbers: Array.from(excludedNumbers),
+                fixedNumbers: basket.fixed,
+                excludedNumbers: basket.exclude,
                 sortByMissCount: sortByMissCount
             };
             const enabled = toggle ? toggle.checked : true;
@@ -86,8 +87,18 @@
             }
 
             if (saved) {
-                if (saved.fixedNumbers) fixedNumbers = new Set(saved.fixedNumbers);
-                if (saved.excludedNumbers) excludedNumbers = new Set(saved.excludedNumbers);
+                // Basket API에 병합 (고정수/제외수)
+                const basket = window.Basket.get();
+                if (saved.fixedNumbers) {
+                    saved.fixedNumbers.forEach(n => {
+                        if (!basket.fixed.includes(n)) window.Basket.addFixed(n);
+                    });
+                }
+                if (saved.excludedNumbers) {
+                    saved.excludedNumbers.forEach(n => {
+                        if (!basket.exclude.includes(n)) window.Basket.addExclude(n);
+                    });
+                }
 
                 const toggle = document.getElementById('filterToggle');
                 if (toggle && saved.enabled !== undefined) {
@@ -628,9 +639,9 @@
                                             onclick="document.getElementById('filterToggle').click()">필터 적용</span>
                                     </div>
 
-                                    <a href="#" onclick="alert('필터 페이지로 이동')"
-                                        class="text-xs text-gray-500 hover:text-gray-800 flex items-center gap-1 transition-colors">
-                                        <span class="material-symbols-outlined text-sm">open_in_new</span>
+                                    <a href="filter.html"
+                                        class="text-sm font-medium text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
+                                        <span class="material-symbols-outlined text-[18px]">tune</span>
                                         필터 페이지 가기
                                     </a>
                                 </div>
@@ -896,8 +907,11 @@
                     }
 
                     if (typeof supabase !== 'undefined') {
-                        client = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-                        window.supabaseClient = client;
+                        client = window.supabaseClient;
+                        if (!client) {
+                            console.error('Supabase client not initialized by common_v2.js');
+                            return;
+                        }
                     } else {
                         throw new Error('Supabase SDK 로드 실패 (Backup CDN도 실패)');
                     }
@@ -976,14 +990,14 @@
 
         // 🔹 UI Helper Functions
         function renderFilterBoxes() {
+            const basket = window.Basket.get();
             const fixedContainer = document.getElementById('fixedNumContainer');
             const excludedContainer = document.getElementById('excludedNumContainer');
 
             // 고정수 렌더링
             if (fixedContainer) {
-                if (fixedNumbers.size > 0) {
-                    const sortedNums = Array.from(fixedNumbers).sort((a, b) => a - b);
-                    fixedContainer.innerHTML = sortedNums
+                if (basket.fixed.length > 0) {
+                    fixedContainer.innerHTML = basket.fixed
                         .map(n => `<span class="filter-ball ball-fixed" onclick="removeFilter('fixed', ${n})" title="삭제">${n}</span>`)
                         .join('');
                 } else {
@@ -993,9 +1007,8 @@
 
             // 제외수 렌더링
             if (excludedContainer) {
-                if (excludedNumbers.size > 0) {
-                    const sortedNums = Array.from(excludedNumbers).sort((a, b) => a - b);
-                    excludedContainer.innerHTML = sortedNums
+                if (basket.exclude.length > 0) {
+                    excludedContainer.innerHTML = basket.exclude
                         .map(n => `<span class="filter-ball ball-excluded" onclick="removeFilter('excluded', ${n})" title="삭제">${n}</span>`)
                         .join('');
                 } else {
@@ -1025,22 +1038,25 @@
 
             const selectedArray = Array.from(selectedHeaderNumbers).map(n => parseInt(n, 10));
 
-            if (type === 'fixed') {
-                const currentCount = fixedNumbers.size;
-                const newCount = selectedArray.filter(n => !fixedNumbers.has(n)).length;
-                if (currentCount + newCount > 6) {
-                    alert(`고정수는 최대 6개까지만 선택 가능합니다.\n(현재: ${currentCount}개 + 추가: ${newCount}개)`);
-                    return;
-                }
-            }
-
             selectedArray.forEach(num => {
                 if (type === 'fixed') {
-                    fixedNumbers.add(num);
-                    excludedNumbers.delete(num);
+                    const res = window.Basket.addFixed(num);
+                    if (!res.ok) {
+                        if (window.BasketUI && window.BasketUI.showToast) {
+                            window.BasketUI.showToast(res.msg, 'warn');
+                        } else {
+                            alert(res.msg);
+                        }
+                    }
                 } else {
-                    excludedNumbers.add(num);
-                    fixedNumbers.delete(num);
+                    const res = window.Basket.addExclude(num);
+                    if (!res.ok) {
+                        if (window.BasketUI && window.BasketUI.showToast) {
+                            window.BasketUI.showToast(res.msg, 'warn');
+                        } else {
+                            alert(res.msg);
+                        }
+                    }
                 }
             });
 
@@ -1052,12 +1068,15 @@
         }
 
         function removeFilter(type, num) {
-            if (type === 'fixed') fixedNumbers.delete(num);
-            else excludedNumbers.delete(num);
+            if (type === 'fixed') window.Basket.removeFixed(num);
+            else window.Basket.removeExclude(num);
 
             renderFilterBoxes();
             saveFilterSettings();
         }
+
+        // Basket 변경 감지 시 리렌더링
+        window.addEventListener('basketChanged', renderFilterBoxes);
 
         // ==========================================================
         // [AI 분석 엔진] 번호별 통계 전용
@@ -1714,14 +1733,14 @@ ${targetRound}회차 기준으로 다음을 작성하세요:
         // 고급 분석 - 탭 전환
         function switchAdvancedTab(tabName) {
             ['color', 'heatmap', 'compatibility'].forEach(name => {
-                document.getElementById(`content - ${name}`).classList.add('hidden');
-                const tabBtn = document.getElementById(`tab - ${name}`);
+                document.getElementById(`content-${name}`).classList.add('hidden');
+                const tabBtn = document.getElementById(`tab-${name}`);
                 tabBtn.classList.remove('text-blue-600', 'border-b-2', 'border-blue-600', 'bg-blue-50');
                 tabBtn.classList.add('text-gray-500');
             });
 
-            document.getElementById(`content - ${tabName}`).classList.remove('hidden');
-            const activeBtn = document.getElementById(`tab - ${tabName}`);
+            document.getElementById(`content-${tabName}`).classList.remove('hidden');
+            const activeBtn = document.getElementById(`tab-${tabName}`);
             activeBtn.classList.remove('text-gray-500');
             activeBtn.classList.add('text-blue-600', 'border-b-2', 'border-blue-600', 'bg-blue-50');
 
@@ -1788,7 +1807,7 @@ ${targetRound}회차 기준으로 다음을 작성하세요:
             let html = '<table class="w-full text-center border-collapse text-xs">';
             // 헤더
             html += '<thead><tr class="bg-gray-100 text-gray-600"><th>구간</th>';
-            for (let n = 1; n <= 45; n++) html += `< th class= "p-1 border border-gray-200 min-w-[20px]" > ${n}</th > `;
+            for (let n = 1; n <= 45; n++) html += `<th class="p-1 border border-gray-200 min-w-[20px]">${n}</th>`;
             html += '</tr></thead><tbody>';
 
             for (let b = 0; b < blocks; b++) {
@@ -1800,7 +1819,7 @@ ${targetRound}회차 기준으로 다음을 작성하세요:
 
                 const roundLabel = `${sliceData[0].round}~${sliceData[sliceData.length - 1].round}`;
 
-                html += `< tr > <td class="font-bold p-2 border border-gray-200 whitespace-nowrap">${roundLabel}</td>`;
+                html += `<tr><td class="font-bold p-2 border border-gray-200 whitespace-nowrap">${roundLabel}</td>`;
 
                 // 번호별 카운트
                 const counts = new Array(46).fill(0);
@@ -1812,7 +1831,7 @@ ${targetRound}회차 기준으로 다음을 작성하세요:
                     if (c >= 3) bgClass = 'bg-red-500 text-white font-bold';
                     else if (c >= 1) bgClass = 'bg-red-200 text-red-900';
 
-                    html += `< td class= "p-1 border border-gray-200 ${bgClass}" > ${c > 0 ? c : ''}</td > `;
+                    html += `<td class="p-1 border border-gray-200 ${bgClass}">${c > 0 ? c : ''}</td>`;
                 }
                 html += '</tr>';
             }
@@ -1834,7 +1853,7 @@ ${targetRound}회차 기준으로 다음을 작성하세요:
                 else if (i <= 40) colorClass = 'bg-gray-200 text-gray-700 hover:bg-gray-300';
                 else colorClass = 'bg-green-100 text-green-700 hover:bg-green-200';
 
-                html += `< button onclick = "analyzeCompatibility(${i})" class="flex-shrink-0 w-8 h-8 rounded-full font-bold text-xs flex items-center justify-center transition-colors ${colorClass}" > ${i}</button > `;
+                html += `<button onclick="analyzeCompatibility(${i})" class="flex-shrink-0 w-8 h-8 rounded-full font-bold text-xs flex items-center justify-center transition-colors ${colorClass}">${i}</button>`;
             }
             selector.innerHTML = html;
         }
@@ -1858,7 +1877,7 @@ ${targetRound}회차 기준으로 다음을 작성하세요:
             });
 
             if (appearanceCount === 0) {
-                resultDiv.innerHTML = `< div class="text-gray-500" > 선택한 범위(${currentRange}회) 내에서 < strong > ${targetNum}번</strong > 은 출현하지 않았습니다.</div > `;
+                resultDiv.innerHTML = `<div class="text-gray-500">선택한 범위(${currentRange}회) 내에서 <strong>${targetNum}번</strong>은 출현하지 않았습니다.</div>`;
                 return;
             }
 
@@ -1870,23 +1889,23 @@ ${targetRound}회차 기준으로 다음을 작성하세요:
             sorted.sort((a, b) => b.count - a.count);
             const top3 = sorted.slice(0, 3);
 
-            let html = `< div class="mb-4 text-gray-700" >
+            let html = `<div class="mb-4 text-gray-700">
                 <span class="text-xl font-bold text-blue-600">${targetNum}번</span>은
-            총 < strong > ${appearanceCount}회</strong > 출현했습니다.
-            </div > `;
+            총 <strong>${appearanceCount}회</strong> 출현했습니다.
+            </div>`;
 
             if (top3.length > 0) {
                 html += '<div class="grid grid-cols-3 gap-4">';
                 top3.forEach((item, idx) => {
                     const rankBadge = idx === 0 ? '🥇 1위' : idx === 1 ? '🥈 2위' : '🥉 3위';
                     html += `
-                < div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col items-center" >
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col items-center">
                             <span class="text-xs font-bold text-gray-400 mb-2">${rankBadge}</span>
                             <div class="w-10 h-10 rounded-full bg-gray-900 text-white flex items-center justify-center font-bold text-lg mb-2 shadow-lg">
                                 ${item.num}
                             </div>
                             <span class="text-sm font-bold text-gray-600">${item.count}회 <span class="text-xs font-normal text-gray-400">함께</span></span>
-                        </div >
+                        </div>
                     `;
                 });
                 html += '</div>';

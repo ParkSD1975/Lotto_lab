@@ -6,7 +6,7 @@
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>Lotto Lab - 핫/콜드 (Supabase AI)</title>
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-    
+
     <link rel="icon" href="data:,">
 
     <link rel="stylesheet" href="css/common.css" />
@@ -16,7 +16,7 @@
         rel="stylesheet" />
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
         rel="stylesheet" />
-    
+
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script
         src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
@@ -64,8 +64,15 @@
             20: { hot: 5, neutral: [4, 2], cold: [1, 0] }
         };
 
-        // [수정] 필터 저장 함수 (DB 저장)
+        // [수정] 필터 저장 함수 - 기간별 키(hot_cold_5/10/15/20)로 각각 저장
         async function saveFilterSettings() {
+            // GNB 바스켓 동기화: 로쫬스토리에서 읽어 전역 변수 업데이트
+            try {
+                const basket = JSON.parse(localStorage.getItem('lotto_basket') || '{}');
+                if (basket.exclude && Array.isArray(basket.exclude)) excludeNumbers = [...basket.exclude];
+                if (basket.fixed && Array.isArray(basket.fixed)) fixedNumbers = [...basket.fixed];
+            } catch (e) { }
+
             // 현재 UI의 설정값을 periodFilters 객체의 해당 기간(currentPeriod)에 저장
             periodFilters[currentPeriod] = {
                 hotMin: document.getElementById('hotMin').value,
@@ -74,64 +81,93 @@
                 neutralMax: document.getElementById('neutralMax').value,
                 coldMin: document.getElementById('coldMin').value,
                 coldMax: document.getElementById('coldMax').value,
-                excludeNumbers: [...excludeNumbers], // 배열 복사 저장
-                fixedNumbers: [...fixedNumbers]      // 배열 복사 저장
+                excludeNumbers: [...excludeNumbers],
+                fixedNumbers: [...fixedNumbers]
             };
 
-            // 저장할 데이터 객체 구성
+            // [New] 현재 회차 함께 저장 (새 회차 갱신 시 자동 최근 10회차 필터 적용을 위함)
+            const targetRound = (allData && allData.length > 0) ? allData[0].round : null;
+
             const settings = {
-                lastPeriod: currentPeriod, // 마지막 접속 기간
-                periodFilters: periodFilters // 기간별 설정 맵
+                lastPeriod: currentPeriod,
+                periodFilters: periodFilters,
+                targetRound: targetRound
             };
             const enabled = document.getElementById('filterToggle').checked;
 
-            // DB 저장 (FilterService 사용)
+            // DB 저장 (기간별 키 hot_cold_5/10/15/20)
             if (window.filterService && window.filterService.initialized) {
-                await window.filterService.saveSetting('hot_cold_v2', settings, enabled);
+                const periodKey = `hot_cold_${currentPeriod}`;
+                await window.filterService.saveSetting(periodKey, {
+                    periodFilter: periodFilters[currentPeriod],
+                    targetRound: targetRound
+                }, enabled);
             } else if (window.Utils && window.Utils.saveFilter) {
-                // Fallback: localStorage
                 window.Utils.saveFilter('hot_cold_filter_v2', { ...settings, filterApplied: enabled });
             }
         }
 
-        // [수정] 필터 로드 함수 (DB 로드)
+        // [수정] 필터 로드 함수 - 현재 기간의 키로 로드, 새 회차카드지 시 최근 10회차 기본값 적용
         async function loadFilterSettings() {
             let saved = null;
 
-            // DB에서 로드 (FilterService 사용)
+            // 현재 회차 참조
+            const currentRound = (allData && allData.length > 0) ? allData[0].round : null;
+
+            // 모든 기간 키를 순서대로 로드
             if (window.filterService && window.filterService.initialized) {
-                const data = await window.filterService.loadSetting('hot_cold_v2');
-                if (data) {
-                    saved = { ...data.settings, filterApplied: data.enabled };
+                for (const period of [5, 10, 15, 20]) {
+                    const periodKey = `hot_cold_${period}`;
+                    const data = await window.filterService.loadSetting(periodKey);
+                    if (data && data.settings && data.settings.periodFilter) {
+                        // [New] 새 회차 인지: targetRound가 다르면 해당 기간 필터 초기화
+                        if (data.settings.targetRound && currentRound && data.settings.targetRound !== currentRound) {
+                            console.log(`🔄 [${periodKey}] 새 회차 감지, 해당 기간 필터 초기화`);
+                            continue; // 해당 기간만 스킵 (최근 10회차 기본값 후 적용됨)
+                        }
+                        periodFilters[period] = data.settings.periodFilter;
+                        if (!saved) saved = { filterApplied: data.enabled, lastPeriod: period };
+                    }
                 }
             }
 
-            // Fallback: localStorage
+            // Fallback: localStorage (v2 키)
             if (!saved && window.Utils && window.Utils.loadFilter) {
-                saved = window.Utils.loadFilter('hot_cold_filter_v2');
+                const local = window.Utils.loadFilter('hot_cold_filter_v2');
+                if (local) {
+                    saved = { filterApplied: local.filterApplied, lastPeriod: local.lastPeriod };
+                    if (local.periodFilters) periodFilters = local.periodFilters;
+                }
             }
 
             if (saved) {
-                // 1. 전역 설정 복원
                 if (document.getElementById('filterToggle')) {
                     document.getElementById('filterToggle').checked = saved.filterApplied;
                     filterApplied = saved.filterApplied;
                 }
 
-                // 2. 기간별 설정 맵 복원
-                if (saved.periodFilters) {
-                    periodFilters = saved.periodFilters;
-                }
-
-                // 3. 마지막 선택했던 기간으로 초기화
                 currentPeriod = saved.lastPeriod || 10;
-
-                // 4. 해당 기간의 데이터 UI 적용
                 applyPeriodSettings(currentPeriod);
-
                 updatePeriodButtonUI(currentPeriod);
                 updateListCriteriaDisplay(currentPeriod);
             }
+
+            // GNB 바스켓 동기화
+            syncBasketFromGNB();
+        }
+
+        // [New] GNB 제외수/고정수 바스켓과 동기화
+        function syncBasketFromGNB() {
+            try {
+                const basket = JSON.parse(localStorage.getItem('lotto_basket') || '{}');
+                if (basket.exclude && Array.isArray(basket.exclude)) {
+                    excludeNumbers = [...basket.exclude];
+                }
+                if (basket.fixed && Array.isArray(basket.fixed)) {
+                    fixedNumbers = [...basket.fixed];
+                }
+                renderFilterZones();
+            } catch (e) { console.warn('GNB 바스켓 동기화 실패:', e); }
         }
 
         // [신규] 특정 기간의 저장된 설정을 UI 및 변수에 적용하는 헬퍼 함수
@@ -543,11 +579,11 @@
                     <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
                         <div class="flex items-center justify-between mb-4">
                             <h3 class="text-lg font-bold text-gray-900">기간 당첨 개수별 번호 및 필터</h3>
-                            <button onclick="alert('필터 페이지로 이동')"
-                                class="flex items-center gap-1.5 text-gray-500 hover:text-blue-600 text-sm font-medium transition-colors">
-                                <span class="material-symbols-outlined text-sm">open_in_new</span>
-                                필터 바로가기
-                            </button>
+                            <a href="filter.html?tab=foundation&id=hot_cold_10"
+                                class="text-sm font-medium text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
+                                <span class="material-symbols-outlined text-[18px]">tune</span>
+                                필터 페이지 가기
+                            </a>
                         </div>
 
                         <div
@@ -630,12 +666,7 @@
                             </table>
                         </div>
 
-                        <div class="flex items-center justify-end mt-6">
-                            <button onclick="applyRecent10Filters()" id="recent10FilterBtn" style="min-width: 210px;"
-                                class="flex items-center justify-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 transition-all active:scale-95 text-sm font-black mr-2">
-                                <span class="material-symbols-outlined text-[18px]">auto_fix_high</span>
-                                <span id="recent10BtnText">최근 10회차 필터 적용</span>
-                            </button>
+                        <div class="flex items-center justify-between mt-6">
                             <label class="flex items-center gap-3 cursor-pointer">
                                 <span class="text-sm font-medium text-gray-700">필터 적용</span>
                                 <label class="toggle-switch">
@@ -643,6 +674,11 @@
                                     <span class="toggle-slider"></span>
                                 </label>
                             </label>
+                            <button onclick="applyRecent10Filters()" id="recent10FilterBtn" style="min-width: 210px;"
+                                class="flex items-center justify-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 transition-all active:scale-95 text-sm font-black">
+                                <span class="material-symbols-outlined text-[18px]">auto_fix_high</span>
+                                <span id="recent10BtnText">최근 10회차 필터 적용</span>
+                            </button>
                         </div>
                     </div>
 
@@ -661,7 +697,7 @@
                             <div id="selectedRoundNumbers" class="space-y-4 mt-4"></div>
                         </div>
 
-                        <div class="border-t border-gray-200 pt-6">
+                        <div class="border-t border-gray-200 pt-6 mb-8">
                             <div class="grid grid-cols-2 gap-6">
                                 <div>
                                     <h4 class="text-sm font-semibold text-gray-700 mb-3">제외수 필터</h4>
@@ -681,7 +717,7 @@
                         </div>
 
                         <!-- 분석 회차 범위 섹션 (low_high.html과 동일) -->
-                        <div class="mb-6">
+                        <div class="mb-6 pt-6 border-t border-gray-100">
                             <div class="flex items-center justify-between mb-4">
                                 <h3 class="text-xl font-bold text-gray-900">분석 회차 범위</h3>
                                 <div class="flex items-center gap-2">
@@ -855,6 +891,26 @@
             }
         });
 
+        // [New] GNB 바스켓 실시간 동기화 (같은 탭 내 바스켓 변경 감지)
+        window.addEventListener('basketChanged', (e) => {
+            if (e.detail) {
+                if (e.detail.exclude !== undefined) excludeNumbers = [...e.detail.exclude];
+                if (e.detail.fixed !== undefined) fixedNumbers = [...e.detail.fixed];
+            } else {
+                syncBasketFromGNB();
+            }
+            renderFilterZones();
+        });
+
+        // [New] 다른 탭/창에서 바스켓 변경 시도 감지 (localStorage 이벤트)
+        window.addEventListener('storage', (e) => {
+            if (e.key === 'lotto_basket') {
+                syncBasketFromGNB();
+            }
+        });
+
+
+
         function dragStart(event, number) {
             event.dataTransfer.setData('number', number);
             event.target.classList.add('dragging');
@@ -871,6 +927,20 @@
 
         function dragLeave(event) {
             event.currentTarget.classList.remove('drag-over');
+        }
+
+        // [New] hot_cold 존에서 코스 쮠인 번호를 GNB 바스켓으로 취동
+        function syncBasketToGNB() {
+            try {
+                const basket = JSON.parse(localStorage.getItem('lotto_basket') || '{}');
+                basket.exclude = [...excludeNumbers];
+                basket.fixed = [...fixedNumbers];
+                localStorage.setItem('lotto_basket', JSON.stringify(basket));
+                // GNB 컴포넌트에 이벤트 알림
+                window.dispatchEvent(new CustomEvent('basketChanged', {
+                    detail: { exclude: [...excludeNumbers], fixed: [...fixedNumbers] }
+                }));
+            } catch (e) { console.warn('GNB 바스켓 저장 실패:', e); }
         }
 
         // [수정] 드롭 시 저장 기능 추가
@@ -899,7 +969,8 @@
 
             if (changed) {
                 renderFilterZones();
-                saveFilterSettings(); // 변경 즉시 저장
+                syncBasketToGNB(); // GNB 바스켓에도 적용
+                saveFilterSettings();
             }
         }
 
@@ -911,6 +982,7 @@
                 fixedNumbers = fixedNumbers.filter(n => n !== number);
             }
             renderFilterZones();
+            syncBasketToGNB(); // GNB 바스켓에도 적용
             saveFilterSettings(); // 변경 즉시 저장
         }
 

@@ -6,7 +6,7 @@
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>Lotto Lab - 이웃수 분석 (Supabase AI)</title>
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-    
+
     <link rel="icon" href="data:,">
 
     <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css"
@@ -72,6 +72,13 @@
 
         /* --- 공 색상 정의 --- */
 
+        /* 0. 기본 당첨번호 (회색 원형 투명) */
+        .ball-normal {
+            border: 1px solid #D1D5DB;
+            color: #4B5563;
+            background-color: transparent;
+        }
+
         /* 1. 일반 이웃수 매칭 (파란색) */
         .ball-neighbor {
             background-color: #3B82F6;
@@ -82,7 +89,6 @@
         /* 2. 보너스볼 이웃수 매칭 (빨간색) */
         .ball-bonus-match {
             background-color: #EF4444;
-            /* red-500 */
             color: white;
             border: 1px solid #DC2626;
         }
@@ -90,7 +96,6 @@
         /* 3. 중복(이웃수+보볼이웃수) 매칭 (핑크색) */
         .ball-overlap-match {
             background-color: #EC4899;
-            /* pink-500 */
             color: white;
             border: 1px solid #DB2777;
         }
@@ -410,10 +415,11 @@
                     <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm" id="filter-page">
                         <div class="flex items-center justify-between mb-6">
                             <h3 class="text-xl font-bold text-gray-900 border-l-4 border-indigo-500 pl-3">조합 필터</h3>
-                            <button onclick="alert('필터 페이지로 이동')"
-                                class="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1 transition-colors">
-                                <span class="material-symbols-outlined text-sm">open_in_new</span>상세 필터 설정
-                            </button>
+                            <a href="filter.html?id=neighbor_number_patterns"
+                                class="text-sm font-medium text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
+                                <span class="material-symbols-outlined text-[18px]">tune</span>
+                                필터 페이지 가기
+                            </a>
                         </div>
 
                         <div class="space-y-6" id="filterContainer">
@@ -433,15 +439,15 @@
                                             <span
                                                 class="text-xs font-black text-slate-500 uppercase tracking-wider">Min</span>
                                             <input type="number" id="filterMin" min="0" max="6" value="0"
-                                                class="w-14 h-9 text-center border-none bg-slate-100 rounded-md text-sm font-black text-indigo-600 focus:ring-2 focus:ring-indigo-500"
+                                                class="w-16 sm:w-20 h-9 text-center border-none bg-slate-100 rounded-md text-sm font-black text-indigo-600 focus:ring-2 focus:ring-indigo-500"
                                                 onchange="applyFilter()">
                                         </div>
-                                        <div class="w-px h-6 bg-slate-200"></div>
+                                        <span class="text-sm font-black text-slate-400 px-2">~</span>
                                         <div class="flex items-center gap-2">
                                             <span
                                                 class="text-xs font-black text-slate-500 uppercase tracking-wider">Max</span>
                                             <input type="number" id="filterMax" min="0" max="6" value="6"
-                                                class="w-14 h-9 text-center border-none bg-slate-100 rounded-md text-sm font-black text-indigo-600 focus:ring-2 focus:ring-indigo-500"
+                                                class="w-16 sm:w-20 h-9 text-center border-none bg-slate-100 rounded-md text-sm font-black text-indigo-600 focus:ring-2 focus:ring-indigo-500"
                                                 onchange="applyFilter()">
                                         </div>
                                     </div>
@@ -449,24 +455,23 @@
                             </div>
                         </div>
 
-                        <div class="flex flex-col sm:flex-row items-center justify-between mt-8 gap-4">
-                            <div
-                                class="flex items-center gap-3 bg-slate-50 px-4 py-2 rounded-full border border-slate-100">
+                        <div class="flex items-center justify-between mt-6 pt-6 border-t border-gray-100">
+                            <!-- Toggle Base -->
+                            <div class="flex items-center gap-2.5">
+                                <span class="text-sm font-bold text-gray-700">필터 적용</span>
                                 <label class="relative inline-flex items-center cursor-pointer">
                                     <input type="checkbox" id="applyFilterCheck" onchange="applyFilter()"
                                         class="sr-only peer" checked>
                                     <div
-                                        class="w-10 h-5 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600">
+                                        class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600">
                                     </div>
                                 </label>
-                                <span class="text-xs font-bold text-slate-600 uppercase tracking-tighter">패턴 필터
-                                    활성화</span>
                             </div>
 
                             <button onclick="applyRecent10Filters()" id="recent10FilterBtn"
-                                class="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 transition-all text-sm font-black min-w-[240px] justify-center whitespace-nowrap mb-[1px]">
+                                class="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 transition-all text-sm font-black min-w-[240px] justify-center whitespace-nowrap">
                                 <span class="material-symbols-outlined text-[18px]">auto_fix_high</span>
-                                <span id="recent10BtnText">최근 10회차 필터 적용</span>
+                                <span id="recent10BtnText">최근 10회차 기준 설정</span>
                             </button>
                         </div>
                     </div>
@@ -765,8 +770,8 @@
             } else {
                 selectedHighlight = { col: col, val: val };
             }
-            const displayData = allDrawData.slice(0, currentRange).filter(d => checkDrawFilter(d));
-            renderDrawsList(displayData);
+            // [Modified] List stays synced with Range only
+            renderDrawsList(allDrawData.slice(0, currentRange));
         }
 
         function checkDrawFilter(draw) {
@@ -816,7 +821,7 @@
                         className = 'ball-bonus-match'; // 빨강 (보볼 이웃)
                     }
 
-                    return `<span class="w-8 h-8 flex items-center justify-center rounded-full ball-normal text-xs mx-0.5 font-bold shadow-sm">${String(num).padStart(2, '0')}</span>`;
+                    return `<span class="w-8 h-8 flex items-center justify-center rounded-full ${className} text-xs mx-0.5 font-bold shadow-sm">${String(num).padStart(2, '0')}</span>`;
                 }).join('');
 
                 const bonusHtml = draw.bonus
@@ -878,8 +883,8 @@
             } else {
                 highlightStartRound = round;
             }
-            const displayData = allDrawData.slice(0, currentRange).filter(d => checkDrawFilter(d));
-            renderDrawsList(displayData);
+            // [Modified] List stays synced with Range only
+            renderDrawsList(allDrawData.slice(0, currentRange));
         }
 
         let filtersEnabled = false;
@@ -1115,17 +1120,23 @@
 
         // [수정됨] 필터 적용 시마다 저장 함수 호출
         function applyFilter() {
-            const min = parseInt(document.getElementById('filterMin').value) || 0;
-            const max = parseInt(document.getElementById('filterMax').value) || 6;
-            filterState = { min, max };
-            console.log("필터 적용:", filterState);
-            saveFilterSettings(); // 저장 호출 추가
+            const chk = document.getElementById('applyFilterCheck');
+            const isFilterEnabled = chk ? chk.checked : false;
 
-            const displayData = allDrawData.slice(0, currentRange).filter(d => {
-                const count = d.neighborMatchCount;
-                return count >= min && count <= max;
-            });
-            renderDrawsList(displayData); // 필터링된 데이터만 렌더링
+            const displayData = allDrawData.slice(0, currentRange);
+
+            // [Modified] List rendering is decoupled from filters
+            renderDrawsList(displayData);
+
+            // [Modified] Charts still use filtered data
+            let filteredData = displayData;
+            if (isFilterEnabled) {
+                filteredData = displayData.filter(d => checkDrawFilter(d));
+            }
+            updateCharts(filteredData);
+
+            updateRecentTenButtonState?.();
+            saveFilterSettings(); // 저장 호출 추가
         }
 
         function updateNextDrawNeighbors() {

@@ -11,23 +11,47 @@ from routes import analysis, chat, report, interpret, vectors
 from routes import predictions, performance, explain, pipeline, deep_analysis
 from routes import deep_analysis_v2, deep_analysis_v3
 
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from pipeline.weekly_pipeline import WeeklyPipeline
+
+# 스케줄러 인스턴스 준비
+scheduler = AsyncIOScheduler()
+weekly_pipeline_bot = WeeklyPipeline()
+
 app = FastAPI(title="Lotto AI Backend v4", version="4.0.0")
 
+@app.on_event("startup")
+async def start_scheduler():
+    """앱 시작 시 APScheduler 스케줄러 및 주간 파이프라인 등록"""
+    # 매주 토요일 밤 21시 30분에 자동 실행 (시간은 필요에 따라 조정 가능)
+    scheduler.add_job(weekly_pipeline_bot.run, 'cron', day_of_week='sat', hour=21, minute=30, id='weekly_analysis')
+    scheduler.start()
+    print("[INFO] Weekly Pipeline Scheduler started (APScheduler: Sat 21:30).")
+
+@app.on_event("shutdown")
+async def shutdown_scheduler():
+    """앱 종료 시 스케줄러 안전하게 종료"""
+    scheduler.shutdown()
+    print("[INFO] Weekly Pipeline Scheduler shut down.")
+
+# CORS 설정: allow_credentials=True일 경우 origins에 "*"를 포함하면 안 됩니다.
 origins = [
+    "http://127.0.0.1:5500",
     "http://127.0.0.1:5505",
     "http://127.0.0.1:5506",
     "http://127.0.0.1:5507",
+    "http://127.0.0.1:5508",
     "http://localhost:5500",
     "http://localhost:5505",
     "http://localhost:5506",
     "http://localhost:5507",
     "http://localhost:8000",
     "http://localhost:3000",
-    "http://127.0.0.1:5500",
-    "http://127.0.0.1:5508",
     "http://localhost:5508",
-    "*"
 ]
+
+# 모든 오리진 허용이 필요하다면 아래와 같이 하되 credentials는 False여야 함
+# 여기서는 로컬 개발 환경을 위해 명시적 목록을 사용합니다.
 
 app.add_middleware(
     CORSMiddleware,
@@ -37,25 +61,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.middleware("http")
-async def add_cors_headers(request: Request, call_next):
-    try:
-        response = await call_next(request)
-    except Exception as e:
-        print(f"[ERROR] Unhandled Server Error: {str(e).encode('ascii', 'replace').decode('ascii')}")
-        response = JSONResponse(
-            content={"detail": str(e)}, 
-            status_code=500
-        )
-    
-    origin = request.headers.get("origin")
-    if origin:
-        response.headers["Access-Control-Allow-Origin"] = origin
-        response.headers["Access-Control-Allow-Credentials"] = "true"
-        response.headers["Access-Control-Allow-Methods"] = "*"
-        response.headers["Access-Control-Allow-Headers"] = "*"
-    
-    return response
+# 불필요하고 충돌 가능성이 있는 커스텀 CORS 미들웨어 삭제 (CORSMiddleware로 충분)
 
 # ── 기존 라우트 ──
 app.include_router(analysis.router, prefix="/api")

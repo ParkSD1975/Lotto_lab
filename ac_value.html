@@ -176,7 +176,7 @@
         let chartMode = 'distribution';
         let currentRange = 100;
 
-        // 🔹 하이라이트 상태 관리
+        // 하이라이트 상태 관리
         let highlightStartRound = null;
         let selectedHighlight = { type: null, val: null };
 
@@ -184,42 +184,54 @@
         let isDragging = false;
         let dragTarget = null;
 
+        // 자동 제외에서 X 클릭으로 복원된 AC값 목록
+        let restoredAutoAcValues = [];
+        // 수동 제외 AC값 목록 (X 취소)
+        let excludedAcValues = [];
+
         // 필터 설정 저장 함수 (DB 저장)
         async function saveFilterSettings() {
             const minInput = document.getElementById('minFilter');
             const maxInput = document.getElementById('maxFilter');
             const toggle = document.getElementById('applyFilterCheck');
+            const btn = document.getElementById('recent10FilterBtn');
+            const recent10FilterActive = btn && btn.classList.contains('from-purple-500');
 
             const settings = {
                 min: (minInput && minInput.value !== '') ? parseInt(minInput.value) : 0,
-                max: (maxInput && maxInput.value !== '') ? parseInt(maxInput.value) : 10
+                max: (maxInput && maxInput.value !== '') ? parseInt(maxInput.value) : 10,
+                restoredAutoAcValues: restoredAutoAcValues || [],
+                excludedAcValues: excludedAcValues || [],
+                recent10FilterActive: recent10FilterActive
             };
             const enabled = toggle ? toggle.checked : false;
+            const settingsWithEnabled = { ...settings, enabled };
 
-            // DB 저장 (FilterService 사용)
             if (window.filterService && window.filterService.initialized) {
                 await window.filterService.saveSetting('ac_value', settings, enabled);
             } else if (window.Utils && window.Utils.saveFilter) {
-                // Fallback: localStorage
-                window.Utils.saveFilter('ac_filter', { ...settings, enabled });
+                window.Utils.saveFilter('ac_value', settingsWithEnabled);
             }
+            // localStorage 동기화 (filter_dashboard.js storage event 감지용)
+            localStorage.setItem('ac_value', JSON.stringify(settingsWithEnabled));
+            localStorage.setItem('ac_value_filter', JSON.stringify(settingsWithEnabled));
         }
 
         // 필터 설정 불러오기 함수 (DB 로드)
         async function loadFilterSettings() {
             let saved = null;
 
-            // DB에서 로드 (FilterService 사용)
             if (window.filterService && window.filterService.initialized) {
                 const data = await window.filterService.loadSetting('ac_value');
-                if (data) {
-                    saved = { ...data.settings, enabled: data.enabled };
-                }
+                if (data) saved = { ...data.settings, enabled: data.enabled };
             }
 
-            // Fallback: localStorage
+            if (!saved) {
+                const raw = localStorage.getItem('ac_value') || localStorage.getItem('ac_value_filter');
+                if (raw) try { saved = JSON.parse(raw); } catch (e) { }
+            }
             if (!saved && window.Utils && window.Utils.loadFilter) {
-                saved = await window.Utils.loadFilter('ac_filter');
+                saved = window.Utils.loadFilter('ac_value') || window.Utils.loadFilter('ac_filter');
             }
 
             if (saved && typeof saved.min === 'number' && typeof saved.max === 'number') {
@@ -231,9 +243,30 @@
                 if (maxInput) maxInput.value = saved.max;
                 if (toggle) toggle.checked = saved.enabled !== undefined ? saved.enabled : true;
 
-                // [Fix] 0~10(전체 범위)인 경우 초기화되지 않은 것으로 간주하여 스마트 기본값(최근 10회) 계산 유도
-                if (saved.min === 0 && saved.max === 10) return false;
+                // restoredAutoAcValues 복원
+                restoredAutoAcValues = (saved.restoredAutoAcValues && Array.isArray(saved.restoredAutoAcValues))
+                    ? [...new Set(saved.restoredAutoAcValues)] : [];
+                // excludedAcValues 복원
+                excludedAcValues = (saved.excludedAcValues && Array.isArray(saved.excludedAcValues))
+                    ? [...new Set(saved.excludedAcValues)] : [];
 
+                // recent10FilterActive 복원
+                if (saved.recent10FilterActive) {
+                    const btn = document.getElementById('recent10FilterBtn');
+                    const btnText = document.getElementById('recent10BtnText');
+                    if (btn && btnText) {
+                        btn.classList.remove('from-blue-500', 'to-indigo-600');
+                        btn.classList.add('from-purple-500', 'to-purple-700');
+                        btnText.textContent = '필터 해제';
+                    }
+                }
+
+                // [Fix] 0~10(전체 범위)인 경우 초기화되지 않은 것으로 간주
+                if (saved.min === 0 && saved.max === 10 && !saved.recent10FilterActive) return false;
+
+                setTimeout(() => {
+                    if (typeof renderExcludedAcBadges === 'function') renderExcludedAcBadges();
+                }, 0);
                 return true;
             }
             return false;
@@ -460,9 +493,11 @@
                     <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
                         <div class="flex items-center justify-between mb-4">
                             <h3 class="text-lg font-bold text-gray-900">조합 필터</h3>
-                            <a href="#filter-page"
-                                class="flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-800 transition-colors"><span
-                                    class="material-symbols-outlined text-sm">open_in_new</span>필터 페이지 가기</a>
+                            <a href="filter.html#filter-ac_value"
+                                class="text-sm font-medium text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
+                                <span class="material-symbols-outlined text-[18px]">tune</span>
+                                필터 페이지 가기
+                            </a>
                         </div>
                         <div class="flex flex-col sm:flex-row items-start sm:items-end gap-6 justify-between">
                             <div class="flex items-end gap-3">
@@ -492,12 +527,20 @@
                                     <input type="checkbox" id="applyFilterCheck" onchange="applyFilter()"
                                         class="sr-only peer" checked>
                                     <div
-                                        class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500">
+                                        class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600">
                                     </div>
                                 </label>
                                 <label for="applyFilterCheck"
                                     class="text-sm font-medium text-gray-700 cursor-pointer">필터 적용</label>
                             </div>
+                        </div>
+                        <!-- 제외 AC값 배지 영역 (선택 컨트롤 아래) -->
+                        <div id="excludedAcBadgeArea" class="hidden mt-3 pt-3 border-t border-gray-100">
+                            <div class="text-xs font-bold text-gray-500 mb-2 flex items-center gap-1">
+                                <span class="material-symbols-outlined text-[14px]">block</span>
+                                제외된 AC값 (🔴수동 / 🔵자동, X=취소)
+                            </div>
+                            <div id="excludedAcBadges" class="flex flex-wrap gap-1.5"></div>
                         </div>
                     </div>
 
@@ -779,8 +822,11 @@
 
                     document.getElementById('minFilter').value = defaultMin;
                     document.getElementById('maxFilter').value = defaultMax;
-                    document.getElementById('applyFilterCheck').checked = true; // 기본적으로 활성화
+                    document.getElementById('applyFilterCheck').checked = true;
                 }
+
+                // 새 회차 감지 및 자동 필터 적용
+                checkAndResetOnNewDraw();
 
                 // UI 초기화 (동기 실행)
                 initChart();
@@ -1099,35 +1145,25 @@ ${recent30}
             document.getElementById('val-max').textContent = max;
         }
 
-        // 🔹 리스트 렌더링 함수 (하이라이트 기능 구현)
         function renderDrawsList() {
             if (!allDrawData.length) return;
 
-            const minFilterInput = document.getElementById('minFilter');
-            const maxFilterInput = document.getElementById('maxFilter');
-            const filterEnabled = document.getElementById('applyFilterCheck').checked;
+            const displayData = allDrawData.slice(0, currentRange);
 
-            let data = allDrawData.slice(0, currentRange);
-
-            if (filterEnabled && minFilterInput.value !== '' && maxFilterInput.value !== '') {
-                const min = parseInt(minFilterInput.value);
-                const max = parseInt(maxFilterInput.value);
-                data = data.filter(d => d.acValue >= min && d.acValue <= max);
-            }
-
-            const allAcValues = allDrawData.slice(0, currentRange).map(d => d.acValue);
+            // [표준화] 리스트는 필터링하지 않음 (조합 필터 설정과는 무관하게 과거 데이터 전체 표시)
+            const allAcValues = displayData.map(d => d.acValue);
             const avgValue = allAcValues.length > 0 ? (allAcValues.reduce((a, b) => a + b, 0) / allAcValues.length) : 0;
 
-            document.getElementById('displayedCount').textContent = data.length;
+            document.getElementById('displayedCount').textContent = displayData.length;
             const container = document.getElementById('drawsList');
             container.innerHTML = '';
 
-            if (data.length === 0) {
+            if (displayData.length === 0) {
                 container.innerHTML = '<tr><td colspan="8" class="p-10 text-center text-gray-500">데이터가 없습니다.</td></tr>';
                 return;
             }
 
-            data.forEach((draw, index) => {
+            displayData.forEach((draw, index) => {
                 const tr = document.createElement('tr');
                 tr.setAttribute('data-round', draw.round);
                 tr.className = 'border-b border-gray-100 cursor-pointer transition-colors hover:bg-gray-50';
@@ -1237,59 +1273,174 @@ ${recent30}
             renderDrawsList();
         }
 
-        // [표준화] 최근 10회차 필터 자동 적용 (missing.html 기준)
+        // 최근 10회차 필터 자동 적용 (토글 기능)
         function applyRecent10Filters() {
             const btn = document.getElementById('recent10FilterBtn');
             const btnText = document.getElementById('recent10BtnText');
-            const chk = document.getElementById('applyFilterCheck'); // 메인 체크박스 (ID 확인: applyFilterCheck)
+            const chk = document.getElementById('applyFilterCheck');
 
-            // 토글: 이미 켜져있으면 끄기 (보라색 클래스 존재 여부로 판단)
             if (btn.classList.contains('from-purple-500')) {
                 btn.classList.remove('from-purple-500', 'to-purple-700');
-                btn.classList.add('from-blue-500', 'to-indigo-600');
+                btn.classList.add('from-indigo-500', 'to-indigo-600');
                 btnText.textContent = '최근 10회차 필터 적용';
 
-                // 필터 초기화
                 const minInput = document.getElementById('minFilter');
                 const maxInput = document.getElementById('maxFilter');
                 if (minInput) minInput.value = '';
                 if (maxInput) maxInput.value = '';
-
-                // 메인 필터 체크박스 해제
                 if (chk) chk.checked = false;
 
                 highlightStartRound = null;
                 applyFilter();
+                saveFilterSettings();
+                renderExcludedAcBadges();
                 return;
             }
 
             if (!allDrawData || allDrawData.length < 10) return;
 
-            // 1. 최근 10회차 데이터 수집
             const recent10 = allDrawData.slice(0, 10);
             const acValues = recent10.map(d => d.acValue);
             const minVal = Math.min(...acValues);
             const maxVal = Math.max(...acValues);
 
-            // 2. 필터 값 적용
             const minInput = document.getElementById('minFilter');
             const maxInput = document.getElementById('maxFilter');
             if (minInput) minInput.value = minVal;
             if (maxInput) maxInput.value = maxVal;
 
-            // 3. UI 업데이트 (보라색 토글)
             btn.classList.remove('from-blue-500', 'to-indigo-600');
             btn.classList.add('from-purple-500', 'to-purple-700');
             btnText.textContent = '필터 해제';
 
-            // 메인 필터 체크박스 자동 활성화
             if (chk) chk.checked = true;
-
-            // 4. 하이라이트 및 리스트 갱신
             highlightStartRound = allDrawData[0].round;
             applyFilter();
-
+            saveFilterSettings();
+            renderExcludedAcBadges();
             console.log('최근 10회차 AC값 필터 적용 완료');
+        }
+
+        // AC값 배지 렌더링 (수동=빨간, 자동=인디고)
+        function renderExcludedAcBadges() {
+            const area = document.getElementById('excludedAcBadgeArea');
+            const container = document.getElementById('excludedAcBadges');
+            if (!area || !container) return;
+
+            const btn = document.getElementById('recent10FilterBtn');
+            const isRecent10Active = btn && btn.classList.contains('from-purple-500');
+
+            // 수동 제외 배지 (always show if any)
+            const manualBadges = excludedAcValues.slice().sort((a, b) => a - b);
+
+            // 자동 제외 배지 (최근 10회에서 6회 초과, recent10 활성 시에만)
+            let autoExcluded = [];
+            if (isRecent10Active && allDrawData && allDrawData.length >= 10) {
+                const recent10 = allDrawData.slice(0, 10);
+                const acCount = {};
+                recent10.forEach(d => { acCount[d.acValue] = (acCount[d.acValue] || 0) + 1; });
+                autoExcluded = Object.entries(acCount)
+                    .filter(([ac, cnt]) => cnt > 6 && !restoredAutoAcValues.includes(parseInt(ac)))
+                    .map(([ac]) => parseInt(ac))
+                    .sort((a, b) => a - b);
+            }
+
+            const hasManual = manualBadges.length > 0;
+            const hasAuto = autoExcluded.length > 0;
+
+            if (!hasManual && !hasAuto) {
+                area.classList.add('hidden');
+                return;
+            }
+            area.classList.remove('hidden');
+
+            let html = '';
+            // 수동 제외 - 빨간 배지, X=복원
+            if (hasManual) {
+                html += manualBadges.map(ac =>
+                    `<button onclick="restoreManualAcValue(${ac})" title="클릭 시 제외 취소"
+                        class="inline-flex items-center gap-1 px-3 py-1 bg-red-500 hover:bg-red-600 text-white rounded-full text-[12px] font-bold transition-colors shadow-sm active:scale-95">
+                        AC${ac} <span style="font-size:14px;line-height:1">&times;</span>
+                    </button>`
+                ).join('');
+            }
+            // 자동 제외 - 인디고 배지, X=자동제외 취소
+            if (hasAuto) {
+                html += autoExcluded.map(ac =>
+                    `<button onclick="restoreAutoAcValue(${ac})" title="클릭 시 자동 제외 취소"
+                        class="inline-flex items-center gap-1 px-3 py-1 bg-indigo-500 hover:bg-indigo-600 text-white rounded-full text-[12px] font-bold transition-colors shadow-sm active:scale-95">
+                        AC${ac} <span style="font-size:14px;line-height:1">&times;</span>
+                    </button>`
+                ).join('');
+            }
+            container.innerHTML = html;
+        }
+
+        // 자동 제외 AC값 복원
+        function restoreAutoAcValue(val) {
+            val = parseInt(val);
+            if (!restoredAutoAcValues.includes(val)) restoredAutoAcValues.push(val);
+            renderExcludedAcBadges();
+            saveFilterSettings();
+            if (!document.getElementById('statsModal').classList.contains('hidden')) {
+                loadStatsData(parseInt(document.getElementById('statsRangeSlider').value));
+            }
+        }
+
+        // 수동 제외 AC값 복원 (빨간 배지 X 클릭)
+        function restoreManualAcValue(val) {
+            val = parseInt(val);
+            excludedAcValues = excludedAcValues.filter(v => v !== val);
+            renderExcludedAcBadges();
+            applyFilter();
+            saveFilterSettings();
+            if (!document.getElementById('statsModal').classList.contains('hidden')) {
+                loadStatsData(parseInt(document.getElementById('statsRangeSlider').value));
+            }
+        }
+
+        // 새 회차 감지 및 자동 필터 자동 적용
+        function checkAndResetOnNewDraw() {
+            if (!allDrawData || allDrawData.length === 0) return;
+            const latestRound = allDrawData[0].round;
+            const storedRound = parseInt(localStorage.getItem('ac_value_last_round') || '0');
+            if (latestRound > storedRound) {
+                localStorage.setItem('ac_value_last_round', String(latestRound));
+                if (storedRound !== 0) {
+                    restoredAutoAcValues = [];
+                    autoApplyRecent10OnLoad();
+                    console.log(`➕ AC값 새 회차 감지: ${latestRound}회 - 필터 자동 적용`);
+                }
+            }
+        }
+
+        // 페이지 로드 시 자동 필터 적용 (새 회차 감지 시만)
+        function autoApplyRecent10OnLoad() {
+            if (!allDrawData || allDrawData.length < 10) return;
+            const btn = document.getElementById('recent10FilterBtn');
+            const btnText = document.getElementById('recent10BtnText');
+            const chk = document.getElementById('applyFilterCheck');
+
+            const recent10 = allDrawData.slice(0, 10);
+            const acValues = recent10.map(d => d.acValue);
+            const minInput = document.getElementById('minFilter');
+            const maxInput = document.getElementById('maxFilter');
+            if (minInput) minInput.value = Math.min(...acValues);
+            if (maxInput) maxInput.value = Math.max(...acValues);
+            if (chk) chk.checked = true;
+            if (btn) {
+                btn.classList.remove('from-indigo-500', 'to-indigo-600');
+                btn.classList.add('from-purple-500', 'to-purple-700');
+            }
+            if (btnText) btnText.textContent = '필터 해제';
+            highlightStartRound = allDrawData[0].round;
+            applyFilter();
+            const key = 'ac_value';
+            const cur = JSON.parse(localStorage.getItem(key) || '{}');
+            cur.recent10FilterActive = true;
+            localStorage.setItem(key, JSON.stringify(cur));
+            localStorage.setItem(key + '_filter', JSON.stringify(cur));
+            setTimeout(() => renderExcludedAcBadges(), 50);
         }
 
         function initChart() {
@@ -1588,7 +1739,12 @@ ${recent30}
         // [수정됨] 필터 적용 시마다 저장 함수 호출
         function applyFilter() {
             saveFilterSettings();
+
+            // [표준화] 리스트 렌더링은 필터링하지 않음 (Range 동기화만 유지)
             renderDrawsList();
+
+            // [표준화] 차트 업데이트는 필터링된 데이터 반영 가능 (필요시)
+            changeChartMode(chartMode);
         }
 
         function openStatsModal() {
@@ -1626,6 +1782,14 @@ ${recent30}
             for (let i = 0; i <= 10; i++) distribution[i] = 0;
             data.forEach(draw => { if (draw.acValue >= 0 && draw.acValue <= 10) distribution[draw.acValue]++; });
 
+            // 최근 10회에서 6회 초과 AC값 = 자동 제외 후보
+            const recent10 = allDrawData.slice(0, 10);
+            const acCount10 = {};
+            recent10.forEach(d => { acCount10[d.acValue] = (acCount10[d.acValue] || 0) + 1; });
+            const autoExcluded = Object.entries(acCount10)
+                .filter(([ac, cnt]) => cnt > 6 && !restoredAutoAcValues.includes(parseInt(ac)))
+                .map(([ac]) => parseInt(ac));
+
             const minFilterInput = document.getElementById('minFilter');
             const maxFilterInput = document.getElementById('maxFilter');
             const filterEnabled = document.getElementById('applyFilterCheck').checked;
@@ -1638,18 +1802,38 @@ ${recent30}
                 const count = distribution[ac];
                 const percent = range > 0 ? ((count / range) * 100).toFixed(1) : 0;
                 const isInRange = filterEnabled && ac >= minFilter && ac <= maxFilter;
+                const isAutoExcluded = autoExcluded.includes(ac);
+                const isManualExcluded = excludedAcValues.includes(ac);
+                // 자동/수동 제외 중 하나라도 해당되면 취소
+                const isChecked = isInRange && !isAutoExcluded && !isManualExcluded;
+
+                let acLabel = `AC ${ac}`;
+                let textStyle = 'text-gray-900';
+                let barColor = 'bg-blue-500';
+
+                if (isManualExcluded) {
+                    acLabel = `AC ${ac} <span class="text-[10px] text-red-400">(제외)</span>`;
+                    textStyle = 'text-red-500 line-through';
+                    barColor = 'bg-red-300';
+                } else if (isAutoExcluded) {
+                    acLabel = `AC ${ac} <span class="text-[10px] text-indigo-400">(6회초과자동)</span>`;
+                    textStyle = 'text-indigo-500 line-through';
+                    barColor = 'bg-indigo-300';
+                }
+
                 const tr = document.createElement('tr');
                 tr.className = count > 0 ? 'hover:bg-gray-50' : 'opacity-30';
+                if (isManualExcluded) tr.className += ' bg-red-50';
                 tr.innerHTML = `
                     <td class="py-3 px-4 text-center">
-                        <input type="checkbox" class="w-4 h-4 text-blue-600 rounded focus:ring-blue-500" ${isInRange ? 'checked' : ''} onchange="toggleAcFilter(${ac}, this.checked)" />
+                        <input type="checkbox" class="w-4 h-4 text-blue-600 rounded focus:ring-blue-500" ${isChecked ? 'checked' : ''} onchange="toggleAcFilter(${ac}, this.checked)" />
                     </td>
-                    <td class="py-3 px-4 text-sm font-bold text-gray-900">AC ${ac}</td>
+                    <td class="py-3 px-4 text-sm font-bold ${textStyle}">${acLabel}</td>
                     <td class="py-3 px-4 text-sm text-center text-gray-900">${count}회</td>
                     <td class="py-3 px-4 text-sm text-center text-gray-900">${percent}%</td>
                     <td class="py-3 px-4">
                         <div class="w-full bg-gray-200 rounded-full h-3">
-                            <div class="bg-blue-500 h-3 rounded-full transition-all duration-300" style="width: ${percent}%"></div>
+                            <div class="${barColor} h-3 rounded-full transition-all duration-300" style="width: ${percent}%"></div>
                         </div>
                     </td>
                 `;
@@ -1657,108 +1841,24 @@ ${recent30}
             }
         }
 
+        // AC값 필터 토글 (수동 제외 목록 관리)
         function toggleAcFilter(acValue, checked) {
-            const checkboxes = document.querySelectorAll('#statsTableBody input[type="checkbox"]');
-            const checkedAcValues = [];
-            checkboxes.forEach((cb, index) => { if (cb.checked) checkedAcValues.push(index); });
-
-            if (checkedAcValues.length > 0) {
-                document.getElementById('minFilter').value = Math.min(...checkedAcValues);
-                document.getElementById('maxFilter').value = Math.max(...checkedAcValues);
-                document.getElementById('applyFilterCheck').checked = true;
+            acValue = parseInt(acValue);
+            if (!checked) {
+                // 체크 해제 → 수동 제외 목록에 추가
+                if (!excludedAcValues.includes(acValue)) excludedAcValues.push(acValue);
             } else {
-                document.getElementById('applyFilterCheck').checked = false;
+                // 체크 → 수동 제외 취소
+                excludedAcValues = excludedAcValues.filter(v => v !== acValue);
             }
+            // 필터 적용 + 테이블 갱신 + 배지 갱신
             applyFilter();
+            loadStatsData(parseInt(document.getElementById('statsRangeSlider').value));
+            renderExcludedAcBadges();
+            saveFilterSettings();
         }
 
-        // [표준화] 최근 10회차 필터 자동 적용 (missing.html 기준)
-        function applyRecent10Filters() {
-            const btn = document.getElementById('recent10FilterBtn');
-            const btnText = document.getElementById('recent10BtnText');
 
-            // 토글: 이미 켜져있으면 끄기 (보라색 클래스 존재 여부로 판단)
-            if (btn.classList.contains('from-purple-500')) {
-                btn.classList.remove('from-purple-500', 'to-purple-700');
-                btn.classList.add('from-blue-500', 'to-indigo-600');
-                btnText.textContent = '최근 10회차 필터 적용';
-
-                // 필터 초기화
-                const minInput = document.getElementById('minFilter');
-                const maxInput = document.getElementById('maxFilter');
-                if (minInput) minInput.value = '';
-                if (maxInput) maxInput.value = '';
-
-                const chk = document.getElementById('applyFilterCheck');
-                if (chk) chk.checked = false;
-
-                // 하이라이트 제거
-                const container = document.getElementById('drawsList');
-                if (container) {
-                    Array.from(container.children).forEach(row => {
-                        row.classList.remove('row-highlight');
-                    });
-                }
-
-                applyFilter();
-                return;
-            }
-
-            if (!allDrawData || allDrawData.length < 10) return;
-
-            // 1. 최근 10회차 데이터 수집
-            const recent10 = allDrawData.slice(0, 10);
-            const values = recent10.map(d => d.acValue);
-            const minValue = Math.min(...values);
-            const maxValue = Math.max(...values);
-
-            // 2. 필터 입력창 설정
-            const minInput = document.getElementById('minFilter');
-            const maxInput = document.getElementById('maxFilter');
-            if (minInput) minInput.value = minValue;
-            if (maxInput) maxInput.value = maxValue;
-
-            // 3. UI 업데이트 (보라색 토글)
-            btn.classList.remove('from-blue-500', 'to-indigo-600');
-            btn.classList.add('from-purple-500', 'to-purple-700');
-            btnText.textContent = '필터 해제';
-
-            const chk = document.getElementById('applyFilterCheck');
-            if (chk) chk.checked = true;
-
-            // 4. 리스트 갱신 및 하이라이트
-            applyFilter();
-            applyRecent10Highlight();
-
-            console.log('최근 10회차 AC값 필터 적용 완료');
-        }
-
-        // 페이지 로드 시 자동 적용 (하이라이트)
-        function applyRecent10Highlight() {
-            try {
-                const container = document.getElementById('drawsList');
-                if (!container) return;
-
-                const rows = container.querySelectorAll('tr');
-                if (rows.length === 0) return;
-
-                const recent10Rounds = allDrawData.slice(0, 10).map(d => d.round);
-
-                rows.forEach(row => {
-                    const rowRound = parseInt(row.querySelector('td:first-child')?.textContent.replace('회', ''));
-                    // Note: ac_value.html table structure might differ. 
-                    // Let's verify how round is stored. 
-                    // Usually it's in the first cell text.
-                    if (rowRound && recent10Rounds.includes(rowRound)) {
-                        row.classList.add('row-highlight');
-                    } else {
-                        row.classList.remove('row-highlight');
-                    }
-                });
-            } catch (error) {
-                console.error('applyRecent10Highlight 에러:', error);
-            }
-        }
 
     </script>
 

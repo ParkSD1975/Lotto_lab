@@ -6,7 +6,7 @@
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>Lotto Lab - 동형수 (Supabase AI)</title>
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-    
+
     <link rel="icon" href="data:,">
 
     <link rel="stylesheet" href="css/common.css" />
@@ -16,7 +16,7 @@
         rel="stylesheet" />
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
         rel="stylesheet" />
-    
+
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script
         src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
@@ -48,7 +48,6 @@
         let selectedValueHighlight = null;
         let selectedHighlight = { col: null, val: null };
         let highlightStartRound = null;
-        let isRecentTenFilter = false;
         let debounceTimer = null;
         let isAIAnalyzing = false;
 
@@ -164,31 +163,61 @@
         function applyFilter() {
             saveFilterSettings(); // 상태 저장
 
-            const isFilterEnabled = document.getElementById('applyFilterCheck').checked;
-            let filteredData = allDrawData.slice(0, currentRange);
-
-            if (isFilterEnabled) {
-                const activeCounts = [];
-                for (let i = 0; i <= 4; i++) {
-                    const btn = document.getElementById(`filter-btn-${i}`);
-                    if (btn && btn.classList.contains('filter-btn-active')) {
-                        activeCounts.push(i);
-                    }
-                }
-
-                if (activeCounts.length > 0) {
-                    filteredData = filteredData.filter(d => activeCounts.includes(d.twinCount));
-                }
-
-                if (excludedNumbers.size > 0) {
-                    filteredData = filteredData.filter(d => {
-                        return !d.numbers.some(num => excludedNumbers.has(num));
-                    });
-                }
-            }
+            // [요청 반영] 리스트 필터링 기능 제거 -> 리스트는 항상 분석 회차 범위만 연동
+            const filteredData = allDrawData.slice(0, currentRange);
 
             renderDrawsList(filteredData);
             updateRecentTenButtonState();
+        }
+
+        // 🆕 토요일 새 회차 감지 시 필터 자동 리셋
+        function checkAndResetOnNewDraw() {
+            if (!allDrawData || allDrawData.length === 0) return;
+            const latestRound = allDrawData[0].round;
+            const lastKnownRound = parseInt(localStorage.getItem('twin_number_last_round') || '0');
+
+            if (latestRound > lastKnownRound) {
+                localStorage.setItem('twin_number_last_round', latestRound);
+                if (lastKnownRound > 0) {
+                    console.log(`🆕 새 회차 감지: ${latestRound}회 → 최근 10회차 필터 자동 갱신`);
+                }
+                autoApplyRecent10OnLoad();
+            }
+        }
+
+        // 🆕 페이지 로드 시 최근 10회차 필터 자동 적용
+        function autoApplyRecent10OnLoad() {
+            if (!allDrawData || allDrawData.length < 10) return;
+
+            const recent10 = allDrawData.slice(0, 10);
+            const counts = new Set(recent10.map(d => d.twinCount));
+
+            // 필터 버튼 및 카드 UI 업데이트
+            for (let i = 0; i <= 4; i++) {
+                const isActive = counts.has(i);
+                const btn = document.getElementById(`filter-btn-${i}`);
+                if (btn) {
+                    if (isActive) btn.classList.add('filter-btn-active');
+                    else btn.classList.remove('filter-btn-active');
+                }
+                updateCardVisual(i, isActive);
+            }
+
+            // 필터 활성화 버튼(보라색) 상태로
+            const btn = document.getElementById('recent10FilterBtn');
+            const btnText = document.getElementById('recent10BtnText');
+            if (btn && btnText) {
+                btn.classList.remove('from-blue-500', 'to-indigo-600');
+                btn.classList.add('from-purple-500', 'to-purple-700');
+                if (btnText) btnText.textContent = '필터 해제';
+            }
+
+            highlightStartRound = Number(allDrawData[0].round);
+
+            const toggle = document.getElementById('applyFilterCheck');
+            if (toggle) toggle.checked = true;
+
+            applyFilter();
         }
 
         function applyRecent10Filters() {
@@ -198,8 +227,8 @@
             if (!btn || !allDrawData || allDrawData.length < 10) return;
 
             // [해제 로직] 이미 보라색(적용중)이면 끄기
-            if (btn.classList.contains('from-purple-500') || isRecentTenFilter) {
-                isRecentTenFilter = false;
+            if (btn.classList.contains('from-purple-500')) {
+                highlightStartRound = null;
 
                 for (let i = 0; i <= 4; i++) {
                     const fBtn = document.getElementById(`filter-btn-${i}`);
@@ -207,7 +236,7 @@
                     updateCardVisual(i, false);
                 }
 
-                if (chk) chk.checked = false; // 토글 강제 해제
+                if (chk) chk.checked = false; // 토글 해제
                 applyFilter();
                 return;
             }
@@ -218,19 +247,17 @@
 
             for (let i = 0; i <= 4; i++) {
                 const fBtn = document.getElementById(`filter-btn-${i}`);
-                if (counts.has(i)) {
-                    if (fBtn) fBtn.classList.add('filter-btn-active');
-                } else {
-                    if (fBtn) fBtn.classList.remove('filter-btn-active');
+                const isActive = counts.has(i);
+                if (fBtn) {
+                    if (isActive) fBtn.classList.add('filter-btn-active');
+                    else fBtn.classList.remove('filter-btn-active');
                 }
+                updateCardVisual(i, isActive);
             }
 
-            isRecentTenFilter = true;
-            for (let i = 0; i <= 4; i++) {
-                updateCardVisual(i, counts.has(i));
-            }
+            highlightStartRound = Number(allDrawData[0].round);
 
-            if (chk) chk.checked = true; // 토글 강제 적용
+            if (chk) chk.checked = true; // 토글 적용
             applyFilter();
         }
 
@@ -244,7 +271,6 @@
 
             // 필터 적용이 꺼져있으면 무조건 초기 상태
             if (!chk.checked) {
-                isRecentTenFilter = false;
                 btn.classList.remove('from-purple-500', 'to-purple-700');
                 btn.classList.add('from-blue-500', 'to-indigo-600');
                 if (btnText) btnText.textContent = '최근 10회차 필터 적용';
@@ -263,17 +289,14 @@
                 }
             }
 
-            // 셋이 동일한지 비교
             const isMatch = activeCountSet.size === recent10CountSet.size &&
                 [...activeCountSet].every(val => recent10CountSet.has(val));
 
             if (isMatch) {
-                isRecentTenFilter = true;
                 btn.classList.remove('from-blue-500', 'to-indigo-600');
                 btn.classList.add('from-purple-500', 'to-purple-700');
                 if (btnText) btnText.textContent = '필터 해제';
             } else {
-                isRecentTenFilter = false;
                 btn.classList.remove('from-purple-500', 'to-purple-700');
                 btn.classList.add('from-blue-500', 'to-indigo-600');
                 if (btnText) btnText.textContent = '최근 10회차 필터 적용';
@@ -299,7 +322,7 @@
                     updateCardVisual(i, isActive);
                 }
 
-                isRecentTenFilter = true;
+                highlightStartRound = Number(allDrawData[0].round);
                 applyFilter();
             } else {
                 applyFilter();
@@ -418,9 +441,24 @@
             const valueText = document.getElementById(`count_${num}`);
             const titleText = card.querySelector('.text-xs');
 
+            // 최근 10회차 필터와 일치하는지 여부 확인 (색상 결정용)
+            let isMatchingRecent10 = false;
+            if (isActive && allDrawData && allDrawData.length >= 10) {
+                const recent10CountSet = new Set(allDrawData.slice(0, 10).map(d => d.twinCount));
+                const activeCountSet = new Set();
+                for (let i = 0; i <= 4; i++) {
+                    const fBtn = document.getElementById(`filter-btn-${i}`);
+                    if (fBtn && fBtn.classList.contains('filter-btn-active')) {
+                        activeCountSet.add(i);
+                    }
+                }
+                isMatchingRecent10 = activeCountSet.size === recent10CountSet.size &&
+                    [...activeCountSet].every(val => recent10CountSet.has(val));
+            }
+
             if (isActive) {
                 card.classList.remove('bg-white', 'border-gray-200', 'bg-blue-600', 'border-blue-600');
-                if (isRecentTenFilter) {
+                if (isMatchingRecent10) {
                     card.classList.add('bg-purple-600', 'border-purple-600', 'shadow-md');
                     if (titleText) { titleText.classList.remove('text-gray-500', 'text-blue-100'); titleText.classList.add('text-purple-100'); }
                 } else {
@@ -794,9 +832,10 @@
                     <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
                         <div class="flex items-center justify-between mb-4">
                             <h3 class="text-xl font-bold text-gray-900">조합 필터</h3>
-                            <a href="#filter-page"
-                                class="flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-800 transition-colors">
-                                <span class="material-symbols-outlined text-sm">open_in_new</span>필터 페이지 가기
+                            <a href="filter.html#filter-twin_number_patterns"
+                                class="text-sm font-medium text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
+                                <span class="material-symbols-outlined text-[18px]">tune</span>
+                                필터 페이지 가기
                             </a>
                         </div>
 
@@ -1045,6 +1084,16 @@
 
                 await initializeRecentTenFilter();
 
+                // 🆕 새 회차 체크 및 자동 필터 초기화
+                checkAndResetOnNewDraw();
+
+                // 🆕 다른 탭(대시보드)에서의 변경사항 실시간 감지
+                window.addEventListener('storage', (e) => {
+                    if (e.key === 'twin_number_patterns' || e.key === 'twin_filter') {
+                        loadFilterSettings().then(() => applyFilter());
+                    }
+                });
+
                 document.getElementById('loadingOverlay').style.display = 'none';
                 await refreshAIAnalysis();
 
@@ -1136,13 +1185,16 @@
 
         // 🔹 하이라이트 토글 (행 클릭)
         function highlightRows(round) {
-            if (highlightStartRound === round) {
+            const r = Number(round);
+
+            // 1. 이미 하이라이트된 행을 클릭하면 해제
+            if (highlightStartRound !== null && Number(highlightStartRound) === r) {
                 highlightStartRound = null;
             } else {
-                highlightStartRound = round;
+                // 2. 다른 행 클릭 시 해당 회차부터 하이라이트 적용
+                highlightStartRound = r;
             }
             applyFilter();
-            // scrollIntoView 제거
         }
 
         function toggleCellHighlight(col, val) {
@@ -1177,9 +1229,7 @@
                     currentRound <= startRound &&
                     currentRound > startRound - 10;
 
-                const isTop10Highlight = isRecentTenFilter && index < 10;
-
-                if (isSelectedHighlight || isTop10Highlight) {
+                if (isSelectedHighlight) {
                     tr.classList.add('row-highlight');
                 }
 

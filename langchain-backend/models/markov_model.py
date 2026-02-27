@@ -116,3 +116,26 @@ class MarkovLottoModel:
         if os.path.exists(path):
             with open(path, "r", encoding="utf-8") as f:
                 self.gap_probs = json.load(f)
+
+    def get_xai_reasoning(self, number: int, draws: list) -> str:
+        """최근 당첨 이력(draws)을 바탕으로 현재 Gap을 계산하고 분석 근거를 반환합니다."""
+        current_gap = 0
+        for draw in draws:
+            if number in draw.get("numbers", []):
+                break
+            current_gap += 1
+            
+        if not self.gap_probs:
+            self._load_model()
+            
+        # 기존 딕셔너리 구조에 맞게 키(String) 변환하여 탐색
+        stats = self.gap_probs.get(str(number), {}).get(str(current_gap))
+        
+        # 데이터가 있고, 과거 동일한 Gap 상태에서 당첨된 이력이 있는 경우
+        if stats and stats["total"] > 0:
+            prob = (stats["appear"] / stats["total"]) * 100
+            # 통상적인 로또 출현 확률(약 13%)보다 유의미하게 높을 때만 근거로 출력
+            if prob > 15.0: 
+                return f"현재 {current_gap}주 연속 미출현(Gap) 상태이며, 과거 동일 상태 전환 시 {prob:.1f}%의 높은 확률로 출현했습니다."
+                
+        return ""

@@ -6,7 +6,7 @@
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>Lotto Lab - 로또용지 분석 (Supabase AI)</title>
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-    
+
     <link rel="icon" href="data:,">
 
     <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css"
@@ -93,12 +93,16 @@
                     };
                 }
             });
-            const data = { groups: groups };
+
+            // [New] 현재 회차 함께 저장 (새 회차 갱신 시 자동 최근 10회차 필터 적용을 위함)
+            const targetRound = (allDrawData && allDrawData.length > 0) ? allDrawData[0].round : null;
+
+            const data = { groups: groups, targetRound: targetRound };
             const enabled = document.getElementById('applyFilterCheck').checked;
 
             // DB 저장 (FilterService 사용)
             if (window.filterService && window.filterService.initialized) {
-                await window.filterService.saveSetting('lotto_paper_patterns', data, enabled);
+                await window.filterService.saveSetting('lotto_paper_pattern', data, enabled);
             } else if (window.Utils && window.Utils.saveFilter) {
                 // Fallback: localStorage
                 window.Utils.saveFilter('lotto_paper_filter', { ...data, enabled });
@@ -111,7 +115,7 @@
 
             // DB에서 로드 (FilterService 사용)
             if (window.filterService && window.filterService.initialized) {
-                const data = await window.filterService.loadSetting('lotto_paper_patterns');
+                const data = await window.filterService.loadSetting('lotto_paper_pattern');
                 if (data) {
                     saved = { ...data.settings, enabled: data.enabled };
                 }
@@ -123,11 +127,18 @@
             }
 
             if (saved) {
+                // [New] 새 회차(토요일 업데이트) 인지 확인하여 다르면 기본값(최근 10회차) 적용 위해 false 반환
+                const currentRound = (allDrawData && allDrawData.length > 0) ? allDrawData[0].round : null;
+                if (saved.targetRound && currentRound && saved.targetRound !== currentRound) {
+                    console.log('🔄 새 회차 감지됨, 최근 10회차 기본값으로 초기화합니다.');
+                    return false;
+                }
+
                 if (saved.groups) {
                     Object.keys(saved.groups).forEach(type => {
                         const minInput = document.getElementById(`min_${type}`);
                         const maxInput = document.getElementById(`max_${type}`);
-                        if (minInput && maxInput) {
+                        if (minInput && maxInput && saved.groups[type]) {
                             minInput.value = saved.groups[type].min;
                             maxInput.value = saved.groups[type].max;
                         }
@@ -514,11 +525,12 @@
                     <!-- [가이드] 조합 필터 섹션 재구성 -->
                     <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm" id="filter-page">
                         <div class="flex items-center justify-between mb-6">
-                            <h3 class="text-xl font-bold text-gray-900 border-l-4 border-indigo-500 pl-3">조합 필터</h3>
-                            <button onclick="alert('필터 페이지로 이동')"
-                                class="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1 transition-colors">
-                                <span class="material-symbols-outlined text-sm">open_in_new</span>상세 필터 설정
-                            </button>
+                            <h3 class="text-xl font-bold text-gray-900">조합 필터</h3>
+                            <a href="filter.html?tab=foundation&id=lotto_paper_pattern"
+                                class="text-sm font-medium text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
+                                <span class="material-symbols-outlined text-[18px]">tune</span>
+                                필터 페이지 가기
+                            </a>
                         </div>
 
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4" id="filterContainer">

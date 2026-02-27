@@ -61,21 +61,23 @@
                 <div class="relative group">
                     <button class="flex items-center gap-1.5 rounded-full focus:outline-none" title="${name}">
                         ${avatar
-                            ? `<img src="${avatar}" alt="${name}" class="w-8 h-8 rounded-full object-cover border-2 border-indigo-300">`
-                            : `<span class="material-symbols-outlined text-[24px] text-indigo-500">account_circle</span>`
-                        }
+                    ? `<img src="${avatar}" alt="${name}" class="w-8 h-8 rounded-full object-cover border-2 border-indigo-300">`
+                    : `<span class="material-symbols-outlined text-[24px] text-indigo-500">account_circle</span>`
+                }
                     </button>
                     <!-- 드롭다운 -->
-                    <div class="hidden group-hover:block absolute right-0 top-[calc(100%+6px)] w-52 bg-white rounded-xl border border-slate-100 shadow-xl z-[9999] py-1 origin-top-right">
-                        <div class="px-4 py-2.5 border-b border-slate-100">
-                            <p class="text-[12px] font-bold text-slate-800 truncate">${name}</p>
-                            <p class="text-[11px] text-slate-400 truncate">${user.email}</p>
+                    <div class="hidden group-hover:block absolute right-0 top-full pt-1.5 w-52 z-[9999] origin-top-right">
+                        <div class="bg-white rounded-xl border border-slate-100 shadow-xl py-1">
+                            <div class="px-4 py-2.5 border-b border-slate-100">
+                                <p class="text-[12px] font-bold text-slate-800 truncate">${name}</p>
+                                <p class="text-[11px] text-slate-400 truncate">${user.email}</p>
+                            </div>
+                            <button onclick="signOut()"
+                                class="w-full text-left flex items-center gap-2 px-4 py-2.5 text-[13px] text-slate-600 hover:bg-slate-50 hover:text-rose-500 transition-colors">
+                                <span class="material-symbols-outlined text-[16px]">logout</span>
+                                로그아웃
+                            </button>
                         </div>
-                        <button onclick="signOut()"
-                            class="w-full text-left flex items-center gap-2 px-4 py-2.5 text-[13px] text-slate-600 hover:bg-slate-50 hover:text-rose-500 transition-colors">
-                            <span class="material-symbols-outlined text-[16px]">logout</span>
-                            로그아웃
-                        </button>
                     </div>
                 </div>
             `;

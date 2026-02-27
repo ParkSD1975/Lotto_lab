@@ -6,7 +6,7 @@
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>Lotto Lab - 연번 분석 (Supabase AI)</title>
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-    
+
     <link rel="icon" href="data:,">
 
     <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css"
@@ -527,8 +527,10 @@
                     <div class="bg-white rounded-xl p-8 border border-gray-200 shadow-sm" id="filter-page">
                         <div class="flex items-center justify-between mb-8">
                             <h3 class="text-xl font-bold text-gray-900">조합 필터</h3>
-                            <a href="#" class="text-sm text-gray-500 hover:text-gray-800 flex items-center gap-1">
-                                <span class="material-symbols-outlined text-base">open_in_new</span>필터 페이지 가기
+                            <a href="filter.html#filter-consecutive_count"
+                                class="text-sm font-medium text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
+                                <span class="material-symbols-outlined text-[18px]">tune</span>
+                                필터 페이지 가기
                             </a>
                         </div>
 
@@ -694,6 +696,15 @@
 
                 if (!await loadFilterSettings()) {
                     initFilterDefaults();
+                }
+
+                // [New] 토요일 자동 필터링 (최초 접속 시 & 필터 없을 때)
+                const today = new Date();
+                const isSaturday = today.getDay() === 6;
+                // 명시적으로 토요일이고, 저장된 설정이 없거나 기본값이면 자동 적용
+                if (isSaturday && (!selectedCounts || selectedCounts.size === 0)) {
+                    console.log("📅 토요일 감지: 최근 10회차 필터를 자동으로 적용합니다.");
+                    applyRecent10Filters();
                 }
 
                 updateRange(currentRange);
@@ -944,9 +955,15 @@
 
         function applyFilter() {
             saveFilterSettings();
-            let displayData = allDrawData.slice(0, currentRange).filter(checkDrawFilter);
-            renderDrawsList(displayData);
-            updateCharts(displayData);
+
+            // [Refactored] 목록은 필터링 없이 범위 내 모든 데이터를 보여줌 (렌더링 분리)
+            const listData = allDrawData.slice(0, currentRange);
+            renderDrawsList(listData);
+
+            // 통계 및 차트는 필터를 적용한 데이터 사용 (선택 사항)
+            // 사용자 요구에 따라 차트는 필터링된 데이터의 추이를 보여주거나 전체를 보여줌
+            const filteredData = listData.filter(checkDrawFilter);
+            updateCharts(filteredData);
             updateRecent10FilterUI();
         }
 
@@ -1340,6 +1357,14 @@
             syncFilters();
             applyFilter();
             console.log('최근 10회차 연번 필터 ' + (isRecentTenFilter ? '적용' : '해제') + ' 완료');
+
+            // 하이라이트 행으로 자동 스크롤 (선택 사항)
+            if (isRecentTenFilter) {
+                setTimeout(() => {
+                    const firstHighlight = document.querySelector('.row-highlight');
+                    if (firstHighlight) firstHighlight.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }, 100);
+            }
         }
 
         // [AI 분석 및 명령 처리]

@@ -6,7 +6,7 @@
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>Lotto Lab - 제곱수 (Supabase AI)</title>
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-    
+
     <link rel="icon" href="data:,">
 
     <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css"
@@ -488,9 +488,10 @@
                     <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
                         <div class="flex items-center justify-between mb-4">
                             <h3 class="text-xl font-bold text-gray-900">조합 필터</h3>
-                            <a href="#filter-page"
-                                class="flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-800 transition-colors">
-                                <span class="material-symbols-outlined text-sm">open_in_new</span>필터 페이지 가기
+                            <a href="filter.html#filter-square_number_patterns"
+                                class="text-sm font-medium text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
+                                <span class="material-symbols-outlined text-[18px]">tune</span>
+                                필터 페이지 가기
                             </a>
                         </div>
 
@@ -739,36 +740,66 @@
             applyFilter(); // [추가됨] 변경 시 자동 적용
         }
 
-        // [수정됨] 필터 적용 및 저장 함수
+        // [수정] 필터 적용 및 저장 함수 (리스트 필터링 기능 제거 - 분석 범위만 연동)
         function applyFilter() {
-            saveFilterSettings(); // [추가됨] 변경 시 자동 저장
+            saveFilterSettings();
 
-            const isFilterEnabled = document.getElementById('applyFilterCheck').checked;
-            let filteredData = allDrawData.slice(0, currentRange);
+            // 리스트는 필터링과 무관하게 분석 범위(currentRange)만 반영
+            const drawsToShow = allDrawData.slice(0, currentRange);
+            renderDrawsList(drawsToShow);
 
-            if (isFilterEnabled) {
-                const activeCounts = [];
-                for (let i = 0; i <= 6; i++) {
-                    const btn = document.getElementById(`filter-btn-${i}`);
-                    if (btn && btn.classList.contains('filter-btn-active')) {
-                        activeCounts.push(i);
-                    }
-                }
-
-                // 1. 개수 필터
-                if (activeCounts.length > 0) {
-                    filteredData = filteredData.filter(d => activeCounts.includes(d.squareCount));
-                }
-
-                // 2. 제외수 필터 (New)
-                if (excludedNumbers.size > 0) {
-                    filteredData = filteredData.filter(d => {
-                        return !d.numbers.some(num => excludedNumbers.has(num));
-                    });
-                }
-            }
-            renderDrawsList(filteredData);
             updateRecent10FilterUI();
+        }
+
+        // 🆕 토요일 새 회차 감지 시 필터 자동 리셋
+        function checkAndResetOnNewDraw() {
+            if (!allDrawData || allDrawData.length === 0) return;
+            const latestRound = allDrawData[0].round;
+            const lastKnownRound = parseInt(localStorage.getItem('square_number_last_round') || '0');
+
+            if (latestRound > lastKnownRound) {
+                localStorage.setItem('square_number_last_round', latestRound);
+                if (lastKnownRound > 0) {
+                    console.log(`🆕 새 회차 감지: ${latestRound}회 → 최근 10회차 필터 자동 갱신`);
+                }
+                autoApplyRecent10OnLoad();
+            }
+        }
+
+        // 🆕 페이지 로드 시 최근 10회차 필터 자동 적용
+        function autoApplyRecent10OnLoad() {
+            if (!allDrawData || allDrawData.length < 10) return;
+
+            const recent10 = allDrawData.slice(0, 10);
+            const counts = new Set(recent10.map(d => d.squareCount));
+
+            // 필터 버튼 및 카드 UI 업데이트
+            for (let i = 0; i <= 6; i++) {
+                const isActive = counts.has(i);
+                const btn = document.getElementById(`filter-btn-${i}`);
+                if (btn) {
+                    if (isActive) btn.classList.add('filter-btn-active');
+                    else btn.classList.remove('filter-btn-active');
+                }
+                updateCardUI(i, isActive);
+            }
+
+            // 필터 활성화 버튼(보라색) 상태로
+            const btn = document.getElementById('recent10FilterBtn');
+            const btnText = document.getElementById('recent10BtnText');
+            if (btn && btnText) {
+                btn.classList.remove('from-blue-500', 'to-indigo-600');
+                btn.classList.add('from-purple-500', 'to-purple-700');
+                btnText.textContent = '필터 해제';
+            }
+
+            isRecentTenFilter = true;
+            highlightStartRound = allDrawData[0].round;
+
+            const toggle = document.getElementById('applyFilterCheck');
+            if (toggle) toggle.checked = true;
+
+            applyFilter();
         }
 
         // [추가] NLP 및 초기화 로직
@@ -862,11 +893,21 @@
                 refreshAIAnalysis();
                 applyRecent10Highlight();
 
+                // 🆕 새 회차 체크 및 자동 필터 초기화
+                checkAndResetOnNewDraw();
+
                 if (!(await loadFilterSettings())) {
-                    initFilterDefaults();
+                    // 저장된 필터가 없으면 자동 적용 안 함 (initFilterDefaults는 필요 시 호출)
                 } else {
                     applyFilter();
                 }
+
+                // 🆕 다른 탭(대시보드)에서의 변경사항 실시간 감지
+                window.addEventListener('storage', (e) => {
+                    if (e.key === 'square_number_patterns' || e.key === 'square_filter') {
+                        loadFilterSettings().then(() => applyFilter());
+                    }
+                });
 
             } catch (err) {
                 console.error('데이터 로드 실패:', err);

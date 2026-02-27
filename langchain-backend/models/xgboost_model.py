@@ -216,7 +216,7 @@ class LottoXGBoost:
         return result
     
     def get_top_features(self, number: int) -> list:
-        """특정 번호 모델의 중요 피처 반환 (XAI용)."""
+        """특정 번호 모델의 중요 피처 반환 (XAI용 - 한글 번역 적용)."""
         if not self.models:
             self._load_models()
             
@@ -227,10 +227,37 @@ class LottoXGBoost:
         importances = model.feature_importances_
         indices = np.argsort(importances)[::-1]
         
+        # [추가] 영문 피처명을 사용자 친화적인 한글로 번역하는 딕셔너리
+        kr_names = {
+            "total_freq": "역대 총 출현 빈도",
+            "recent_10_freq": "최근 10주간 출현 빈도",
+            "recent_50_freq": "최근 50주간 단기 출현 빈도",
+            "current_gap": "최근 연속 미출현 회차(Gap)",
+            "avg_gap": "역대 평균 미출현 간격",
+            "max_gap": "역대 최장 미출현 간격",
+            "std_gap": "출현 간격의 불규칙성(표준편차)",
+            "gap_percentile": "현재 미출현 기간의 통계적 한계치",
+            "momentum": "최근 단기 상승세(모멘텀)",
+            "trend_slope": "장기 출현 추세선",
+            "is_prime": "소수(Prime) 특성",
+            "is_odd": "홀짝 특성",
+            "is_low": "고저(저번호) 특성",
+            "last_sum": "직전 회차 총합의 영향",
+            "last_odd_count": "직전 회차 홀짝 비율의 영향",
+            "last_ac": "직전 회차 산술적 복잡도(AC) 영향",
+            "last_consec": "직전 회차 연번 출현 여부",
+            "avg_sum_5": "최근 5주 총합 이동평균 추세",
+            "freq_diff": "단기-장기 출현 빈도 차이",
+            "gap_position": "출현 주기상 현재 위치"
+        }
+        
         top_features = []
         for i in range(min(5, len(indices))):
             idx = indices[i]
-            top_features.append((self.feature_names[idx], float(importances[idx])))
+            raw_name = self.feature_names[idx]
+            # 딕셔너리에 없으면 원래 영문명 출력
+            kr_name = kr_names.get(raw_name, raw_name) 
+            top_features.append((kr_name, float(importances[idx])))
             
         return top_features
 

@@ -6,13 +6,13 @@
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>Lotto Lab - 번호대별 분석 (Supabase AI)</title>
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-    
+
     <link rel="icon" href="data:,">
     <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css"
         rel="stylesheet" />
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
         rel="stylesheet" />
-    
+
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script
         src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
@@ -53,11 +53,22 @@
 
         async function saveFilterSettings() {
             const ranges = {};
+
+            // UI의 한국어 명칭(id)과 Data(DB/LocalStorage)의 영문 키 매핑
+            const keyMapping = {
+                '단번대': '1_10',
+                '10번대': '11_20',
+                '20번대': '21_30',
+                '30번대': '31_40',
+                '40번대': '41_45'
+            };
+
             Object.keys(rangeDefinitions).forEach(type => {
                 const minInput = document.getElementById(`min_${type}`);
                 const maxInput = document.getElementById(`max_${type}`);
                 if (minInput && maxInput) {
-                    ranges[type] = { min: parseInt(minInput.value), max: parseInt(maxInput.value) };
+                    const mappedKey = keyMapping[type] || type;
+                    ranges[mappedKey] = { min: parseInt(minInput.value), max: parseInt(maxInput.value) };
                 }
             });
 
@@ -68,43 +79,84 @@
                 ranges['entropy'] = { min: parseFloat(minEnt.value), max: parseFloat(maxEnt.value) };
             }
 
-            const data = { ranges: ranges };
+            const data = {
+                ranges: ranges,
+                recent10FilterActive: document.getElementById('recent10FilterBtn')?.classList.contains('from-purple-500') || false
+            };
             const enabled = document.getElementById('applyFilterCheck').checked;
+            const settingsWithEnabled = { ...data, enabled };
+
+            // 1. DB 저장 (로그인 시)
             if (window.filterService && window.filterService.initialized) {
+                console.log('💾 [Supabase] 저장 시도: number_range_patterns', data);
                 await window.filterService.saveSetting('number_range_patterns', data, enabled);
-            } else if (window.Utils && window.Utils.saveFilter) {
-                window.Utils.saveFilter('number_range_filter', { ...data, enabled });
             }
+
+            // 2. localStorage 저장 (항상 수행 - 실시간 탭 동기화 및 오프라인 백업용)
+            console.log('💾 [LocalStorage] 캐시 업데이트: number_range_patterns', settingsWithEnabled);
+            localStorage.setItem('number_range_patterns', JSON.stringify(settingsWithEnabled));
+            localStorage.setItem('number_range_patterns_filter', JSON.stringify(settingsWithEnabled));
         }
 
         async function loadFilterSettings() {
             let saved = null;
+
+            // DB에서 로드
+            if (!window.filterService?.initialized) {
+                await initFilterService();
+            }
             if (window.filterService && window.filterService.initialized) {
                 const data = await window.filterService.loadSetting('number_range_patterns');
                 if (data) saved = { ...data.settings, enabled: data.enabled };
             }
-            if (!saved && window.Utils && window.Utils.loadFilter) {
-                saved = window.Utils.loadFilter('number_range_filter');
 
+            // Fallback: localStorage (DB에 없는 경우)
+            if (!saved) {
+                try {
+                    const raw = localStorage.getItem('number_range_patterns') || localStorage.getItem('number_range_patterns_filter') || localStorage.getItem('number_range_filter');
+                    if (raw) saved = JSON.parse(raw);
+                } catch (e) { }
             }
             if (saved) {
+                // [New] 최근 10회차 필터가 켜진 상태로 저장되었다면 자동 계산 적용
+                if (saved.recent10FilterActive) {
+                    const btn = document.getElementById('recent10FilterBtn');
+                    if (btn && !btn.classList.contains('from-purple-500')) {
+                        setTimeout(() => applyRecent10Filters(), 100);
+                    }
+                    if (saved.enabled !== undefined) {
+                        document.getElementById('applyFilterCheck').checked = saved.enabled;
+                    }
+                    return true;
+                }
+
                 if (saved.ranges) {
-                    Object.keys(saved.ranges).forEach(type => {
-                        const minInput = document.getElementById(`min_${type}`);
-                        const maxInput = document.getElementById(`max_${type}`);
-                        if (minInput && maxInput && saved.ranges[type]) {
-                            minInput.value = saved.ranges[type].min;
-                            maxInput.value = saved.ranges[type].max;
+                    // Data의 영문 키와 UI의 한국어 명칭 매핑
+                    const reverseMapping = {
+                        '1_10': '단번대',
+                        '11_20': '10번대',
+                        '21_30': '20번대',
+                        '31_40': '30번대',
+                        '41_45': '40번대'
+                    };
+
+                    Object.keys(saved.ranges).forEach(dataKey => {
+                        const uiKey = reverseMapping[dataKey] || dataKey; // 'entropy'는 그대로 통과
+                        const minInput = document.getElementById(`min_${uiKey}`);
+                        const maxInput = document.getElementById(`max_${uiKey}`);
+                        if (minInput && maxInput && saved.ranges[dataKey]) {
+                            minInput.value = saved.ranges[dataKey].min;
+                            maxInput.value = saved.ranges[dataKey].max;
                         }
                     });
 
-                    // [New] 엔트로피 복원
+                    // [New] 엔트로피 복원 (위에서 처리되지만 확실히 하기 위해)
                     if (saved.ranges['entropy']) {
                         const minEnt = document.getElementById('min_entropy');
                         const maxEnt = document.getElementById('max_entropy');
                         if (minEnt && maxEnt) {
-                            minEnt.value = saved.ranges['entropy'].min;
-                            maxEnt.value = saved.ranges['entropy'].max;
+                            minEnt.value = parseFloat(saved.ranges['entropy'].min).toFixed(2);
+                            maxEnt.value = parseFloat(saved.ranges['entropy'].max).toFixed(2);
                         }
                     }
                 }
@@ -281,7 +333,6 @@
                             <div class="flex items-center justify-between mb-6">
                                 <div class="flex items-center gap-2">
                                     <h3 class="text-2xl font-extrabold text-gray-900 tracking-tight">AI Insight</h3>
-                                    <span id="aiTargetInfo" class="text-sm text-gray-500 font-medium"></span>
                                 </div>
                                 <button onclick="window.AIAnalysis.openPromptLibraryModal('number_range', event)"
                                     class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors">
@@ -420,36 +471,35 @@
                     <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm" id="filter-page">
                         <div class="flex items-center justify-between mb-6">
                             <h3 class="text-xl font-bold text-gray-900 border-l-4 border-indigo-500 pl-3">조합 필터</h3>
-                            <button onclick="alert('필터 페이지로 이동')"
-                                class="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1 transition-colors">
-                                <span class="material-symbols-outlined text-sm">open_in_new</span>상세 필터 설정
-                            </button>
+                            <a href="filter.html?id=number_range_patterns"
+                                class="text-sm font-medium text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
+                                <span class="material-symbols-outlined text-[18px]">tune</span>
+                                필터 페이지 가기
+                            </a>
                         </div>
 
                         <div class="space-y-4" id="filterContainer">
                             <!-- JS 렌더링 (범위별 Min/Max) -->
                         </div>
 
-                        <div class="flex flex-col sm:flex-row items-center justify-between mt-8 gap-4 px-2">
-                            <div
-                                class="flex items-center gap-3 bg-slate-50 px-4 py-2 rounded-full border border-slate-100">
+                        <div class="flex items-center justify-between mt-6 pt-6 border-t border-gray-100">
+                            <!-- Toggle Base -->
+                            <div class="flex items-center gap-2.5">
+                                <span class="text-sm font-bold text-gray-700">필터 적용</span>
                                 <label class="relative inline-flex items-center cursor-pointer">
                                     <input type="checkbox" id="applyFilterCheck" onchange="applyFilter()"
                                         class="sr-only peer" checked>
                                     <div
-                                        class="w-10 h-5 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600">
+                                        class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600">
                                     </div>
                                 </label>
-                                <span class="text-xs font-bold text-slate-600 uppercase tracking-tighter">패턴 필터
-                                    활성화</span>
                             </div>
-                            <div class="flex flex-wrap items-center gap-3">
-                                <button onclick="applyRecent10Filters()" id="recent10FilterBtn"
-                                    class="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 transition-all text-sm font-black min-w-[240px] justify-center whitespace-nowrap">
-                                    <span class="material-symbols-outlined text-[18px]">auto_fix_high</span>
-                                    <span id="recent10BtnText">최근 10회차 필터 적용</span>
-                                </button>
-                            </div>
+
+                            <button onclick="applyRecent10Filters()" id="recent10FilterBtn"
+                                class="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 transition-all text-sm font-black min-w-[240px] justify-center whitespace-nowrap">
+                                <span class="material-symbols-outlined text-[18px]">auto_fix_high</span>
+                                <span id="recent10BtnText">최근 10회차 기준 설정</span>
+                            </button>
                         </div>
                     </div>
                     <!-- Table -->
@@ -579,10 +629,16 @@
                 }
 
                 initFilters();
-                await loadFilterSettings();
+                const settingsLoaded = await loadFilterSettings();
                 initStatCards();
 
-                updateRange(currentRange);
+                // [New] 저장된 설정 없으면 최근 10회차 필터를 기본으로 적용
+                if (!settingsLoaded || settingsLoaded === false) {
+                    console.log('초기 사용자: 최근 10회차 필터를 기본 적용합니다.');
+                    applyRecent10Filters();
+                } else {
+                    updateRange(currentRange);
+                }
 
             } catch (err) {
                 console.error('데이터 로드 실패:', err);
@@ -700,7 +756,7 @@
                 div.className = 'bg-slate-50 rounded-xl p-4 border border-slate-100 mb-2';
 
                 div.innerHTML = `
-                <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                     <div class="flex-1">
                         <div class="flex items-center gap-2 mb-3">
                             <span class="px-2 py-0.5 rounded bg-white border border-slate-200 text-xs font-black text-slate-700 w-20 text-center">${type}</span>
@@ -714,13 +770,13 @@
                         <div class="flex items-center gap-2">
                             <span class="text-xs font-black text-slate-500 uppercase tracking-wider">Min</span>
                             <input type="number" id="min_${type}" onchange="applyFilter()" min="0" max="6" value="${minVal}" 
-                                class="w-14 h-9 text-center border-none bg-slate-100 rounded-md text-sm font-black text-indigo-600 focus:ring-2 focus:ring-indigo-500">
+                                class="w-16 sm:w-20 h-9 text-center border-none bg-slate-100 rounded-md text-sm font-black text-indigo-600 focus:ring-2 focus:ring-indigo-500">
                         </div>
-                        <div class="w-px h-6 bg-slate-200"></div>
+                        <span class="text-sm font-black text-slate-400 px-2">~</span>
                         <div class="flex items-center gap-2">
                             <span class="text-xs font-black text-slate-500 uppercase tracking-wider">Max</span>
                             <input type="number" id="max_${type}" onchange="applyFilter()" min="0" max="6" value="${maxVal}" 
-                                class="w-14 h-9 text-center border-none bg-slate-100 rounded-md text-sm font-black text-indigo-600 focus:ring-2 focus:ring-indigo-500">
+                                class="w-16 sm:w-20 h-9 text-center border-none bg-slate-100 rounded-md text-sm font-black text-indigo-600 focus:ring-2 focus:ring-indigo-500">
                         </div>
                     </div>
                 </div>
@@ -749,14 +805,14 @@
                     <div class="flex items-center gap-4 bg-white p-3 rounded-lg border border-slate-200 shadow-sm flex-shrink-0">
                         <div class="flex items-center gap-2">
                             <span class="text-xs font-black text-slate-500 uppercase tracking-wider">Min</span>
-                            <input type="number" id="min_entropy" onchange="applyFilter()" step="0.01" min="0" max="3" value="${minEnt}" 
-                                class="w-20 h-9 text-center border-none bg-slate-100 rounded-md text-sm font-black text-indigo-600 focus:ring-2 focus:ring-indigo-500">
+                            <input type="text" id="min_entropy" onchange="this.value=parseFloat(this.value||0).toFixed(2); applyFilter()" value="${parseFloat(minEnt).toFixed(2)}" 
+                                class="w-16 sm:w-20 h-9 text-center border-none bg-slate-100 rounded-md text-sm font-black text-indigo-600 focus:ring-2 focus:ring-indigo-500">
                         </div>
-                        <div class="w-px h-6 bg-slate-200"></div>
+                        <span class="text-sm font-black text-slate-400 px-2">~</span>
                         <div class="flex items-center gap-2">
                             <span class="text-xs font-black text-slate-500 uppercase tracking-wider">Max</span>
-                            <input type="number" id="max_entropy" onchange="applyFilter()" step="0.01" min="0" max="3" value="${maxEnt}" 
-                                class="w-20 h-9 text-center border-none bg-slate-100 rounded-md text-sm font-black text-indigo-600 focus:ring-2 focus:ring-indigo-500">
+                            <input type="text" id="max_entropy" onchange="this.value=parseFloat(this.value||0).toFixed(2); applyFilter()" value="${parseFloat(maxEnt).toFixed(2)}" 
+                                class="w-16 sm:w-20 h-9 text-center border-none bg-slate-100 rounded-md text-sm font-black text-indigo-600 focus:ring-2 focus:ring-indigo-500">
                         </div>
                     </div>
                 </div>
@@ -886,7 +942,7 @@
             } else {
                 selectedHighlight = { col: col, val: val };
             }
-            const displayData = allDrawData.slice(0, currentRange).filter(d => checkDrawFilter(d));
+            const displayData = allDrawData.slice(0, currentRange);
             renderDrawsList(displayData);
         }
 
@@ -990,7 +1046,7 @@
                 <td class="py-3 px-4 text-center"><div class="flex items-center justify-center">${ballsHtml}</div></td>
                     ${countsHtml}
                     <td class="py-3 px-2 text-center">
-                        <span class="${entClass}" onclick="event.stopPropagation(); toggleCellHighlight('entropy', ${draw.entropy})">${draw.entropy}</span>
+                        <span class="${entClass}" onclick="event.stopPropagation(); toggleCellHighlight('entropy', ${draw.entropy})">${parseFloat(draw.entropy).toFixed(2)}</span>
                     </td>
                 `;
                 container.appendChild(tr);
@@ -1003,7 +1059,7 @@
             } else {
                 highlightStartRound = round;
             }
-            const displayData = allDrawData.slice(0, currentRange).filter(d => checkDrawFilter(d));
+            const displayData = allDrawData.slice(0, currentRange);
             renderDrawsList(displayData);
         }
 
@@ -1193,7 +1249,7 @@
         function applyFilter() {
             saveFilterSettings();
 
-            const displayData = allDrawData.slice(0, currentRange).filter(d => checkDrawFilter(d));
+            const displayData = allDrawData.slice(0, currentRange);
             renderDrawsList(displayData);
             updateStats(displayData);
             updateCharts(displayData);
@@ -1502,10 +1558,6 @@ ${Object.entries(rangeMetrics).map(([r, m]) => `- ${r}: ${m.trend} (최근5회 �
             const subjectRound = subjectData.round;
             const targetRound = subjectRound + 1;
 
-            // AI 섹션 헤더 업데이트
-            const targetEl = document.getElementById('aiTargetInfo');
-            if (targetEl) targetEl.textContent = `Target ${subjectRound + 1} 회차`;
-
             // 분석 대상
             const targetRange = selectedRangeType || '전체 번호대';
             const distributionStr = Object.entries(subjectData.counts).map(([k, v]) => `${k}:${v} 개`).join(', ');
@@ -1615,8 +1667,8 @@ ${Object.entries(rangeStats).map(([r, s]) => `  * ${r}: 평균 ${s.avg} / 편차
                 // [New] 엔트로피 초기화 (0.00 ~ 3.00)
                 const minEntInput = document.getElementById('min_entropy');
                 const maxEntInput = document.getElementById('max_entropy');
-                if (minEntInput) minEntInput.value = 0;
-                if (maxEntInput) maxEntInput.value = 3;
+                if (minEntInput) minEntInput.value = (0).toFixed(2);
+                if (maxEntInput) maxEntInput.value = (3).toFixed(2);
 
                 // 메인 필터 체크박스 해제
                 if (chk) chk.checked = false;
@@ -1650,8 +1702,8 @@ ${Object.entries(rangeStats).map(([r, s]) => `  * ${r}: 평균 ${s.avg} / 편차
 
             const minEntInput = document.getElementById('min_entropy');
             const maxEntInput = document.getElementById('max_entropy');
-            if (minEntInput) minEntInput.value = minEnt;
-            if (maxEntInput) maxEntInput.value = maxEnt;
+            if (minEntInput) minEntInput.value = parseFloat(minEnt).toFixed(2);
+            if (maxEntInput) maxEntInput.value = parseFloat(maxEnt).toFixed(2);
 
             // 3. UI 업데이트 (보라색 토글)
             btn.classList.remove('from-blue-500', 'to-indigo-600');

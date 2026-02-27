@@ -51,6 +51,11 @@ document.addEventListener("DOMContentLoaded", function () {
             sidebarUrl: 'components/sidebar.html',
             type: 'none'
         },
+        'filter.html': {
+            gnbIndex: 5,
+            sidebarUrl: null, // 사이드바 제거
+            type: 'full'      // 꽉 찬 화면 레이아웃
+        },
         // 그 외 나머지는 모두 '기초 분석'으로 간주 (기본값)
         'default': {
             gnbIndex: 2,
@@ -80,7 +85,19 @@ document.addEventListener("DOMContentLoaded", function () {
             container.innerHTML = data;
 
             // 헤더 컨테이너에 높이와 레이아웃 클래스 강제 주입
-            container.classList.add('h-16', 'shrink-0', 'z-50', 'relative');
+            container.classList.add('h-16', 'shrink-0', 'z-[100]', 'relative');
+
+            // [NEW] 전문가 메모 버튼 주입
+            const loginBtnWrapper = container.querySelector('#loginBtn');
+            if (loginBtnWrapper && !document.getElementById('expert-memo-trigger')) {
+                const btnHtml = `
+                    <button id="expert-memo-trigger" onclick="window.ExpertMemo.open()" class="flex items-center justify-center w-9 h-9 text-slate-400 hover:text-indigo-600 transition-colors group relative" title="전문가 분석 메모">
+                        <span class="material-symbols-outlined text-[24px]">sticky_note_2</span>
+                        <span class="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border border-white"></span>
+                    </button>
+                `;
+                loginBtnWrapper.insertAdjacentHTML('beforebegin', btnHtml);
+            }
 
             // GNB 메뉴 처리
             const nav = container.querySelector('nav');
@@ -692,7 +709,7 @@ Return ONLY the JSON. No markdown.
 
             if (ruleTextEl) ruleTextEl.textContent = ruleText;
 
-        } else if (data.type.startsWith('ai_')) {
+        } else if (data.type && data.type.startsWith('ai_')) {
             if (badge) {
                 badge.textContent = "AI 딥러닝 분석";
                 badge.className = "px-2 py-0.5 rounded text-xs font-bold bg-purple-100 text-purple-700";

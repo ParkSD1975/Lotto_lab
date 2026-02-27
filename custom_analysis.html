@@ -6,7 +6,7 @@
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>Lotto Lab - 커스텀 분석</title>
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-    
+
     <link rel="icon" href="data:,">
 
     <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css"
@@ -195,22 +195,26 @@
                     <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm border-l-4 border-l-blue-600">
                         <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
                             <div>
-                                <h3 class="text-lg font-bold text-gray-900 flex items-center gap-2">
-                                    <span class="material-symbols-outlined text-blue-600">filter_alt</span>
-                                    조합 필터
-                                </h3>
-                                <p class="text-xs text-gray-500 mt-1">이 분석의 번호가 포함될 개수를 설정하세요.</p>
+                                <h3 class="text-xl font-bold text-gray-900 mb-1">조합 필터</h3>
+                                <p class="text-sm text-gray-600 mt-1">이 분석의 번호가 포함될 개수를 설정하세요.</p>
                             </div>
 
-                            <a href="#" onclick="goToFilterPage()"
-                                class="flex items-center gap-1 text-xs font-medium text-gray-400 hover:text-blue-600 transition-colors">
-                                <span class="material-symbols-outlined text-sm">open_in_new</span>필터 바로가기
+                            <a href="javascript:void(0)" onclick="event.preventDefault(); goToFilterPage();"
+                                class="text-sm font-medium text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
+                                <span class="material-symbols-outlined text-[18px]">tune</span>
+                                필터 페이지 가기
                             </a>
                         </div>
 
                         <div class="space-y-4">
-                            <!-- [Removed] 사용자 요청으로 대상 번호 표시는 상단 대시보드로 통합 -->
-
+                            <!-- 대상 번호 표시 (Restored) -->
+                            <div
+                                class="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 border border-gray-100 rounded-xl mb-4 bg-slate-50">
+                                <div class="flex-1">
+                                    <div class="text-xs font-bold text-gray-500 mb-2">현재 선택된 필터 대상 번호</div>
+                                    <div class="flex flex-wrap gap-2" id="targetBallContainerFilter"></div>
+                                </div>
+                            </div>
                             <div
                                 class="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 border border-gray-100 rounded-xl">
                                 <div class="flex-1">

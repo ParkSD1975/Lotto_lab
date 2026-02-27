@@ -4,9 +4,9 @@
 <head>
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
-    <title>Lotto Lab - 홀짝 비율 (AI)</title>
+    <title>Lotto Lab - 홀짝 (AI)</title>
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-    
+
     <link rel="icon" href="data:,">
 
     <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css"
@@ -48,6 +48,9 @@
         // 최근 10회차 필터 플래그
         let isRecentTenFilter = false;
         let filtersEnabled = false;
+
+        let restoredAutoOddEvens = []; // 복원된 자동 제외 항목
+        let excludedOddEvens = [];     // 수동 제외 항목
 
         // 🔹 [Optimized] Debounce mechanism for heavy updates
         let rangeDebounceTimer = null;
@@ -258,6 +261,37 @@
             console.log('최근 10회차 홀짝 필터 적용 완료');
         }
 
+        // [표준화] 새 회차 감지 시 초기화 로직 (Saturdays/Mondays)
+        async function checkAndResetOnNewDraw() {
+            if (!allDrawData || allDrawData.length === 0) return;
+            const latestRound = allDrawData[0].round;
+            const lastProcessed = parseInt(localStorage.getItem('odd_even_last_processed_round') || '0');
+
+            if (latestRound > lastProcessed) {
+                console.log(`🆕 새 회차 감지 (${latestRound}회). 필터 자동 적용 및 수동 제외 초기화.`);
+
+                // 1. 수동 제외 리스트 초기화 (새 회차 분석을 위해)
+                excludedOddEvens = [];
+                restoredAutoOddEvens = [];
+
+                // 2. 최근 10회차 필터 자동 활성화
+                const btn = document.getElementById('recent10FilterBtn');
+                const chk = document.getElementById('applyFilterCheck');
+
+                // 이미 활성화된 상태가 아니라면 활성화 처리
+                if (btn && !btn.classList.contains('from-purple-500')) {
+                    applyRecent10Filters();
+                } else if (chk) {
+                    chk.checked = true;
+                    applyFilter();
+                }
+
+                // 3. 처리된 회차 기록
+                localStorage.setItem('odd_even_last_processed_round', latestRound.toString());
+                saveFilterSettings();
+            }
+        }
+
         async function initializeRecentTenFilter() {
             const loaded = await loadFilterSettings();
 
@@ -301,18 +335,28 @@
         // [수정] 필터 설정 저장 함수 (DB 저장)
         async function saveFilterSettings() {
             const toggle = document.getElementById('applyFilterCheck');
+            const btn = document.getElementById('recent10FilterBtn');
+            const recent10FilterActive = btn && btn.classList.contains('from-purple-500');
+
             const data = {
-                selectedRatios: Array.from(activeFilters)
+                selectedRatios: Array.from(activeFilters),
+                excludedOddEvens: excludedOddEvens || [],
+                restoredAutoOddEvens: restoredAutoOddEvens || [],
+                recent10FilterActive: recent10FilterActive
             };
             const enabled = toggle ? toggle.checked : true;
+            const settingsWithEnabled = { ...data, enabled };
 
             // DB 저장 (FilterService 사용)
             if (window.filterService && window.filterService.initialized) {
-                await window.filterService.saveSetting('odd_even_patterns', data, enabled);
+                await window.filterService.saveSetting('odd_even_pattern', data, enabled);
             } else if (window.Utils && window.Utils.saveFilter) {
                 // Fallback: localStorage
-                window.Utils.saveFilter('odd_even_filter', { ...data, enabled });
+                window.Utils.saveFilter('odd_even_pattern', settingsWithEnabled);
             }
+            // localStorage 동기화 (filter_dashboard.js 감지용)
+            localStorage.setItem('odd_even_pattern', JSON.stringify(settingsWithEnabled));
+            localStorage.setItem('odd_even_pattern_filter', JSON.stringify(settingsWithEnabled));
         }
 
         // [수정] 필터 설정 불러오기 함수 (DB 로드)
@@ -321,26 +365,128 @@
 
             // DB에서 로드 (FilterService 사용)
             if (window.filterService && window.filterService.initialized) {
-                const data = await window.filterService.loadSetting('odd_even_patterns');
+                const data = await window.filterService.loadSetting('odd_even_pattern');
                 if (data) {
                     saved = { ...data.settings, enabled: data.enabled };
                 }
             }
 
             // Fallback: localStorage
-            if (!saved && window.Utils && window.Utils.loadFilter) {
-                saved = window.Utils.loadFilter('odd_even_filter');
+            if (!saved) {
+                const raw = localStorage.getItem('odd_even_pattern') || localStorage.getItem('odd_even_pattern_filter') || localStorage.getItem('odd_even_filter');
+                if (raw) try { saved = JSON.parse(raw); } catch (e) { }
             }
 
             if (saved) {
-                activeFilters = new Set(saved.selectedRatios);
+                activeFilters = new Set(saved.selectedRatios || []);
+                excludedOddEvens = saved.excludedOddEvens || [];
+                restoredAutoOddEvens = saved.restoredAutoOddEvens || [];
+
                 const toggle = document.getElementById('applyFilterCheck');
-                if (toggle) toggle.checked = saved.enabled;
+                if (toggle) toggle.checked = saved.enabled !== undefined ? saved.enabled : true;
+
+                if (saved.recent10FilterActive) {
+                    const btn = document.getElementById('recent10FilterBtn');
+                    const btnText = document.getElementById('recent10BtnText');
+                    if (btn && btnText) {
+                        btn.classList.remove('from-blue-500', 'to-indigo-600');
+                        btn.classList.add('from-purple-500', 'to-purple-700');
+                        btnText.textContent = '필터 해제';
+                    }
+                    isRecentTenFilter = true;
+                }
 
                 updateUIState();
+                setTimeout(() => {
+                    renderExcludedOddEvenBadges();
+                }, 0);
                 return true;
             }
             return false;
+        }
+
+        // 수동 제외 토글 함수
+        function toggleOddEvenFilter(ratio, checked) {
+            if (!checked) {
+                if (!excludedOddEvens.includes(ratio)) excludedOddEvens.push(ratio);
+            } else {
+                excludedOddEvens = excludedOddEvens.filter(r => r !== ratio);
+            }
+            applyFilter();
+            openStatsModal(); // 테이블 갱신
+            renderExcludedOddEvenBadges();
+            saveFilterSettings();
+        }
+
+        // 자동 제외 취소 (복원)
+        function restoreAutoOddEven(ratio) {
+            if (!restoredAutoOddEvens.includes(ratio)) restoredAutoOddEvens.push(ratio);
+            applyFilter();
+            renderExcludedOddEvenBadges();
+            saveFilterSettings();
+        }
+
+        // 수동 제외 취소
+        function restoreManualOddEven(ratio) {
+            excludedOddEvens = excludedOddEvens.filter(r => r !== ratio);
+            applyFilter();
+            renderExcludedOddEvenBadges();
+            saveFilterSettings();
+        }
+
+        // 제외 배지 렌더링
+        function renderExcludedOddEvenBadges() {
+            const area = document.getElementById('excludedOddEvenBadgeArea');
+            const container = document.getElementById('excludedOddEvenBadges');
+            if (!area || !container) return;
+
+            const manualBadges = excludedOddEvens.slice().sort();
+
+            // 자동 제외 계산 (최근 10회 중 6회 초과)
+            let autoExcluded = [];
+            const isRecent10Active = document.getElementById('recent10FilterBtn')?.classList.contains('from-purple-500');
+
+            if (isRecent10Active && allDrawData && allDrawData.length >= 10) {
+                const recent10 = allDrawData.slice(0, 10);
+                const counts = {};
+                recent10.forEach(d => counts[d.ratio] = (counts[d.ratio] || 0) + 1);
+                autoExcluded = Object.entries(counts)
+                    .filter(([r, cnt]) => cnt > 6 && !restoredAutoOddEvens.includes(r))
+                    .map(([r]) => r)
+                    .sort();
+            }
+
+            const hasManual = manualBadges.length > 0;
+            const hasAuto = autoExcluded.length > 0;
+
+            if (!hasManual && !hasAuto) {
+                area.classList.add('hidden');
+                return;
+            }
+
+            area.classList.remove('hidden');
+            let html = '';
+
+            // 수동 제외 (Red)
+            if (hasManual) {
+                html += manualBadges.map(r => `
+                    <button onclick="restoreManualOddEven('${r}')" title="클릭 시 제외 취소"
+                        class="inline-flex items-center gap-1 px-3 py-1 bg-red-500 hover:bg-red-600 text-white rounded-full text-[12px] font-bold transition-colors shadow-sm active:scale-95">
+                        ${r} <span style="font-size:14px;line-height:1">&times;</span>
+                    </button>
+                `).join('');
+            }
+
+            // 자동 제외 (Indigo)
+            if (hasAuto) {
+                html += autoExcluded.map(r => `
+                    <button onclick="restoreAutoOddEven('${r}')" title="클릭 시 자동 제외 취소"
+                        class="inline-flex items-center gap-1 px-3 py-1 bg-indigo-500 hover:bg-indigo-600 text-white rounded-full text-[12px] font-bold transition-colors shadow-sm active:scale-95">
+                        ${r} <span style="font-size:14px;line-height:1">&times;</span>
+                    </button>
+                `).join('');
+            }
+            container.innerHTML = html;
         }
     </script>
     <style>
@@ -645,14 +791,14 @@
                                             🔍 특정 번호대 홀짝 분석
                                         </button>
                                         <button
-                                            onclick="document.getElementById('aiUserPrompt').value='최근 통계상 출현 확률이 가장 낮은 홀짝 패턴 식별'; submitCustomAIAnalysis()"
+                                            onclick="document.getElementById('aiUserPrompt').value='최근 통계상 출현 확률이 가장 낮은 홀짝 식별'; submitCustomAIAnalysis()"
                                             class="px-3 py-1.5 text-xs font-medium bg-slate-50 text-slate-600 rounded-full hover:bg-slate-100 transition-colors whitespace-nowrap">
                                             🧼 제외 전략
                                         </button>
                                         <button
                                             onclick="document.getElementById('aiUserPrompt').value='분석된 홀짝 비중을 반영한 최적의 조합 필터링 전략 제안'; submitCustomAIAnalysis()"
                                             class="px-3 py-1.5 text-xs font-medium bg-pink-50 text-pink-600 rounded-full hover:bg-pink-100 transition-colors whitespace-nowrap">
-                                            💡 홀짝 조합 최적화
+                                            💡 홀짝 최적화
                                         </button>
                                     </div>
                                     <div class="relative">
@@ -671,7 +817,7 @@
 
                         <div class="mb-6">
                             <div class="flex items-center justify-between mb-4">
-                                <h3 class="text-xl font-bold text-gray-900">홀짝 비율 분포 (비율 %)</h3>
+                                <h3 class="text-xl font-bold text-gray-900">홀짝 분포 (비율 %)</h3>
                             </div>
                             <div class="h-80"><canvas id="oddEvenChart"></canvas></div>
                         </div>
@@ -703,35 +849,48 @@
                         </div>
                     </div>
 
-                    <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm" id="filter-page">
+                    <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm" id="filter-patterns">
                         <div class="flex items-center justify-between mb-6">
                             <h3 class="text-xl font-bold text-gray-900">조합 필터</h3>
-                            <a href="#filter-page"
-                                class="flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-800 transition-colors"><span
-                                    class="material-symbols-outlined text-sm">open_in_new</span>필터 페이지 가기</a>
+                            <a href="filter.html#filter-odd_even_pattern"
+                                class="text-sm font-medium text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
+                                <span class="material-symbols-outlined text-[18px]">tune</span>
+                                필터 페이지 가기
+                            </a>
                         </div>
                         <div class="flex flex-col gap-6">
                             <div class="flex items-center justify-center gap-4 flex-wrap" id="ratioFilters"></div>
                         </div>
                         <div class="flex items-center justify-end gap-3 mt-6 pt-4 border-t border-gray-100">
                             <!-- [Magic Square Style] Recent 10 Filters Button & Toggle -->
-                            <div class="flex items-center gap-4 w-full justify-between">
-                                <div class="flex items-center gap-3">
-                                    <label class="relative inline-flex items-center cursor-pointer">
-                                        <input type="checkbox" id="applyFilterCheck"
-                                            onchange="applyFilterWithHighlight()" class="sr-only peer" checked>
-                                        <div
-                                            class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500">
-                                        </div>
-                                    </label>
-                                    <span class="text-sm font-medium text-gray-700">필터 적용</span>
+                            <div class="flex flex-col w-full gap-4">
+                                <div class="flex items-center gap-4 w-full justify-between">
+                                    <div class="flex items-center gap-3">
+                                        <label class="relative inline-flex items-center cursor-pointer">
+                                            <input type="checkbox" id="applyFilterCheck"
+                                                onchange="applyFilterWithHighlight()" class="sr-only peer" checked>
+                                            <div
+                                                class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500">
+                                            </div>
+                                        </label>
+                                        <span class="text-sm font-medium text-gray-700">필터 적용</span>
+                                    </div>
+
+                                    <button onclick="applyRecent10Filters()" id="recent10FilterBtn"
+                                        class="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 transition-all text-sm font-black min-w-[240px] justify-center whitespace-nowrap">
+                                        <span class="material-symbols-outlined text-[18px]">auto_fix_high</span>
+                                        <span id="recent10BtnText">최근 10회차 필터 적용</span>
+                                    </button>
                                 </div>
 
-                                <button onclick="applyRecent10Filters()" id="recent10FilterBtn"
-                                    class="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 transition-all text-sm font-black min-w-[240px] justify-center whitespace-nowrap">
-                                    <span class="material-symbols-outlined text-[18px]">auto_fix_high</span>
-                                    <span id="recent10BtnText">최근 10회차 필터 적용</span>
-                                </button>
+                                <!-- 제외 홀짝 비율 배지 영역 (선택 컨트롤 아래) -->
+                                <div id="excludedOddEvenBadgeArea" class="hidden pt-3 border-t border-gray-100">
+                                    <div class="text-xs font-bold text-gray-500 mb-2 flex items-center gap-1">
+                                        <span class="material-symbols-outlined text-[14px]">block</span>
+                                        제외된 홀짝 비율 (🔴수동 / 🔵자동, X=취소)
+                                    </div>
+                                    <div id="excludedOddEvenBadges" class="flex flex-wrap gap-1.5"></div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -940,6 +1099,9 @@
 
                 // 🔥 [NEW] 최근 10회차 필터 초기화
                 await initializeRecentTenFilter();
+
+                // 🔥 [NEW] 새 회차 감지 시 초기화 로직 실행
+                await checkAndResetOnNewDraw();
 
                 updateRange(currentRange);
                 setTimeout(() => { updateSliderBackground(currentRange); }, 100);
@@ -1465,13 +1627,19 @@
             RATIOS.forEach(ratio => {
                 const count = counts[ratio];
                 const percent = total > 0 ? ((count / total) * 100).toFixed(1) : 0;
-                const isSelected = activeFilters.has(ratio);
+
+                // 수동 제외 체크 여부: activeFilters가 아니라 excludedOddEvens 기준
+                const isExcluded = excludedOddEvens.includes(ratio);
                 const theo = THEORETICAL_STATS[ratio];
 
                 const tr = document.createElement('tr');
                 tr.className = 'hover:bg-gray-50 transition-colors';
                 tr.innerHTML = `
-                    <td class="py-3 px-4 text-center"><input type="checkbox" class="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500" ${isSelected ? 'checked' : ''} onchange="toggleFilter('${ratio}'); openStatsModal();" /></td>
+                    <td class="py-3 px-4 text-center">
+                        <input type="checkbox" class="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500" 
+                            ${!isExcluded ? 'checked' : ''} 
+                            onchange="toggleOddEvenFilter('${ratio}', this.checked)" />
+                    </td>
                     <td class="py-3 px-4 font-bold text-gray-700">${ratio}</td>
                     <td class="py-3 px-4 text-center text-gray-600">${theo.count.toLocaleString()}</td>
                     <td class="py-3 px-4 text-center text-gray-600">${theo.percent}%</td>

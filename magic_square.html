@@ -6,7 +6,7 @@
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>Lotto Lab - 9궁 분석 (Supabase AI)</title>
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-    
+
     <link rel="icon" href="data:,">
 
     <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css"
@@ -86,12 +86,15 @@
                 }
             });
 
-            const data = { filters: filters };
+            // [New] 현재 회차 함께 저장 (새 회차 갱신 시 자동 최근 10회차 필터 적용을 위함)
+            const targetRound = (allDrawData && allDrawData.length > 0) ? allDrawData[0].round : null;
+
+            const data = { filters: filters, targetRound: targetRound };
             const enabled = document.getElementById('applyFilterCheck').checked;
 
             // DB 저장 (FilterService 사용)
             if (window.filterService && window.filterService.initialized) {
-                await window.filterService.saveSetting('magic_square_patterns', data, enabled);
+                await window.filterService.saveSetting('magic_square_pattern', data, enabled);
             } else if (window.Utils && window.Utils.saveFilter) {
                 // Fallback: localStorage
                 window.Utils.saveFilter('gung_filter', { ...data, enabled });
@@ -104,7 +107,7 @@
 
             // DB에서 로드 (FilterService 사용)
             if (window.filterService && window.filterService.initialized) {
-                const data = await window.filterService.loadSetting('magic_square_patterns');
+                const data = await window.filterService.loadSetting('magic_square_pattern');
                 if (data) {
                     saved = { ...data.settings, enabled: data.enabled };
                 }
@@ -116,6 +119,13 @@
             }
 
             if (saved) {
+                // [New] 새 회차(토요일 업데이트) 인지 확인하여 다르면 기본값(최근 10회차) 적용 위해 false 반환
+                const currentRound = (allDrawData && allDrawData.length > 0) ? allDrawData[0].round : null;
+                if (saved.targetRound && currentRound && saved.targetRound !== currentRound) {
+                    console.log('🔄 새 회차 감지됨, 최근 10회차 기본값으로 초기화합니다.');
+                    return false;
+                }
+
                 if (saved.filters) {
                     Object.keys(saved.filters).forEach(type => {
                         const minInput = document.getElementById(`min_${type}`);
@@ -156,6 +166,20 @@
             color: white;
             border: 1px solid rgba(0, 0, 0, 0.1);
             box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+            font-family: 'Pretendard', sans-serif;
+            font-weight: 700;
+        }
+
+        /* [New] Standard White Ball */
+        .ball-normal {
+            background: #FFFFFF;
+            color: #1F2937;
+            border: 1px solid #D1D5DB;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
             font-family: 'Pretendard', sans-serif;
             font-weight: 700;
         }
@@ -469,12 +493,12 @@
 
                     <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden" id="filter-page">
                         <div class="p-6 border-b border-gray-100 flex items-center justify-between">
-                            <h3 class="text-xl font-bold text-gray-900 border-l-4 border-indigo-500 pl-3">조합 필터</h3>
-                            <button onclick="alert('필터 페이지로 이동')"
-                                class="text-sm text-gray-500 hover:text-gray-800 flex items-center gap-1 transition-colors">
-                                <span class="material-symbols-outlined text-base">open_in_new</span>
-                                필터 상세 설정
-                            </button>
+                            <h3 class="text-xl font-bold text-gray-900">조합 필터</h3>
+                            <a href="filter.html?tab=foundation&id=magic_square_pattern"
+                                class="text-sm font-medium text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
+                                <span class="material-symbols-outlined text-[18px]">tune</span>
+                                필터 페이지 가기
+                            </a>
                         </div>
 
                         <div class="p-6">
@@ -514,7 +538,7 @@
                             </div>
                         </div>
 
-                        <div class="overflow-x-auto custom-scrollbar bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden"
+                        <div class="overflow-x-auto overflow-y-auto custom-scrollbar bg-white rounded-xl border border-gray-200 shadow-sm"
                             style="max-height: 600px;">
                             <table class="w-full text-sm text-left">
                                 <thead id="drawsListHeader"
@@ -530,14 +554,6 @@
     </div>
 
     <script>
-        // 로또 번호 색상 반환 함수
-        function getBallColor(n) {
-            if (n <= 10) return 'ball-yellow';
-            if (n <= 20) return 'ball-blue';
-            if (n <= 30) return 'ball-red';
-            if (n <= 40) return 'ball-gray';
-            return 'ball-green';
-        }
 
         document.addEventListener('DOMContentLoaded', async function () {
             try {
@@ -656,23 +672,21 @@
                 // [수정됨] 숫자 스타일: text-sm, font-normal
                 div.innerHTML = `
                     <div class="flex items-center justify-start gap-4">
-                        <div class="flex items-center gap-3 overflow-hidden">
-                            <span class="font-bold text-gray-700 whitespace-nowrap text-sm w-8">${type}</span>
+                        <div class="flex flex-col flex-1 pl-1">
+                            <div class="flex items-center gap-2 mb-1.5">
+                                <span class="font-bold text-slate-700 text-[11px]">${type}</span>
+                            </div>
                             <div class="flex flex-nowrap gap-1"> 
                                 ${numbersHtml}
                             </div>
                         </div>
                         
-                        <div class="flex items-center gap-1 flex-shrink-0 ml-auto md:ml-0 bg-white border border-gray-200 rounded-lg p-0.5 shadow-sm">
-                            <div class="flex flex-col items-center">
-                                <span class="text-[9px] text-gray-400 font-bold uppercase mb-0.5">Min</span>
-                                <input type="number" id="min_${type}" onchange="applyFilter()" value="${defMin}" min="0" max="5" class="w-11 h-8 text-center px-0 text-sm font-bold border-0 bg-transparent text-gray-900 focus:ring-0">
-                            </div>
-                            <span class="text-gray-300 font-bold px-0.5">/</span>
-                            <div class="flex flex-col items-center">
-                                <span class="text-[9px] text-gray-400 font-bold uppercase mb-0.5">Max</span>
-                                <input type="number" id="max_${type}" onchange="applyFilter()" value="${defMax}" min="0" max="5" class="w-11 h-8 text-center px-0 text-sm font-bold border-0 bg-transparent text-gray-900 focus:ring-0">
-                            </div>
+                        <div class="flex items-center gap-1.5 shrink-0 ml-auto md:ml-0">
+                            <span class="text-[10px] text-slate-400 font-bold uppercase">Min</span>
+                            <input type="number" id="min_${type}" onchange="applyFilter()" value="${defMin}" min="0" max="5" class="w-10 h-8 text-center text-xs font-black text-slate-700 bg-white border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 p-0 shadow-sm">
+                            <span class="text-slate-300 font-bold text-xs">~</span>
+                            <span class="text-[10px] text-slate-400 font-bold uppercase">Max</span>
+                            <input type="number" id="max_${type}" onchange="applyFilter()" value="${defMax}" min="0" max="5" class="w-10 h-8 text-center text-xs font-black text-slate-700 bg-white border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 p-0 shadow-sm">
                         </div>
                     </div>
                 `;
@@ -821,23 +835,17 @@
                 // 당첨번호 공 생성
                 const ballsHtml = draw.numbers.map(num => {
                     const gungKey = Math.ceil(num / 5) + '궁';
-                    const ballClass = getBallColor(num); // Standard Colors
-
-                    let style = '';
-                    let extraClass = ballClass + ' text-white';
-
-                    if (selectedGraphType) {
-                        if (selectedGraphType === gungKey) {
-                            // 선택된 궁 강조 (화이트링 + 투명도 없음)
-                            style = `box-shadow: 0 0 0 2px white, 0 0 0 3px ${gungColors[gungKey]}; z-index: 10;`;
-                            extraClass += ' scale-110 relative';
-                        } else {
-                            // 선택되지 않은 궁은 투명도 조절
-                            extraClass += ' opacity-30';
-                        }
+                    let type = '';
+                    if (selectedGraphType && selectedGraphType === gungKey) {
+                        type = selectedGraphType;
                     }
 
-                    return `<span class="w-8 h-8 flex items-center justify-center rounded-full text-xs mx-0.5 font-bold shadow-sm transition-all ${extraClass}" style="${style}">${String(num).padStart(2, '0')}</span>`;
+                    if (type) {
+                        const color = gungColors[type];
+                        return `<span class="w-7 h-7 flex items-center justify-center rounded-full text-[11px] mx-0.5 font-bold shadow-sm" style="background-color: ${color}; color: white;">${String(num).padStart(2, '0')}</span>`;
+                    } else {
+                        return `<span class="ball-normal w-7 h-7 text-[11px] mx-0.5 font-bold shadow-sm">${String(num).padStart(2, '0')}</span>`;
+                    }
                 }).join('');
 
                 // 9궁 카운트 열 생성
@@ -1089,46 +1097,13 @@
 
         let highlightStartRound = null;
 
-        function saveFilterSettings() {
-            const settings = {};
-            Object.keys(gungDefinitions).forEach(type => {
-                const minInput = document.getElementById(`min_${type}`);
-                const maxInput = document.getElementById(`max_${type}`);
-                settings[type] = {
-                    min: minInput ? parseInt(minInput.value) || 0 : 0,
-                    max: maxInput ? parseInt(maxInput.value) || 5 : 5
-                };
-            });
 
-            const toggle = document.getElementById('applyFilterCheck');
-            const enabled = toggle ? toggle.checked : true;
-
-            if (window.filterService && window.filterService.initialized) {
-                window.filterService.saveSetting('magic_square', settings, enabled);
-            }
-        }
-
-        async function loadFilterSettings() {
-            if (window.filterService && window.filterService.initialized) {
-                const data = await window.filterService.loadSetting('magic_square');
-                if (data && data.settings) {
-                    Object.keys(gungDefinitions).forEach(type => {
-                        const minInput = document.getElementById(`min_${type}`);
-                        const maxInput = document.getElementById(`max_${type}`);
-                        if (minInput && data.settings[type]) minInput.value = data.settings[type].min;
-                        if (maxInput && data.settings[type]) maxInput.value = data.settings[type].max;
-                    });
-                    const toggle = document.getElementById('applyFilterCheck');
-                    if (toggle) toggle.checked = data.enabled !== undefined ? data.enabled : true;
-                    return true;
-                }
-            }
-            return false;
-        }
 
         function applyFilter() {
             saveFilterSettings();
+
             const displayData = allDrawData.slice(0, currentRange);
+
             renderDrawsList(displayData);
             updateCharts(displayData);
             updateStats(displayData);
@@ -1150,8 +1125,8 @@
                 Object.keys(gungDefinitions).forEach(type => {
                     const minInput = document.getElementById(`min_${type}`);
                     const maxInput = document.getElementById(`max_${type}`);
-                    if (minInput) minInput.value = '';
-                    if (maxInput) maxInput.value = '';
+                    if (minInput) minInput.value = 0;
+                    if (maxInput) maxInput.value = 5;
                 });
 
                 highlightStartRound = null;

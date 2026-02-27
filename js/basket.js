@@ -17,14 +17,46 @@
         } catch { return { fixed: [], exclude: [] }; }
     }
 
-    function save(data) {
+    async function save(data) {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
         // FilterService 연동: 초기화된 경우 DB에도 저장
         if (window.filterService?.initialized) {
-            window.filterService.saveSetting('basket_fixed',   { numbers: data.fixed },   data.fixed.length > 0);
-            window.filterService.saveSetting('basket_exclude', { numbers: data.exclude }, data.exclude.length > 0);
+            try {
+                await window.filterService.saveSetting('basket_fixed', { numbers: data.fixed }, data.fixed.length > 0);
+                await window.filterService.saveSetting('basket_exclude', { numbers: data.exclude }, data.exclude.length > 0);
+                console.log('💾 GNB Basket saved to Supabase');
+            } catch (e) {
+                console.error('❌ Basket Supabase Save Error:', e);
+            }
         }
         window.dispatchEvent(new CustomEvent('basketChanged', { detail: load() }));
+    }
+
+    async function syncFromDB() {
+        if (!window.filterService?.initialized) return;
+
+        try {
+            const fixedData = await window.filterService.loadSetting('basket_fixed');
+            const excludeData = await window.filterService.loadSetting('basket_exclude');
+
+            if (fixedData || excludeData) {
+                const current = load();
+                const newFixed = fixedData ? (fixedData.settings?.numbers || []) : current.fixed;
+                const newExclude = excludeData ? (excludeData.settings?.numbers || []) : current.exclude;
+
+                // 병합 (로컬 데이터와 DB 데이터 비교하여 합집합 또는 DB 우선 선택 - 여기선 DB 우선)
+                const merged = {
+                    fixed: [...new Set([...newFixed])].sort((a, b) => a - b),
+                    exclude: [...new Set([...newExclude])].sort((a, b) => a - b)
+                };
+
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+                renderPanel();
+                console.log('🔄 GNB Basket synced from Supabase');
+            }
+        } catch (e) {
+            console.error('❌ Basket Sync Error:', e);
+        }
     }
 
     // ── 공개 API ───────────────────────────────────────────
@@ -35,9 +67,9 @@
             num = parseInt(num);
             if (isNaN(num) || num < 1 || num > 45) return { ok: false, msg: '1~45 범위의 번호를 입력하세요.' };
             const d = load();
-            if (d.fixed.includes(num))    return { ok: false, msg: `${num}은 이미 고정수입니다.` };
-            if (d.exclude.includes(num))  return { ok: false, msg: `${num}은 제외수입니다. 먼저 제외수에서 삭제하세요.` };
-            if (d.fixed.length >= 6)      return { ok: false, msg: '고정수는 최대 6개까지 가능합니다.' };
+            if (d.fixed.includes(num)) return { ok: false, msg: `${num}은 이미 고정수입니다.` };
+            if (d.exclude.includes(num)) return { ok: false, msg: `${num}은 제외수입니다. 먼저 제외수에서 삭제하세요.` };
+            if (d.fixed.length >= 6) return { ok: false, msg: '고정수는 최대 6개까지 가능합니다.' };
             d.fixed = [...d.fixed, num].sort((a, b) => a - b);
             save(d);
             return { ok: true };
@@ -47,9 +79,9 @@
             num = parseInt(num);
             if (isNaN(num) || num < 1 || num > 45) return { ok: false, msg: '1~45 범위의 번호를 입력하세요.' };
             const d = load();
-            if (d.exclude.includes(num))  return { ok: false, msg: `${num}은 이미 제외수입니다.` };
-            if (d.fixed.includes(num))    return { ok: false, msg: `${num}은 고정수입니다. 먼저 고정수에서 삭제하세요.` };
-            if (d.exclude.length >= 39)   return { ok: false, msg: '제외수는 최대 39개까지 가능합니다.' };
+            if (d.exclude.includes(num)) return { ok: false, msg: `${num}은 이미 제외수입니다.` };
+            if (d.fixed.includes(num)) return { ok: false, msg: `${num}은 고정수입니다. 먼저 고정수에서 삭제하세요.` };
+            if (d.exclude.length >= 39) return { ok: false, msg: '제외수는 최대 39개까지 가능합니다.' };
             d.exclude = [...d.exclude, num].sort((a, b) => a - b);
             save(d);
             return { ok: true };
@@ -81,6 +113,10 @@
             const d = load();
             d.exclude = [];
             save(d);
+        },
+
+        async sync() {
+            await syncFromDB();
         }
     };
 
@@ -98,29 +134,29 @@
         const d = load();
 
         // 뱃지 업데이트 — 같은 위치이므로 우선순위: 고정수 > 제외수 > 숨김
-        const fixedBadge   = document.getElementById('basket-fixed-badge');
+        const fixedBadge = document.getElementById('basket-fixed-badge');
         const excludeBadge = document.getElementById('basket-exclude-badge');
         const total = d.fixed.length + d.exclude.length;
 
         if (fixedBadge && excludeBadge) {
             if (d.fixed.length > 0) {
                 // 고정수 있으면 고정수 뱃지에 합계 표시
-                fixedBadge.textContent  = total;
-                fixedBadge.style.display  = 'flex';
+                fixedBadge.textContent = total;
+                fixedBadge.style.display = 'flex';
                 excludeBadge.style.display = 'none';
             } else if (d.exclude.length > 0) {
                 // 제외수만 있으면 제외수 뱃지
-                excludeBadge.textContent  = d.exclude.length;
+                excludeBadge.textContent = d.exclude.length;
                 excludeBadge.style.display = 'flex';
-                fixedBadge.style.display   = 'none';
+                fixedBadge.style.display = 'none';
             } else {
-                fixedBadge.style.display   = 'none';
+                fixedBadge.style.display = 'none';
                 excludeBadge.style.display = 'none';
             }
         }
 
         // 패널 내용
-        const fixedList   = document.getElementById('basket-fixed-list');
+        const fixedList = document.getElementById('basket-fixed-list');
         const excludeList = document.getElementById('basket-exclude-list');
 
         if (fixedList) {
@@ -210,7 +246,7 @@
     }
 
     function closePanelOutside(e) {
-        const panel   = document.getElementById('basket-panel');
+        const panel = document.getElementById('basket-panel');
         const trigger = document.getElementById('basket-trigger');
         if (!panel || !trigger) return;
         if (!panel.contains(e.target) && !trigger.contains(e.target)) {
@@ -235,7 +271,27 @@
     window.addEventListener('basketChanged', renderPanel);
 
     // ── DOM 준비 후 초기 렌더링 ────────────────────────────
-    document.addEventListener('DOMContentLoaded', renderPanel);
+    document.addEventListener('DOMContentLoaded', async () => {
+        renderPanel();
+
+        // FilterService가 나중에 초기화될 수 있으므로 대기 후 동기화 시도
+        setTimeout(async () => {
+            if (window.filterService?.initialized) {
+                await syncFromDB();
+            } else {
+                // filterService가 아직 안 켜졌다면 초기화 완료 이벤트를 기다리거나 반복 확인
+                let retry = 0;
+                const timer = setInterval(async () => {
+                    if (window.filterService?.initialized) {
+                        clearInterval(timer);
+                        await syncFromDB();
+                    }
+                    if (++retry > 20) clearInterval(timer);
+                }, 500);
+            }
+        }, 1000);
+    });
+
     // layout.js가 헤더를 동적 로드하므로 약간 지연 후 재시도
     setTimeout(renderPanel, 600);
 })();

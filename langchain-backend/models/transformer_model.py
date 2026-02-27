@@ -415,3 +415,25 @@ class TransformerTrainer:
                 torch.load(path, map_location=self.device, weights_only=True)
             )
             self.model.eval()
+
+    def get_xai_reasoning(self, draws: list) -> str:
+        """가장 집중(Attention)한 과거 회차를 찾아 분석 근거 텍스트를 생성합니다."""
+        attn_weights = self.get_attention_weights(draws)
+        if not attn_weights:
+            return ""
+
+        # 어텐션 점수 내림차순 정렬
+        sorted_attn = sorted(attn_weights.items(), key=lambda x: x[1], reverse=True)
+        
+        # 현재 분석 기준이 되는 최신 회차 번호
+        current_round = draws[0].get("round", 0) if draws else 0
+        
+        # 자기 자신(최신 회차)을 제외하고, 가장 강하게 참조한 과거 회차 찾기
+        for rnd, weight in sorted_attn:
+            if rnd != current_round:
+                weeks_ago = current_round - rnd
+                # 어텐션이 5% 이상 집중되었을 때만 유의미한 근거로 출력
+                if weight > 0.05:
+                    return f"거시적 시계열 맥락 상 {weeks_ago}주 전({rnd}회차)의 패턴 전개와 매우 유사한 흐름(집중도 {weight*100:.1f}%)을 감지했습니다."
+                break
+        return ""

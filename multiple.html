@@ -6,7 +6,7 @@
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>Lotto Lab - 배수 (Supabase AI)</title>
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-    
+
     <link rel="icon" href="data:,">
 
     <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css"
@@ -88,7 +88,7 @@
 
             // DB 저장 (FilterService 사용)
             if (window.filterService && window.filterService.initialized) {
-                await window.filterService.saveSetting('multiple_patterns', data, enabled);
+                await window.filterService.saveSetting('multiple_3_count', data, enabled);
             } else if (window.Utils && window.Utils.saveFilter) {
                 // Fallback: localStorage
                 window.Utils.saveFilter('multiple_filter', { ...data, enabled });
@@ -101,7 +101,7 @@
 
             // DB에서 로드 (FilterService 사용)
             if (window.filterService && window.filterService.initialized) {
-                const data = await window.filterService.loadSetting('multiple_patterns');
+                const data = await window.filterService.loadSetting('multiple_3_count');
                 if (data) {
                     saved = { ...data.settings, enabled: data.enabled };
                 }
@@ -156,14 +156,14 @@
 
         /* 필터 내 작은 공 스타일 */
         .lotto-ball-mini {
-            width: 32px;
-            height: 32px;
+            width: 28px;
+            height: 28px;
             border-radius: 50%;
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            font-weight: 700;
-            font-size: 12px;
+            font-weight: 900;
+            font-size: 11px;
             color: white;
             border: 1px solid rgba(0, 0, 0, 0.1);
         }
@@ -491,10 +491,11 @@
                     <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm" id="filter-page">
                         <div class="flex items-center justify-between mb-6">
                             <h3 class="text-xl font-bold text-gray-900">조합 필터</h3>
-                            <button onclick="alert('필터 페이지로 이동')"
-                                class="text-sm text-gray-500 hover:text-gray-800 flex items-center gap-1">
-                                <span class="material-symbols-outlined text-base">open_in_new</span>필터 페이지 가기
-                            </button>
+                            <a href="filter.html"
+                                class="text-sm font-medium text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
+                                <span class="material-symbols-outlined text-[18px]">tune</span>
+                                필터 페이지 가기
+                            </a>
                         </div>
                         <div class="space-y-6" id="filterContainer">
                         </div>
@@ -606,7 +607,18 @@
                 await loadFilterSettings(); // [수정됨] 저장된 필터 불러오기 (비동기)
                 initStatCards();
 
+                // [추가] 필터 적용 기본 활성화 (updateRange 이전에 수행하여 첫 로드 시 반영)
+                const applyCheck = document.getElementById('applyFilterCheck');
+                if (applyCheck) applyCheck.checked = true;
+
                 updateRange(currentRange);
+
+                // [추가] 토요일인 경우 최근 10회차 필터 자동 적용
+                const today = new Date();
+                if (today.getDay() === 6) { // 6은 토요일
+                    console.log('📅 오늘은 토요일입니다. 자동 필터를 적용합니다.');
+                    applyRecent10Filters();
+                }
 
             } catch (err) {
                 console.error('데이터 로드 실패:', err);
@@ -644,7 +656,7 @@
                 filterState[type] = { min: minVal, max: maxVal };
 
                 const numbersHtml = multipleDefinitions[type].map(n =>
-                    `<span class="lotto-ball-mini" style="background-color: ${multipleColors[type]};">${n}</span>`
+                    `<span class="lotto-ball-mini" style="background-color: ${multipleColors[type]};">${String(n).padStart(2, '0')}</span>`
                 ).join('');
 
                 const gapClass = type === '배수외' ? 'gap-1.5' : 'gap-2';
@@ -889,10 +901,22 @@
 
         // 🔹 하이라이트 토글 (행 클릭)
         function highlightRows(round) {
-            if (highlightStartRound === round) {
+            // 이미 선택된 회차를 다시 클릭하면 해제
+            if (Number(highlightStartRound) === Number(round)) {
                 highlightStartRound = null;
+                isRecentTenFilter = false; // 수동 하이라이트 해제 시 최근 10회 모드도 해제 (UI 동기화)
+
+                // 최근 10회차 버튼 UI 복구
+                const btn = document.getElementById('recent10FilterBtn');
+                const btnText = document.getElementById('recent10BtnText');
+                if (btn && btn.classList.contains('from-purple-500')) {
+                    btn.classList.remove('from-purple-500', 'to-purple-700');
+                    btn.classList.add('from-blue-500', 'to-indigo-600');
+                    btnText.textContent = '최근 10회차 필터 적용';
+                }
             } else {
                 highlightStartRound = round;
+                isRecentTenFilter = false;
             }
             applyFilter();
         }

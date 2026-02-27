@@ -411,3 +411,29 @@ class LSTMTrainer:
                 torch.load(path, map_location=self.device, weights_only=True)
             )
             self.model.eval()
+
+    def get_xai_reasoning(self, draws: list) -> str:
+        """LSTM Attention 가중치를 분석하여 근거 텍스트를 생성합니다."""
+        try:
+            # 여기서는 어텐션 딕셔너리 {회차: 가중치} 를 반환하는 함수가 있다고 가정합니다.
+            if not hasattr(self, 'get_attention_weights'):
+                return ""
+                
+            attn_weights = self.get_attention_weights(draws)
+            if not attn_weights:
+                return ""
+
+            sorted_attn = sorted(attn_weights.items(), key=lambda x: x[1], reverse=True)
+            current_round = draws[0].get("round", 0) if draws else 0
+            
+            for rnd, weight in sorted_attn:
+                if rnd != current_round:
+                    weeks_ago = current_round - rnd
+                    # LSTM은 시퀀스가 짧으므로 기준치를 약간 높게(10%) 잡습니다.
+                    if weight > 0.10: 
+                        return f"최근 {weeks_ago}주 전({rnd}회차)에 발생했던 단기 시계열 패턴(집중도 {weight*100:.1f}%)에 강하게 반응했습니다."
+                    break
+        except Exception:
+            pass
+            
+        return ""

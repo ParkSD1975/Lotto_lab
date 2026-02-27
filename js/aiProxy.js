@@ -12,8 +12,7 @@
     // 설정 가져오기 (config.js가 로드되지 않았을 경우를 대비한 기본값)
     // [Mod] 기본값을 배열로 관리하여 순차 시도 (localhost -> 127.0.0.1)
     const BASE_URLS = [
-        (window.LANGCHAIN_CONFIG && window.LANGCHAIN_CONFIG.URL) || 'http://localhost:8000',
-        'http://127.0.0.1:8000'
+        (window.LANGCHAIN_CONFIG && window.LANGCHAIN_CONFIG.URL) || 'https://lotto-api-server.onrender.com'
     ];
     let CURRENT_BASE_URL = BASE_URLS[0];
     const TIMEOUT = (window.LANGCHAIN_CONFIG && window.LANGCHAIN_CONFIG.TIMEOUT) || 30000;
@@ -109,13 +108,11 @@
             const now = Date.now();
             if (!force && this._isServerDown && (now - this._lastCheckTime < 30000)) return false;
 
-            // [New] URL 후보군 순차 테스트 (localhost vs 127.0.0.1)
             for (const url of BASE_URLS) {
                 try {
                     const controller = new AbortController();
                     const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-                    // console.log(`🔍 Testing Connection: ${url}/health`);
                     const res = await fetch(`${url}/health`, { method: 'GET', signal: controller.signal });
                     clearTimeout(timeoutId);
 
@@ -127,11 +124,10 @@
                         return true;
                     }
                 } catch (e) {
-                    // console.warn(`⚠️ Connection Failed: ${url}`, e.message);
+                    console.warn(`⚠️ Connection Failed: ${url}`);
                 }
             }
 
-            // 모든 후보 실패 시
             console.warn("❌ All Python Server Connection Attempts Failed.");
             this._isServerDown = true;
             this._lastCheckTime = now;

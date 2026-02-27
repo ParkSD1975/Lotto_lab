@@ -1,5 +1,5 @@
 <header
-    class="fixed top-0 inset-x-0 z-50 h-16 bg-white/98 backdrop-blur-xl border-b border-slate-100 shadow-[0_1px_0_rgba(0,0,0,0.04)] flex items-center justify-between px-6 lg:px-10">
+    class="fixed top-0 inset-x-0 z-[100] h-16 bg-white border-b border-slate-100 shadow-[0_1px_0_rgba(0,0,0,0.04)] flex items-center justify-between px-6 lg:px-10">
 
     <a href="index.html" class="flex items-center gap-3 group flex-shrink-0">
         <div
@@ -7,30 +7,30 @@
             <span class="material-symbols-outlined text-white text-[18px] filled">account_balance_wallet</span>
         </div>
         <div class="flex flex-col leading-none">
-            <span class="text-[17px] font-black tracking-tight text-slate-900">Lotto <span class="text-[#4c1d95]">Lab</span></span>
+            <span class="text-[17px] font-black tracking-tight text-slate-900">Lotto <span
+                    class="text-[#4c1d95]">Lab</span></span>
             <span class="text-[9px] font-semibold text-slate-400 tracking-[0.15em] uppercase mt-0.5">AI Analysis</span>
         </div>
     </a>
 
     <nav class="flex items-center gap-0.5 overflow-x-auto no-scrollbar">
-        <a href="#"          class="gnb-link">대시보드</a>
+        <a href="#" class="gnb-link">대시보드</a>
         <a href="winning-numbers.html" class="gnb-link">당첨번호</a>
         <a href="properties_matrix.html" class="gnb-link">기초분석</a>
-        <a href="custom_analysis.html"   class="gnb-link">커스텀분석</a>
-        <a href="ai_deep_learning.html"  class="gnb-link">딥러닝 분석</a>
-        <a href="#"          class="gnb-link">필터</a>
-        <a href="#"          class="gnb-link">조합</a>
-        <a href="#"          class="gnb-link">AI 조합</a>
-        <a href="#"          class="gnb-link">출력</a>
-        <a href="#"          class="gnb-link">검증</a>
+        <a href="custom_analysis.html" class="gnb-link">커스텀분석</a>
+        <a href="ai_deep_learning.html" class="gnb-link">딥러닝 분석</a>
+        <a href="filter.html" class="gnb-link">필터</a>
+        <a href="#" class="gnb-link">조합</a>
+        <a href="#" class="gnb-link">AI 조합</a>
+        <a href="#" class="gnb-link">출력</a>
+        <a href="#" class="gnb-link">검증</a>
     </nav>
 
     <div class="flex items-center gap-2 flex-shrink-0">
 
         <!-- ── 바스켓 트리거 ── -->
         <div class="relative">
-            <button id="basket-trigger" onclick="BasketUI.toggle()"
-                title="번호 바스켓"
+            <button id="basket-trigger" onclick="BasketUI.toggle()" title="번호 바스켓"
                 class="relative flex items-center justify-center w-9 h-9 rounded-full text-slate-400 hover:text-[#4c1d95] transition-colors">
                 <span class="material-symbols-outlined text-[22px]">shopping_basket</span>
                 <!-- 고정수 뱃지 -->
@@ -49,7 +49,8 @@
                 <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100">
                     <span class="text-[13px] font-bold text-slate-700">번호 바스켓</span>
                     <button onclick="Basket.clear(); BasketUI.refresh();"
-                        class="text-[11px] text-slate-400 hover:text-rose-500 transition-colors font-medium">전체 초기화</button>
+                        class="text-[11px] text-slate-400 hover:text-rose-500 transition-colors font-medium">전체
+                        초기화</button>
                 </div>
 
                 <!-- 고정수 섹션 -->
@@ -101,15 +102,13 @@
         </div>
 
         <!-- ── 새 분석 버튼 ── -->
-        <button onclick="GlobalModal.openNewAnalysis()"
-            title="새 분석"
+        <button onclick="GlobalModal.openNewAnalysis()" title="새 분석"
             class="flex items-center justify-center w-9 h-9 bg-[#4c1d95] hover:bg-[#3b0764] text-white rounded-full transition-all shadow-md shadow-indigo-900/15">
             <span class="material-symbols-outlined text-[20px]">add</span>
         </button>
 
         <div id="loginBtn" class="flex items-center justify-center">
-            <button onclick="signInWithGoogle()"
-                title="구글로 로그인"
+            <button onclick="signInWithGoogle()" title="구글로 로그인"
                 class="flex items-center justify-center w-9 h-9 rounded-full text-slate-400 hover:text-[#4c1d95] transition-colors">
                 <span class="material-symbols-outlined text-[24px]">account_circle</span>
             </button>
@@ -121,9 +120,11 @@
             scrollbar-width: none;
             -ms-overflow-style: none;
         }
+
         nav.flex::-webkit-scrollbar {
             display: none;
         }
+
         .gnb-link {
             position: relative;
             padding: 6px 14px;
@@ -135,6 +136,7 @@
             transition: color 0.2s;
             letter-spacing: -0.01em;
         }
+
         .gnb-link::after {
             content: '';
             position: absolute;
@@ -147,16 +149,20 @@
             transform: scaleX(0);
             transition: transform 0.2s ease;
         }
+
         .gnb-link:hover {
             color: #4c1d95;
         }
+
         .gnb-link:hover::after {
             transform: scaleX(1);
         }
+
         .gnb-link.active {
             color: #4c1d95;
             font-weight: 600;
         }
+
         .gnb-link.active::after {
             transform: scaleX(1);
         }

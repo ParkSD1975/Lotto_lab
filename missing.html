@@ -6,7 +6,7 @@
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>Lotto Lab - 미출현 그룹 (Supabase AI)</title>
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-    
+
     <link rel="icon" href="data:,">
 
     <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css"
@@ -31,11 +31,14 @@
     <script src="js/BasicAnalysisNLP.js"></script>
 
     <script>
-        // [수정] 필터 설정 저장 함수 (DB 저장)
+        // [수정] 필터 설정 저장 함수 (DB 저장 + targetRound)
         async function saveFilterSettings() {
+            const targetRound = (allData && allData.length > 0) ? allData[0].round : null;
+
             const data = {
                 useRangeFilter: document.getElementById('rangeFilterToggle').checked,
                 useCustomFilter: document.getElementById('customFilterToggle').checked,
+                targetRound: targetRound,
                 ranges: {
                     r1Min: document.getElementById('range1Min').value,
                     r1Max: document.getElementById('range1Max').value,
@@ -47,38 +50,37 @@
                     r4Max: document.getElementById('range4Max').value
                 }
             };
-            const enabled = data.useRangeFilter; // 필터 적용 여부 (메인 토글 기준)
+            const enabled = data.useRangeFilter;
 
-            // DB 저장 (FilterService 사용)
             if (window.filterService && window.filterService.initialized) {
                 await window.filterService.saveSetting('missing_period', data, enabled);
             } else if (window.Utils && window.Utils.saveFilter) {
-                // Fallback: localStorage
                 window.Utils.saveFilter('missing_filter', data);
             }
         }
 
-        // [수정] 필터 설정 불러오기 함수 (DB 로드)
+        // [수정] 필터 설정 불러오기 함수 - 새 회차 시 자동 최근 10회차 기본값 적용
         async function loadFilterSettings() {
             let saved = null;
+            const currentRound = (allData && allData.length > 0) ? allData[0].round : null;
 
-            // DB에서 로드 (FilterService 사용)
             if (window.filterService && window.filterService.initialized) {
                 const data = await window.filterService.loadSetting('missing_period');
-                if (data) {
+                if (data && data.settings) {
+                    // [New] 새 회차 감지: savedRound ≠ currentRound 시 자동 초기화
+                    if (data.settings.targetRound && currentRound && data.settings.targetRound !== currentRound) {
+                        console.log('🔄 새 회차 감지 - 최근 10회차 필터 자동 초기화');
+                        return false;
+                    }
                     saved = data.settings;
-                    // enabled 값은 settings 내부의 useRangeFilter 등과 동기화됨을 가정하거나, 
-                    // 별도 로직이 필요하다면 여기서 처리. missing.html은 구조가 조금 다름.
                 }
             }
 
-            // Fallback: localStorage
             if (!saved && window.Utils && window.Utils.loadFilter) {
                 saved = window.Utils.loadFilter('missing_filter');
             }
 
             if (saved) {
-                // 토글 상태 복구
                 const rangeToggle = document.getElementById('rangeFilterToggle');
                 if (rangeToggle) {
                     rangeToggle.checked = saved.useRangeFilter;
@@ -91,7 +93,6 @@
                     if (typeof useCustomFilter !== 'undefined') useCustomFilter = saved.useCustomFilter;
                 }
 
-                // 범위 값 복구
                 if (saved.ranges) {
                     if (document.getElementById('range1Min')) document.getElementById('range1Min').value = saved.ranges.r1Min;
                     if (document.getElementById('range1Max')) document.getElementById('range1Max').value = saved.ranges.r1Max;
@@ -659,12 +660,11 @@
                     <div class="bg-white rounded-xl p-6 border border-gray-200">
                         <div class="flex items-center justify-between mb-4">
                             <h3 class="text-lg font-bold text-gray-900">미출현 그룹 현황 및 조합 필터</h3>
-                            <!-- [Layout] Filter Shortcut: Top Right -->
-                            <button onclick="alert('필터 페이지로 이동')"
-                                class="flex items-center gap-1.5 px-3 py-1.5 text-gray-600 text-sm font-medium hover:text-gray-900 transition-colors">
-                                <span class="material-symbols-outlined text-lg">open_in_new</span>
-                                필터 바로가기
-                            </button>
+                            <a href="filter.html?tab=foundation&id=missing_period"
+                                class="text-sm font-medium text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
+                                <span class="material-symbols-outlined text-[18px]">tune</span>
+                                필터 페이지 가기
+                            </a>
                         </div>
 
                         <div class="grid grid-cols-4 gap-4 mb-6">
@@ -854,7 +854,7 @@
                             <span class="text-sm font-bold text-blue-600 whitespace-nowrap" id="rangeLabel">100회</span>
                         </div>
 
-                        <div class="overflow-x-auto custom-scrollbar bg-white rounded-b-xl border border-gray-200 shadow-sm overflow-hidden"
+                        <div class="overflow-x-auto overflow-y-auto custom-scrollbar bg-white rounded-b-xl border border-gray-200 shadow-sm"
                             style="max-height: 600px;">
                             <table class="w-full text-center">
                                 <thead class="sticky top-0 z-30">
@@ -925,9 +925,10 @@
             try {
                 if (!window.supabaseClient) {
                     if (typeof supabase !== 'undefined') {
-                        const URL = 'https://dkcflmyoscudawleglzb.supabase.co';
-                        const KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRrY2ZsbXlvc2N1ZGF3bGVnbHpiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc1NDQ4OTAsImV4cCI6MjA4MzEyMDg5MH0.haAvbpScvMJv1uqH_tk-0fUlJNCpHnlWBtYzX6YFweo';
-                        window.supabaseClient = supabase.createClient(URL, KEY);
+                        if (!window.supabaseClient) {
+                            console.error('Supabase client not initialized by common_v2.js');
+                            return;
+                        }
                     } else {
                         throw new Error('Supabase SDK 스크립트가 로드되지 않았습니다.');
                     }
@@ -1441,15 +1442,52 @@
             renderFiltersList();
         }
 
-        function saveFilters() {
+        async function saveFilters() {
             customFilters.forEach(filter => {
                 filter.numbers = [...new Set(filter.numbers)].sort((a, b) => a - b);
             });
+            const currentRound = (allData && allData.length > 0) ? allData[0].round : null;
+            const payload = { filters: customFilters, counter: filterIdCounter, targetRound: currentRound };
+
+            // Supabase 저장 (FilterService 사용)
+            if (window.filterService && window.filterService.initialized) {
+                await window.filterService.saveSetting('missing_custom_filter', payload, useCustomFilter);
+                console.log('✅ 커스텀 필터 Supabase 저장 완료');
+            }
+            // Fallback: localStorage 병행 저장
             localStorage.setItem('missGroupFilters', JSON.stringify(customFilters));
             localStorage.setItem('missGroupFilterCounter', filterIdCounter.toString());
         }
 
-        function loadSavedFilters() {
+        async function loadSavedFilters() {
+            const currentRound = (allData && allData.length > 0) ? allData[0].round : null;
+
+            // Supabase에서 로드 시도
+            if (window.filterService && window.filterService.initialized) {
+                const data = await window.filterService.loadSetting('missing_custom_filter');
+                if (data && data.settings) {
+                    const s = data.settings;
+                    // 새 회차이면 커스텀 필터 초기화
+                    if (s.targetRound && currentRound && s.targetRound !== currentRound) {
+                        console.log('🔄 새 회차 - 커스텀 필터 초기화');
+                        customFilters = [];
+                        filterIdCounter = 1;
+                        renderFiltersList();
+                        return;
+                    }
+                    if (Array.isArray(s.filters)) {
+                        customFilters = s.filters.map(f => ({
+                            ...f,
+                            numbers: [...new Set(f.numbers || [])].sort((a, b) => a - b)
+                        }));
+                        filterIdCounter = s.counter || (customFilters.length + 1);
+                        renderFiltersList();
+                        return;
+                    }
+                }
+            }
+
+            // Fallback: localStorage
             const saved = localStorage.getItem('missGroupFilters');
             const savedCounter = localStorage.getItem('missGroupFilterCounter');
             if (saved) {
@@ -1461,6 +1499,7 @@
             if (savedCounter) filterIdCounter = parseInt(savedCounter);
             renderFiltersList();
         }
+
 
         function addToActiveFilter(number) {
             const num = parseInt(number, 10);
@@ -1711,37 +1750,8 @@
         }
 
         function renderDrawsList() {
-            let filteredData = [...allData];
-
-            if (useRangeFilter) {
-                const r1Min = parseInt(document.getElementById('range1Min').value);
-                const r1Max = parseInt(document.getElementById('range1Max').value);
-                const r2Min = parseInt(document.getElementById('range2Min').value);
-                const r2Max = parseInt(document.getElementById('range2Max').value);
-                const r3Min = parseInt(document.getElementById('range3Min').value);
-                const r3Max = parseInt(document.getElementById('range3Max').value);
-                const r4Min = parseInt(document.getElementById('range4Min').value);
-                const r4Max = parseInt(document.getElementById('range4Max').value);
-
-                filteredData = filteredData.filter(draw => {
-                    const miss = missHistory[draw.round];
-                    if (!miss) return false;
-
-                    const hitCounts = [0, 0, 0, 0, 0];
-                    draw.numbers.forEach(num => {
-                        const range = getMissRange(miss[num]);
-                        hitCounts[range]++;
-                    });
-
-                    return hitCounts[1] >= r1Min && hitCounts[1] <= r1Max &&
-                        hitCounts[2] >= r2Min && hitCounts[2] <= r2Max &&
-                        hitCounts[3] >= r3Min && hitCounts[3] <= r3Max &&
-                        hitCounts[4] >= r4Min && hitCounts[4] <= r4Max;
-                });
-            }
-
             let html = '';
-            const displayData = filteredData.slice(0, displayLimit);
+            const displayData = allData.slice(0, displayLimit);
 
             if (displayData.length === 0) {
                 html = `

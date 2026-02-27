@@ -800,15 +800,10 @@ Format: JSON
                 });
 
                 if (response.error) throw response.error;
+                return response.data;
 
-                let result = response.data;
-                if (typeof result === 'string') {
-                    try { result = JSON.parse(result); } catch (e) { }
-                }
-
-                return result.response || result.recommendation || JSON.stringify(result);
             } catch (err) {
-                console.error("analyzePattern Error:", err);
+                console.error("Pattern Analysis Error:", err);
                 throw err;
             }
         }
@@ -928,5 +923,232 @@ Format: JSON
 
 
     console.log('✅ AIProxy v4.0 Loaded');
+
+    /**
+     * 전역 전문가 메모 (Human-in-the-loop) 시스템
+     */
+    window.ExpertMemo = {
+        init() {
+            // body 끝에 모달창 HTML 자동 주입
+            if (document.getElementById('expertMemoModal')) return;
+
+            const modalHtml = `
+                <div id="expertMemoModal" class="fixed inset-0 bg-slate-900/60 z-[10000] hidden flex flex-col items-center justify-center backdrop-blur-sm transition-opacity p-4">
+                    <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 transform transition-all flex flex-col max-h-[90vh]">
+                        <div class="flex justify-between items-center mb-4 shrink-0">
+                            <h3 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+                                <span class="material-symbols-outlined text-indigo-600">sticky_note_2</span>
+                                전문가 분석 메모
+                            </h3>
+                            <button onclick="window.ExpertMemo.close()" class="text-slate-400 hover:text-slate-600">
+                                <span class="material-symbols-outlined">close</span>
+                            </button>
+                        </div>
+                        
+                        <div class="mb-4 shrink-0">
+                            <label class="block text-xs font-bold text-slate-500 mb-1">적용할 타겟 회차 (분석회차)</label>
+                            <input type="number" id="memoTargetRound" onchange="window.ExpertMemo.loadHistory()" class="w-full border border-slate-200 rounded-lg text-sm px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="예: 1213">
+                        </div>
+                        
+                        <div class="mb-4 flex-1 overflow-y-auto min-h-[150px] border border-slate-200 rounded-lg bg-slate-50 custom-scrollbar relative" id="memoHistoryContainer">
+                            <div class="text-center text-sm text-slate-400 py-4 absolute inset-0 flex flex-col items-center justify-center">
+                                로딩 중...
+                            </div>
+                        </div>
+
+                        <div class="mb-5 shrink-0">
+                            <label class="block text-xs font-bold text-slate-500 mb-1">분석 내용 (자연어로 자유롭게 입력)</label>
+                            <textarea id="memoContent" rows="3" class="w-full border border-slate-200 rounded-lg text-sm px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none resize-none custom-scrollbar" placeholder="예: 이번 주는 30번대가 강세일 것 같고..."></textarea>
+                        </div>
+                        
+                        <div class="flex justify-end gap-2 shrink-0">
+                            <button onclick="window.ExpertMemo.close()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-bold transition-colors">닫기</button>
+                            <button id="btnSaveMemo" onclick="window.ExpertMemo.save()" class="px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-lg text-sm font-bold shadow-md transition-all flex items-center justify-center">
+                                메모 추가
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+        },
+
+        async open() {
+            this.init(); // 모달이 없으면 생성
+            const modal = document.getElementById('expertMemoModal');
+            const roundInput = document.getElementById('memoTargetRound');
+
+            // 타겟 회차 자동 세팅: DeepLearning.state.targetRound -> 최신회차+1 -> 빈값
+            if (!roundInput.value) {
+                if (window.DeepLearning && window.DeepLearning.state && window.DeepLearning.state.targetRound) {
+                    roundInput.value = window.DeepLearning.state.targetRound;
+                } else if (window.supabaseClient) {
+                    try {
+                        const { data } = await window.supabaseClient.from('lotto_draws').select('round').order('round', { ascending: false }).limit(1);
+                        if (data && data.length > 0) {
+                            roundInput.value = data[0].round + 1;
+                        }
+                    } catch (e) {
+                        console.error("최신 회차 조회 실패:", e);
+                    }
+                }
+            }
+
+            if (modal) modal.classList.remove('hidden');
+
+            this.loadHistory();
+        },
+
+        close() {
+            const modal = document.getElementById('expertMemoModal');
+            if (modal) modal.classList.add('hidden');
+        },
+
+        async loadHistory() {
+            const roundInput = document.getElementById('memoTargetRound');
+            const container = document.getElementById('memoHistoryContainer');
+
+            if (!roundInput || !container || !roundInput.value) return;
+
+            const targetRound = parseInt(roundInput.value);
+            container.innerHTML = '<div class="absolute inset-0 flex flex-col items-center justify-center text-sm text-slate-400"><span class="material-symbols-outlined animate-spin align-middle mr-1 text-2xl mb-2 text-indigo-500">sync</span>이력을 불러오는 중...</div>';
+
+            try {
+                if (!window.supabaseClient) {
+                    throw new Error("Supabase is not initialized.");
+                }
+
+                const { data, error } = await window.supabaseClient
+                    .from('user_checkpoints')
+                    .select('*')
+                    .eq('round', targetRound)
+                    .order('created_at', { ascending: true });
+
+                if (error) throw error;
+
+                if (!data || data.length === 0) {
+                    container.innerHTML = `<div class="absolute inset-0 flex flex-col items-center justify-center text-sm text-slate-400 p-6 text-center"><span class="material-symbols-outlined text-4xl mb-3 opacity-30 text-slate-500">inbox</span>${targetRound}회차 전문가 통찰을<br>가장 먼저 기록해보세요.</div>`;
+                    return;
+                }
+
+                let html = '<div class="space-y-3 p-4">';
+                data.forEach((item, index) => {
+                    const dateObj = new Date(item.created_at || new Date());
+                    const dateStr = dateObj.getFullYear() + '-' +
+                        String(dateObj.getMonth() + 1).padStart(2, '0') + '-' +
+                        String(dateObj.getDate()).padStart(2, '0') + ' ' +
+                        String(dateObj.getHours()).padStart(2, '0') + ':' +
+                        String(dateObj.getMinutes()).padStart(2, '0');
+
+                    const content = (item.memo || '').replace(/\\n/g, '<br>').replace(/\\r/g, '');
+
+                    html += `
+                        <div class="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm transition-all hover:shadow-md group/memo relative">
+                            <div class="flex justify-between items-center mb-2.5">
+                                <span class="inline-flex items-center gap-1.5 text-[11px] font-black text-indigo-700 bg-indigo-50 px-2 py-1 rounded-md tracking-tight">
+                                    <span class="material-symbols-outlined text-[14px]">bookmark</span>
+                                    #${index + 1}
+                                </span>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-[11px] text-slate-400 font-bold">${dateStr}</span>
+                                    <button onclick="window.ExpertMemo.delete('${item.id}')" class="text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover/memo:opacity-100 p-0.5 rounded-md hover:bg-red-50" title="메모 삭제">
+                                        <span class="material-symbols-outlined text-[16px]">close</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="text-[13px] text-slate-700 leading-normal font-medium whitespace-pre-wrap break-words">${content}</div>
+                        </div>
+                    `;
+                });
+                html += '</div>';
+                container.innerHTML = html;
+
+                // Scroll to bottom softly
+                setTimeout(() => {
+                    container.scrollTop = container.scrollHeight;
+                }, 50);
+
+            } catch (err) {
+                console.error("이력 로드 실패:", err);
+                container.innerHTML = `<div class="absolute inset-0 flex flex-col items-center justify-center text-sm text-red-500 p-6 text-center"><span class="material-symbols-outlined text-4xl mb-3 opacity-50">error</span>이력을 불러오지 못했습니다.<br><span class="text-xs text-red-400 mt-1">${err.message}</span></div>`;
+            }
+        },
+
+        async delete(id) {
+            if (!id || !confirm('이 메모를 삭제하시겠습니까?')) return;
+
+            try {
+                if (!window.supabaseClient) throw new Error("Supabase is not initialized.");
+
+                const { error } = await window.supabaseClient
+                    .from('user_checkpoints')
+                    .delete()
+                    .eq('id', id);
+
+                if (error) throw error;
+
+                // 삭제 성공 시 목록 갱신
+                await this.loadHistory();
+
+            } catch (err) {
+                console.error("메모 삭제 실패:", err);
+                alert("삭제에 실패했습니다: " + err.message);
+            }
+        },
+
+        async save() {
+            const round = document.getElementById('memoTargetRound').value;
+            const memo = document.getElementById('memoContent').value;
+            const btn = document.getElementById('btnSaveMemo');
+
+            if (!round || !memo.trim()) {
+                alert("회차와 메모 내용을 모두 입력해주세요.");
+                return;
+            }
+
+            try {
+                const originalText = btn.innerHTML;
+                btn.innerHTML = '<span class="material-symbols-outlined animate-spin text-sm align-middle mr-1">sync</span>저장 중...';
+                btn.disabled = true;
+
+                if (!window.supabaseClient) {
+                    throw new Error("Supabase is not initialized.");
+                }
+
+                // Supabase insert
+                const { error } = await window.supabaseClient.from('user_checkpoints').insert([
+                    { round: parseInt(round), memo: memo }
+                ]);
+
+                if (error) throw error;
+
+                document.getElementById('memoContent').value = '';
+                await this.loadHistory();
+
+                const originalBg = btn.className;
+                btn.className = "px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-bold shadow-md transition-all flex items-center justify-center";
+                btn.innerHTML = '<span class="material-symbols-outlined text-sm align-middle mr-1 relative -top-[1px]">check_circle</span>저장 완료';
+
+                setTimeout(() => {
+                    btn.className = originalBg;
+                    btn.innerHTML = '메모 추가';
+                }, 2000);
+
+            } catch (err) {
+                console.error("메모 저장 실패:", err);
+                alert("저장에 실패했습니다: " + err.message);
+                btn.innerHTML = '메모 추가';
+            } finally {
+                btn.disabled = false;
+            }
+        }
+    };
+
+    // 페이지 로드 시 전역 모달 초기화 준비
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => window.ExpertMemo.init());
+    } else {
+        window.ExpertMemo.init();
+    }
 
 } // end of duplicate load guard

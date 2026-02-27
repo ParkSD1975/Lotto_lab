@@ -6,7 +6,7 @@
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>Lotto Lab - 총합 (Supabase AI)</title>
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-    
+
     <link rel="icon" href="data:,">
 
     <link rel="stylesheet" href="css/common.css" />
@@ -16,7 +16,7 @@
         rel="stylesheet" />
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
         rel="stylesheet" />
-    
+
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script
         src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
@@ -140,22 +140,34 @@
             return 'ball-green';
         }
 
-        // [수정] 필터 설정 저장 시 제외 목록(excluded)도 함께 저장 (DB 저장)
+        // [수정] 필터 설정 저장 시 제외 목록(excluded)도 함께 저장 (DB 저장 + Local 캐시 병행)
         async function saveFilterSettings() {
+            const minInput = document.getElementById('minFilter');
+            const maxInput = document.getElementById('maxFilter');
+            const recent10Btn = document.getElementById('recent10FilterBtn');
+            const recent10FilterActive = recent10Btn && recent10Btn.classList.contains('from-purple-500');
+
             const settings = {
-                min: document.getElementById('minFilter').value,
-                max: document.getElementById('maxFilter').value,
-                excluded: excludedSums // 제외 목록 추가
+                min: minInput.value ? parseInt(minInput.value) : 100,
+                max: maxInput.value ? parseInt(maxInput.value) : 200,
+                excludedSums: excludedSums || [],
+                restoredAutoSums: restoredAutoSums || [],
+                recent10FilterActive: recent10FilterActive
             };
             const enabled = document.getElementById('applyFilterCheck').checked;
+            const settingsWithEnabled = { ...settings, enabled };
 
-            // DB 저장 (FilterService 사용)
+            // 1. DB 저장 (로그인 시)
             if (window.filterService && window.filterService.initialized) {
-                await window.filterService.saveSetting('total_sum_patterns', settings, enabled);
-            } else if (window.Utils && window.Utils.saveFilter) {
-                // Fallback: localStorage
-                window.Utils.saveFilter('total_sum_filter', { ...settings, enabled });
+                console.log('💾 [Supabase] 저장 시도: total_sum', settings);
+                await window.filterService.saveSetting('total_sum', settings, enabled);
             }
+
+            // 2. localStorage 저장 (항상 수행 - 실시간 탭 동기화 및 오프라인 백업용)
+            // 전역 뱃지 출력을 위해 반드시 필요
+            console.log('💾 [LocalStorage] 캐시 업데이트: total_sum', settingsWithEnabled);
+            localStorage.setItem('total_sum', JSON.stringify(settingsWithEnabled));
+            localStorage.setItem('total_sum_filter', JSON.stringify(settingsWithEnabled));
         }
 
         // [수정] 필터 설정 로드 시 제외 목록(excluded) 복원 (DB 로드)
@@ -163,29 +175,76 @@
             let saved = null;
 
             // DB에서 로드 (FilterService 사용)
+            if (!window.filterService?.initialized) {
+                await initFilterService();
+            }
             if (window.filterService && window.filterService.initialized) {
-                const data = await window.filterService.loadSetting('total_sum_patterns');
+                const data = await window.filterService.loadSetting('total_sum');
                 if (data) {
                     saved = { ...data.settings, enabled: data.enabled };
                 }
             }
 
-            // Fallback: localStorage
-            if (!saved && window.Utils && window.Utils.loadFilter) {
-                saved = window.Utils.loadFilter('total_sum_filter');
+            // Fallback: localStorage (DB에 없는 경우)
+            if (!saved) {
+                try {
+                    // [핵심 수정] direct key(total_sum)를 _filter 접미사보다 우선함
+                    const raw = localStorage.getItem('total_sum') || localStorage.getItem('total_sum_filter');
+                    if (raw) saved = JSON.parse(raw);
+                } catch (e) { }
+            }
+
+            // DB에서 로드됐지만 excludedSums가 없으면 localStorage에서 병합
+            if (saved && (!saved.excludedSums || saved.excludedSums.length === 0)) {
+                try {
+                    // [핵심 수정] direct key(total_sum)를 _filter 접미사보다 우선함
+                    const raw = localStorage.getItem('total_sum') || localStorage.getItem('total_sum_filter');
+                    if (raw) {
+                        const localData = JSON.parse(raw);
+                        if (localData.excludedSums && localData.excludedSums.length > 0) {
+                            saved.excludedSums = localData.excludedSums;
+                        }
+                    }
+                } catch (e) { }
             }
 
             if (saved) {
-                if (document.getElementById('minFilter') && saved.min !== undefined) document.getElementById('minFilter').value = saved.min;
-                if (document.getElementById('maxFilter') && saved.max !== undefined) document.getElementById('maxFilter').value = saved.max;
-                if (document.getElementById('applyFilterCheck') && saved.enabled !== undefined) document.getElementById('applyFilterCheck').checked = saved.enabled;
+                const minInput = document.getElementById('minFilter');
+                const maxInput = document.getElementById('maxFilter');
+                const chkInput = document.getElementById('applyFilterCheck');
+
+                if (minInput && saved.min !== undefined) minInput.value = saved.min;
+                if (maxInput && saved.max !== undefined) maxInput.value = saved.max;
+                if (chkInput && saved.enabled !== undefined) chkInput.checked = saved.enabled;
 
                 // 제외 목록 로드
-                if (saved.excluded && Array.isArray(saved.excluded)) {
-                    excludedSums = saved.excluded;
+                if (saved.excludedSums && Array.isArray(saved.excludedSums)) {
+                    excludedSums = [...new Set(saved.excludedSums)];
+                } else if (saved.excluded && Array.isArray(saved.excluded)) {
+                    excludedSums = [...new Set(saved.excluded)];
                 } else {
                     excludedSums = [];
                 }
+
+                // 자동 제외 복원 목록 로드
+                restoredAutoSums = (saved.restoredAutoSums && Array.isArray(saved.restoredAutoSums))
+                    ? [...new Set(saved.restoredAutoSums)] : [];
+
+                // [핵심 수정] recent10FilterActive 복원: 버튼 상태 + 배지 함께 복원
+                if (saved.recent10FilterActive) {
+                    const btn = document.getElementById('recent10FilterBtn');
+                    const btnText = document.getElementById('recent10BtnText');
+                    if (btn && btnText) {
+                        btn.classList.remove('from-blue-500', 'to-indigo-600');
+                        btn.classList.add('from-purple-500', 'to-purple-700');
+                        btnText.textContent = '필터 해제';
+                    }
+                }
+
+                // 배지 영역 업데이트 (버튼 상태 복원 후 실행)
+                setTimeout(() => {
+                    if (typeof renderExcludedSumsBadges === 'function') renderExcludedSumsBadges();
+                }, 0);
                 return true;
             }
             return false;
@@ -551,9 +610,11 @@
                     <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
                         <div class="flex items-center justify-between mb-4">
                             <h3 class="text-lg font-bold text-gray-900">조합 필터</h3>
-                            <a href="#filter-page"
-                                class="flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-800 transition-colors"><span
-                                    class="material-symbols-outlined text-sm">open_in_new</span>필터 페이지 가기</a>
+                            <a href="filter.html#filter-total_sum"
+                                class="text-sm font-medium text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
+                                <span class="material-symbols-outlined text-[18px]">tune</span>
+                                필터 페이지 가기
+                            </a>
                         </div>
                         <div class="flex flex-col sm:flex-row items-start sm:items-end gap-6 justify-between">
                             <div class="flex items-end gap-3">
@@ -561,13 +622,13 @@
                                     <div class="flex flex-col"><span
                                             class="text-xs text-gray-500 mb-1 ml-1">Min</span><input type="number"
                                             id="minFilter" placeholder="0" onchange="applyFilter()"
-                                            class="w-72 px-3 py-2 text-center border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-bold" />
+                                            class="w-72 px-3 py-2 text-center border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm font-bold" />
                                     </div>
                                     <span class="text-gray-400 mb-3">~</span>
                                     <div class="flex flex-col"><span
                                             class="text-xs text-gray-500 mb-1 ml-1">Max</span><input type="number"
                                             id="maxFilter" placeholder="0" onchange="applyFilter()"
-                                            class="w-72 px-3 py-2 text-center border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-bold" />
+                                            class="w-72 px-3 py-2 text-center border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm font-bold" />
                                     </div>
                                 </div>
                             </div>
@@ -583,12 +644,21 @@
                                     <input type="checkbox" id="applyFilterCheck" onchange="applyFilter()"
                                         class="sr-only peer" checked>
                                     <div
-                                        class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500">
+                                        class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600">
                                     </div>
                                 </label>
                                 <label for="applyFilterCheck"
                                     class="text-sm font-medium text-gray-700 cursor-pointer">필터 적용</label>
                             </div>
+                        </div>
+
+                        <!-- 제외 합계 배지 영역 -->
+                        <div id="excludedSumsBadgeArea" class="hidden mt-4 pt-4 border-t border-gray-100">
+                            <div class="text-xs font-bold text-gray-500 mb-2 flex items-center gap-1">
+                                <span class="material-symbols-outlined text-[14px]">block</span>
+                                제외된 합계 (🔴 수동 · X=복원 / 🔵 자동 · X=제외 취소)
+                            </div>
+                            <div id="excludedSumsBadges" class="flex flex-wrap gap-1.5"></div>
                         </div>
                     </div>
 
@@ -713,6 +783,9 @@
             return numbers.reduce((a, b) => a + b, 0);
         }
 
+        // 자동 제외에서 복원된 합계 목록 (X 클릭으로 제외 취소된 합계)
+        let restoredAutoSums = [];
+
         // 🔥 수정된 데이터 로드 및 초기화 로직
         document.addEventListener('DOMContentLoaded', async function () {
             const minFilter = document.getElementById('minFilter');
@@ -797,7 +870,11 @@
                 await refreshAIAnalysis();
                 generateAiQuickButtons();
 
-                // applyRecent10Highlight(); // 자동 하이라이트 제거
+                // 7. 토요일 업데이트 자동 감지 및 필터 리셋
+                checkAndResetOnNewDraw();
+
+                // 8. 최근 10회차 필터 자동 적용 (페이지 최초 로드 시)
+                autoApplyRecent10OnLoad();
 
             } catch (err) {
                 console.error('데이터 로드 실패:', err);
@@ -833,8 +910,11 @@
             else if (recentAvg < parseFloat(avg) - 10) trendText = "하락세";
             document.getElementById('val-trend').textContent = trendText;
 
-            if (!document.getElementById('minFilter').value) document.getElementById('minFilter').value = 100;
-            if (!document.getElementById('maxFilter').value) document.getElementById('maxFilter').value = 200;
+            // [수정] 이미 값이 있는 경우 100/200으로 덮어쓰지 않음
+            const minInput = document.getElementById('minFilter');
+            const maxInput = document.getElementById('maxFilter');
+            if (minInput && !minInput.value) minInput.value = 100;
+            if (maxInput && !maxInput.value) maxInput.value = 200;
         }
 
         // 🔹 셀 하이라이트 토글 함수
@@ -1179,7 +1259,11 @@
             updateRange(safeValue);
         }
 
-        function applyFilter() { renderDrawsList(); }
+        function applyFilter() {
+            saveFilterSettings();
+            renderDrawsList();
+            changeChartMode(chartMode);
+        }
         function openStatsModal() { document.getElementById('statsModal').classList.remove('hidden'); document.getElementById('statsRangeSlider').value = currentRange; updateStatsRange(currentRange); }
         function closeStatsModal() { document.getElementById('statsModal').classList.add('hidden'); }
 
@@ -1200,7 +1284,7 @@
             updateStatsRange(safeValue);
         }
 
-        function goToFilterPage() { alert('필터 페이지로 이동합니다. 설정한 필터가 자동으로 적용됩니다.'); }
+        function goToFilterPage() { window.open('filter.html#filter-total_sum', '_blank'); }
         document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeStatsModal(); });
         document.getElementById('statsModal').addEventListener('click', function (e) { if (e.target === this) closeStatsModal(); });
 
@@ -1221,21 +1305,25 @@
             const tbody = document.getElementById('statsTableBody');
             tbody.innerHTML = '';
 
+            // 최근 10회차 합계 목록
+            const recent10Sums = new Set(allDrawData.slice(0, 10).map(d => d.sum));
+
             for (let sumVal = 21; sumVal <= 255; sumVal++) {
                 const count = distribution[sumVal] || 0;
                 const percent = range > 0 ? ((count / range) * 100).toFixed(1) : 0;
 
                 const theoretical = THEORETICAL_SUM_STATS[sumVal] || { count: 0, percent: 0 };
 
-                // [수정] 체크 상태 로직: 범위 안에 있고 AND 제외 목록에 없어야 함
+                // 최근 10회차에 나온 합계는 자동으로 제외(체크 해제)
+                const isInRecent10 = recent10Sums.has(sumVal);
                 const isInRange = filterEnabled && sumVal >= minFilter && sumVal <= maxFilter;
-                const isExcluded = excludedSums.includes(sumVal);
+                const isExcluded = excludedSums.includes(sumVal) || isInRecent10;
                 const isChecked = isInRange && !isExcluded;
 
                 const barColor = '#134e4a';
 
-                // 제외된 항목은 취소선 표시
-                const textStyle = isExcluded ? 'text-red-500 line-through' : 'text-gray-900';
+                // 제외된 항목 표시: 최근 10회면 주황색, 수동 제외면 빨간색
+                const textStyle = isInRecent10 ? 'text-orange-500 line-through' : (excludedSums.includes(sumVal) ? 'text-red-500 line-through' : 'text-gray-900');
 
                 const tr = document.createElement('tr');
                 tr.className = 'hover:bg-gray-50';
@@ -1245,6 +1333,7 @@
                         <input type="checkbox" 
                                class="w-4 h-4 text-blue-600 rounded focus:ring-blue-500" 
                                ${isChecked ? 'checked' : ''} 
+                               ${isInRecent10 ? 'title="최근 10회차 출현한 합계"' : ''}
                                onchange="toggleSumFilter(${sumVal}, this.checked)" />
                     </td>
                     <td class="py-3 px-4 text-sm font-bold ${textStyle}">${sumVal}</td>
@@ -1259,6 +1348,83 @@
                     </td>
                 `;
                 tbody.appendChild(tr);
+            }
+        }
+
+        // 제외 합계 배지 렌더링
+        function renderExcludedSumsBadges() {
+            const area = document.getElementById('excludedSumsBadgeArea');
+            const container = document.getElementById('excludedSumsBadges');
+            if (!area || !container) return;
+
+            // 자동 제외: 최근 10회차 필터 활성 시 (restoredAutoSums 제외)
+            const recent10Btn = document.getElementById('recent10FilterBtn');
+            const isRecent10Active = recent10Btn && recent10Btn.classList.contains('from-purple-500');
+            let autoExcluded = [];
+            if (isRecent10Active && allDrawData && allDrawData.length >= 10) {
+                const raw = [...new Set(allDrawData.slice(0, 10).map(d => {
+                    if (d.sum !== undefined && d.sum !== null) return d.sum;
+                    if (d.numbers && Array.isArray(d.numbers)) return d.numbers.reduce((a, b) => a + b, 0);
+                    return null;
+                }).filter(s => s !== null && !isNaN(s)))];
+                // 사용자가 복원한 합계는 자동 제외에서 제거
+                autoExcluded = raw.filter(s => !restoredAutoSums.includes(s)).sort((a, b) => a - b);
+            }
+
+            const hasManual = excludedSums && excludedSums.length > 0;
+            const hasAuto = autoExcluded.length > 0;
+
+            if (!hasManual && !hasAuto) {
+                area.classList.add('hidden');
+                return;
+            }
+
+            area.classList.remove('hidden');
+            let html = '';
+
+            // 수동 제외 - 빨간색, 클릭 시 복원
+            if (hasManual) {
+                html += excludedSums.slice().sort((a, b) => a - b).map(sum =>
+                    `<button onclick="restoreExcludedSum(${sum})" title="클릭 시 복원"
+                        class="inline-flex items-center gap-1 px-3 py-1 bg-red-500 hover:bg-red-600 text-white rounded-full text-[12px] font-bold transition-colors shadow-sm active:scale-95">
+                        ${sum} <span style="font-size:14px;line-height:1">&times;</span>
+                    </button>`
+                ).join('');
+            }
+
+            // 자동 제외 - 인디고색, X 클릭 시 복원(제외 취소)
+            if (hasAuto) {
+                html += autoExcluded.map(sum =>
+                    `<button onclick="restoreAutoSum(${sum})" title="클릭 시 자동 제외 취소"
+                        class="inline-flex items-center gap-1 px-3 py-1 bg-indigo-500 hover:bg-indigo-600 text-white rounded-full text-[12px] font-bold transition-colors shadow-sm active:scale-95">
+                        ${sum} <span style="font-size:14px;line-height:1">&times;</span>
+                    </button>`
+                ).join('');
+            }
+
+            container.innerHTML = html;
+        }
+
+        // 수동 제외 복원
+        function restoreExcludedSum(val) {
+            excludedSums = excludedSums.filter(n => n !== val);
+            renderExcludedSumsBadges();
+            saveFilterSettings();
+            if (!document.getElementById('statsModal').classList.contains('hidden')) {
+                loadStatsData(parseInt(document.getElementById('statsRangeSlider').value));
+            }
+        }
+
+        // 자동 제외 복원 (X 클릭 → 해당 합계를 자동 제외에서 제거)
+        function restoreAutoSum(val) {
+            val = parseInt(val);
+            if (!restoredAutoSums.includes(val)) {
+                restoredAutoSums.push(val);
+            }
+            renderExcludedSumsBadges();
+            saveFilterSettings();
+            if (!document.getElementById('statsModal').classList.contains('hidden')) {
+                loadStatsData(parseInt(document.getElementById('statsRangeSlider').value));
             }
         }
 
@@ -1277,10 +1443,9 @@
 
             // 제외 목록 상태 저장
             saveFilterSettings();
+            // 배지 영역 업데이트
+            renderExcludedSumsBadges();
 
-            // (선택사항) 즉시 시각적 피드백을 위해 텍스트 스타일 변경
-            // loadStatsData를 다시 호출하면 전체 테이블이 리렌더링되므로, 여기서는 스타일만 토글하거나 그대로 둠
-            // 사용자 경험을 위해 리렌더링 권장
             const range = parseInt(document.getElementById('statsRangeSlider').value);
             loadStatsData(range);
         }
@@ -1490,14 +1655,27 @@ ${safeContent}</div>`;
         }
 
         // 4. Highlight Functions
-        function highlightRecent10Rows(round) {
-            // 기존 하이라이트 제거
-            document.querySelectorAll('tr[data-round]').forEach(row => {
-                row.classList.remove('row-highlight');
-            });
+        // 현재 하이라이트된 회차 추적 (토글 지원)
+        let _currentHighlightRound = null;
 
-            // 최근 10회차 하이라이트 적용
+        function highlightRecent10Rows(round) {
             const container = document.getElementById('drawsList');
+            if (!container) return;
+
+            // 같은 회차 다시 클릭 → 하이라이트 전체 토글 제거
+            if (_currentHighlightRound === round) {
+                document.querySelectorAll('tr[data-round]').forEach(row =>
+                    row.classList.remove('row-highlight')
+                );
+                _currentHighlightRound = null;
+                return;
+            }
+
+            // 새 회차 하이라이트 적용
+            _currentHighlightRound = round;
+            document.querySelectorAll('tr[data-round]').forEach(row =>
+                row.classList.remove('row-highlight')
+            );
             Array.from(container.children).forEach(row => {
                 const rowRound = parseInt(row.getAttribute('data-round'));
                 if (rowRound <= round && rowRound > round - 10) {
@@ -1855,6 +2033,10 @@ ${stats.recent30Str}
                 }
 
                 applyFilter();
+                // [수정] 해제 시 recent10FilterActive: false 저장
+                saveFilterSettings();
+                // 자동 배지도 즉시 갱신
+                renderExcludedSumsBadges();
                 return;
             }
 
@@ -1883,11 +2065,80 @@ ${stats.recent30Str}
             // 4. 리스트 갱신 및 하이라이트
             applyFilter();
             applyRecent10Highlight();
+            // 자동 제외 배지 즉시 표시
+            renderExcludedSumsBadges();
 
             console.log('최근 10회차 총합 필터 적용 완료');
         }
 
-        // AI Modal Functions
+        // 🆕 토요일 새 회차 감지 시 필터 자동 리셋
+        function checkAndResetOnNewDraw() {
+            if (!allDrawData || allDrawData.length === 0) return;
+            const latestRound = allDrawData[0].round;
+            const lastKnownRound = parseInt(localStorage.getItem('total_sum_last_round') || '0');
+
+            if (latestRound > lastKnownRound) {
+                localStorage.setItem('total_sum_last_round', latestRound);
+                if (lastKnownRound > 0) {
+                    console.log(`🆕 새 회차 감지: ${latestRound}회 → 최근 10회차 필터 자동 갱신 (제외 목록 유지)`);
+                }
+                // 최근 10회차 기준으로 필터 자동 설정
+                autoApplyRecent10OnLoad();
+            }
+        }
+
+        // 🆕 페이지 최초 로드 시 최근 10회차 필터 자동 적용
+        function autoApplyRecent10OnLoad() {
+            if (!allDrawData || allDrawData.length < 10) return;
+
+            const recent10 = allDrawData.slice(0, 10);
+            const sums = recent10.map(d => d.sum);
+            const minSum = Math.min(...sums);
+            const maxSum = Math.max(...sums);
+
+            const minInput = document.getElementById('minFilter');
+            const maxInput = document.getElementById('maxFilter');
+            const chk = document.getElementById('applyFilterCheck');
+            const btn = document.getElementById('recent10FilterBtn');
+            const btnText = document.getElementById('recent10BtnText');
+
+            if (minInput) minInput.value = minSum;
+            if (maxInput) maxInput.value = maxSum;
+            if (chk) chk.checked = true;
+
+            // 버튼 UI를 보라색(활성화) 상태로
+            if (btn && btnText) {
+                btn.classList.remove('from-blue-500', 'to-indigo-600');
+                btn.classList.add('from-purple-500', 'to-purple-700');
+                btnText.textContent = '필터 해제';
+            }
+
+            applyFilter();
+            applyRecent10Highlight();
+
+            // [수정] recent10FilterActive 플래그를 localStorage에만 저장 (Supabase 덮어쓰기 방지)
+            // excludedSums는 유지하고 recent10FilterActive 플래그만 업데이트
+            try {
+                const existing = JSON.parse(localStorage.getItem('total_sum') || '{}');
+                const updated = {
+                    ...existing,
+                    min: minSum,
+                    max: maxSum,
+                    enabled: true,
+                    recent10FilterActive: true
+                };
+                localStorage.setItem('total_sum', JSON.stringify(updated));
+                localStorage.setItem('total_sum_filter', JSON.stringify(updated));
+                console.log(`✅ 최근 10회차 필터 자동 적용 + localStorage 저장: Min=${minSum}, Max=${maxSum}`);
+            } catch (e) {
+                console.warn('autoApplyRecent10OnLoad localStorage 저장 오류:', e);
+            }
+
+            // [핑시수정] 자동 제외 배지 표시 - 버튼에 purple 클래스 적용 후 호용
+            setTimeout(() => renderExcludedSumsBadges(), 50);
+        }
+
+
         function openAIModal(initialPrompt = '') {
             const modal = document.getElementById('aiModal');
             const bg = document.getElementById('aiModalBg');
