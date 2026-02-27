@@ -21,6 +21,6 @@ venv.bak/
 *.db
 
 # Model weights and large files (if applicable, but ensure script generates them or you use LFS)
-# saved_models/
+# # saved_models/
 # *.pt
 # *.pkl

@@ -11,7 +11,7 @@ venv/
 .venv/
 
 # Model files (large)
-langchain-backend/saved_models/
+# langchain-backend/saved_models/
 langchain-backend/chroma_db/
 
 # Node
