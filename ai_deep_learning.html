@@ -398,6 +398,17 @@
                 <!-- [Phase 6] 모델 컨디션 바 (Meta-Learning 가중치) -->
                 <div id="modelConditionContainer" style="display:none" class="col-span-1 lg:col-span-2"></div>
 
+                <!-- ★ 전문가 메모 섹션 (모델 컨디션 바 바로 아래) -->
+                <div id="expertMemoSection" class="col-span-1 lg:col-span-2" style="display:none">
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:0 2px">
+                        <span style="width:3px;height:16px;background:#6366f1;border-radius:2px;display:inline-block;flex-shrink:0"></span>
+                        <span style="font-size:12px;font-weight:700;color:#475569;letter-spacing:-0.01em">전문가 메모</span>
+                        <span id="expertMemoCount" style="font-size:10px;background:#f1f5f9;color:#64748b;padding:1px 8px;border-radius:20px;font-weight:600"></span>
+                        <span style="font-size:10px;color:#94a3b8;margin-left:auto;font-weight:500">분석에 반영됨</span>
+                    </div>
+                    <div id="expertMemoList" style="display:flex;flex-direction:column;gap:6px"></div>
+                </div>
+
                 <!-- AI 강력 추천 + AI 제외수 가로 2열 -->
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 col-span-1 lg:col-span-2">
                     <!-- AI 강력 추천 카드 -->
@@ -420,19 +431,6 @@
                         <div class="card-body">
                             <div class="number-grid" id="excludeNumbers"></div>
                         </div>
-                    </div>
-                </div>
-
-                <!-- ★ 전문가 메모 섹션 (분석에 적용된 메모 전체 표시) -->
-                <div id="expertMemoSection" class="card col-span-1 lg:col-span-2" style="display:none">
-                    <div class="card-header" style="background:linear-gradient(135deg,#fefce8,#fef3c7)">
-                        <span class="material-symbols-outlined text-amber-500">sticky_note_2</span>
-                        <h3 style="color:#92400e">전문가 메모</h3>
-                        <span id="expertMemoCount" class="ml-auto text-[10px] bg-amber-100 text-amber-700 font-bold px-2 py-0.5 rounded-full"></span>
-                        <span class="text-[10px] text-amber-600 ml-2 font-medium">딥러닝 분석에 반영됨</span>
-                    </div>
-                    <div class="card-body">
-                        <div id="expertMemoList" class="space-y-2"></div>
                     </div>
                 </div>
 

@@ -157,7 +157,7 @@ const DeepLearning = {
         }
     },
 
-    // ── 전문가 메모 섹션 렌더링 (번호별 분석 탭) ──
+    // ── 전문가 메모 섹션 렌더링 (모델 컨디션 바 아래) ──
     renderExpertMemoSection(memos) {
         const section = document.getElementById('expertMemoSection');
         const list = document.getElementById('expertMemoList');
@@ -173,20 +173,16 @@ const DeepLearning = {
 
         list.innerHTML = memos.map(function (m, i) {
             const dateObj = new Date(m.created_at || new Date());
-            const dateStr = dateObj.getFullYear() + '-' +
-                String(dateObj.getMonth() + 1).padStart(2, '0') + '-' +
-                String(dateObj.getDate()).padStart(2, '0') + ' ' +
-                String(dateObj.getHours()).padStart(2, '0') + ':' +
-                String(dateObj.getMinutes()).padStart(2, '0');
+            const dateStr = dateObj.getFullYear() + '.' +
+                String(dateObj.getMonth() + 1).padStart(2, '0') + '.' +
+                String(dateObj.getDate()).padStart(2, '0');
             const content = (m.memo || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
-            return `<div style="background:linear-gradient(135deg,#fefce8,#fef9c3);border:1px solid #fde047;border-radius:10px;padding:12px 14px">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-                    <span style="font-size:11px;font-weight:800;color:#854d0e;display:flex;align-items:center;gap:4px">
-                        <span>💡</span> 메모 #${i + 1}
-                    </span>
-                    <span style="font-size:10px;color:#92400e;font-weight:600">${dateStr}</span>
+            return `<div style="background:#fff;border:1px solid #e8eef7;border-left:3px solid #6366f1;border-radius:0 10px 10px 0;padding:11px 16px;box-shadow:0 1px 3px rgba(0,0,0,0.04)">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
+                    <span style="font-size:11px;font-weight:700;color:#6366f1;letter-spacing:-0.01em"># ${i + 1}</span>
+                    <span style="font-size:10px;color:#94a3b8;font-weight:500">${dateStr}</span>
                 </div>
-                <div style="font-size:12.5px;color:#713f12;line-height:1.6">${content}</div>
+                <div style="font-size:12.5px;color:#334155;line-height:1.7;font-weight:400">${content}</div>
             </div>`;
         }).join('');
 
