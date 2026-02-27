@@ -192,7 +192,7 @@ class TransformerTrainer:
         self.model = None
         self.best_loss = float("inf")
 
-    def train(self, draws: list) -> dict:
+    def train(self, draws: list, fine_tune: bool = True) -> dict:
         """전체 학습 실행.
 
         Args:
@@ -223,6 +223,14 @@ class TransformerTrainer:
 
         # 모델 초기화
         self.model = LottoTransformer().to(self.device)
+        
+        if fine_tune:
+            path = os.path.join(config.MODEL_DIR, "transformer_model.pt")
+            if os.path.exists(path):
+                self.model.load_state_dict(torch.load(path, map_location=self.device, weights_only=True))
+                print("  [Transformer] 기존 뇌(.pt) 가중치를 성공적으로 불러와 파인튜닝을 시작합니다.")
+            else:
+                print("  [Transformer] 기존 뇌가 없어 초기 상태에서 학습합니다.")
 
         # [Upgrade] Focal Loss 적용
         criterion = FocalLoss(

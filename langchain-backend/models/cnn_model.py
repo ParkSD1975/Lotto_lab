@@ -78,12 +78,21 @@ class CNNTrainer:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu") if device == "auto" else torch.device(device)
         self.model = None
 
-    def train(self, draws: list) -> dict:
+    def train(self, draws: list, fine_tune: bool = True) -> dict:
         dataset = LottoGridSequenceDataset(draws, seq_len=config.CNN_SEQ_LEN)
         if len(dataset) < 100: return {"success": False, "error": "데이터 부족"}
         
         train_loader = DataLoader(dataset, batch_size=config.CNN_BATCH_SIZE, shuffle=True)
         self.model = LottoCNN2D().to(self.device)
+
+        if fine_tune:
+            path = os.path.join(config.MODEL_DIR, "cnn_model.pt")
+            if os.path.exists(path):
+                self.model.load_state_dict(torch.load(path, map_location=self.device, weights_only=True))
+                print("  [CNN] 기존 뇌(.pt) 가중치를 성공적으로 불러와 파인튜닝을 시작합니다.")
+            else:
+                print("  [CNN] 기존 뇌가 없어 초기 상태에서 학습합니다.")
+
         criterion = FocalLoss(gamma=config.LSTM_FOCAL_GAMMA, alpha=config.LSTM_FOCAL_ALPHA, pos_weight=torch.full([45], config.LSTM_POS_WEIGHT, device=self.device))
         optimizer = torch.optim.Adam(self.model.parameters(), lr=config.CNN_LR)
 

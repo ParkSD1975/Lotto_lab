@@ -4,54 +4,62 @@ import numpy as np
 import torch
 
 # ==========================================
-# 🧠 1. 방치되었던 '진짜' 모델 Import (가짜 클래스 완전 폐기)
+# 🧠 1. 5대 찐모델 완벽 Import
 # ==========================================
 from models.xgboost_model import LottoXGBoost
 from models.lstm_model import LSTMTrainer
+from models.cnn_model import CNNTrainer
+from models.transformer_model import TransformerTrainer
+from models.autoencoder_model import AutoencoderTrainer
 
-# 추후 유실된 GNN이나 다른 모델들도 여기에 import 하면 됩니다.
-
-# ==========================================
-# ⚙️ 2. 파인튜닝 지휘자: 앙상블 매니저
-# ==========================================
 class LottoEnsemble:
     def __init__(self):
         self.seq_len = 5
         self.save_dir = "saved_models"
         os.makedirs(self.save_dir, exist_ok=True)
         
-        # 🌟 껍데기가 아닌 진짜 모델 객체 장착
+        # 🌟 가짜 모델을 모두 버리고, 5대 딥러닝/머신러닝 진짜 모델 완전체 조립
         self.models = {
             "xgboost": LottoXGBoost(),
-            "lstm": LSTMTrainer()
+            "lstm": LSTMTrainer(),
+            "cnn": CNNTrainer(),
+            "transformer": TransformerTrainer(),
+            "autoencoder": AutoencoderTrainer()
         }
         
-        # 가중치 (고급 피처를 쓰는 모델 비중 상향)
+        # 가중치 (고급 피처 XGB, 장기기억 LSTM에 높은 비중)
         self.weights = {
-            "xgboost": 0.45,
-            "lstm": 0.35,
-            "markov": 0.20
+            "xgboost": 0.35,
+            "lstm": 0.25,
+            "cnn": 0.15,
+            "transformer": 0.15,
+            "markov": 0.10  # 마르코프는 자체 행렬로 계산
         }
 
     def train_all(self, draws, force_retrain=False):
         if len(draws) < 100:
             return {"success": False, "message": "데이터 부족"}
 
-        print("🧠 [딥러닝 엔진] 파인튜닝(증분 학습) 기반 앙상블 학습 시작...")
+        print("🧠 [딥러닝 엔진] 6중 앙상블 파인튜닝(증분 학습) 시작...")
         
+        # 1. 5대 모델 파인튜닝 (기존 뇌에 최신 데이터 덧붙이기)
         for name, model in self.models.items():
             print(f"  ▶ {name.upper()} 찐모델 파인튜닝 진행 중...")
             try:
-                # fine_tune=True 를 넘겨주어 기존 뇌를 활용
-                model.train(draws, fine_tune=not force_retrain)
+                # fine_tune 플래그를 전달하여 백지화 방지
+                # Autoencoder는 구조상 fine_tune 파라미터가 없으므로 예외 처리
+                if name == "autoencoder":
+                    model.train(draws)
+                else:
+                    model.train(draws, fine_tune=not force_retrain)
             except Exception as e:
-                print(f"  ❌ {name} 모델 학습 실패: {e}")
+                print(f"  ❌ {name} 모델 파인튜닝 실패: {e}")
 
-        # 임시 마르코프
+        # 2. 마르코프 전이 행렬 파인튜닝
         print("  ▶ MARKOV 모델 확률 행렬 파인튜닝 중...")
         self._train_temp_markov(draws)
 
-        return {"success": True, "message": "모든 모델 파인튜닝 및 저장 완료!"}
+        return {"success": True, "message": "모든 모델 파인튜닝 완료!"}
 
     def _train_temp_markov(self, draws):
         draws_asc = sorted(draws, key=lambda x: x['round'])
@@ -77,8 +85,9 @@ class LottoEnsemble:
 
         contributions = {m: {} for m in self.weights.keys()}
         
-        # 1. 진짜 모델들에게 예측 지시
+        # 1. 메인 딥러닝 예측 (Autoencoder 제외 - 나중에 깎는 용도로 씀)
         for name, model in self.models.items():
+            if name == "autoencoder": continue
             try:
                 pred_dict = model.predict(draws)
                 for n in range(1, 46):
@@ -88,7 +97,7 @@ class LottoEnsemble:
                 for n in range(1, 46):
                     contributions[name][n] = 0.0
 
-        # 2. 임시 마르코프 예측
+        # 2. 마르코프 연쇄 확률 계산
         markov_path = os.path.join(self.save_dir, "markov.json")
         if os.path.exists(markov_path):
             with open(markov_path, "r") as f:
@@ -102,15 +111,24 @@ class LottoEnsemble:
             for n in range(1, 46):
                 contributions["markov"][n] = float(pred_markov[n-1])
 
-        # 3. 모델 가중치 합산
+        # 3. 모델 가중치 1차 합산
         final_probs = {}
         for n in range(1, 46):
-            score = 0
-            for m in self.weights.keys():
-                score += contributions[m].get(n, 0) * self.weights[m]
+            score = sum(contributions[m].get(n, 0) * self.weights[m] for m in self.weights.keys())
             final_probs[n] = score
 
-        # 4. 전문가 메모 (Hard Filter) 철통 방어
+        # 4. Autoencoder 비정상 패턴(쏠림/이상치) 페널티 부여
+        try:
+            ae_exclusions = self.models["autoencoder"].predict_exclusions(draws)
+        except Exception:
+            ae_exclusions = {}
+
+        for n in range(1, 46):
+            if n in ae_exclusions:
+                # 에러율이 높은(패턴이 기괴한) 번호는 확률을 대폭 삭감
+                final_probs[n] *= (1.0 - float(ae_exclusions[n]))
+
+        # 5. 전문가 메모 (Hard Filter) 철통 방어
         evidence_reasons = []
         memo_excl = []
         if human_rules:
@@ -121,26 +139,22 @@ class LottoEnsemble:
                 memo_excl = [int(x) for x in human_rules["excluded_numbers"] if str(x).isdigit() or isinstance(x, int)]
                 
             for n in range(1, 46):
+                # 파인튜닝 딥러닝이 아무리 추천해도 전문가 메모에 있으면 0점 처리
                 if n in memo_excl:
-                    final_probs[n] = 0.0  # 파인튜닝 딥러닝이 아무리 추천해도 무조건 제외
+                    final_probs[n] = 0.0
 
+        # 6. 최종 확률 정규화 (100% 맞추기)
         total_score = sum(final_probs.values())
         if total_score > 0:
             final_probs = {n: v / total_score for n, v in final_probs.items()}
         else:
-            remaining = [n for n in range(1, 46) if n not in memo_excl]
-            if remaining:
-                prob = 1.0 / len(remaining)
-                final_probs = {n: (prob if n in remaining else 0.0) for n in range(1, 46)}
-            else:
-                final_probs = {n: 1/45 for n in range(1, 46)}
+            final_probs = {n: 1/45 for n in range(1, 46)}
 
         evidence = {
             "model_weights": self.weights,
             "top_signals": [
                 {"model": "Human-in-the-loop", "signal": evidence_reasons[0] if evidence_reasons else "전문가 메모 미적용"},
-                {"model": "XGBoost (Real)", "signal": "25개 고급 피처(AC, Gap등) 파인튜닝 분석 적용 완료"},
-                {"model": "LSTM (Real)", "signal": "Focal Loss가 적용된 시계열 파인튜닝 분석 적용 완료"}
+                {"model": "Ensemble", "signal": "CNN, Transformer, Autoencoder 등 6중 파인튜닝 통합 적용 완료"}
             ]
         }
 
@@ -149,7 +163,6 @@ class LottoEnsemble:
             "model_contributions": contributions,
             "evidence": evidence
         }
-
 
 class CombinationGenerator:
     @staticmethod
@@ -160,7 +173,7 @@ class CombinationGenerator:
         
         total_p = sum(p_vals)
         p_vals = [p / total_p for p in p_vals] if total_p > 0 else [1/45]*45
-
+        
         prob_norm = {n: p for n, p in zip(nums, p_vals)}
 
         results = []
