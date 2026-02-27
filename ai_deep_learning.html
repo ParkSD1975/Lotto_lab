@@ -423,6 +423,19 @@
                     </div>
                 </div>
 
+                <!-- ★ 전문가 메모 섹션 (분석에 적용된 메모 전체 표시) -->
+                <div id="expertMemoSection" class="card col-span-1 lg:col-span-2" style="display:none">
+                    <div class="card-header" style="background:linear-gradient(135deg,#fefce8,#fef3c7)">
+                        <span class="material-symbols-outlined text-amber-500">sticky_note_2</span>
+                        <h3 style="color:#92400e">전문가 메모</h3>
+                        <span id="expertMemoCount" class="ml-auto text-[10px] bg-amber-100 text-amber-700 font-bold px-2 py-0.5 rounded-full"></span>
+                        <span class="text-[10px] text-amber-600 ml-2 font-medium">딥러닝 분석에 반영됨</span>
+                    </div>
+                    <div class="card-body">
+                        <div id="expertMemoList" class="space-y-2"></div>
+                    </div>
+                </div>
+
                 <!-- ★ 번호별 모델 근거 매트릭스 (필터 탭에서 이동) -->
                 <div class="card col-span-1 lg:col-span-2">
                     <div class="card-header">
@@ -442,6 +455,8 @@
                                 style="font-size:10px;padding:2px 8px;border-radius:4px;border:1px solid #e2e8f0;background:#fff;color:#fb923c;cursor:pointer;font-weight:700;white-space:nowrap">TF</button>
                             <button id="sort-btn-markov" onclick="DeepLearning.sortMatrix('markov')"
                                 style="font-size:10px;padding:2px 8px;border-radius:4px;border:1px solid #e2e8f0;background:#fff;color:#34d399;cursor:pointer;font-weight:700;white-space:nowrap">MKV</button>
+                            <button id="sort-btn-autoencoder" onclick="DeepLearning.sortMatrix('autoencoder')"
+                                style="font-size:10px;padding:2px 8px;border-radius:4px;border:1px solid #e2e8f0;background:#fff;color:#a855f7;cursor:pointer;font-weight:700;white-space:nowrap">ATC</button>
                         </div>
                     </div>
                     <div class="card-body">

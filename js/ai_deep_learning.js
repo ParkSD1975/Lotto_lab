@@ -140,6 +140,93 @@ const DeepLearning = {
         });
     },
 
+    // ── 전문가 메모 DB 로드 ──
+    async _loadExpertMemos() {
+        try {
+            if (!window.supabaseClient) return [];
+            const { data, error } = await window.supabaseClient
+                .from('user_checkpoints')
+                .select('*')
+                .eq('round', this.state.targetRound)
+                .order('created_at', { ascending: true });
+            if (error) throw error;
+            return data || [];
+        } catch (e) {
+            console.warn('[DeepLearning] 전문가 메모 로드 실패:', e);
+            return [];
+        }
+    },
+
+    // ── 전문가 메모 섹션 렌더링 (번호별 분석 탭) ──
+    renderExpertMemoSection(memos) {
+        const section = document.getElementById('expertMemoSection');
+        const list = document.getElementById('expertMemoList');
+        const countBadge = document.getElementById('expertMemoCount');
+        if (!section || !list) return;
+
+        if (!memos || memos.length === 0) {
+            section.style.display = 'none';
+            return;
+        }
+
+        if (countBadge) countBadge.textContent = memos.length + '개';
+
+        list.innerHTML = memos.map(function (m, i) {
+            const dateObj = new Date(m.created_at || new Date());
+            const dateStr = dateObj.getFullYear() + '-' +
+                String(dateObj.getMonth() + 1).padStart(2, '0') + '-' +
+                String(dateObj.getDate()).padStart(2, '0') + ' ' +
+                String(dateObj.getHours()).padStart(2, '0') + ':' +
+                String(dateObj.getMinutes()).padStart(2, '0');
+            const content = (m.memo || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+            return `<div style="background:linear-gradient(135deg,#fefce8,#fef9c3);border:1px solid #fde047;border-radius:10px;padding:12px 14px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                    <span style="font-size:11px;font-weight:800;color:#854d0e;display:flex;align-items:center;gap:4px">
+                        <span>💡</span> 메모 #${i + 1}
+                    </span>
+                    <span style="font-size:10px;color:#92400e;font-weight:600">${dateStr}</span>
+                </div>
+                <div style="font-size:12.5px;color:#713f12;line-height:1.6">${content}</div>
+            </div>`;
+        }).join('');
+
+        section.style.display = 'block';
+    },
+
+    // ── 전문가 메모 텍스트에서 제외번호 파싱 ──
+    // "37번 제외", "37을 빼", "제외: 37, 38", "37번은 제외해야" 등을 인식
+    _parseMemoExclusions(memos) {
+        const excluded = new Set();
+        for (const m of (memos || [])) {
+            const text = m.memo || '';
+
+            // 패턴1: 숫자 + 번? + (은/는/을/를/이/가)? + (제외|빼|뺐|제거)
+            const re1 = /(\d{1,2})\s*번?(?:\s*[은는을를이가])?\s*(제외|빼|뺐|제거)/gi;
+            let match;
+            while ((match = re1.exec(text)) !== null) {
+                const n = parseInt(match[1]);
+                if (n >= 1 && n <= 45) excluded.add(n);
+            }
+
+            // 패턴2: (제외|빼야) + ... + 숫자 + 번?  (e.g. "제외해야 할 37번")
+            const re2 = /(제외|빼야)[^.!?\n]{0,20}?(\d{1,2})\s*번?/gi;
+            while ((match = re2.exec(text)) !== null) {
+                const n = parseInt(match[2]);
+                if (n >= 1 && n <= 45) excluded.add(n);
+            }
+
+            // 패턴3: "제외: 37, 38, 39" 형태 (콤마 구분 목록)
+            const re3 = /제외\s*[:：]\s*([\d,\s]+)/gi;
+            while ((match = re3.exec(text)) !== null) {
+                match[1].split(/[,\s]+/).forEach(s => {
+                    const n = parseInt(s);
+                    if (n >= 1 && n <= 45) excluded.add(n);
+                });
+            }
+        }
+        return [...excluded];
+    },
+
     // ── 메인 분석 실행 (Python 우선 → Edge Function 폴백) ──
     async runAnalysis() {
         console.log("🚀 [DeepLearning] runAnalysis() Called");
@@ -149,6 +236,10 @@ const DeepLearning = {
         }
 
         this.state.isAnalyzing = true;
+
+        // 전문가 메모 미리 로드 (분석 요청 전)
+        this.state.expertMemos = await this._loadExpertMemos();
+        console.log(`✅ 전문가 메모 ${this.state.expertMemos.length}개 로드 완료`);
 
         // 1. Python 서버 시도
         if (!this.state.isConnected) {
@@ -200,11 +291,18 @@ const DeepLearning = {
                 signal: AbortSignal.timeout(60000)
             });
 
+            // 전문가 메모를 분석 컨텍스트에 포함
+            const expertMemos = this.state.expertMemos || [];
+            const memosContext = expertMemos.length > 0
+                ? '\n\n# 전문가 메모 (반드시 분석에 반영)\n' + expertMemos.map((m, i) => `[메모 ${i + 1}] ${m.memo}`).join('\n')
+                : '';
+
             const edgePromise = window.supabaseClient
                 ? window.supabaseClient.functions.invoke('ai-lotto-analyst', {
                     body: {
-                        context: `대상: 제 ${this.state.targetRound}회차\n${pageStats.slice(0, 500)}`,
-                        target_round: this.state.targetRound
+                        context: `대상: 제 ${this.state.targetRound}회차\n${pageStats.slice(0, 500)}${memosContext}`,
+                        target_round: this.state.targetRound,
+                        expert_memos: expertMemos.map(m => m.memo)
                     }
                 })
                 : Promise.resolve({ data: null });
@@ -285,13 +383,19 @@ const DeepLearning = {
 
             this.setProgress(30, 'AI 분석 요청 전송 중 (Meta-Learning · GNN · RL · Anomaly)...');
 
+            // 전문가 메모 컨텍스트 구성
+            const expertMemosFallback = this.state.expertMemos || [];
+            const memosSectionFallback = expertMemosFallback.length > 0
+                ? '\n\n# 전문가 메모 (반드시 분석 결과에 반영)\n' + expertMemosFallback.map((m, i) => `[메모 ${i + 1}] ${m.memo}`).join('\n')
+                : '';
+
             // Edge Function으로 심층 분석 요청 (타임아웃 적용)
             const prompt = `
 # 역할: 로또 딥러닝 심층 분석 AI
 대상: 제 ${this.state.targetRound}회차 예측 분석
 
 # 최근 당첨 데이터
-${recentStr}
+${recentStr}${memosSectionFallback}
 
 # 분석 요청
 위 데이터를 기반으로 다음 JSON 형식으로 심층 분석 결과를 제공해주세요.
@@ -497,6 +601,40 @@ ${recentStr}
             excluded: (exclude10 || []).slice(0, 10)
         };
 
+        // ── 전문가 메모 제외번호 강제 적용 ──────────────────────────────
+        // Python 서버는 메모를 모르므로, 클라이언트에서 직접 필터링합니다.
+        const memoExcluded = this._parseMemoExclusions(this.state.expertMemos || []);
+        if (memoExcluded.length > 0) {
+            const memoExcSet = new Set(memoExcluded);
+
+            // 1) 강력추천(recommended, top_6) 에서 제외번호 제거
+            compatAnalysis.recommended = (compatAnalysis.recommended || []).filter(n => !memoExcSet.has(n));
+            compatAnalysis.top_6 = (compatAnalysis.top_6 || []).filter(n => !memoExcSet.has(n));
+
+            // 2) 제외목록에 메모 제외번호 추가 (중복 방지)
+            const exSet = new Set([...(compatAnalysis.excluded || []), ...memoExcluded]);
+            compatAnalysis.excluded = [...exSet];
+
+            // 3) result.top_5 원본도 업데이트 (renderExcludeFixed 우선 경로 반영)
+            if (result.top_5) result.top_5 = result.top_5.filter(n => !memoExcSet.has(n));
+            if (result.exclude_10) {
+                const ex10Set = new Set([...result.exclude_10, ...memoExcluded]);
+                result.exclude_10 = [...ex10Set];
+            }
+
+            // 4) 조합(combinations)에서 제외번호 포함된 조합 제거
+            if (result.combinations && result.combinations.length > 0) {
+                const filtered = result.combinations.filter(
+                    c => !(c.numbers || []).some(n => memoExcSet.has(n))
+                );
+                // 전부 걸리면 원본 유지 (빈 목록 방지)
+                if (filtered.length > 0) result.combinations = filtered;
+            }
+
+            console.log(`🚫 [전문가 메모] 제외번호 적용: [${memoExcluded.join(', ')}]`);
+        }
+        // ────────────────────────────────────────────────────────────────
+
         // Tab 1: 대시보드
         this.renderStrategy(strategy, result.elapsed_seconds);
         this.renderHotColdRisk(strategy);
@@ -519,12 +657,16 @@ ${recentStr}
         // Tab 3(맨끝): 추천
         this.renderExcludeFixed(strategy, compatAnalysis);
         this.renderFilterRecommendations(strategy);
-        this.renderCombinations(combinations, compatAnalysis, matrixData);
+        // result.combinations: 메모 제외 필터링 후 최신값 사용
+        this.renderCombinations(result.combinations, compatAnalysis, matrixData);
 
         // [Phase 6] pipeline 신규 렌더링 (pipeline 필드가 있을 때만)
         if (result.pipeline) {
             this.renderPipelineInfo(result.pipeline);
         }
+
+        // 전문가 메모 섹션 렌더링 (pipeline 유무와 무관하게 항상 표시)
+        this.renderExpertMemoSection(this.state.expertMemos || []);
     },
 
     // ══════════════════════════════════
@@ -1201,27 +1343,7 @@ ${recentStr}
             }).join('');
 
             const reason = pipeline.weightReasons || '';
-            // 전문가 메모 배지
-            const memoRules = pipeline.expertMemoRules;
-            const memoText = pipeline.expertMemo;
-            let memoBadgeHtml = '';
-            if (memoText) {
-                const excluded = (memoRules?.excluded_numbers || []).join(', ') || '없음';
-                const fixed = (memoRules?.fixed_numbers || []).join(', ') || '없음';
-                const boostDesc = (memoRules?.boost_ranges || []).map(r => `${r.start}~${r.end}`).join(', ') || '없음';
-                memoBadgeHtml = `
-                <div style="margin-top:8px;background:linear-gradient(135deg,#fefce8,#fef9c3);border:1px solid #fde047;border-radius:10px;padding:10px 12px">
-                    <div style="font-size:11px;font-weight:800;color:#854d0e;margin-bottom:6px;display:flex;align-items:center;gap:5px">
-                        <span>💡</span> 전문가 메모 적용
-                    </div>
-                    <div style="font-size:10.5px;color:#713f12;margin-bottom:4px;font-style:italic">"${memoText}"</div>
-                    <div style="font-size:10px;color:#92400e;display:flex;flex-wrap:wrap;gap:6px;margin-top:4px">
-                        ${excluded !== '없음' ? `<span style="background:#fee2e2;color:#991b1b;padding:1px 6px;border-radius:4px;font-weight:700">제외: ${excluded}</span>` : ''}
-                        ${fixed !== '없음' ? `<span style="background:#dcfce7;color:#166534;padding:1px 6px;border-radius:4px;font-weight:700">고정: ${fixed}</span>` : ''}
-                        ${boostDesc !== '없음' ? `<span style="background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:4px;font-weight:700">부스트: ${boostDesc}</span>` : ''}
-                    </div>
-                </div>`;
-            }
+            // ※ 전문가 메모는 expertMemoSection(별도 카드)에서만 표시 → 여기선 제거
 
             condContainer.innerHTML = `
                 <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px 16px;margin-top:12px">
@@ -1231,7 +1353,6 @@ ${recentStr}
                     </div>
                     <div style="display:flex;flex-direction:column;gap:6px">${barsHtml}</div>
                     ${reason ? `<div style="margin-top:8px;font-size:10px;color:#64748b;border-top:1px solid #e2e8f0;padding-top:6px">${reason}</div>` : ''}
-                    ${memoBadgeHtml}
                 </div>`;
             condContainer.style.display = 'block';
         }
