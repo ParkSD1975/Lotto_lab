@@ -11,6 +11,7 @@ from models.lstm_model import LSTMTrainer
 from models.cnn_model import CNNTrainer
 from models.transformer_model import TransformerTrainer
 from models.autoencoder_model import AutoencoderTrainer
+from models.gnn_model import GNNTrainer
 
 class LottoEnsemble:
     def __init__(self):
@@ -24,15 +25,17 @@ class LottoEnsemble:
             "lstm": LSTMTrainer(),
             "cnn": CNNTrainer(),
             "transformer": TransformerTrainer(),
-            "autoencoder": AutoencoderTrainer()
+            "autoencoder": AutoencoderTrainer(),
+            "gnn": GNNTrainer()  # <== 드디어 GNN 추가!
         }
         
-        # 가중치 (고급 피처 XGB, 장기기억 LSTM에 높은 비중)
+        # 가중치 (GNN에게 15%의 힘을 주고, 나머지를 조금씩 양보합니다)
         self.weights = {
-            "xgboost": 0.35,
-            "lstm": 0.25,
-            "cnn": 0.15,
+            "xgboost": 0.30,
+            "lstm": 0.20,
+            "cnn": 0.10,
             "transformer": 0.15,
+            "gnn": 0.15,      # <== 동반출현 전문가 GNN 가중치 배정
             "markov": 0.10  # 마르코프는 자체 행렬로 계산
         }
 
@@ -154,7 +157,7 @@ class LottoEnsemble:
             "model_weights": self.weights,
             "top_signals": [
                 {"model": "Human-in-the-loop", "signal": evidence_reasons[0] if evidence_reasons else "전문가 메모 미적용"},
-                {"model": "Ensemble", "signal": "CNN, Transformer, Autoencoder 등 6중 파인튜닝 통합 적용 완료"}
+                {"model": "Ensemble", "signal": "CNN, Transformer, Autoencoder, GNN 등 7중 파인튜닝 통합 적용 완료"}
             ]
         }
 
