@@ -316,6 +316,202 @@ def count_combos(req: FilterRequest):
     count = int(np.sum(mask))
     return {"count": count}
 
+@app.post("/api/count/explain")
+def count_explain(req: FilterRequest):
+    """각 필터를 mask에 순차 적용 → 단계별 조합수 변화 반환 (메모리 효율 버전)"""
+    if combos is None:
+        return {"steps": [], "error": "Initializing..."}
+
+    steps = []
+    mask = np.ones(len(combos), dtype=bool)
+
+    def step(label: str):
+        """현재 mask 상태의 count를 캡처 후 반환 (apply 전에 호출)"""
+        return int(np.sum(mask))
+
+    def done(label: str, before: int):
+        """apply 후 호출: 변화가 있으면 steps에 기록"""
+        after = int(np.sum(mask))
+        if before != after:
+            steps.append({"filter": label, "before": before, "after": after})
+
+    steps.append({"filter": "전체 (시작)", "before": len(combos), "after": len(combos)})
+
+    # 1. Fixed
+    if req.fixed:
+        b = step("고정수")
+        for v in req.fixed: mask &= np.any(combos == v, axis=1)
+        done(f"고정수 {req.fixed}", b)
+
+    # 2. Excluded
+    if req.excluded:
+        b = step("제외수")
+        for v in req.excluded: mask &= ~np.any(combos == v, axis=1)
+        done(f"제외수 {req.excluded}", b)
+
+    # 3. Total Sum
+    if req.total_sum_enabled:
+        b = step("총합")
+        mask &= (sums >= req.total_sum_min) & (sums <= req.total_sum_max)
+        if req.total_sum_excluded:
+            mask &= ~np.isin(sums, np.array(req.total_sum_excluded, dtype=np.uint16))
+        done(f"총합 {req.total_sum_min}~{req.total_sum_max}", b)
+
+    # 4. Tail Sum
+    if req.last_digit_sum_enabled:
+        b = step("끝수합")
+        tsums = (combos % 10).sum(axis=1)
+        mask &= (tsums >= req.last_digit_sum_min) & (tsums <= req.last_digit_sum_max)
+        if req.last_digit_sum_excluded:
+            mask &= ~np.isin(tsums, np.array(req.last_digit_sum_excluded, dtype=np.uint8))
+        done(f"끝수합 {req.last_digit_sum_min}~{req.last_digit_sum_max}", b)
+
+    # 5. AC Value
+    if req.ac_value_enabled:
+        b = step("AC값")
+        mask &= (acs >= req.ac_value_min) & (acs <= req.ac_value_max)
+        if req.ac_value_excluded:
+            mask &= ~np.isin(acs, np.array(req.ac_value_excluded, dtype=np.uint8))
+        done(f"AC값 {req.ac_value_min}~{req.ac_value_max}", b)
+
+    # 6. Odd/Even
+    if req.odd_even_enabled and req.odd_even_counts:
+        b = step("홀짝")
+        mask &= np.isin((combos % 2 == 1).sum(axis=1), np.array(req.odd_even_counts, dtype=np.uint8))
+        done(f"홀짝 {req.odd_even_counts}", b)
+
+    # 7. High/Low
+    if req.high_low_enabled and req.high_low_counts:
+        b = step("고저")
+        mask &= np.isin((combos >= 23).sum(axis=1), np.array(req.high_low_counts, dtype=np.uint8))
+        done(f"고저 {req.high_low_counts}", b)
+
+    # 8. Prime
+    if req.prime_enabled and req.prime_counts:
+        b = step("소수")
+        mask &= np.isin(np.isin(combos, [2,3,5,7,11,13,17,19,23,29,31,37,41,43]).sum(axis=1),
+                        np.array(req.prime_counts, dtype=np.uint8))
+        done(f"소수 {req.prime_counts}", b)
+
+    # 9. Composite
+    if req.composite_enabled and req.composite_counts:
+        b = step("합성수")
+        mask &= np.isin(np.isin(combos, [4,6,8,9,10,12,14,15,16,18,20,21,22,24,25,26,27,28,
+                                          30,32,33,34,35,36,38,39,40,42,44,45]).sum(axis=1),
+                        np.array(req.composite_counts, dtype=np.uint8))
+        done(f"합성수 {req.composite_counts}", b)
+
+    # 10. Tail Digits
+    if req.tail_digit_enabled and req.tail_digit_filters:
+        b = step("끝수패턴")
+        tails = combos % 10
+        for d_str, rng in req.tail_digit_filters.items():
+            dc = (tails == int(d_str)).sum(axis=1)
+            mask &= (dc >= rng.get("min",0)) & (dc <= rng.get("max",6))
+        done("끝수패턴", b)
+
+    # 11. Band
+    if req.band_enabled and req.band_filters:
+        BANDS = {"1_10":(1,10),"11_20":(11,20),"21_30":(21,30),"31_40":(31,40),"41_45":(41,45),
+                 "단번대":(1,10),"10번대":(11,20),"20번대":(21,30),"30번대":(31,40),"40번대":(41,45)}
+        b = step("번호대")
+        for bk, rng in req.band_filters.items():
+            if bk == "entropy": continue
+            br = BANDS.get(bk)
+            if not br: continue
+            mask &= (((combos >= br[0]) & (combos <= br[1])).sum(axis=1) >= rng.get("min",0)) & \
+                    (((combos >= br[0]) & (combos <= br[1])).sum(axis=1) <= rng.get("max",6))
+        done("번호대", b)
+
+    # 12. Missing Period
+    if req.missing_period_enabled and req.missing_groups:
+        b = step("미출현")
+        for grp in req.missing_groups:
+            nums = grp.get("numbers", [])
+            if not nums: continue
+            gc = np.isin(combos, np.array(nums, dtype=np.uint8)).sum(axis=1)
+            mask &= (gc >= grp.get("min",0)) & (gc <= grp.get("max",6))
+        done(f"미출현({len(req.missing_groups)}그룹)", b)
+
+    # 13. Missing Custom
+    if req.missing_custom_enabled and req.missing_custom_groups:
+        b = step("미출현커스텀")
+        for grp in req.missing_custom_groups:
+            nums = grp.get("numbers", [])
+            if not nums: continue
+            gc = np.isin(combos, np.array(nums, dtype=np.uint8)).sum(axis=1)
+            mask &= (gc >= grp.get("min",0)) & (gc <= grp.get("max",6))
+        done(f"미출현커스텀({len(req.missing_custom_groups)}그룹)", b)
+
+    # 14. Square
+    if req.square_enabled and req.square_counts:
+        b = step("제곱수")
+        mask &= np.isin(np.isin(combos, [1,4,9,16,25,36]).sum(axis=1).astype(np.uint8),
+                        np.array(req.square_counts, dtype=np.uint8))
+        done(f"제곱수 {req.square_counts}", b)
+
+    # 15. Triangular
+    if req.triangular_enabled and req.triangular_counts:
+        b = step("삼각수")
+        mask &= np.isin(np.isin(combos, [1,3,6,10,15,21,28,36,45]).sum(axis=1).astype(np.uint8),
+                        np.array(req.triangular_counts, dtype=np.uint8))
+        done(f"삼각수 {req.triangular_counts}", b)
+
+    # 16. Twin
+    if req.twin_enabled and req.twin_counts:
+        b = step("쌍수")
+        mask &= np.isin(np.isin(combos, [11,22,33,44]).sum(axis=1).astype(np.uint8),
+                        np.array(req.twin_counts, dtype=np.uint8))
+        done(f"쌍수 {req.twin_counts}", b)
+
+    # 17. Consecutive
+    if req.consecutive_enabled and req.consecutive_counts:
+        b = step("연속번호")
+        mask &= np.isin((np.diff(combos.astype(np.int16), axis=1) == 1).sum(axis=1).astype(np.uint8),
+                        np.array(req.consecutive_counts, dtype=np.uint8))
+        done(f"연속번호 {req.consecutive_counts}", b)
+
+    # 18. Palace
+    if req.palace_enabled and req.palace_filters:
+        PD = {'1궁':[1,2,3,4,5],'2궁':[6,7,8,9,10],'3궁':[11,12,13,14,15],
+              '4궁':[16,17,18,19,20],'5궁':[21,22,23,24,25],'6궁':[26,27,28,29,30],
+              '7궁':[31,32,33,34,35],'8궁':[36,37,38,39,40],'9궁':[41,42,43,44,45]}
+        b = step("9궁")
+        for gung, rng in req.palace_filters.items():
+            nums = PD.get(gung)
+            if not nums: continue
+            gc = np.isin(combos, np.array(nums, dtype=np.uint8)).sum(axis=1)
+            mask &= (gc >= rng.get("min",0)) & (gc <= rng.get("max",6))
+        done(f"9궁({len(req.palace_filters)}개)", b)
+
+    # 19. Paper
+    if req.paper_enabled and req.paper_filters:
+        PPD = {'가로1':[1,2,3,4,5,6,7],'가로2':[8,9,10,11,12,13,14],'가로3':[15,16,17,18,19,20,21],
+               '가로4':[22,23,24,25,26,27,28],'가로5':[29,30,31,32,33,34,35],'가로6':[36,37,38,39,40,41,42],
+               '가로7':[43,44,45],'세로1':[1,8,15,22,29,36,43],'세로2':[2,9,16,23,30,37,44],
+               '세로3':[3,10,17,24,31,38,45],'세로4':[4,11,18,25,32,39],'세로5':[5,12,19,26,33,40],
+               '세로6':[6,13,20,27,34,41],'세로7':[7,14,21,28,35,42]}
+        b = step("용지패턴")
+        for line, rng in req.paper_filters.items():
+            nums = PPD.get(line)
+            if not nums: continue
+            gc = np.isin(combos, np.array(nums, dtype=np.uint8)).sum(axis=1)
+            mask &= (gc >= rng.get("min",0)) & (gc <= rng.get("max",6))
+        done(f"용지패턴({len(req.paper_filters)}라인)", b)
+
+    # 20. Regression
+    if req.regression_filters:
+        b = step("회귀분석")
+        for rf in req.regression_filters:
+            nums = rf.get("numbers", [])
+            if not nums: continue
+            gc = np.isin(combos, np.array(nums, dtype=np.uint8)).sum(axis=1)
+            mask &= (gc >= rf.get("min",0)) & (gc <= rf.get("max",6))
+        done(f"회귀분석({len(req.regression_filters)}단계)", b)
+
+    return {"steps": steps, "final_count": int(np.sum(mask))}
+
+
 @app.get("/api/health")
 def health():
     return {"status": "ready" if combos is not None else "loading"}

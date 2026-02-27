@@ -50,6 +50,8 @@
             band_enabled: false, band_filters: {},
             palace_enabled: false, palace_filters: {},
             paper_enabled: false, paper_filters: {},
+            missing_period_enabled: false, missing_groups: [],
+            missing_custom_enabled: false, missing_custom_groups: [],
 
             regression_filters: []
         };
@@ -134,6 +136,64 @@
                     body.band_filters = vals.ranges || {};  // number_range.html은 'ranges' 키로 저장
                     break;
 
+                case 'missing_period': {
+                    // allDraws(최근 250회차)로 각 번호의 현재 연속 미출현 횟수 계산
+                    if (!allDraws || allDraws.length === 0) break;
+
+                    // missCount[i]: missing.html 기준 값 (1=최신 회차 출현, N=N-1번 연속 미출현)
+                    const missCount = {};
+                    const appeared = new Set();
+                    for (let i = 1; i <= 45; i++) missCount[i] = allDraws.length + 1;
+
+                    for (let idx = 0; idx < allDraws.length; idx++) {
+                        const drawNums = new Set(allDraws[idx].numbers || []);
+                        for (let i = 1; i <= 45; i++) {
+                            if (!appeared.has(i) && drawNums.has(i)) {
+                                missCount[i] = idx + 1; // idx=0(최신)→missCount=1
+                                appeared.add(i);
+                            }
+                        }
+                        if (appeared.size === 45) break;
+                    }
+
+                    // 그룹 분류 (getMissRange와 동일)
+                    const g1 = [], g2 = [], g3 = [], g4 = [];
+                    for (let i = 1; i <= 45; i++) {
+                        const m = missCount[i];
+                        if (m <= 5) g1.push(i);
+                        else if (m <= 10) g2.push(i);
+                        else if (m <= 15) g3.push(i);
+                        else g4.push(i);
+                    }
+
+                    const ranges = vals.ranges || {};
+                    body.missing_period_enabled = true;
+                    body.missing_groups = [
+                        { numbers: g1, min: parseInt(ranges.r1Min ?? 0), max: parseInt(ranges.r1Max ?? 6) },
+                        { numbers: g2, min: parseInt(ranges.r2Min ?? 0), max: parseInt(ranges.r2Max ?? 6) },
+                        { numbers: g3, min: parseInt(ranges.r3Min ?? 0), max: parseInt(ranges.r3Max ?? 6) },
+                        { numbers: g4, min: parseInt(ranges.r4Min ?? 0), max: parseInt(ranges.r4Max ?? 6) },
+                    ].filter(g => g.numbers.length > 0);
+                    break;
+                }
+
+                case 'missing_custom_filter': {
+                    // 사용자가 정의한 미출현 커스텀 그룹 필터
+                    const customFilters = vals.filters || [];
+                    const activeGroups = customFilters.filter(
+                        f => f.enabled && f.numbers && f.numbers.length > 0
+                    );
+                    if (activeGroups.length === 0) break;
+
+                    body.missing_custom_enabled = true;
+                    body.missing_custom_groups = activeGroups.map(f => ({
+                        numbers: f.numbers,
+                        min: parseInt(f.minCount ?? 0),
+                        max: parseInt(f.maxCount ?? 6)
+                    }));
+                    break;
+                }
+
                 case 'magic_square_pattern':
                     body.palace_enabled = true;
                     body.palace_filters = vals.filters || {};
@@ -196,6 +256,34 @@
      * 메인 함수: 필터 변경 즉시 API 호출
      * (여러 번 연속 호출 시 가장 마지막 응답만 반영)
      */
+    /**
+     * 현재 body에서 활성 필터 목록을 요약 문자열로 반환
+     */
+    function summarizeActiveFilters(body) {
+        const list = [];
+        if (body.fixed?.length)              list.push(`고정수(${body.fixed.length}개):[${body.fixed}]`);
+        if (body.excluded?.length)           list.push(`제외수(${body.excluded.length}개):[${body.excluded}]`);
+        if (body.total_sum_enabled)          list.push(`총합:${body.total_sum_min}~${body.total_sum_max}`);
+        if (body.last_digit_sum_enabled)     list.push(`끝수합:${body.last_digit_sum_min}~${body.last_digit_sum_max}`);
+        if (body.ac_value_enabled)           list.push(`AC:${body.ac_value_min}~${body.ac_value_max}`);
+        if (body.odd_even_enabled)           list.push(`홀짝:[${body.odd_even_counts}]`);
+        if (body.high_low_enabled)           list.push(`고저:[${body.high_low_counts}]`);
+        if (body.prime_enabled)              list.push(`소수:[${body.prime_counts}]`);
+        if (body.composite_enabled)          list.push(`합성수:[${body.composite_counts}]`);
+        if (body.square_enabled)             list.push(`제곱수:[${body.square_counts}]`);
+        if (body.triangular_enabled)         list.push(`삼각수:[${body.triangular_counts}]`);
+        if (body.twin_enabled)               list.push(`쌍수:[${body.twin_counts}]`);
+        if (body.consecutive_enabled)        list.push(`연속번호:[${body.consecutive_counts}]`);
+        if (body.tail_digit_enabled)         list.push(`끝수패턴(${Object.keys(body.tail_digit_filters||{}).length}자리)`);
+        if (body.band_enabled)               list.push(`번호대(${Object.keys(body.band_filters||{}).length}구간)`);
+        if (body.palace_enabled)             list.push(`9궁(${Object.keys(body.palace_filters||{}).length}궁)`);
+        if (body.paper_enabled)              list.push(`용지패턴(${Object.keys(body.paper_filters||{}).length}라인)`);
+        if (body.missing_period_enabled)     list.push(`미출현(${body.missing_groups?.length}그룹)`);
+        if (body.missing_custom_enabled)     list.push(`미출현커스텀(${body.missing_custom_groups?.length}그룹)`);
+        if (body.regression_filters?.length) list.push(`회귀분석(${body.regression_filters.length}단계)`);
+        return list.length ? list.join(' │ ') : '활성 필터 없음';
+    }
+
     async function updateNeonCounter() {
         const requestId = ++_lastRequestId;
 
@@ -209,6 +297,13 @@
 
             const body = buildRequestBody(state);
 
+            // ── 디버그 로그 ──────────────────────────────────────────
+            console.group('[FilterCounter] 조합수 계산 요청');
+            console.log('활성 필터:', summarizeActiveFilters(body));
+            console.log('전체 body:', JSON.stringify(body, null, 2));
+            console.groupEnd();
+            // ────────────────────────────────────────────────────────
+
             const res = await fetch(`${API_BASE}/api/count`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -220,6 +315,26 @@
 
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = await res.json();
+
+            // ── 조합수가 매우 적으면 explain API로 원인 추적 ──────────
+            if (data.count <= 1000) {
+                console.warn(`⚠️ [FilterCounter] 조합수 ${data.count.toLocaleString()}개 → 원인 분석 중...`);
+                fetch(`${API_BASE}/api/count/explain`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                }).then(r => r.json()).then(exp => {
+                    console.group('🔍 [FilterCounter] 필터별 조합수 단계 분석');
+                    (exp.steps || []).forEach(s => {
+                        const removed = s.before - s.after;
+                        const pct = s.before > 0 ? ((removed / s.before) * 100).toFixed(1) : '0.0';
+                        const flag = removed > 0 ? '  ←' : '';
+                        console.log(`${s.filter.padEnd(24)} ${s.after.toLocaleString().padStart(12)} 남음  (${removed.toLocaleString()} 제거, ${pct}%)${flag}`);
+                    });
+                    console.groupEnd();
+                }).catch(() => {});
+            }
+            // ────────────────────────────────────────────────────────
 
             if (obj) obj.style.opacity = '1';
             animateCounter(data.count);
