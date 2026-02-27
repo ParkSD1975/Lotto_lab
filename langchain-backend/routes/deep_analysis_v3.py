@@ -1298,11 +1298,52 @@ def analyze_missing_group(target_round: int, final_probs: dict, history_draws: l
 
 
 # ------------------------------------------------------------------
+# 6. 이력 조회 (v2에서 통합)
+# ------------------------------------------------------------------
+@router.get("/history")
+async def get_history():
+    """저장된 분석 이력 목록 조회."""
+    try:
+        client = get_client()
+        result = (
+            client.table("deep_analysis_history")
+            .select("id, target_round, created_at, confidence, summary")
+            .order("created_at", desc=True)
+            .limit(30)
+            .execute()
+        )
+        return _json_response({"success": True, "history": result.data or []})
+    except Exception as e:
+        print(f"이력 조회 실패: {e}")
+        return _json_response({"success": True, "history": []})
+
+
+@router.get("/history/{history_id}")
+async def get_history_detail(history_id: int):
+    """특정 이력의 상세 데이터 조회."""
+    try:
+        client = get_client()
+        result = (
+            client.table("deep_analysis_history")
+            .select("*")
+            .eq("id", history_id)
+            .single()
+            .execute()
+        )
+        if result.data:
+            return _json_response({"success": True, "data": result.data})
+        return _json_response({"success": False, "error": "이력을 찾을 수 없습니다"})
+    except Exception as e:
+        return _json_response({"success": False, "error": str(e)})
+
+
+# ------------------------------------------------------------------
 # Main API
 # ------------------------------------------------------------------
 @router.get("/analysis")
 async def get_deep_analysis(round_num: int = None):
     start_time = time.time()
+    client = get_client() # [Fix] Define client for DB operations
     
     try:
         all_draws = fetch_all_draws()
@@ -1323,10 +1364,10 @@ async def get_deep_analysis(round_num: int = None):
                 .execute()
             
             if memo_res.data:
-                expert_memo_data = memo_res.data[-1] # 마지막 데이터를 참조용으로 유지
                 # 모든 메모 텍스트 합치기
                 all_memo_texts = [row.get("memo", "") for row in memo_res.data if row.get("memo")]
                 memo_text = "\n".join(all_memo_texts)
+                expert_memo_data = {"memo": memo_text} # [Fix] 모든 메모가 합쳐진 텍스트를 저장
                 
                 if memo_text.strip():
                     print(f"[{target_round}회] 전문가 메모({len(all_memo_texts)}개) 합산 분석 시작...")
@@ -1438,7 +1479,13 @@ async def get_deep_analysis(round_num: int = None):
                 return [int(n) for n in global_targets if 1 <= int(n) <= 45]
 
             elif a_type == "dynamic":
-                if formula in ("draw_date_end", "draw_date_math"):
+                if formula in ("draw_date_end", "draw_date_math", "round_end_digit"):
+                    if formula == "round_end_digit":
+                        # [New] 회차 번호 끝수 기준 (예: 1103회 -> 3끝수)
+                        digit = target_round % 10
+                        start = 10 if digit == 0 else digit
+                        return list(range(start, 46, 10))
+                    
                     # 날짜 기반 - 최신 당첨일 기준
                     if not latest: return []
                     date_str = latest.get("date", "")

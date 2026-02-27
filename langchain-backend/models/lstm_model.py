@@ -212,7 +212,7 @@ class LSTMTrainer:
         self.model = None
         self.best_loss = float("inf")
 
-    def train(self, draws: list) -> dict:
+    def train(self, draws: list, fine_tune: bool = True) -> dict:
         """전체 학습 실행."""
         # 데이터셋 생성
         dataset = LottoSequenceDataset(draws, seq_len=config.LSTM_SEQ_LEN)
@@ -234,8 +234,15 @@ class LSTMTrainer:
             val_dataset, batch_size=config.LSTM_BATCH_SIZE, shuffle=False
         )
 
-        # 모델 초기화
+        # 모델 초기화 (또는 파인튜닝)
         self.model = LottoLSTM().to(self.device)
+        if fine_tune:
+            path = os.path.join(config.MODEL_DIR, "lstm_model.pt")
+            if os.path.exists(path):
+                self.model.load_state_dict(torch.load(path, map_location=self.device, weights_only=True))
+                print("  [LSTM] 기존 뇌(.pt) 가중치를 성공적으로 불러와 파인튜닝을 시작합니다.")
+            else:
+                print("  [LSTM] 기존 뇌가 없어 초기 상태에서 학습합니다.")
 
         # [Upgrade] Focal Loss 적용
         criterion = FocalLoss(

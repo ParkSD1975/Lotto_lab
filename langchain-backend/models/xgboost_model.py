@@ -145,7 +145,7 @@ class LottoXGBoost:
             ]
         )
 
-    def train(self, draws: list):
+    def train(self, draws: list, fine_tune: bool = True):
         """45개 모델 학습."""
         # draws: 최신 -> 과거
         X_data = {n: [] for n in range(1, 46)}
@@ -166,10 +166,16 @@ class LottoXGBoost:
                 X_data[num].append(features)
                 y_data[num].append(label)
 
+        # 파인튜닝 시 기존 모델 로드
+        if fine_tune and not self.models:
+            self._load_models()
+
         # 모델 학습
         for num in range(1, 46):
             X = np.array(X_data[num])
             y = np.array(y_data[num])
+
+            existing_model = self.models.get(num) if fine_tune else None
 
             # 불균형 데이터 처리 (당첨 1 : 낙첨 6 비율)
             scale_pos_weight = 6.0
@@ -181,10 +187,17 @@ class LottoXGBoost:
                 subsample=0.8,
                 colsample_bytree=0.8,
                 scale_pos_weight=scale_pos_weight,
-                n_jobs=1,  # 병렬 처리는 외부 루프에서 제어하지 않음
-                device="cpu", # 기본 CPU 사용
+                n_jobs=1,
+                device="cpu",
             )
-            model.fit(X, y)
+
+            # 파인튜닝(증분 학습) 적용 핵심 로직
+            if existing_model:
+                model.fit(X, y, xgb_model=existing_model.get_booster())
+                if num in [1, 45]: print(f"  [XGB] {num}번 트리 증분 학습 완료")
+            else:
+                model.fit(X, y)
+                
             self.models[num] = model
 
         self._save_models()

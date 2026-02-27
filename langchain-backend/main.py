@@ -8,8 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from routes import analysis, chat, report, interpret, vectors
-from routes import predictions, performance, explain, pipeline, deep_analysis
-from routes import deep_analysis_v2, deep_analysis_v3
+from routes import predictions, performance, explain, pipeline, deep_analysis_v3
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from pipeline.weekly_pipeline import WeeklyPipeline
@@ -75,8 +74,6 @@ app.include_router(predictions.router)
 app.include_router(performance.router)
 app.include_router(explain.router)
 app.include_router(pipeline.router)
-app.include_router(deep_analysis.router)
-app.include_router(deep_analysis_v2.router)
 app.include_router(deep_analysis_v3.router)
 
 
