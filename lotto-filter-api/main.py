@@ -98,6 +98,35 @@ class FilterRequest(BaseModel):
     tail_digit_filters: dict = {} # {"0": {"min":0, "max":6}, ...}
     band_enabled: bool = False
     band_filters: dict = {} # {"1_10": {"min":0,"max":6}, "11_20": {...}, ...} (단번대/10번대/...)
+    # Missing Period (미출현 기간 그룹) – groups pre-computed by client
+    missing_period_enabled: bool = False
+    missing_groups: list[dict] = []  # [{"numbers": [1,5,...], "min": 0, "max": 6}, ...]
+    # Missing Custom (미출현 커스텀) – user-defined groups
+    missing_custom_enabled: bool = False
+    missing_custom_groups: list[dict] = []  # [{"numbers": [3,7,...], "min": 1, "max": 2}, ...]
+    # ── 이하 누락 필터 추가 ──────────────────────────────────────────
+    # AC 제외값
+    ac_value_excluded: list[int] = []
+    # 제곱수 (1,4,9,16,25,36)
+    square_enabled: bool = False
+    square_counts: list[int] = []
+    # 삼각수 (1,3,6,10,15,21,28,36,45)
+    triangular_enabled: bool = False
+    triangular_counts: list[int] = []
+    # 쌍수 (11,22,33,44)
+    twin_enabled: bool = False
+    twin_counts: list[int] = []
+    # 연속번호 – 연속된 쌍(차이=1)의 개수
+    consecutive_enabled: bool = False
+    consecutive_counts: list[int] = []
+    # 9궁 마방진 필터
+    palace_enabled: bool = False
+    palace_filters: dict = {}  # {"1궁": {"min":0,"max":2}, ...}
+    # 로또용지 패턴 필터
+    paper_enabled: bool = False
+    paper_filters: dict = {}   # {"가로1": {"min":0,"max":3}, ...}
+    # 회귀분석 필터 – 과거 회차 번호 기반
+    regression_filters: list[dict] = []  # [{"numbers":[...], "min":0, "max":2}, ...]
 
 @app.post("/api/count")
 def count_combos(req: FilterRequest):
@@ -130,6 +159,8 @@ def count_combos(req: FilterRequest):
     # 4. AC Value
     if req.ac_value_enabled:
         mask &= (acs >= req.ac_value_min) & (acs <= req.ac_value_max)
+        if req.ac_value_excluded:
+            mask &= ~np.isin(acs, np.array(req.ac_value_excluded, dtype=np.uint8))
         
     # 5. Odd/Even
     if req.odd_even_enabled and req.odd_even_counts:
@@ -189,6 +220,98 @@ def count_combos(req: FilterRequest):
             lo, hi = band_range
             band_count = ((combos >= lo) & (combos <= hi)).sum(axis=1)
             mask &= (band_count >= rng.get("min", 0)) & (band_count <= rng.get("max", 6))
+
+    # 11. Missing Period Groups (미출현 기간 그룹) – groups pre-computed by client
+    if req.missing_period_enabled and req.missing_groups:
+        for grp in req.missing_groups:
+            nums = grp.get("numbers", [])
+            if not nums:
+                continue
+            nums_arr = np.array(nums, dtype=np.uint8)
+            g_count = np.isin(combos, nums_arr).sum(axis=1)
+            mask &= (g_count >= grp.get("min", 0)) & (g_count <= grp.get("max", 6))
+
+    # 12. Missing Custom Groups (미출현 커스텀 그룹) – user-defined
+    if req.missing_custom_enabled and req.missing_custom_groups:
+        for grp in req.missing_custom_groups:
+            nums = grp.get("numbers", [])
+            if not nums:
+                continue
+            nums_arr = np.array(nums, dtype=np.uint8)
+            g_count = np.isin(combos, nums_arr).sum(axis=1)
+            mask &= (g_count >= grp.get("min", 0)) & (g_count <= grp.get("max", 6))
+
+    # 13. Square Numbers 제곱수 (1,4,9,16,25,36)
+    if req.square_enabled and req.square_counts:
+        sq_set = {1, 4, 9, 16, 25, 36}
+        sq_counts = np.isin(combos, list(sq_set)).sum(axis=1).astype(np.uint8)
+        mask &= np.isin(sq_counts, np.array(req.square_counts, dtype=np.uint8))
+
+    # 14. Triangular Numbers 삼각수 (1,3,6,10,15,21,28,36,45)
+    if req.triangular_enabled and req.triangular_counts:
+        tri_set = {1, 3, 6, 10, 15, 21, 28, 36, 45}
+        tri_counts = np.isin(combos, list(tri_set)).sum(axis=1).astype(np.uint8)
+        mask &= np.isin(tri_counts, np.array(req.triangular_counts, dtype=np.uint8))
+
+    # 15. Twin Numbers 쌍수 (11,22,33,44)
+    if req.twin_enabled and req.twin_counts:
+        twin_set = {11, 22, 33, 44}
+        tw_counts = np.isin(combos, list(twin_set)).sum(axis=1).astype(np.uint8)
+        mask &= np.isin(tw_counts, np.array(req.twin_counts, dtype=np.uint8))
+
+    # 16. Consecutive Numbers 연속번호 – 연속된 쌍(차이=1)의 개수
+    # 예: [1,2,5,8,9,12] → 쌍(1,2),(8,9) = 2쌍 → count=2
+    if req.consecutive_enabled and req.consecutive_counts:
+        diffs = np.diff(combos.astype(np.int16), axis=1)   # (N,5)
+        consec_pairs = (diffs == 1).sum(axis=1).astype(np.uint8)
+        mask &= np.isin(consec_pairs, np.array(req.consecutive_counts, dtype=np.uint8))
+
+    # 17. Palace Filter 9궁 마방진
+    # {"1궁":[1~5], "2궁":[6~10], ..., "9궁":[41~45]}
+    PALACE_DEFS = {
+        '1궁': [1,2,3,4,5],   '2궁': [6,7,8,9,10],  '3궁': [11,12,13,14,15],
+        '4궁': [16,17,18,19,20],'5궁': [21,22,23,24,25],'6궁': [26,27,28,29,30],
+        '7궁': [31,32,33,34,35],'8궁': [36,37,38,39,40],'9궁': [41,42,43,44,45],
+    }
+    if req.palace_enabled and req.palace_filters:
+        for gung, rng in req.palace_filters.items():
+            nums = PALACE_DEFS.get(gung)
+            if not nums:
+                continue
+            nums_arr = np.array(nums, dtype=np.uint8)
+            g_count = np.isin(combos, nums_arr).sum(axis=1)
+            mask &= (g_count >= rng.get("min", 0)) & (g_count <= rng.get("max", 6))
+
+    # 18. Paper Pattern Filter 로또용지 패턴
+    # 가로(행) 7개 + 세로(열) 7개
+    PAPER_DEFS = {
+        '가로1': [1,2,3,4,5,6,7],        '가로2': [8,9,10,11,12,13,14],
+        '가로3': [15,16,17,18,19,20,21],  '가로4': [22,23,24,25,26,27,28],
+        '가로5': [29,30,31,32,33,34,35],  '가로6': [36,37,38,39,40,41,42],
+        '가로7': [43,44,45],
+        '세로1': [1,8,15,22,29,36,43],   '세로2': [2,9,16,23,30,37,44],
+        '세로3': [3,10,17,24,31,38,45],  '세로4': [4,11,18,25,32,39],
+        '세로5': [5,12,19,26,33,40],     '세로6': [6,13,20,27,34,41],
+        '세로7': [7,14,21,28,35,42],
+    }
+    if req.paper_enabled and req.paper_filters:
+        for line, rng in req.paper_filters.items():
+            nums = PAPER_DEFS.get(line)
+            if not nums:
+                continue
+            nums_arr = np.array(nums, dtype=np.uint8)
+            g_count = np.isin(combos, nums_arr).sum(axis=1)
+            mask &= (g_count >= rng.get("min", 0)) & (g_count <= rng.get("max", 6))
+
+    # 19. Regression Filters 회귀분석 – 과거 회차 번호 기반
+    if req.regression_filters:
+        for rf in req.regression_filters:
+            nums = rf.get("numbers", [])
+            if not nums:
+                continue
+            nums_arr = np.array(nums, dtype=np.uint8)
+            g_count = np.isin(combos, nums_arr).sum(axis=1)
+            mask &= (g_count >= rf.get("min", 0)) & (g_count <= rf.get("max", 6))
 
     count = int(np.sum(mask))
     return {"count": count}
