@@ -1180,10 +1180,20 @@ async def _ask_llm_strategy_v3(target_round, top_5, exclude_10, history_draws, c
     "evidence": "이 번호를 제외하는 이유 (최근 과출현, 냉각 중 등 근거)"
   }},
   "filter_recommendations": [
-    {{"filter": "총합", "min": 100, "max": 180, "evidence": "근거"}},
-    {{"filter": "홀짝", "pattern": "3:3", "evidence": "근거"}},
-    {{"filter": "저고", "pattern": "3:3", "evidence": "근거"}},
-    {{"filter": "AC값", "min": 7, "max": 10, "evidence": "근거"}}
+    {"filter": "총합", "min": 100, "max": 180, "evidence": "근거"},
+    {"filter": "홀짝", "pattern": "3:3", "evidence": "근거"},
+    {"filter": "저고", "pattern": "3:3", "evidence": "근거"},
+    {"filter": "AC값", "min": 7, "max": 10, "evidence": "근거"},
+    {"filter": "소수", "min": 1, "max": 3, "evidence": "근거"},
+    {"filter": "합성수", "min": 2, "max": 4, "evidence": "근거"},
+    {"filter": "제곱수", "min": 0, "max": 1, "evidence": "근거"},
+    {"filter": "쌍둥이수", "min": 0, "max": 1, "evidence": "근거"},
+    {"filter": "연속수", "min": 0, "max": 1, "evidence": "근거"},
+    {"filter": "최근 10회 출현", "min": 3, "max": 5, "evidence": "근거"},
+    {"filter": "장기 미출현", "min": 0, "max": 2, "evidence": "근거"},
+    {"filter": "3의 배수", "min": 1, "max": 3, "evidence": "근거"},
+    {"filter": "이웃수", "min": 1, "max": 3, "evidence": "근거"},
+    {"filter": "이월수", "min": 0, "max": 1, "evidence": "근거"}
   ],
   "hot_cold_analysis": "최근 자주 나온 번호와 한동안 안 나온 번호 동향 분석 2~3문장",
   "risk_assessment": "이번 예측의 확신도와 주의사항 1~2문장",
@@ -1221,7 +1231,17 @@ def _fallback_strategy_v3(top_5: list, exclude_10: list) -> dict:
             {"filter": "총합", "min": 100, "max": 180, "evidence": "통계적 1표준편차 범위"},
             {"filter": "AC값", "min": 7, "max": 10, "evidence": "역대 평균 기반"},
             {"filter": "홀짝", "pattern": "3:3 또는 4:2", "evidence": "최빈 패턴"},
-            {"filter": "저고", "pattern": "3:3", "evidence": "균형 분포"}
+            {"filter": "저고", "pattern": "3:3", "evidence": "균형 분포"},
+            {"filter": "소수", "min": 1, "max": 3, "evidence": "평균 출현 기대치"},
+            {"filter": "합성수", "min": 2, "max": 4, "evidence": "확률적 최빈 구간"},
+            {"filter": "제곱수", "min": 0, "max": 1, "evidence": "자연 발생 확률"},
+            {"filter": "쌍둥이수", "min": 0, "max": 1, "evidence": "일반적 패턴 확률"},
+            {"filter": "연속수", "min": 0, "max": 1, "evidence": "자주 관측되는 구간"},
+            {"filter": "최근 10회 출현", "min": 3, "max": 4, "evidence": "모멘텀 회귀 구간"},
+            {"filter": "장기 미출현", "min": 0, "max": 1, "evidence": "콜드 번호 출현 확률"},
+            {"filter": "3의 배수", "min": 1, "max": 2, "evidence": "균등 분포 1/3 할당"},
+            {"filter": "이웃수", "min": 1, "max": 2, "evidence": "회귀 분석 기반 평균"},
+            {"filter": "이월수", "min": 0, "max": 1, "evidence": "최근 5회 이월비율 고려"}
         ],
         "hot_cold_analysis": "LLM 미사용 - 통계 데이터를 참조해주세요.",
         "risk_assessment": "모델 단독 분석으로 리스크 평가 불가.",
