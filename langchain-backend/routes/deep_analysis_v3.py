@@ -178,6 +178,16 @@ def get_number_model_reasons(num: int, streak: int, gap: int, freq: float, histo
     else:
         reasons["autoencoder"] = f"압축 특징 평이 | 기저 상태 유지"
 
+    # GNN: 그래프 및 관계망 기반
+    if freq >= 0.12 and streak >= 2:
+        reasons["gnn"] = f"핵심 노드 편입 유력 (초고빈도+연속성)"
+    elif neighbor_freq > 0.25:
+        reasons["gnn"] = f"이웃 노드 연결망 활성 (강한 관계망)"
+    elif gap >= 15:
+        reasons["gnn"] = f"장기 휴면 그래프 (연결 끊김, 회복 대기)"
+    else:
+        reasons["gnn"] = f"일반 노드 상태 유지 (특이 단서 부족)"
+
     return reasons
 
 # ------------------------------------------------------------------
@@ -185,7 +195,7 @@ def get_number_model_reasons(num: int, streak: int, gap: int, freq: float, histo
 # ------------------------------------------------------------------
 def get_model_filter_expectations(filter_name: str, history_draws: list, model_contributions: dict):
     """필터별 5개 모델의 예상 범위를 계산"""
-    models = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder"]
+    models = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder", "gnn"]
     PRIMES = {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43}
     COMPOSITES = {4, 6, 8, 9, 10, 12, 14, 15, 16, 18, 20, 21, 22, 24, 25, 26, 27, 28, 30, 32, 33, 34, 35, 36, 38, 39, 40, 42, 44, 45}
     SQUARES = {1, 4, 9, 16, 25, 36}
@@ -208,9 +218,19 @@ def get_model_filter_expectations(filter_name: str, history_draws: list, model_c
 
     def _sim_filter(pool, probs, filter_fn, n_sim=500, lo=0.2, hi=0.8):
         """pool 15개에서 6개 비복원 시뮬레이션 → 필터값 분포의 lo~hi 분위수 반환"""
+        if len(pool) < 6:
+            return 0, 999  # 데이터가 부족하면 매우 넓은 범위 반환
+
         vals = []
         pool_arr = np.array(pool)
-        prob_arr = np.array(probs)
+        prob_arr = np.array(probs, dtype=float)
+        
+        # 확률 합이 0인 경우 예외 처리
+        prob_sum = prob_arr.sum()
+        if prob_sum == 0:
+            return 0, 999
+            
+        prob_arr /= prob_sum  # 명시적 정규화
         for _ in range(n_sim):
             chosen = sorted(np.random.choice(pool_arr, 6, replace=False, p=prob_arr).tolist())
             vals.append(filter_fn(chosen))
@@ -509,7 +529,7 @@ def get_number_status(num: int, history_draws: list):
 
 def analyze_hot_cold(final_probs, history_draws, contribs):
     """Hot/Cold 상태 분석 - 모델별 점수 포함"""
-    models = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder"]
+    models = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder", "gnn"]
 
     # 각 번호별 gap 계산
     num_gaps = {}
@@ -668,7 +688,7 @@ def analyze_9palace(combination: list, history_draws: list):
 # ------------------------------------------------------------------
 def analyze_tail_detailed(final_probs, history_draws, model_contributions=None):
     tails = []
-    models = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder"]
+    models = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder", "gnn"]
 
     # 앙상블 확률 정규화 (합=1)
     ens_total = sum(final_probs.values())
@@ -823,7 +843,7 @@ def analyze_lotto_paper(final_probs, history_draws, model_contributions=None):
     - 세로 라인: 세로1(1,8,15,22,29,36,43), 세로2(2,9,16,23,30,37,44), ...
     - 각 라인별 Gap(미출현 연속 횟수), STR(연속 출현 횟수) 포함
     """
-    models = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder"]
+    models = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder", "gnn"]
 
     # 앙상블 확률 정규화
     ens_total = sum(final_probs.values())
@@ -925,7 +945,7 @@ def analyze_magic_square(final_probs, history_draws, model_contributions=None):
     - 6궁(26-30), 7궁(31-35), 8궁(36-40), 9궁(41-45)
     - 각 궁별 Gap(미출현 연속 횟수), STR(연속 출현 횟수), 추천도 포함
     """
-    models = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder"]
+    models = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder", "gnn"]
 
     # 앙상블 확률 정규화
     ens_total = sum(final_probs.values())
@@ -1007,7 +1027,7 @@ def analyze_number_band(final_probs, history_draws, model_contributions=None):
     번호대별(10단위 구간) 분석:
     01~10, 11~20, 21~30, 31~40, 41~45
     """
-    models = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder"]
+    models = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder", "gnn"]
 
     # 앙상블 확률 정규화
     ens_total = sum(final_probs.values())
@@ -1406,7 +1426,18 @@ async def get_deep_analysis(round_num: int = None):
                     analysis_data = cached_res.data[0].get("analysis_data")
                     if isinstance(analysis_data, str):
                         analysis_data = json.loads(analysis_data)
-                    
+
+                    # GNN reason "분석 진행 중" 구버전 캐시 → 캐시 스킵하여 재분석
+                    mtx = (analysis_data.get("analysis") or {}).get("matrix_data") or []
+                    stale_gnn = bool(mtx) and all(
+                        (item.get("models") or {}).get("gnn", {}).get("reason") == "분석 진행 중"
+                        for item in mtx[:5]
+                    )
+                    if stale_gnn:
+                        print(f"⚠️ [Cache] GNN reason 구버전 캐시 감지 → 재분석")
+                        # raise → except로 빠져나가 정상 분석 진행
+                        raise ValueError("stale_gnn_cache")
+
                     # 경과 시간 표시용
                     analysis_data["elapsed_seconds"] = round(time.time() - start_time, 2)
                     analysis_data["is_cached"] = True
@@ -1414,7 +1445,7 @@ async def get_deep_analysis(round_num: int = None):
             except Exception as e:
                 print(f"캐시 체크 실패 (정상 분석 진행): {e}")
 
-        models = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder"]
+        models = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder", "gnn"]
 
         # Streak 계산
         streak_count = {n: 0 for n in range(1, 46)}
@@ -1587,31 +1618,37 @@ async def get_deep_analysis(round_num: int = None):
                 if not m_contrib:
                     model_scores[m] = {"score": 0, "reasoning": "데이터 없음"}
                     continue
-                    
+
                 all_vals = sorted(m_contrib.values(), reverse=True)
                 total_cnt = len(all_vals)
-                
+
+                # 균등 분포 감지: 모든 확률이 동일하면 모델이 번호를 구분 못함 → 50점(중립)
+                val_range = (all_vals[0] - all_vals[-1]) if all_vals else 0
+                if val_range < 1e-9:
+                    model_scores[m] = {"score": 50, "reasoning": "모델 예측 분산 미미 (균등 분포 — 참고용)"}
+                    continue
+
                 m_scores_for_nums = []
                 for n in nums:
                     v = m_contrib.get(n, 0)
                     # 동점자 처리: 자신보다 높은 값을 가진 개수 확인
                     higher_cnt = sum(1 for x in all_vals if x > v)
-                    # 백분위 계산 (0~100)
-                    percentile = (total_cnt - higher_cnt) / max(total_cnt, 1) * 100
+                    # 백분위 계산 (0~95, 균등분포 방지용 상한)
+                    percentile = min((total_cnt - higher_cnt) / max(total_cnt, 1) * 100, 95)
                     m_scores_for_nums.append(percentile)
-                
+
                 m_avg = sum(m_scores_for_nums) / len(m_scores_for_nums) if m_scores_for_nums else 0
-                
+
                 # 원점수(확률값) 평균도 참고하여 가중치 부여 (만약 확률이 너무 낮으면 점수 하락)
                 avg_prob = sum(m_contrib.get(n, 0) for n in nums) / len(nums) if nums else 0
                 baseline = sum(m_contrib.values()) / max(len(m_contrib), 1)
-                
+
                 final_score = m_avg
                 if avg_prob < baseline * 0.5: # 평균 이하 확률이면 감점
                     final_score *= 0.5
-                
+
                 model_scores[m] = {
-                    "score": int(max(0, min(100, final_score))), 
+                    "score": int(max(0, min(100, final_score))),
                     "reasoning": f"모델 상위 {int(m_avg)}% (상대확률 {avg_prob/max(baseline, 0.001):.1f}배)"
                 }
 
@@ -1767,6 +1804,16 @@ async def get_deep_analysis(round_num: int = None):
 
         elapsed = round(time.time() - start_time, 2)
 
+        # JS renderPipelineInfo()가 읽는 pipeline 객체 구성
+        _evidence = prediction.get("evidence", {})
+        _model_weights = _evidence.get("model_weights", {})
+        pipeline_obj = {
+            "modelWeights": _model_weights,
+            "weightReasons": "딥러닝 7중 앙상블 (LSTM·XGBoost·CNN·Transformer·Markov·AE·GNN) 파인튜닝 완료",
+            "rlGenerated": True,
+            "topCompatiblePairs": []
+        }
+
         result = {
             "success": True,
             "target_round": target_round,
@@ -1775,7 +1822,8 @@ async def get_deep_analysis(round_num: int = None):
             "exclude_10": exclude_10,
             "combinations": combinations,
             "strategy": strategy,  # LLM 전략
-            "evidence": prediction.get("evidence", {}),  # XAI 근거 데이터
+            "evidence": _evidence,  # XAI 근거 데이터
+            "pipeline": pipeline_obj,  # JS status탭 모델 컨디션 바용
             "expert_memo": {
                 "raw": expert_memo_data.get("memo") if expert_memo_data else None,
                 "parsed": human_rules

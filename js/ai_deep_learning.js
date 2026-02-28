@@ -793,9 +793,18 @@ const DeepLearning = {
         // result.combinations: 메모 제외 필터링 후 최신값 사용
         this.renderCombinations(result.combinations, compatAnalysis, matrixData);
 
-        // [Phase 6] pipeline 신규 렌더링 (pipeline 필드가 있을 때만)
-        if (result.pipeline) {
-            this.renderPipelineInfo(result.pipeline);
+        // [Phase 6] pipeline 렌더링
+        // Python 응답에 pipeline 없으면 evidence.model_weights로 구성
+        var effectivePipeline = result.pipeline;
+        if (!effectivePipeline && result.evidence && result.evidence.model_weights) {
+            effectivePipeline = {
+                modelWeights: result.evidence.model_weights,
+                weightReasons: '딥러닝 앙상블 분석 완료',
+                rlGenerated: true
+            };
+        }
+        if (effectivePipeline) {
+            this.renderPipelineInfo(effectivePipeline);
         }
 
         // 전문가 메모 섹션 렌더링 (pipeline 유무와 무관하게 항상 표시)
@@ -2182,10 +2191,12 @@ const DeepLearning = {
                 }
             }
 
-            // v3: matrix_data에서 번호 정보 추출 (기존 로직 유지)
+            // v3: matrix_data 경로 (Python 응답: d.analysis.matrix_data, 폴백: d.matrix_data)
             var matrixItem = null;
-            if (d.matrix_data) {
-                matrixItem = d.matrix_data.find(function (m) { return m.num === number; });
+            var _mtxSource = (d.analysis && d.analysis.matrix_data) ? d.analysis.matrix_data
+                           : (d.matrix_data || []);
+            if (_mtxSource.length) {
+                matrixItem = _mtxSource.find(function (m) { return m.num === number; });
             }
 
             var prob = matrixItem ? (matrixItem.total || 0) / 100 : null;

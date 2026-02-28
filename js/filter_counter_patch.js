@@ -468,12 +468,27 @@
     }
 
     // ── 서버 초기화 대기 자동 재시도 ─────────────────────────────────
+    const MAX_RETRIES   = 10;   // 최대 재시도 횟수
     let _initRetryTimer = null;
+    let _retryCount     = 0;    // 현재 재시도 누적 횟수
 
     function _scheduleRetry(delaySec) {
+        _retryCount++;
+        if (_retryCount > MAX_RETRIES) {
+            // 최대 재시도 초과 → 폴백으로 복구
+            console.warn(`[FilterCounter] 서버 연결 실패 (${MAX_RETRIES}회 재시도 초과) — 추정치 표시 모드`);
+            const obj = getCounter();
+            if (obj) { obj.style.opacity = '1'; }
+            setStatus('⚠️ 서버 연결 실패 — 추정치 표시 중', '#f59e0b');
+            // 기존 확률 기반 fallback 카운터 실행
+            if (window.FilterDashboard?._fallbackCounter) {
+                try { window.FilterDashboard._fallbackCounter(); } catch (_) {}
+            }
+            return;
+        }
         clearTimeout(_initRetryTimer);
         _initRetryTimer = setTimeout(() => {
-            console.log('[FilterCounter] 서버 초기화 완료 대기 → 재시도');
+            console.log(`[FilterCounter] 서버 초기화 완료 대기 → 재시도 (${_retryCount}/${MAX_RETRIES})`);
             if (window.FilterDashboard?.updateNeonCounter) {
                 window.FilterDashboard.updateNeonCounter();
             }
@@ -504,6 +519,7 @@
             }
             // ─────────────────────────────────────────────────────────
             clearTimeout(_initRetryTimer);   // 정상 응답 시 재시도 취소
+            _retryCount = 0;                 // 재시도 카운터 리셋
 
             const obj = getCounter();
             if (obj) obj.style.opacity = '1';

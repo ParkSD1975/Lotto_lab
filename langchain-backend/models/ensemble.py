@@ -57,6 +57,17 @@ class LottoEnsemble:
                     model.train(draws, fine_tune=not force_retrain)
             except Exception as e:
                 print(f"  ❌ {name} 모델 파인튜닝 실패: {e}")
+            finally:
+                # [OOM 방지] 사용이 끝난 모델 메모리 즉시 반환
+                if hasattr(model, 'model'):
+                    del model.model
+                    model.model = None
+                if name == "xgboost" and hasattr(model, 'models'):
+                    del model.models
+                    model.models = {}
+                import gc
+                torch.cuda.empty_cache()
+                gc.collect()
 
         # 2. 마르코프 전이 행렬 파인튜닝
         print("  ▶ MARKOV 모델 확률 행렬 파인튜닝 중...")
@@ -87,7 +98,8 @@ class LottoEnsemble:
             return {"probabilities": {}, "model_contributions": {}, "evidence": {}}
 
         contributions = {m: {} for m in self.weights.keys()}
-        
+        contributions["autoencoder"] = {}  # AE는 별도 계산 (exclusion 역산)
+
         # 1. 메인 딥러닝 예측 (Autoencoder 제외 - 나중에 깎는 용도로 씀)
         for name, model in self.models.items():
             if name == "autoencoder": continue
@@ -99,6 +111,17 @@ class LottoEnsemble:
                 print(f"⚠️ {name} 예측 실패: {e}")
                 for n in range(1, 46):
                     contributions[name][n] = 0.0
+            finally:
+                # [OOM 방지] 각 모델 순차 예측 후 즉시 메모리 해제
+                if hasattr(model, 'model'):
+                    del model.model
+                    model.model = None
+                if name == "xgboost" and hasattr(model, 'models'):
+                    del model.models
+                    model.models = {}
+                import gc
+                torch.cuda.empty_cache()
+                gc.collect()
 
         # 2. 마르코프 연쇄 확률 계산
         markov_path = os.path.join(self.save_dir, "markov.json")
@@ -125,11 +148,23 @@ class LottoEnsemble:
             ae_exclusions = self.models["autoencoder"].predict_exclusions(draws)
         except Exception:
             ae_exclusions = {}
+        finally:
+            # [OOM 방지] 
+            ae_model = self.models["autoencoder"]
+            if hasattr(ae_model, 'model'):
+                del ae_model.model
+                ae_model.model = None
+            import gc
+            torch.cuda.empty_cache()
+            gc.collect()
 
         for n in range(1, 46):
+            ae_excl_val = float(ae_exclusions.get(n, 0))
+            # 패널티: 에러율 높은 번호 확률 삭감
             if n in ae_exclusions:
-                # 에러율이 높은(패턴이 기괴한) 번호는 확률을 대폭 삭감
-                final_probs[n] *= (1.0 - float(ae_exclusions[n]))
+                final_probs[n] *= (1.0 - ae_excl_val)
+            # AE 기여도: 제외율 역산 → 정상 패턴 점수 (커스텀 분석 모델별 점수용)
+            contributions["autoencoder"][n] = max(0.0, 1.0 - ae_excl_val)
 
         # 5. 전문가 메모 (Hard Filter) 철통 방어
         evidence_reasons = []
