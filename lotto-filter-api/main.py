@@ -9,6 +9,7 @@ from pydantic import BaseModel
 import numpy as np
 from itertools import combinations
 import time
+import threading
 
 app = FastAPI(title="Lotto Filter Count API (Free Tier)")
 
@@ -69,7 +70,13 @@ def build_data():
 
 @app.on_event("startup")
 def startup_event():
-    build_data()
+    # 비동기 백그라운드 로드:
+    # build_data()는 ~30초 소요 → 동기 실행 시 그 동안 FastAPI가 요청을 전혀 받지 않음
+    # → Fly.io 인프라가 503을 CORS 헤더 없이 반환 → 브라우저 CORS 오류
+    # 해결: 백그라운드 스레드로 실행 → FastAPI 즉시 기동
+    # 로딩 중에는 combos=None → {"count":0,"error":"Initializing..."} 반환 (CORS 헤더 포함)
+    thread = threading.Thread(target=build_data, daemon=True)
+    thread.start()
 
 # ── Request Model ──────────────────────────────────────────────────
 class FilterRequest(BaseModel):
