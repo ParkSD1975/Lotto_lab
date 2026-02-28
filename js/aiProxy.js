@@ -20,8 +20,8 @@
             for (const url of BASE_URLS) {
                 try {
                     const controller = new AbortController();
-                    // Render cold start accommodation: 15 seconds
-                    const timeoutId = setTimeout(() => controller.abort(), 15000);
+                    // 원래 설정대로 5초 타임아웃 롤백 (사용자 요청)
+                    const timeoutId = setTimeout(() => controller.abort(), 5000);
 
                     const res = await fetch(`${url}/health`, { method: 'GET', signal: controller.signal });
                     clearTimeout(timeoutId);
