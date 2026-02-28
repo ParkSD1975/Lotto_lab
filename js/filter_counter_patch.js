@@ -541,12 +541,15 @@
 
         } catch (err) {
             if (err.name === 'AbortError') return;   // 이전 요청 취소 — 정상, 무시
-            console.error('[FilterCounter] API 오류:', err);
+
+            // ★ CORS/네트워크 오류 → _fallbackCounter() 절대 호출 금지
+            //   이유: fallback은 확률 계산으로 0을 반환할 수 있음
+            //   대신: 상태 표시 + 자동 재시도
+            console.warn('[FilterCounter] 서버 연결 실패 (CORS/네트워크):', err.message);
             const obj = getCounter();
-            if (obj) obj.style.opacity = '1';
-            if (window.FilterDashboard?._fallbackCounter) {
-                window.FilterDashboard._fallbackCounter();
-            }
+            if (obj) obj.style.opacity = '0.6';
+            setStatus('🔄 서버 연결 중... 자동 재시도합니다', '#f59e0b');
+            _scheduleRetry(3);
         }
     }
 
