@@ -399,14 +399,17 @@
                 <div id="modelConditionContainer" style="display:none" class="col-span-1 lg:col-span-2"></div>
 
                 <!-- ★ 전문가 메모 섹션 (모델 컨디션 바 바로 아래) -->
-                <div id="expertMemoSection" class="col-span-1 lg:col-span-2" style="display:none">
-                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:0 2px">
-                        <span style="width:3px;height:16px;background:#6366f1;border-radius:2px;display:inline-block;flex-shrink:0"></span>
-                        <span style="font-size:12px;font-weight:700;color:#475569;letter-spacing:-0.01em">전문가 메모</span>
-                        <span id="expertMemoCount" style="font-size:10px;background:#f1f5f9;color:#64748b;padding:1px 8px;border-radius:20px;font-weight:600"></span>
-                        <span style="font-size:10px;color:#94a3b8;margin-left:auto;font-weight:500">분석에 반영됨</span>
+                <div id="expertMemoSection" class="card col-span-1 lg:col-span-2" style="display:none">
+                    <div class="card-header">
+                        <span class="material-symbols-outlined icon">edit_note</span>
+                        <h3>전문가 메모</h3>
+                        <span id="expertMemoCount"
+                            class="ml-1 text-[10px] bg-slate-100 text-slate-500 font-bold px-2 py-0.5 rounded-full"></span>
+                        <span class="ml-auto text-[10px] text-slate-400 font-medium whitespace-nowrap">분석에 반영됨</span>
                     </div>
-                    <div id="expertMemoList" style="display:flex;flex-direction:column;gap:6px"></div>
+                    <div class="card-body">
+                        <div id="expertMemoList" class="flex flex-col gap-3"></div>
+                    </div>
                 </div>
 
                 <!-- AI 강력 추천 + AI 제외수 가로 2열 -->
@@ -455,6 +458,8 @@
                                 style="font-size:10px;padding:2px 8px;border-radius:4px;border:1px solid #e2e8f0;background:#fff;color:#34d399;cursor:pointer;font-weight:700;white-space:nowrap">MKV</button>
                             <button id="sort-btn-autoencoder" onclick="DeepLearning.sortMatrix('autoencoder')"
                                 style="font-size:10px;padding:2px 8px;border-radius:4px;border:1px solid #e2e8f0;background:#fff;color:#a855f7;cursor:pointer;font-weight:700;white-space:nowrap">ATC</button>
+                            <button id="sort-btn-gnn" onclick="DeepLearning.sortMatrix('gnn')"
+                                style="font-size:10px;padding:2px 8px;border-radius:4px;border:1px solid #e2e8f0;background:#fff;color:#ef4444;cursor:pointer;font-weight:700;white-space:nowrap">GNN</button>
                         </div>
                     </div>
                     <div class="card-body">
@@ -533,6 +538,8 @@
                                     <th class="px-2 py-3 font-semibold" style="color:#f472b6">CNN</th>
                                     <th class="px-2 py-3 font-semibold" style="color:#fb923c">TF</th>
                                     <th class="px-2 py-3 font-semibold" style="color:#34d399">MKV</th>
+                                    <th class="px-2 py-3 font-semibold" style="color:#a855f7">ATC</th>
+                                    <th class="px-2 py-3 font-semibold" style="color:#ef4444">GNN</th>
                                     <th class="px-4 py-3 font-semibold text-white">Gap</th>
                                     <th class="px-4 py-3 font-semibold text-white">STR</th>
                                 </tr>
@@ -743,7 +750,7 @@
 
     <!-- Project Scripts -->
     <script src="js/aiProxy.js"></script>
-    <script src="js/ai_deep_learning.js?v=20260227"></script>
+    <script src="js/ai_deep_learning.js?v=20260228_7"></script>
     <script src="js/layout.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
