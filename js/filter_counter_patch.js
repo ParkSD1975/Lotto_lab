@@ -5,7 +5,7 @@
  * 백엔드 정확 계산 버전으로 교체합니다.
  *
  * ─── 주요 기능 ───────────────────────────────────────────────────
- * 1. 350ms 디바운스 + 즉시 "계산 중..." 피드백
+ * 1. 50ms 디바운스 + AbortController(이전 요청 자동 취소) + 즉시 "계산 중..." 피드백
  * 2. /api/count → 정확한 조합수
  * 3. 조합수 ≤ 50,000 → /api/combinations 자동 호출 → 물리 조합 로드
  * 4. 물리 조합 로드 후 바스켓(고정/제외) 변경은 클라이언트 즉시 카운팅
@@ -16,13 +16,14 @@
 (function () {
 
     const API_BASE        = 'https://lotto-filter-api-psd.fly.dev';
-    const DEBOUNCE_MS     = 350;    // 마지막 변경 후 API 호출 대기 시간
+    const DEBOUNCE_MS     = 50;     // 마지막 변경 후 API 호출 대기 시간 (실시간성)
     const PHYSICAL_LIMIT  = 50000;  // 이 수 이하면 물리 조합 자동 로드
     const EXPLAIN_LIMIT   = 1000;   // 이 수 이하면 단계 분석 자동 실행
 
     // ── 내부 상태 ─────────────────────────────────────────────────
     let _debounceTimer    = null;
     let _lastRequestId    = 0;
+    let _abortController  = null;   // 진행 중인 fetch 취소용
 
     // 물리 조합 캐시: { body(JSON key), combinations([[n1..n6],...]) }
     let _physicalCache    = null;
@@ -469,12 +470,13 @@
     }
 
     // ── 핵심: 실제 API 카운트 요청 ───────────────────────────────────
-    async function _doFetch(body, requestId) {
+    async function _doFetch(body, requestId, signal) {
         try {
             const res = await fetch(`${API_BASE}/api/count`, {
                 method : 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body   : JSON.stringify(body)
+                body   : JSON.stringify(body),
+                signal : signal    // AbortController signal (취소 지원)
             });
 
             if (requestId !== _lastRequestId) return;   // 더 최신 요청이 있으면 무시
@@ -527,6 +529,7 @@
             }
 
         } catch (err) {
+            if (err.name === 'AbortError') return;   // 이전 요청 취소 — 정상, 무시
             console.error('[FilterCounter] API 오류:', err);
             const obj = getCounter();
             if (obj) obj.style.opacity = '1';
@@ -554,8 +557,12 @@
             }
         }
 
-        // 무거운 필터 변경 → 디바운스 후 API 호출
+        // 무거운 필터 변경 → 이전 요청 즉시 취소 + 50ms 디바운스 후 새 요청
         clearTimeout(_debounceTimer);
+        if (_abortController) {
+            _abortController.abort();   // 진행 중인 fetch 즉시 취소
+            _abortController = null;
+        }
 
         // 즉시 로딩 피드백
         const obj = getCounter();
@@ -570,12 +577,16 @@
             const body2     = buildRequestBody(state2);
             const requestId = ++_lastRequestId;
 
+            // 새 AbortController 생성 (이 요청 전용)
+            _abortController = new AbortController();
+
             // 디버그 로그
             console.group('[FilterCounter] API 조합수 요청');
             console.log('활성 필터:', summarizeActiveFilters(body2));
             console.groupEnd();
 
-            await _doFetch(body2, requestId);
+            await _doFetch(body2, requestId, _abortController.signal);
+            _abortController = null;   // 요청 완료 후 정리
         }, DEBOUNCE_MS);
     }
 
