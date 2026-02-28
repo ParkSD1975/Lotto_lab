@@ -1305,8 +1305,12 @@
             const tbody = document.getElementById('statsTableBody');
             tbody.innerHTML = '';
 
-            // 최근 10회차 합계 목록
-            const recent10Sums = new Set(allDrawData.slice(0, 10).map(d => d.sum));
+            // 최근 10회차 합계 목록 (필터 켜짐 여부 확인)
+            const recent10Btn = document.getElementById('recent10FilterBtn');
+            const isRecent10Active = recent10Btn && recent10Btn.classList.contains('from-purple-500');
+
+            // Supabase에서 d.sum이 문자열로 들어오는 경우를 대비하여 parseInt() 적용
+            const recent10Sums = new Set(allDrawData.slice(0, 10).map(d => parseInt(d.sum)));
 
             for (let sumVal = 21; sumVal <= 255; sumVal++) {
                 const count = distribution[sumVal] || 0;
@@ -1314,8 +1318,8 @@
 
                 const theoretical = THEORETICAL_SUM_STATS[sumVal] || { count: 0, percent: 0 };
 
-                // 최근 10회차에 나온 합계는 자동으로 제외(체크 해제)
-                const isInRecent10 = recent10Sums.has(sumVal);
+                // 최근 10회차 필터가 켜져있고, 10회차 내에 속하며 수동으로 복원되지 않은 항목만 자동 제외
+                const isInRecent10 = isRecent10Active && recent10Sums.has(sumVal) && !restoredAutoSums.includes(sumVal);
                 const isInRange = filterEnabled && sumVal >= minFilter && sumVal <= maxFilter;
                 const isExcluded = excludedSums.includes(sumVal) || isInRecent10;
                 const isChecked = isInRange && !isExcluded;
@@ -1363,7 +1367,7 @@
             let autoExcluded = [];
             if (isRecent10Active && allDrawData && allDrawData.length >= 10) {
                 const raw = [...new Set(allDrawData.slice(0, 10).map(d => {
-                    if (d.sum !== undefined && d.sum !== null) return d.sum;
+                    if (d.sum !== undefined && d.sum !== null) return parseInt(d.sum);
                     if (d.numbers && Array.isArray(d.numbers)) return d.numbers.reduce((a, b) => a + b, 0);
                     return null;
                 }).filter(s => s !== null && !isNaN(s)))];
