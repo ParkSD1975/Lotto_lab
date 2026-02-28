@@ -13,7 +13,10 @@
     // ── 저장/로드 ──────────────────────────────────────────
     function load() {
         try {
-            return JSON.parse(localStorage.getItem(STORAGE_KEY)) || { fixed: [], exclude: [] };
+            const data = JSON.parse(localStorage.getItem(STORAGE_KEY)) || { fixed: [], exclude: [] };
+            if (!data.fixed) data.fixed = [];
+            if (!data.exclude) data.exclude = [];
+            return data;
         } catch { return { fixed: [], exclude: [] }; }
     }
 
@@ -22,8 +25,8 @@
         // FilterService 연동: 초기화된 경우 DB에도 저장
         if (window.filterService?.initialized) {
             try {
-                await window.filterService.saveSetting('basket_fixed', { numbers: data.fixed }, data.fixed.length > 0);
-                await window.filterService.saveSetting('basket_exclude', { numbers: data.exclude }, data.exclude.length > 0);
+                await window.filterService.saveSetting('fixed_numbers', { numbers: data.fixed }, data.fixed.length > 0);
+                await window.filterService.saveSetting('excluded_numbers', { numbers: data.exclude }, data.exclude.length > 0);
                 console.log('💾 GNB Basket saved to Supabase');
             } catch (e) {
                 console.error('❌ Basket Supabase Save Error:', e);
@@ -36,8 +39,8 @@
         if (!window.filterService?.initialized) return;
 
         try {
-            const fixedData = await window.filterService.loadSetting('basket_fixed');
-            const excludeData = await window.filterService.loadSetting('basket_exclude');
+            const fixedData = await window.filterService.loadSetting('fixed_numbers');
+            const excludeData = await window.filterService.loadSetting('excluded_numbers');
 
             if (fixedData || excludeData) {
                 const current = load();
@@ -100,7 +103,8 @@
         },
 
         clear() {
-            save({ fixed: [], exclude: [] });
+            const d = load();
+            save({ fixed: [], exclude: [], current_round: d.current_round });
         },
 
         clearFixed() {
@@ -117,8 +121,51 @@
 
         async sync() {
             await syncFromDB();
+        },
+
+        async checkNewRound() {
+            await checkAndClearIfNewRound();
         }
     };
+
+    // ── 새 회차 감지 및 바스켓 초기화 ───────────────────────
+    let isCheckingRound = false;
+    async function checkAndClearIfNewRound() {
+        if (isCheckingRound || !window.supabaseClient) return;
+        isCheckingRound = true;
+
+        try {
+            // 가장 최신 회차 번호만 1개 가져오기
+            const { data, error } = await window.supabaseClient
+                .from('lotto_draws')
+                .select('round')
+                .order('round', { ascending: false })
+                .limit(1);
+
+            if (error) throw error;
+            if (!data || data.length === 0) return;
+
+            const latestRound = data[0].round;
+            const currentData = load();
+            const savedRound = currentData.current_round;
+
+            // 로컬에 이전 회차가 기록되어 있고, 최신 회차보다 작다면 (새 회차가 업데이트 되었다면)
+            if (savedRound && savedRound < latestRound) {
+                console.log(`[Basket] 새로운 회차 감지 (${savedRound} -> ${latestRound}). 바스켓을 비웁니다.`);
+                save({ fixed: [], exclude: [], current_round: latestRound });
+                window.BasketUI.showToast('새로운 로또 회차가 업데이트되어 번호 바구니를 비웠습니다.', 'info');
+            }
+            // 기록된 회차가 없거나, 같거나 크다면 현재 최신 회차로 기록만 갱신
+            else if (!savedRound || savedRound !== latestRound) {
+                currentData.current_round = latestRound;
+                save(currentData);
+            }
+        } catch (e) {
+            console.error('[Basket] 최신 회차 확인 실패:', e);
+        } finally {
+            isCheckingRound = false;
+        }
+    }
 
     // ── 볼 색상 헬퍼 ───────────────────────────────────────
     function ballColor(n) {
@@ -274,8 +321,10 @@
     document.addEventListener('DOMContentLoaded', async () => {
         renderPanel();
 
-        // FilterService가 나중에 초기화될 수 있으므로 대기 후 동기화 시도
+        // FilterService가 나중에 초기화될 수 있으므로 대기 후 동기화 및 새 회차 검사 시도
         setTimeout(async () => {
+            await checkAndClearIfNewRound();
+
             if (window.filterService?.initialized) {
                 await syncFromDB();
             } else {
