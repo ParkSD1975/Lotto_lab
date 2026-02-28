@@ -237,7 +237,7 @@ const DeepLearning = {
         return resultArr;
     },
 
-    // ── 메인 분석 실행 (Python 우선 → Edge Function 폴백) ──
+    // ── 메인 분석 실행 (Python 고정) ──
     async runAnalysis() {
         console.log("🚀 [DeepLearning] runAnalysis() Called");
         if (this.state.isAnalyzing) {
@@ -251,26 +251,39 @@ const DeepLearning = {
         this.state.expertMemos = await this._loadExpertMemos();
         console.log(`✅ 전문가 메모 ${this.state.expertMemos.length}개 로드 완료`);
 
-        // 1. Python 서버 시도
-        if (!this.state.isConnected) {
-            await this.checkConnection();
-        }
+        this.showLoading(true, 'AI가 현재 페이지 데이터를 분석 중...');
 
-        if (window.AIProxy && typeof window.AIProxy.checkHealth === 'function') {
-            console.log("🔍 [DeepLearning] Checking AIProxy health...");
-            const isHealthy = await window.AIProxy.checkHealth(true); // [Mod] Force check
-            console.log("🔍 [DeepLearning] AIProxy Health:", isHealthy);
-
-            if (isHealthy) {
-                console.log("🟢 [DeepLearning] Python Backend is Healthy. Running Python Analysis...");
-                await this._runPythonAnalysis();
-            } else {
-                console.warn("xq [DeepLearning] Python Backend Unhealthy. Falling back to Edge Function...");
-                await this._runEdgeFunctionFallback();
+        try {
+            // 1. Python 서버 시도
+            if (!this.state.isConnected) {
+                await this.checkConnection();
             }
-        } else {
-            console.warn("⚠️ [DeepLearning] Python 서버 미연결, Edge Function 폴백 실행...");
-            await this._runEdgeFunctionFallback();
+
+            let result = null;
+            if (this.state.isConnected && window.AIProxy) {
+                console.log("🟢 [DeepLearning] Python Backend is Healthy. Running Python Analysis...");
+                this.setProgress(10, 'LSTM·GNN·RL 동시 분석 중...');
+                result = await window.AIProxy.getDeepAnalysis(this.state.targetRound);
+            }
+
+            if (!result) {
+                console.warn("xq [DeepLearning] Python 통신 실패. 통계 모드 폴백 실행...");
+                result = await this._runLocalFallbackAnalysis();
+            } else {
+                this.setProgress(100, '완료!');
+                this.state.analysisData = result;
+                this.renderAll(result);
+            }
+        } catch (e) {
+            console.error("분석 실패, 데모 데이터 로드:", e);
+            this.showLoading(true, '분석 실패. 데모 데이터 로드 중...');
+            await new Promise(r => setTimeout(r, 1000));
+            this.loadDemoData();
+        } finally {
+            setTimeout(() => {
+                this.showLoading(false);
+                this.state.isAnalyzing = false;
+            }, 500);
         }
     },
 
@@ -355,9 +368,9 @@ const DeepLearning = {
         }
     },
 
-    // Edge Function 폴백 분석 (Python 없을 때) — 클라이언트 통계 기반
-    async _runEdgeFunctionFallback() {
-        console.log("☁️ [DeepLearning] _runEdgeFunctionFallback() — 클라이언트 통계 모드");
+    // 로컬 통계 폴백 분석 (Python 없을 때) — 클라이언트 통계 기반
+    async _runLocalFallbackAnalysis() {
+        console.log("☁️ [DeepLearning] _runLocalFallbackAnalysis() — 클라이언트 통계 모드");
         if (!window.supabaseClient) {
             this.showLoading(false);
             const summaryEl = document.getElementById('aiSummaryText');
@@ -558,7 +571,7 @@ const DeepLearning = {
             // ── 14. 미출현 그룹 ──────────────────────────────────────
             const recentNums = new Set(allDraws[0]?.numbers || []);
             const missingGroups = [
-                { group: '1~10',  numbers: Array.from({ length: 10 }, (_, i) => i + 1).filter(n => !recentNums.has(n)) },
+                { group: '1~10', numbers: Array.from({ length: 10 }, (_, i) => i + 1).filter(n => !recentNums.has(n)) },
                 { group: '11~20', numbers: Array.from({ length: 10 }, (_, i) => i + 11).filter(n => !recentNums.has(n)) },
                 { group: '21~30', numbers: Array.from({ length: 10 }, (_, i) => i + 21).filter(n => !recentNums.has(n)) },
                 { group: '31~40', numbers: Array.from({ length: 10 }, (_, i) => i + 31).filter(n => !recentNums.has(n)) },
@@ -626,28 +639,10 @@ const DeepLearning = {
             this.state.analysisData = result;
             console.log('✅ 클라이언트 통계 분석 완료. top_5:', result.top_5, 'filterRecs:', filterRecs.length, '개');
 
-            this.renderAll(result);
-            this.setProgress(100, '완료!');
-
+            return result;
         } catch (err) {
-            console.error('❌ Edge Function Fallback Failed:', err);
-
-            // [Emergency] 최후의 수단: 데모 데이터 로드
-            console.warn("⚠️ 모든 분석 실패. 데모 데이터를 로드합니다.");
-            this.showLoading(true, '분석 실패. 데모 데이터 로드 중...');
-
-            await new Promise(r => setTimeout(r, 1000)); // 자연스러운 전환을 위해 1초 대기
-            this.loadDemoData();
-
-            const summaryEl = document.getElementById('aiSummaryText');
-            if (summaryEl) {
-                summaryEl.innerHTML = '<span class="text-amber-600 font-bold">⚠️ 서버 연결 실패로 데모 데이터를 표시합니다.</span>';
-            }
-        } finally {
-            setTimeout(() => {
-                this.showLoading(false);
-                this.state.isAnalyzing = false; // 분석 상태 해제
-            }, 500);
+            console.error('❌ Local Fallback Failed:', err);
+            throw err;
         }
     },
 
@@ -1257,15 +1252,15 @@ const DeepLearning = {
     renderExcludeFixed(strategy, analysis) {
         var fixedNums, fixedEvidence, excludeNums, excludeEvidence;
 
-        // top_5 전체 우선 사용 (strategy.fixed_numbers보다 우선)
+        // Top5 전체 우선 사용 (strategy.fixed_numbers보다 우선)
         if (analysis.recommended && analysis.recommended.length > 0) {
             fixedNums = analysis.recommended;
-            fixedEvidence = '앙상블 5개 모델 상위 추천';
+            fixedEvidence = '앙상블 7개 모델 상위 추천';
         } else if (strategy && strategy.fixed_numbers && strategy.fixed_numbers.numbers) {
             fixedNums = strategy.fixed_numbers.numbers;
             fixedEvidence = strategy.fixed_numbers.evidence;
         } else {
-            fixedNums = analysis.top_6 || [];
+            fixedNums = analysis.top_7 || [];
             fixedEvidence = '앙상블 모델 상위 확률 기반';
         }
         this.renderBalls('fixedNumbers', fixedNums);
@@ -1274,7 +1269,7 @@ const DeepLearning = {
         // exclude_10 전체 우선 사용
         if (analysis.excluded && analysis.excluded.length > 0) {
             excludeNums = analysis.excluded;
-            excludeEvidence = '앙상블 5개 모델 하위 제외';
+            excludeEvidence = '앙상블 7개 모델 하위 제외';
         } else if (strategy && strategy.exclude_numbers && strategy.exclude_numbers.numbers) {
             excludeNums = strategy.exclude_numbers.numbers;
             excludeEvidence = strategy.exclude_numbers.evidence;
