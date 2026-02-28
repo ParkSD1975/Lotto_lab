@@ -928,7 +928,7 @@
             isRecent10FilterActive = true;
 
             applyFilter();
-            applyRecent10Highlight();
+            // applyRecent10Highlight(); // 자동 하이라이트 제외 (사용자 요청)
 
             try {
                 const existing = JSON.parse(localStorage.getItem('last_digit_sum') || '{}');
