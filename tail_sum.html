@@ -117,7 +117,7 @@
 
             // DB 저장 (FilterService 사용)
             if (window.filterService && window.filterService.initialized) {
-                await window.filterService.saveSetting('tail_sum_patterns', data, enabled);
+                await window.filterService.saveSetting('last_digit_sum', data, enabled);
             } else if (window.Utils && window.Utils.saveFilter) {
                 // Fallback: localStorage
                 window.Utils.saveFilter('tail_sum_filter', { ...data, enabled });
@@ -131,7 +131,7 @@
 
             // DB에서 로드 (FilterService 사용)
             if (window.filterService && window.filterService.initialized) {
-                const data = await window.filterService.loadSetting('tail_sum_patterns');
+                const data = await window.filterService.loadSetting('last_digit_sum');
                 if (data) {
                     saved = { ...data.settings, enabled: data.enabled };
                 }
