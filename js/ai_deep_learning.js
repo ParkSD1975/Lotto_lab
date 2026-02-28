@@ -237,7 +237,7 @@ const DeepLearning = {
         return resultArr;
     },
 
-    // ── 메인 분석 실행 (Python 고정) ──
+    // ── 메인 분석 실행 (Python 병렬 및 후행 병합) ──
     async runAnalysis() {
         console.log("🚀 [DeepLearning] runAnalysis() Called");
         if (this.state.isAnalyzing) {
@@ -254,7 +254,6 @@ const DeepLearning = {
         this.showLoading(true, 'AI가 현재 페이지 데이터를 분석 중...');
 
         try {
-            // 1. Python 서버 시도
             if (!this.state.isConnected) {
                 await this.checkConnection();
             }
@@ -263,17 +262,93 @@ const DeepLearning = {
             if (this.state.isConnected && window.AIProxy) {
                 console.log("🟢 [DeepLearning] Python Backend is Healthy. Running Python Analysis...");
                 this.setProgress(10, 'LSTM·GNN·RL 동시 분석 중...');
-                result = await window.AIProxy.getDeepAnalysis(this.state.targetRound);
+
+                // ① Python ML 분석 호출
+                const pythonPromise = window.AIProxy.getDeepAnalysis(this.state.targetRound);
+
+                // 페이지 컨텍스트 추출
+                const context = this.getAnalysisTopic();
+                console.log(`🤖 AI 분석 주제 자동 감지: [${context.topic}]`);
+                let pageStats = "";
+                document.querySelectorAll('.stat-card, .card, .analysis-section').forEach(el => {
+                    pageStats += el.innerText + "\\n";
+                });
+                if (pageStats.length < 10) pageStats = "현재 페이지의 통계 데이터가 감지되지 않았습니다.";
+
+                // 전문가 메모 추출
+                const expertMemos = this.state.expertMemos || [];
+                const memosContext = expertMemos.length > 0
+                    ? '\\n\\n# 전문가 메모 (반드시 분석에 반영)\\n' + expertMemos.map((m, i) => `[메모 ${i + 1}] ${m.memo}`).join('\\n')
+                    : '';
+
+                // ② Edge Function 파이프라인 (백그라운드 병렬 호출)
+                const edgePromise = window.supabaseClient
+                    ? window.supabaseClient.functions.invoke('ai-lotto-analyst', {
+                        body: {
+                            context: `대상: 제 ${this.state.targetRound}회차\\n${pageStats.slice(0, 500)}${memosContext}`,
+                            target_round: this.state.targetRound,
+                            expert_memos: expertMemos.map(m => m.memo)
+                        }
+                    }).catch(err => {
+                        console.warn("xq Edge Function 백그라운드 호출 에러:", err);
+                        return { data: null };
+                    })
+                    : Promise.resolve({ data: null });
+
+                // **블로킹 해제 포인트**: pythonPromise만 즉시 기다립니다.
+                result = await pythonPromise;
+
+                if (!result) {
+                    console.warn("xq [DeepLearning] Python 분석 실패. Edge Function/통계 모드 폴백 필요.");
+                } else {
+                    this.setProgress(100, '완료!');
+                    this.state.analysisData = result;
+                    this.renderAll(result); // 파이썬 결과로 즉각 렌더링 (1~2초 내)
+
+                    // ③ 후행 병합: Edge Function 완료 후 추가 정보 보완
+                    edgePromise.then(edgeRes => {
+                        const edgeData = edgeRes?.data;
+                        if (edgeData) {
+                            let updated = false;
+
+                            // Pipeline 방어적 병합 (기존 Python 값 보호)
+                            if (edgeData.pipeline) {
+                                result.pipeline = { ...edgeData.pipeline, ...(result.pipeline || {}) };
+                                console.log('✅ Edge Function pipeline 후행 병합 완료 (모델 컨디션바·AI리포트)');
+                                updated = true;
+                            }
+
+                            // 조합 병합 유지 보수 - 파이썬 딥러닝 조합이 있으면 덮어쓰지 않음
+                            if (edgeData.combinations && edgeData.combinations.length > 0) {
+                                if (!result.combinations || result.combinations.length === 0) {
+                                    result.combinations = edgeData.combinations;
+                                    console.log('✅ Edge Function RL 조합 후행 병합 완료');
+                                    updated = true;
+                                } else {
+                                    console.log('✅ Python 딥러닝 조합 강제 유지 (Edge Function 조합 무시됨)');
+                                }
+                            }
+
+                            if (updated) {
+                                this.state.analysisData = result;
+                                this.renderAll(result); // 업데이트된 데이터로 다시 렌더링
+                            }
+                        }
+                    });
+                }
             }
 
+            // 폴백 처리
             if (!result) {
                 console.warn("xq [DeepLearning] Python 통신 실패. 통계 모드 폴백 실행...");
                 result = await this._runLocalFallbackAnalysis();
-            } else {
-                this.setProgress(100, '완료!');
-                this.state.analysisData = result;
-                this.renderAll(result);
+                if (result) {
+                    this.setProgress(100, '완료!');
+                    this.state.analysisData = result;
+                    this.renderAll(result);
+                }
             }
+
         } catch (e) {
             console.error("분석 실패, 데모 데이터 로드:", e);
             this.showLoading(true, '분석 실패. 데모 데이터 로드 중...');
@@ -284,87 +359,6 @@ const DeepLearning = {
                 this.showLoading(false);
                 this.state.isAnalyzing = false;
             }, 500);
-        }
-    },
-
-    // Python 서버 직접 분석 (기존 로직)
-    async _runPythonAnalysis() {
-        console.log("🐍 [DeepLearning] _runPythonAnalysis() Started");
-        this.showLoading(true, 'AI가 현재 페이지 데이터를 분석 중...');
-        const url = window.AI_SERVER_URL || 'https://lotto-api-server.onrender.com';
-
-        const context = this.getAnalysisTopic();
-        console.log(`🤖 AI 분석 주제 자동 감지: [${context.topic}]`);
-
-        let pageStats = "";
-        document.querySelectorAll('.stat-card, .card, .analysis-section').forEach(el => {
-            pageStats += el.innerText + "\n";
-        });
-        if (pageStats.length < 10) pageStats = "현재 페이지의 통계 데이터가 감지되지 않았습니다.";
-
-        let _fallbackCalled = false;
-
-        try {
-            this.setProgress(10, 'LSTM·GNN·RL 동시 분석 중...');
-
-            // ① Python ML 분석 + Edge Function 파이프라인 병렬 호출
-            const pythonPromise = window.AIProxy.getDeepAnalysis(this.state.targetRound);
-
-            // 전문가 메모를 분석 컨텍스트에 포함
-            const expertMemos = this.state.expertMemos || [];
-            const memosContext = expertMemos.length > 0
-                ? '\n\n# 전문가 메모 (반드시 분석에 반영)\n' + expertMemos.map((m, i) => `[메모 ${i + 1}] ${m.memo}`).join('\n')
-                : '';
-
-            const edgePromise = window.supabaseClient
-                ? window.supabaseClient.functions.invoke('ai-lotto-analyst', {
-                    body: {
-                        context: `대상: 제 ${this.state.targetRound}회차\n${pageStats.slice(0, 500)}${memosContext}`,
-                        target_round: this.state.targetRound,
-                        expert_memos: expertMemos.map(m => m.memo)
-                    }
-                })
-                : Promise.resolve({ data: null });
-
-            const [result, edgeRes] = await Promise.all([pythonPromise, edgePromise]);
-
-            this.setProgress(70, '분석 결과 병합 중...');
-
-            if (!result) {
-                throw new Error('분석 데이터를 가져올 수 없습니다. (Python 서버 확인 필요)');
-            }
-
-            // ② Edge Function 결과 병합: pipeline(모델 컨디션바·AI리포트) + RL 조합
-            const edgeData = edgeRes?.data;
-            if (edgeData) {
-                if (edgeData.pipeline) {
-                    result.pipeline = edgeData.pipeline;
-                    console.log('✅ Edge Function pipeline 병합 완료 (모델 컨디션바·AI리포트)');
-                }
-                if (edgeData.combinations && edgeData.combinations.length > 0) {
-                    result.combinations = edgeData.combinations;
-                    console.log('✅ Edge Function RL 조합 병합 완료');
-                }
-            }
-
-            this.setProgress(85, '결과 렌더링 중...');
-            this.state.analysisData = result;
-            console.log('✅ 풀스택 분석 완료 (Python ML + Edge Function 파이프라인):', result);
-            this.renderAll(result);
-            this.setProgress(100, '완료!');
-            this.loadHistoryList();
-
-        } catch (err) {
-            console.error('❌ Python Analysis Failed, trying Edge Function fallback:', err);
-            _fallbackCalled = true;
-            await this._runEdgeFunctionFallback();
-        } finally {
-            if (!_fallbackCalled) {
-                setTimeout(() => {
-                    this.showLoading(false);
-                    this.state.isAnalyzing = false;
-                }, 500);
-            }
         }
     },
 
@@ -2194,7 +2188,7 @@ const DeepLearning = {
             // v3: matrix_data 경로 (Python 응답: d.analysis.matrix_data, 폴백: d.matrix_data)
             var matrixItem = null;
             var _mtxSource = (d.analysis && d.analysis.matrix_data) ? d.analysis.matrix_data
-                           : (d.matrix_data || []);
+                : (d.matrix_data || []);
             if (_mtxSource.length) {
                 matrixItem = _mtxSource.find(function (m) { return m.num === number; });
             }
@@ -2497,10 +2491,7 @@ const DeepLearning = {
     },
 
     _getBaseUrl() {
-        if (window.AIProxy && window.AIProxy._langchainUrl) {
-            return window.AIProxy._langchainUrl;
-        }
-        return 'https://lotto-api-server.onrender.com';
+        return window.AI_SERVER_URL || 'https://lotto-api-server.onrender.com';
     },
 
     getBallColor(n) {

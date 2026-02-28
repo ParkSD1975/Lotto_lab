@@ -1427,16 +1427,30 @@ async def get_deep_analysis(round_num: int = None):
                     if isinstance(analysis_data, str):
                         analysis_data = json.loads(analysis_data)
 
-                    # GNN reason "분석 진행 중" 구버전 캐시 → 캐시 스킵하여 재분석
+                    # GNN reason "분석 진행 중" 구버전 캐시 또는 autoencoder 0점 오류 감지 → 캐시 스킵하여 재분석
                     mtx = (analysis_data.get("analysis") or {}).get("matrix_data") or []
                     stale_gnn = bool(mtx) and all(
                         (item.get("models") or {}).get("gnn", {}).get("reason") == "분석 진행 중"
                         for item in mtx[:5]
                     )
-                    if stale_gnn:
-                        print(f"⚠️ [Cache] GNN reason 구버전 캐시 감지 → 재분석")
+                    stale_autoencoder = bool(mtx) and all(
+                        (item.get("models") or {}).get("autoencoder", {}).get("score", 0) == 0
+                        for item in mtx[:5]
+                    )
+
+                    if stale_gnn or stale_autoencoder:
+                        print(f"⚠️ [Cache] 과거 버전(GNN 미분석 또는 Autoencoder 0점) 캐시 감지 → 재분석 강제 및 파기")
+                        try:
+                            # DB에서 잘못된 캐시 레코드 삭제
+                            del_id = cached_res.data[0].get("id")
+                            if del_id:
+                                client.table("deep_analysis_history").delete().eq("id", del_id).execute()
+                                print(f"⚠️ [Cache] 잘못된 캐시 이력(id: {del_id}) DB에서 자동 파기 완료")
+                        except Exception as de:
+                            print(f"⚠️ [Cache] DB 파기 실패: {de}")
+                            
                         # raise → except로 빠져나가 정상 분석 진행
-                        raise ValueError("stale_gnn_cache")
+                        raise ValueError("stale_cache_detected")
 
                     # 경과 시간 표시용
                     analysis_data["elapsed_seconds"] = round(time.time() - start_time, 2)
