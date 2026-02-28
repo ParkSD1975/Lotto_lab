@@ -455,6 +455,19 @@
         return list.length ? list.join(' │ ') : '활성 필터 없음';
     }
 
+    // ── 서버 초기화 대기 자동 재시도 ─────────────────────────────────
+    let _initRetryTimer = null;
+
+    function _scheduleRetry(delaySec) {
+        clearTimeout(_initRetryTimer);
+        _initRetryTimer = setTimeout(() => {
+            console.log('[FilterCounter] 서버 초기화 완료 대기 → 재시도');
+            if (window.FilterDashboard?.updateNeonCounter) {
+                window.FilterDashboard.updateNeonCounter();
+            }
+        }, delaySec * 1000);
+    }
+
     // ── 핵심: 실제 API 카운트 요청 ───────────────────────────────────
     async function _doFetch(body, requestId) {
         try {
@@ -467,6 +480,17 @@
             if (requestId !== _lastRequestId) return;   // 더 최신 요청이 있으면 무시
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = await res.json();
+
+            // ── 서버 초기화 중 응답 처리 ─────────────────────────────
+            if (data.error && data.error.includes('Initializing')) {
+                const obj = getCounter();
+                if (obj) { obj.style.opacity = '0.4'; }
+                setStatus('⏳ 서버 준비 중... 잠시 후 자동 업데이트됩니다', '#f59e0b');
+                _scheduleRetry(4);   // 4초 후 재시도 (초기화에 ~30초 소요)
+                return;
+            }
+            // ─────────────────────────────────────────────────────────
+            clearTimeout(_initRetryTimer);   // 정상 응답 시 재시도 취소
 
             const obj = getCounter();
             if (obj) obj.style.opacity = '1';
@@ -555,12 +579,36 @@
         }, DEBOUNCE_MS);
     }
 
+    // ── 서버 상태 사전 체크 (페이지 로드 시) ────────────────────────
+    async function checkServerReady() {
+        try {
+            const res  = await fetch(`${API_BASE}/api/health`);
+            const data = await res.json();
+            if (data.status !== 'ready') {
+                // 서버가 아직 준비 중 → 상태 표시 + 자동 재시도
+                const obj = getCounter();
+                if (obj) obj.style.opacity = '0.4';
+                setStatus('⏳ 서버 초기화 중 (약 30초)... 자동 업데이트됩니다', '#f59e0b');
+                _scheduleRetry(5);
+                return false;
+            }
+        } catch (_) {
+            // health 체크 실패 → count API 시도 시 error 필드로 처리
+        }
+        return true;
+    }
+
     // ── FilterDashboard에 패치 적용 ───────────────────────────────
     function applyPatch() {
         if (!window.FilterDashboard) { setTimeout(applyPatch, 200); return; }
         window.FilterDashboard._fallbackCounter = window.FilterDashboard.updateNeonCounter.bind(window.FilterDashboard);
         window.FilterDashboard.updateNeonCounter = updateNeonCounter;
         console.log('✅ [FilterCounter] 백엔드 정확 계산 + 물리 조합 모드 활성화');
+
+        // 페이지 로드 직후 서버 상태 미리 확인
+        checkServerReady().then(ready => {
+            if (ready) window.FilterDashboard.updateNeonCounter();
+        });
     }
 
     applyPatch();
