@@ -571,7 +571,7 @@
                                     style="min-width: 210px;"
                                     class="flex items-center justify-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 transition-all active:scale-95 text-sm font-black mr-2">
                                     <span class="material-symbols-outlined text-[18px]">auto_fix_high</span>
-                                    <span id="recent10BtnText">최근 10회차 필터 적용</span>
+                                    <span id="recent10BtnText">직전 끝수합 자동 제외</span>
                                 </button>
                                 <label class="relative inline-flex items-center cursor-pointer">
                                     <input type="checkbox" id="applyFilterCheck" onchange="applyFilter()"
@@ -907,30 +907,21 @@
             }
         }
 
-        // 🆕 페이지 최초 로드 시 최근 10회차 필터 자동 적용
+        // 🆕 페이지 최초 로드 시 직전 끝수합 필터 자동 적용
         function autoApplyRecent10OnLoad() {
-            if (!allDrawData || allDrawData.length < 10) return;
+            if (!allDrawData || allDrawData.length < 2) return;
 
-            const recent10 = allDrawData.slice(0, 10);
-            const sums = recent10.map(d => d.sum);
-            const minSum = Math.min(...sums);
-            const maxSum = Math.max(...sums);
-
-            const minInput = document.getElementById('minFilter');
-            const maxInput = document.getElementById('maxFilter');
             const chk = document.getElementById('applyFilterCheck');
             const btn = document.getElementById('recent10FilterBtn');
             const btnText = document.getElementById('recent10BtnText');
 
-            if (minInput) minInput.value = minSum;
-            if (maxInput) maxInput.value = maxSum;
             if (chk) chk.checked = true;
 
             // 버튼 UI를 보라색(활성화) 상태로
             if (btn && btnText) {
                 btn.classList.remove('from-blue-500', 'to-indigo-600');
                 btn.classList.add('from-purple-500', 'to-purple-700');
-                btnText.textContent = '필터 해제';
+                btnText.textContent = '제외 해제';
             }
 
             // applyRecent10Filter 로직에서 관리되는 플래그 업데이트
@@ -940,17 +931,14 @@
             applyRecent10Highlight();
 
             try {
-                const existing = JSON.parse(localStorage.getItem('tail_sum_patterns') || '{}');
+                const existing = JSON.parse(localStorage.getItem('last_digit_sum') || '{}');
                 const updated = {
                     ...existing,
-                    min: minSum,
-                    max: maxSum,
                     enabled: true,
                     recent10FilterActive: true
                 };
-                localStorage.setItem('tail_sum_patterns', JSON.stringify(updated));
-                localStorage.setItem('tail_sum_filter', JSON.stringify(updated));
-                console.log(`✅ 최근 10회차 필터 자동 적용 + localStorage 저장: Min=${minSum}, Max=${maxSum}`);
+                localStorage.setItem('last_digit_sum', JSON.stringify(updated));
+                console.log(`✅ 직전 끝수합 필터 자동 적용 + localStorage 저장`);
             } catch (e) {
                 console.warn('autoApplyRecent10OnLoad localStorage 저장 오류:', e);
             }
