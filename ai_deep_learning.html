@@ -361,6 +361,11 @@
 
             <!-- 연결형 탭 네비게이션 -->
             <div class="flex border-b border-slate-200">
+                <button onclick="window.DeepLearning && window.DeepLearning.switchTab('status')" id="btn-status"
+                    class="connected-tab">
+                    <span class="material-symbols-outlined text-sm align-middle">neurology</span>
+                    상태 분석
+                </button>
                 <button onclick="window.DeepLearning && window.DeepLearning.switchTab('summary')" id="btn-summary"
                     class="connected-tab connected-tab-active">
                     <span class="material-symbols-outlined text-sm align-middle">dashboard</span>
@@ -392,9 +397,8 @@
         <!-- 콘텐츠 영역 -->
         <section id="content-area" class="flex-1 overflow-y-auto custom-scrollbar">
 
-            <!-- 1. 번호별 분석 탭 -->
-            <div id="tab-summary" class="content-grid pb-8">
-
+            <!-- 0. 상태 분석 탭 (신규) -->
+            <div id="tab-status" class="content-grid hidden pb-8">
                 <!-- [Phase 6] 모델 컨디션 바 (Meta-Learning 가중치) -->
                 <div id="modelConditionContainer" style="display:none" class="col-span-1 lg:col-span-2"></div>
 
@@ -411,6 +415,12 @@
                         <div id="expertMemoList" class="flex flex-col gap-3"></div>
                     </div>
                 </div>
+            </div>
+
+            <!-- 1. 번호별 분석 탭 -->
+            <div id="tab-summary" class="content-grid pb-8">
+
+
 
                 <!-- AI 강력 추천 + AI 제외수 가로 2열 -->
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 col-span-1 lg:col-span-2">

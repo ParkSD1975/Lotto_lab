@@ -96,7 +96,7 @@ const DeepLearning = {
     },
 
     async checkConnection() {
-        const url = this._getBaseUrl();
+        const url = window.AI_SERVER_URL || 'https://lotto-api-server.onrender.com';
 
         // window.AIProxy가 있으면 통합된 헬스체크 사용 (중복 호출 방지 및 쿨다운 적용)
         if (window.AIProxy && typeof window.AIProxy.checkHealth === 'function') {
@@ -129,7 +129,7 @@ const DeepLearning = {
         if (activeBtn) activeBtn.classList.add('connected-tab-active');
 
         // 탭 패널: hidden 클래스 토글 (content-grid 방식)
-        ['summary', 'recommend', 'filters', 'regression', 'custom'].forEach(t => {
+        ['status', 'summary', 'recommend', 'filters', 'regression', 'custom'].forEach(t => {
             const panel = document.getElementById('tab-' + t);
             if (!panel) return;
             if (t === tabName) {
@@ -291,7 +291,7 @@ const DeepLearning = {
     async _runPythonAnalysis() {
         console.log("🐍 [DeepLearning] _runPythonAnalysis() Started");
         this.showLoading(true, 'AI가 현재 페이지 데이터를 분석 중...');
-        const url = this._getBaseUrl();
+        const url = window.AI_SERVER_URL || 'https://lotto-api-server.onrender.com';
 
         const context = this.getAnalysisTopic();
         console.log(`🤖 AI 분석 주제 자동 감지: [${context.topic}]`);
@@ -660,6 +660,36 @@ const DeepLearning = {
         const analysisData = result.analysis || {};
         const rangeAnalysis = analysisData.range_analysis;
         const matrixData = analysisData.matrix_data;
+
+        // [신규 추가] V3 모델의 비정상적으로 큰 원시 가중치(104286 등)를 100점 만점으로 정규화
+        if (matrixData && matrixData.length > 0) {
+            let maxTotal = 0;
+            const maxScores = { lstm: 0, xgboost: 0, cnn: 0, transformer: 0, markov: 0, autoencoder: 0, gnn: 0 };
+
+            // 최대값 찾기
+            matrixData.forEach(item => {
+                if (item.total > maxTotal) maxTotal = item.total;
+                ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'].forEach(m => {
+                    if (item.models && item.models[m] && item.models[m].score > maxScores[m]) {
+                        maxScores[m] = item.models[m].score;
+                    }
+                });
+            });
+
+            // 정규화 (최대값이 105 이상일 때만 100 스케일로 압축)
+            if (maxTotal > 105) {
+                console.log(`[DeepLearning] 점수 정규화 실행 (maxTotal: ${maxTotal})`);
+                matrixData.forEach(item => {
+                    item.raw_total = item.total; // 원본 백업
+                    item.total = maxTotal > 0 ? parseFloat(((item.total / maxTotal) * 100).toFixed(2)) : 0;
+                    ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'].forEach(m => {
+                        if (item.models && item.models[m] && item.models[m].score) {
+                            item.models[m].score = maxScores[m] > 0 ? parseFloat(((item.models[m].score / maxScores[m]) * 100).toFixed(2)) : 0;
+                        }
+                    });
+                });
+            }
+        }
 
         // v3: matrix_data에서 번호 확률 재구성
         const numberProbs = {};
@@ -2127,7 +2157,7 @@ const DeepLearning = {
             // 만약 evidenceText가 없으면 백엔드에서 실시간 XAI 예측
             if (!evidenceText) {
                 try {
-                    const url = this._getBaseUrl();
+                    const url = window.AI_SERVER_URL || 'https://lotto-api-server.onrender.com';
                     const reqBody = { number: number, user_query: "이 번호에 대한 심층 분석을 해줘" };
                     if (d.target_round) reqBody.target_round = d.target_round;
 
