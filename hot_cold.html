@@ -1419,9 +1419,10 @@
             // Context 생성
             const contextData = generateAnalysisContext(currentPeriod);
 
-            const targetText = `Target ${targetRound}회차 (based on ${subjectRound}회)`;
-            const targetEl = document.getElementById('aiTargetInfo');
-            if (targetEl) targetEl.textContent = targetText;
+            // 2. 헤더 정보 업데이트 제거 (요청에 따름)
+            // const targetText = `Target ${targetRound}회차 (based on ${subjectRound}회)`;
+            // const targetEl = document.getElementById('aiTargetInfo');
+            // if (targetEl) targetEl.textContent = targetText;
 
             // 실행 Config
             const analysisConfig = {

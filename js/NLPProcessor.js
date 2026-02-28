@@ -94,6 +94,7 @@ class IntentClassifier {
                 /(\d+)\s*(?:더하|빼|플러스|마이너스)/i,
                 /(?:연속|이월|캐리오버|carryover)/i,
                 /(?:당첨일|추첨일|날짜).{0,15}(?:조합|파생|연산|끝수|기준|기반)/i,
+                /(?:회차|회).{0,5}(?:끝수|일의\s*자리)/i, // [New] 회차 끝수 패턴 추가
                 /수식\s*[:：]?\s*([nxN]\s*[+\-*/]\s*\d+)/i
             ],
             extractor: this.extractDynamicParams.bind(this),
@@ -291,6 +292,9 @@ class IntentClassifier {
             } else {
                 params.rules.formula = 'draw_date_end';
             }
+        } else if (/(?:회차|회).{0,5}(?:끝수|일의\s*자리)/i.test(input)) {
+            // [New] 회차 끝수 분석 (예: 1103회 -> 3끝수 분석)
+            params.rules.formula = 'round_end_digit';
         }
 
         const plusMinusMatch = input.match(/([+\-])\s*(\d+)/);
@@ -582,7 +586,7 @@ class SlotFiller {
     constructor() {
         this.slots = {
             'dynamic_formula': {
-                formula: { required: true, type: 'enum', values: ['prev_plus_n', 'prev_minus_n', 'carryover', 'draw_date_end', 'math_expression'] },
+                formula: { required: true, type: 'enum', values: ['prev_plus_n', 'prev_minus_n', 'carryover', 'draw_date_end', 'round_end_digit', 'math_expression'] },
                 value: { required: false, type: 'number', default: 1 },
                 expression: { required: false, type: 'string' }
             },

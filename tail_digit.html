@@ -65,6 +65,21 @@
             },
         }
 
+        // [핵심] DB 팩토리 기본값(모든 max=6) 또는 비필터 상태를 감지
+        // HTML input max 속성: 0,6,7,8,9 → max=4; 1,2,3,4,5 → max=5
+        // min이 모두 0이고 max가 HTML max 이상이면 "사용자 실제 설정 없음"으로 판단
+        function isAllDefaultFilters(filters) {
+            if (!filters) return true;
+            const htmlMaxes = { 0: 4, 1: 5, 2: 5, 3: 5, 4: 5, 5: 5, 6: 4, 7: 4, 8: 4, 9: 4 };
+            for (let i = 0; i < 10; i++) {
+                const f = filters[i] !== undefined ? filters[i] : filters[String(i)];
+                if (!f) continue;
+                if (f.min > 0) return false;        // min이 좁혀졌음 → 사용자 커스텀
+                if (f.max < htmlMaxes[i]) return false; // max가 좁혀졌음 → 사용자 커스텀
+            }
+            return true; // 모든 digit이 전체 허용 범위 → 실질적 필터 없음
+        }
+
         // [추가됨] 필터 설정 저장 함수
         // [수정] 필터 설정 저장 함수 (DB 저장)
         async function saveFilterSettings() {
@@ -76,6 +91,12 @@
             };
 
             console.log('Settings to save:', settings, 'Enabled:', filterEnabled);
+
+            // [0-6 사이클 방지] 모든 필터가 기본값이면 저장하지 않음
+            if (isAllDefaultFilters(AppState.digitFilters)) {
+                console.log('[tail_digit] Skipping save: all filters are at default (no customization)');
+                return;
+            }
 
             // ✅ filter_dashboard.js가 읽는 키로 항상 localStorage에 저장 (키 불일치 방지)
             try {
@@ -157,7 +178,8 @@
                         toggle.checked = saved.enabled;
                     }
 
-                    if (saved.filters) {
+                    // [0-6 사이클 방지] 실제로 좁혀진 필터가 있을 때만 AppState에 적용
+                    if (saved.filters && !isAllDefaultFilters(saved.filters)) {
                         AppState.digitFilters = saved.filters;
                         for (let i = 0; i < 10; i++) {
                             const minEl = document.getElementById(`filter${i}Min`);
@@ -165,6 +187,8 @@
                             if (minEl && AppState.digitFilters[i]) minEl.value = AppState.digitFilters[i].min;
                             if (maxEl && AppState.digitFilters[i]) maxEl.value = AppState.digitFilters[i].max;
                         }
+                    } else {
+                        console.log('[tail_digit] 로드된 필터가 기본값 → AppState 적용 스킵 (0-6 사이클 차단)');
                     }
                 } catch (e) {
                     console.error('Failed to load filter settings:', e);
@@ -1337,7 +1361,7 @@
         }
 
         // [표준화] 최근 10회차 필터 자동 적용 (missing.html 기준)
-        function applyRecent10Filters() {
+        async function applyRecent10Filters() {
             const btn = document.getElementById('recent10FilterBtn');
             const btnText = document.getElementById('recent10BtnText');
 
@@ -1347,22 +1371,23 @@
                 btn.classList.add('from-blue-500', 'to-indigo-600');
                 btnText.textContent = '최근 10회차 필터 적용';
 
-                // 필터 초기화 (기본값)
-                for (let i = 0; i < 10; i++) {
-                    const minInput = document.getElementById(`filter${i}Min`);
-                    const maxInput = document.getElementById(`filter${i}Max`);
-                    if (minInput) minInput.value = 0;
-                    if (maxInput) {
-                        const maxVal = parseInt(maxInput.getAttribute('max')) || 6;
-                        maxInput.value = maxVal;
-                    }
-                    AppState.digitFilters[i].min = 0;
-                    AppState.digitFilters[i].max = parseInt(maxInput?.value || 6);
-                }
-
-                document.getElementById('filterEnabled').checked = false;
                 AppState.isRecentTenFilter = false;
                 AppState.highlightTargetRound = null;
+
+                // [수정] 이전 저장된 커스텀 설정 복원 (0-6 하드 리셋 대신)
+                const restored = await loadFilterSettings();
+                if (!restored) {
+                    // 저장된 설정 없음 → HTML input 기본값(max 속성 기준)으로 리셋
+                    document.getElementById('filterEnabled').checked = false;
+                    for (let i = 0; i < 10; i++) {
+                        const minInput = document.getElementById(`filter${i}Min`);
+                        const maxInput = document.getElementById(`filter${i}Max`);
+                        const htmlMax = parseInt(maxInput?.getAttribute('max') || '4');
+                        if (minInput) minInput.value = 0;
+                        if (maxInput) maxInput.value = htmlMax;
+                        AppState.digitFilters[i] = { min: 0, max: htmlMax };
+                    }
+                }
                 renderList();
                 return;
             }
@@ -1417,6 +1442,7 @@
             renderList();
 
             console.log('최근 10회차 끝수 필터 적용 완료');
+            await saveFilterSettings(); // 최근 10회차 필터값을 localStorage/DB에 저장
         }
 
         function updateSliderBackground(value) {
@@ -1554,6 +1580,16 @@
                 }
 
                 await loadFilterSettings();
+
+                // [토요일 자동 업데이트] 새 회차가 감지되면 최근 10회차 필터 자동 적용
+                const latestRound = AppState.allDrawData[0]?.round || 0;
+                const lastAutoRound = parseInt(localStorage.getItem('tail_digit_recent10_auto_round') || '0');
+                if (latestRound > lastAutoRound && AppState.allDrawData.length >= 10) {
+                    console.log(`[tail_digit] 새 회차 감지 (${lastAutoRound} → ${latestRound}), 최근 10회차 필터 자동 적용`);
+                    await applyRecent10Filters();
+                    localStorage.setItem('tail_digit_recent10_auto_round', String(latestRound));
+                }
+
                 updateStats();
                 renderList();
                 updateFilterBadgeColors();

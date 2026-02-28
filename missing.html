@@ -2042,9 +2042,9 @@
                 groups[range].push(num);
             }
 
-            // 2. 헤더 정보 업데이트
-            const targetEl = document.getElementById('aiTargetInfo');
-            if (targetEl) targetEl.textContent = `Target ${targetRound}회차 (based on ${subjectRound}회)`;
+            // 2. 헤더 정보 업데이트 제거 (요청에 따름)
+            // const targetEl = document.getElementById('aiTargetInfo');
+            // if (targetEl) targetEl.textContent = `Target ${targetRound}회차 (based on ${subjectRound}회)`;
 
             // 3. AI 엔진 실행 (기존 common_v2.js 활용)
             if (window.AIAnalysis) {

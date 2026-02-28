@@ -315,137 +315,7 @@ window.FilterDashboard = {
     },
 
     calculateCustomTargets(custom) {
-        let type = custom.type || 'static';
-        let targetNums = typeof custom.target_numbers === 'string' ? JSON.parse(custom.target_numbers) : (custom.target_numbers || []);
-        let rules = typeof custom.rules === 'string' ? JSON.parse(custom.rules) : (custom.rules || {});
-        let config = typeof custom.config === 'string' ? JSON.parse(custom.config) : (custom.config || {});
-
-        // [New] Dynamic Hydration: config 컬럼이 없을 경우 rules.config에서 복구
-        if (!custom.config && rules.config) {
-            config = rules.config;
-        }
-
-        if (type === 'group' || type === 'regression_overlap') {
-            const groups = config.groups || [];
-            return [...new Set(groups.flatMap(g => g.numbers))].sort((a, b) => a - b).filter(n => n !== null);
-        }
-
-        if (type === 'dynamic') {
-            const draws = this.state.allDraws;
-            if (!draws || draws.length === 0) return [];
-
-            let formula = rules.formula || 'prev_plus_n';
-            let val = (rules.value !== undefined && rules.value !== null && rules.value !== '') ? Number(rules.value) : 1;
-            if (isNaN(val)) val = 1;
-            const expression = rules.expression;
-            const filters = rules.filters || [];
-            const title = custom.title || '';
-
-            // 제목에 '+1', '+ 1', '+2' 등이 있으면 레거시 호환 (공백 무시)
-            const simplifiedTitle = title.replace(/\s/g, '');
-            if ((!rules.formula || rules.formula === 'carryover') && simplifiedTitle.includes('+1')) {
-                formula = 'prev_plus_n';
-                val = 1;
-            }
-
-            // [Hotfix] 사용자 요청 건에 대한 강제 보정 (ID: 855cefc4-7b76-4f24-b6b8-2a965c89f30b)
-            if (custom.id === '855cefc4-7b76-4f24-b6b8-2a965c89f30b') {
-                formula = 'prev_plus_n';
-                val = 1;
-            }
-
-            const step = parseInt(rules.regression_step || 1);
-            const targetDraw = draws[step - 1]; // draws[0]이 최신 회차
-            const baseDate = targetDraw ? targetDraw.date : null;
-
-            // [New] 날짜 끝수 (당첨일 기준)
-            if (formula === 'draw_date_end') {
-                if (!baseDate) return [];
-                const d = new Date(baseDate);
-                if (isNaN(d.getTime())) return []; // 유효하지 않은 날짜
-
-                const day = d.getDate(); // 1~31
-                const digit = day % 10; // 끝수 (0~9)
-
-                let targets = [];
-                const start = (digit === 0) ? 10 : digit;
-                for (let n = start; n <= 45; n += 10) {
-                    targets.push(n);
-                }
-                return targets;
-            }
-
-            // [New] 날짜 기반 복합 분석 로직 확정 추가
-            if (formula === 'draw_date_math') {
-                if (!baseDate) return [];
-                const d = new Date(baseDate);
-                if (isNaN(d.getTime())) return [];
-
-                const year = d.getFullYear();
-                const month = d.getMonth() + 1;
-                const day = d.getDate();
-
-                // 날짜 구성 요소 분해 (예: 2027, 02, 07 -> 20, 27, 2, 7)
-                const components = [Math.floor(year / 100), year % 100, month, day];
-                let results = new Set();
-
-                // 1. 단일 요소 추가
-                components.forEach(c => { if (c >= 1 && c <= 45) results.add(c); });
-
-                // 2. 구성 요소 간 사칙연산 조합 (합, 차, 곱, 몫)
-                for (let i = 0; i < components.length; i++) {
-                    for (let j = 0; j < components.length; j++) {
-                        if (i === j) continue;
-                        const a = components[i], b = components[j];
-                        [a + b, Math.abs(a - b), a * b, Math.floor(a / b), Math.floor(b / a)].forEach(val => {
-                            if (val >= 1 && val <= 45) results.add(val);
-                        });
-                    }
-                }
-                return Array.from(results).sort((a, b) => a - b);
-            }
-
-            if (!targetDraw || !targetDraw.numbers) return [];
-            const sourceNumbers = targetDraw.numbers.map(Number);
-            let calculatedTargets = [];
-
-            // [New] 수식 기반 계산 (math_expression, 예: 전회차 * 2, ÷ 2 등)
-            if (formula === 'math_expression' && expression && window.LOTTO_CONSTANTS?.safeMathEval) {
-                calculatedTargets = sourceNumbers.map(n => {
-                    let nextNum = window.LOTTO_CONSTANTS.safeMathEval(expression, n);
-                    // 반올림
-                    nextNum = Math.round(Number(nextNum));
-                    // 1~45 범위 순환
-                    while (nextNum > 45) nextNum -= 45;
-                    while (nextNum < 1) nextNum += 45;
-                    return nextNum;
-                });
-            } else if (formula === 'carryover') {
-                calculatedTargets = [...sourceNumbers];
-            } else {
-                // prev_plus_n / prev_minus_n
-                calculatedTargets = sourceNumbers.map(n => {
-                    let nextNum = n;
-                    if (formula === 'prev_plus_n') nextNum = n + val;
-                    else if (formula === 'prev_minus_n') nextNum = n - val;
-
-                    // 1~45 범위 순환
-                    while (nextNum > 45) nextNum -= 45;
-                    while (nextNum < 1) nextNum += 45;
-
-                    return nextNum;
-                });
-            }
-
-            // [New] 필터 적용 (filters)
-            if (filters && filters.length > 0 && window.LOTTO_CONSTANTS?.applyLottoFilters) {
-                calculatedTargets = window.LOTTO_CONSTANTS.applyLottoFilters(calculatedTargets, filters);
-            }
-
-            return [...new Set(calculatedTargets)].sort((a, b) => a - b);
-        }
-
-        return targetNums;
+        return window.LOTTO_CONSTANTS.calculateCustomTargets(custom, this.state.allDraws, { isPrediction: true });
     },
 
     buildFilterControl(def, userSet) {
@@ -1703,7 +1573,7 @@ window.FilterDashboard = {
         // ✅ localStorage 즉시 백업 (DB 저장 실패/지연 시에도 새로고침 후 복구)
         try {
             localStorage.setItem('tail_digit_patterns', JSON.stringify(userSet.settings));
-        } catch(e) {}
+        } catch (e) { }
 
         const def = this.state.foundationFilters.find(f => f.id === id);
         if (def && window.filterService?.initialized) {

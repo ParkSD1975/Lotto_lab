@@ -238,7 +238,7 @@ const DeepLearning = {
     },
 
     // ── 메인 분석 실행 (Python 병렬 및 후행 병합) ──
-    async runAnalysis() {
+    async runAnalysis(forceReload = false) {
         console.log("🚀 [DeepLearning] runAnalysis() Called");
         if (this.state.isAnalyzing) {
             console.log("⚠️ [DeepLearning] Already analyzing, skipping.");
@@ -250,6 +250,31 @@ const DeepLearning = {
         // 전문가 메모 미리 로드 (분석 요청 전)
         this.state.expertMemos = await this._loadExpertMemos();
         console.log(`✅ 전문가 메모 ${this.state.expertMemos.length}개 로드 완료`);
+
+        // ★ [수술 부위: 0.1초 지능형 로컬 캐시 확인 로직 도입]
+        if (!forceReload) {
+            try {
+                const cacheKey = `ai_analysis_cache_${this.state.targetRound}`;
+                const currentMemoSig = (this.state.expertMemos || []).map(m => m.memo).join('|||');
+                const cachedStr = localStorage.getItem(cacheKey);
+
+                if (cachedStr) {
+                    const cachedObj = JSON.parse(cachedStr);
+                    // 타겟 회차와 전문가 메모 내용이 완벽히 동일하면 서버(파이썬+Edge) 연산 생략
+                    if (cachedObj.memoSignature === currentMemoSig && cachedObj.data) {
+                        console.log("⚡ [Cache] 데이터 변동 없음! 0.1초 만에 캐시된 분석 결과를 로드합니다.");
+                        this.state.analysisData = cachedObj.data;
+                        this.renderAll(cachedObj.data);
+                        this.state.isAnalyzing = false;
+                        return; // 여기서 즉시 종료 (백엔드 통신 안함)
+                    } else {
+                        console.log("🔄 [Cache] 메모 변동(추가/삭제) 감지됨. 새로운 AI 분석을 시작합니다.");
+                    }
+                }
+            } catch (e) {
+                console.warn("캐시 로드 실패:", e);
+            }
+        }
 
         this.showLoading(true, 'AI가 현재 페이지 데이터를 분석 중...');
 
@@ -302,6 +327,16 @@ const DeepLearning = {
                     console.warn("xq [DeepLearning] Python 분석 실패. Edge Function/통계 모드 폴백 필요.");
                 } else {
                     this.setProgress(100, '완료!');
+
+                    // ★ [수술 부위: Python 단독 렌더링 전 1차 캐시 저장]
+                    try {
+                        const cacheKey = `ai_analysis_cache_${this.state.targetRound}`;
+                        const currentMemoSig = (this.state.expertMemos || []).map(m => m.memo).join('|||');
+                        localStorage.setItem(cacheKey, JSON.stringify({ memoSignature: currentMemoSig, data: result, timestamp: Date.now() }));
+                    } catch (e) {
+                        console.warn("캐시 저장 실패:", e);
+                    }
+
                     this.state.analysisData = result;
                     this.renderAll(result); // 파이썬 결과로 즉각 렌더링 (1~2초 내)
 
@@ -318,20 +353,29 @@ const DeepLearning = {
                                 updated = true;
                             }
 
-                            // 조합 병합 유지 보수 - 파이썬 딥러닝 조합이 있으면 덮어쓰지 않음
+                            // 조함 병합 유지 보수 - 파이썬 딥러닝 조합이 있으면 덮어쓰지 않음
                             if (edgeData.combinations && edgeData.combinations.length > 0) {
                                 if (!result.combinations || result.combinations.length === 0) {
                                     result.combinations = edgeData.combinations;
-                                    console.log('✅ Edge Function RL 조합 후행 병합 완료');
+                                    console.log('⚠️ Python 조합이 없어 Edge Function 조합으로 대체함');
                                     updated = true;
                                 } else {
-                                    console.log('✅ Python 딥러닝 조합 강제 유지 (Edge Function 조합 무시됨)');
+                                    console.log('✅ 딥러닝 7중 앙상블이 생성한 가장 강력한 최적 조합을 보호하고 화면에 표시합니다. (Edge 조합 무시)');
                                 }
                             }
 
                             if (updated) {
                                 this.state.analysisData = result;
-                                this.renderAll(result); // 업데이트된 데이터로 다시 렌더링
+                                this.renderAll(result); // 업데이트된 데이터로 다시 리렌더링
+
+                                // ★ [수술 부위: Edge 데이터까지 융합된 최종 완전체를 2차 캐싱 덮어쓰기]
+                                try {
+                                    const cacheKey = `ai_analysis_cache_${this.state.targetRound}`;
+                                    const currentMemoSig = (this.state.expertMemos || []).map(m => m.memo).join('|||');
+                                    localStorage.setItem(cacheKey, JSON.stringify({ memoSignature: currentMemoSig, data: result, timestamp: Date.now() }));
+                                } catch (e) {
+                                    console.warn("캐시 영속화 실패:", e);
+                                }
                             }
                         }
                     });

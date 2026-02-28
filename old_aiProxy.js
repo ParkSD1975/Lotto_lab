@@ -1,73 +1,28 @@
 /**
  * AIProxy.js
- * Python(LangChain) 서버 우선 통신, V3 심층 분석 및 기초 분석 폴백 처리
+ * Python(LangChain) 서버 우선, 실패 시 Supabase Edge Function 자동 폴백
+ * * 역할:
+ * 1. Python 백엔드 헬스 체크
+ * 2. 분석 요청 (RAG + 딥러닝) 전송
+ * 3. Python 실패 시 Supabase Edge Function 폴백
+ * 4. 예측 데이터 및 설명 요청 전송
  */
+
 (function () {
+    // 설정 가져오기 (config.js가 로드되지 않았을 경우를 대비한 기본값)
+    // [Mod] 기본값을 배열로 관리하여 순차 시도 (localhost -> 127.0.0.1)
     const BASE_URLS = [
         (window.LANGCHAIN_CONFIG && window.LANGCHAIN_CONFIG.URL) || 'https://lotto-api-server.onrender.com'
     ];
     let CURRENT_BASE_URL = BASE_URLS[0];
-    const TIMEOUT = (window.LANGCHAIN_CONFIG && window.LANGCHAIN_CONFIG.TIMEOUT) || 60000;
+    const TIMEOUT = (window.LANGCHAIN_CONFIG && window.LANGCHAIN_CONFIG.TIMEOUT) || 30000;
 
     window.AIProxy = {
-        _isServerDown: false,
-        _lastCheckTime: 0,
-
-        async checkHealth(force = false) {
-            const now = Date.now();
-            if (!force && this._isServerDown && (now - this._lastCheckTime < 30000)) return false;
-
-            for (const url of BASE_URLS) {
-                try {
-                    const controller = new AbortController();
-                    // Render 서버 콜드스타트로 인한 5초 타임아웃 조기종료 문제 방지 (60초 대기 허용)
-                    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT);
-
-                    const res = await fetch(`${url}/health`, { method: 'GET', signal: controller.signal });
-                    clearTimeout(timeoutId);
-
-                    if (res.ok) {
-                        CURRENT_BASE_URL = url;
-                        this._isServerDown = false;
-                        this._lastCheckTime = now;
-                        // console.log(`✅ Python Server Connected: ${CURRENT_BASE_URL}`);
-                        return true;
-                    }
-                } catch (e) {
-                    // console.warn(`⚠️ Connection Failed: ${url}`);
-                }
-            }
-
-            // console.warn("❌ All Python Server Connection Attempts Failed.");
-            this._isServerDown = true;
-            this._lastCheckTime = now;
-            return false;
-        },
-
-        // ★ [핵심] V3 딥러닝 백엔드(메모 적용) 호출 함수
-        async getDeepAnalysis(roundNum) {
-            try {
-                const query = roundNum ? `?round_num=${roundNum}` : '';
-                const url = `${CURRENT_BASE_URL}/api/deep-analysis/v3/analysis${query}`;
-                console.log(`📡 [AIProxy] V3 딥러닝 심층 분석 요청: ${url}`);
-
-                const res = await fetch(url, {
-                    method: 'GET',
-                    headers: { 'Content-Type': 'application/json' }
-                });
-
-                if (!res.ok) throw new Error("분석 데이터를 가져올 수 없습니다.");
-                return await res.json();
-            } catch (e) {
-                console.error("딥러닝 분석 API 호출 실패:", e);
-                return null;
-            }
-        },
-
         /**
-         * 메인 분석 실행 (Python 우선 → Supabase 폴백) (기초 분석 페이지용)
+         * 메인 분석 실행 (Python 우선 → Supabase 폴백)
          */
         async invoke(config) {
+            // 1. Python RAG 서버 시도
             try {
                 const isAlive = await this.checkHealth();
                 if (isAlive) {
@@ -103,6 +58,7 @@
                 console.warn("⚠️ [AIProxy] Python 요청 실패, Edge Function 폴백 시도...", pythonErr.message);
             }
 
+            // 2. Supabase Edge Function 폴백
             return await this.invokeEdgeFunction(config);
         },
 
@@ -116,6 +72,7 @@
 
             console.log("📡 [AIProxy] Supabase Edge Function(analyze-lotto)으로 폴백 요청...");
 
+            // 타임아웃 래퍼 (TIMEOUT 설정값 사용, 기본 30초)
             const edgePromise = window.supabaseClient.functions.invoke('analyze-lotto', {
                 body: { context: config.prompt }
             });
@@ -131,6 +88,8 @@
             }
 
             let data = response.data;
+
+            // 문자열 응답이면 JSON 파싱 시도
             if (typeof data === 'string') {
                 try { data = JSON.parse(data); } catch (e) { /* 그대로 사용 */ }
             }
@@ -140,11 +99,47 @@
         },
 
         /**
-         * 특정 회차 예측 데이터 조회
+         * 서버 헬스 체크 (중복 요청 및 콘솔 스팸 방지 로직 추가)
+         */
+        _isServerDown: false,
+        _lastCheckTime: 0,
+
+        async checkHealth(force = false) {
+            const now = Date.now();
+            if (!force && this._isServerDown && (now - this._lastCheckTime < 30000)) return false;
+
+            for (const url of BASE_URLS) {
+                try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+                    const res = await fetch(`${url}/health`, { method: 'GET', signal: controller.signal });
+                    clearTimeout(timeoutId);
+
+                    if (res.ok) {
+                        CURRENT_BASE_URL = url; // 성공한 URL을 현재 URL로 확정
+                        this._isServerDown = false;
+                        this._lastCheckTime = now;
+                        console.log(`✅ Python Server Connected: ${CURRENT_BASE_URL}`);
+                        return true;
+                    }
+                } catch (e) {
+                    console.warn(`⚠️ Connection Failed: ${url}`);
+                }
+            }
+
+            console.warn("❌ All Python Server Connection Attempts Failed.");
+            this._isServerDown = true;
+            this._lastCheckTime = now;
+            return false;
+        },
+
+        /**
+         * 특정 회차 딥러닝 예측 데이터 조회
          */
         async getPredictions(round) {
             try {
-                const res = await fetch(`${CURRENT_BASE_URL}/api/predictions/${round}`);
+                const res = await fetch(`${BASE_URL}/api/predictions/${round}`);
                 if (!res.ok) return null;
                 return await res.json();
             } catch (e) {
@@ -171,10 +166,11 @@
         },
 
         /**
-         * 자연어 명령 해석 요청
+         * [New] 자연어 명령 해석 요청 (NLP Fallback)
          */
         async interpret(query) {
             try {
+                // 1. 서버 생존 확인 (생략 가능하나 안전을 위해)
                 const isAlive = await this.checkHealth();
                 if (!isAlive) return null;
 

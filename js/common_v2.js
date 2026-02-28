@@ -97,6 +97,165 @@ if (window._COMMON_V2_LOADED) {
             });
         },
 
+        /**
+         * 커스텀 분석 대상번호 계산 통합 함수
+         * 최신 로직 (회차 끝수 등) 반영 및 시스템 전체 동기화용
+         * @param {Object} custom - ai_custom_analyses 레코드 객체
+         * @param {Array} allDraws - 정렬된 전체 회차 데이터 (최신순)
+         * @param {Object} options - { isPrediction: boolean } (대시보드/필터링 등 예측 모드 여부)
+         */
+        calculateCustomTargets: function (custom, allDraws, options = {}) {
+            if (!custom) return [];
+            let type = custom.type || 'static';
+            let targetNums = typeof custom.target_numbers === 'string' ? JSON.parse(custom.target_numbers) : (custom.target_numbers || []);
+            let rules = typeof custom.rules === 'string' ? JSON.parse(custom.rules) : (custom.rules || {});
+
+            // [Bugfix] config 컬럼이 없을 경우 rules.config에서 복구
+            let config = custom.config;
+            if (typeof config === 'string') config = JSON.parse(config);
+            if (!config && rules.config) config = rules.config;
+            if (!config) config = {};
+
+            if (type === 'group' || type === 'regression_overlap') {
+                const groups = config.groups || [];
+                return [...new Set(groups.flatMap(g => g.numbers))].sort((a, b) => a - b).filter(n => n !== null);
+            }
+
+            if (type === 'dynamic') {
+                if (!allDraws || allDraws.length === 0) return [];
+
+                let formula = rules.formula || 'prev_plus_n';
+                let val = (rules.value !== undefined && rules.value !== null && rules.value !== '') ? Number(rules.value) : 1;
+                if (isNaN(val)) val = 1;
+                const expression = rules.expression;
+                const filters = rules.filters || [];
+                const title = custom.title || '';
+
+                // [Fix] Hotfix/Legacy 호환성 (제목 기반 보정 등)
+                const simplifiedTitle = title.replace(/\s/g, '');
+                if ((!rules.formula || rules.formula === 'carryover') && simplifiedTitle.includes('+1')) {
+                    formula = 'prev_plus_n';
+                    val = 1;
+                }
+                if (custom.id === '855cefc4-7b76-4f24-b6b8-2a965c89f30b') {
+                    formula = 'prev_plus_n';
+                    val = 1;
+                }
+
+                const step = parseInt(rules.regression_step || 1);
+                const targetDraw = allDraws[step - 1]; // draws[0]이 최신 회차
+                if (!targetDraw) return [];
+
+                // [Fix] Metadata shift: 끝수나 날짜 분석은 '해당 회차' 자체의 속성을 보려는 경우가 많음.
+                // 1회귀 번호 기반(이월수)은 draws[0](전회차)을 보지만, 
+                // 1회귀 회차끝수는 대시보드에서 '이번에 올 회차'의 끝수를 의미하고 싶어함.
+                // 따라서 metadata formula들은 isPrediction 모드 시 한 단계 앞의 데이터를 참조하거나 생성함.
+
+                let baseDate = targetDraw.date;
+                let baseRound = targetDraw.round;
+                const isPrediction = options.isPrediction === true;
+
+                // 1. 끝수 분석 (날짜 기준/회차 기준)
+                if (formula === 'draw_date_end') {
+                    if (isPrediction && step === 1) {
+                        // 대시보드에서 1회귀 날짜끝수 = 다음 토요일
+                        const d = new Date(baseDate);
+                        d.setDate(d.getDate() + 7);
+                        const digit = d.getDate() % 10;
+                        let targets = [];
+                        const start = (digit === 0) ? 10 : digit;
+                        for (let n = start; n <= 45; n += 10) targets.push(n);
+                        return targets;
+                    }
+                    if (!baseDate) return [];
+                    const d = new Date(baseDate);
+                    if (isNaN(d.getTime())) return [];
+                    const digit = d.getDate() % 10;
+                    let targets = [];
+                    const start = (digit === 0) ? 10 : digit;
+                    for (let n = start; n <= 45; n += 10) targets.push(n);
+                    return targets;
+                }
+
+                if (formula === 'round_end_digit') {
+                    // [Fix] value가 명시적으로 없으면 0으로 오프셋을 처리
+                    let offset = (rules.value !== undefined && rules.value !== null && rules.value !== '') ? Number(rules.value) : 0;
+                    if (isPrediction && step === 1) {
+                        // 대시보드에서 1회귀 회차끝수 = 다음 회차 (1102 -> 1103) + 오프셋
+                        const digit = (Number(baseRound) + 1 + offset) % 10;
+                        let targets = [];
+                        const start = (digit === 0) ? 10 : digit;
+                        for (let n = start; n <= 45; n += 10) targets.push(n);
+                        return targets;
+                    }
+                    if (!baseRound) return [];
+                    const digit = (Number(baseRound) + offset) % 10;
+                    let targets = [];
+                    const start = (digit === 0) ? 10 : digit;
+                    for (let n = start; n <= 45; n += 10) targets.push(n);
+                    return targets;
+                }
+
+                // 2. 날짜 수학 분석
+                if (formula === 'draw_date_math') {
+                    let d;
+                    if (isPrediction && step === 1) {
+                        d = new Date(baseDate);
+                        d.setDate(d.getDate() + 7);
+                    } else {
+                        if (!baseDate) return [];
+                        d = new Date(baseDate);
+                    }
+                    if (isNaN(d.getTime())) return [];
+                    const year = d.getFullYear(), month = d.getMonth() + 1, day = d.getDate();
+                    const components = [Math.floor(year / 100), year % 100, month, day];
+                    let results = new Set();
+                    components.forEach(c => { if (c >= 1 && c <= 45) results.add(c); });
+                    for (let i = 0; i < components.length; i++) {
+                        for (let j = 0; j < components.length; j++) {
+                            if (i === j) continue;
+                            const a = components[i], b = components[j];
+                            [a + b, Math.abs(a - b), a * b, Math.floor(a / b), Math.floor(b / a)].forEach(v => {
+                                if (v >= 1 && v <= 45) results.add(v);
+                            });
+                        }
+                    }
+                    return Array.from(results).sort((a, b) => a - b);
+                }
+
+                // 3. 번호 기반 분석 (Carryover, Plus/Minus, Expression)
+                const sourceNumbers = (targetDraw.numbers || []).map(Number);
+                let calculatedTargets = [];
+
+                if (formula === 'math_expression' && expression && this.safeMathEval) {
+                    calculatedTargets = sourceNumbers.map(n => {
+                        let nextNum = Math.round(Number(this.safeMathEval(expression, n)));
+                        while (nextNum > 45) nextNum -= 45;
+                        while (nextNum < 1) nextNum += 45;
+                        return nextNum;
+                    });
+                } else if (formula === 'carryover') {
+                    calculatedTargets = [...sourceNumbers];
+                } else {
+                    calculatedTargets = sourceNumbers.map(n => {
+                        let nextNum = (formula === 'prev_plus_n') ? n + val : n - val;
+                        while (nextNum > 45) nextNum -= 45;
+                        while (nextNum < 1) nextNum += 45;
+                        return nextNum;
+                    });
+                }
+
+                // 4. 필터 적용
+                if (filters && filters.length > 0 && this.applyLottoFilters) {
+                    calculatedTargets = this.applyLottoFilters(calculatedTargets, filters);
+                }
+
+                return [...new Set(calculatedTargets)].sort((a, b) => a - b);
+            }
+
+            return targetNums;
+        },
+
         getBallColor: function (num) {
             // 1~10: 노랑 (#fbc400)
             // 11~20: 파랑 (#69c8f2)
@@ -858,7 +1017,7 @@ Format: JSON
                 // 활성화된 커스텀분석 필터 조회
                 const { data, error } = await window.supabaseClient
                     .from('ai_custom_analyses')
-                    .select('id, title, target_numbers, filter_config')
+                    .select('id, title, target_numbers, type, rules, config, filter_config')
                     .not('filter_config', 'is', null);
 
                 if (error) throw error;
@@ -870,9 +1029,25 @@ Format: JSON
                     return { valid: true, message: '활성 필터 없음' };
                 }
 
+                // [New] 동적 필터 계산을 위한 최신 회차 데이터 조회 (필요한 경우에만)
+                let allDraws = [];
+                const hasDynamic = activeFilters.some(f => f.type === 'dynamic' || (f.rules && (f.rules.formula || f.rules.regression_step)));
+                if (hasDynamic) {
+                    const { data: draws } = await window.supabaseClient
+                        .from('lotto_draws')
+                        .select('*')
+                        .order('round', { ascending: false })
+                        .limit(250);
+                    allDraws = draws || [];
+                }
+
                 // 각 필터 검증
                 for (const filter of activeFilters) {
-                    const targetNumbers = filter.target_numbers || [];
+                    // [New] 통합 계산 함수 사용 (DB 저장값 대신 실시간 계산값 우선)
+                    const targetNumbers = (filter.type === 'dynamic' || filter.type === 'group')
+                        ? (window.LOTTO_CONSTANTS.calculateCustomTargets(filter, allDraws, { isPrediction: true }))
+                        : (filter.target_numbers || []);
+
                     const matchCount = combination.filter(n => targetNumbers.includes(n)).length;
                     const { min = 0, max = 6 } = filter.filter_config || {};
 

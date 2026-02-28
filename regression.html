@@ -155,6 +155,54 @@
             updateAll(); // 화면 갱신
         }
 
+        // [추가됨] 전 회귀 최근 10회 성적 기반 일괄 적용
+        function applyBatchRecent10Filters() {
+            if (!allData || allData.length === 0) return;
+
+            const batchEnabled = document.getElementById('batchFilterToggle').checked;
+            const currentBase = targetRound;
+
+            for (let s = 2; s <= 200; s++) {
+                let curr = currentBase - s;
+                let values = [];
+                let count = 0;
+
+                // 각 회귀 단계별 최근 10회차 데이터 수집
+                while (curr > 0 && count < 10) {
+                    const currData = allData.find(d => d.round === curr);
+                    const prevData = allData.find(d => d.round === curr - s);
+                    if (currData && prevData) {
+                        let hits = 0;
+                        prevData.numbers.forEach(n => { if (currData.numbers.includes(n)) hits++; });
+                        values.push(hits);
+                        count++;
+                    }
+                    curr -= s;
+                }
+
+                if (values.length > 0) {
+                    periodFilters[s] = {
+                        min: Math.min(...values),
+                        max: Math.max(...values),
+                        enabled: batchEnabled
+                    };
+                }
+            }
+
+            savePeriodFilters();
+
+            // 현재 활성화된 회귀 단계의 UI 필터값도 갱신
+            const currentSaved = periodFilters[regressionStep];
+            if (currentSaved) {
+                document.getElementById('filterMin').value = currentSaved.min;
+                document.getElementById('filterMax').value = currentSaved.max;
+                document.getElementById('filterToggle').checked = currentSaved.enabled;
+            }
+
+            console.log('✅ 전 회귀 최근 10회차 기반 일괄 설정 완료 (2~200)');
+            updateAll(); // 화면 갱신
+        }
+
         function applyFilter() {
             saveFilterSettings();
         }
@@ -524,13 +572,30 @@
                         </div>
 
                         <!-- 3-Section AI Analysis Content -->
-                        <div id="aiAnalysisContent" class="min-h-[200px] bg-white rounded-xl p-0 overflow-hidden">
-                            <div class="flex items-center justify-center p-12 text-gray-500">
-                                <div class="flex flex-col items-center gap-3">
-                                    <div
-                                        class="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin">
+                        <div id="aiAnalysisContent"
+                            class="min-h-[220px] bg-white rounded-xl p-0 overflow-hidden relative border border-gray-100 shadow-inner">
+                            <div class="p-5 space-y-3 animate-pulse">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-6 h-6 bg-slate-100 rounded-md"></div>
+                                    <div class="h-3 bg-slate-100 rounded-md w-1/4"></div>
+                                </div>
+                                <div class="space-y-2">
+                                    <div class="h-2.5 bg-slate-50 rounded-md w-full"></div>
+                                    <div class="h-2.5 bg-slate-50 rounded-md w-[85%]"></div>
+                                </div>
+                                <div class="grid grid-cols-3 gap-3 mt-4">
+                                    <div class="h-20 bg-slate-50 rounded-lg"></div>
+                                    <div class="h-20 bg-slate-50 rounded-lg"></div>
+                                    <div class="h-20 bg-slate-50 rounded-lg"></div>
+                                </div>
+                                <div
+                                    class="absolute inset-0 flex items-center justify-center bg-white/40 backdrop-blur-[1px]">
+                                    <div class="flex flex-col items-center gap-2">
+                                        <div
+                                            class="w-8 h-8 border-3 border-indigo-500 border-t-transparent rounded-full animate-spin">
+                                        </div>
+                                        <span class="text-xs font-bold text-gray-400">패턴 분석 중...</span>
                                     </div>
-                                    <span class="text-sm font-medium">AI가 최근 회귀 패턴을 정밀 분석 중입니다...</span>
                                 </div>
                             </div>
                         </div>
@@ -645,9 +710,9 @@
                                     </div>
 
                                     <!-- Right: Recent 10 Button -->
-                                    <button onclick="applyRecent10Filters()"
-                                        class="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-[10px] font-bold rounded shadow-md transition-colors active:scale-95 whitespace-nowrap">
-                                        최근 10회차 필터 적용
+                                    <button onclick="applyRecent10Filters()" id="recent10FilterBtn"
+                                        class="px-3 py-1.5 bg-blue-500 from-blue-500 to-indigo-600 bg-gradient-to-br hover:shadow-lg text-white text-[10px] font-bold rounded shadow-md transition-all active:scale-95 whitespace-nowrap">
+                                        <span id="recent10BtnText">최근 10회차 필터 적용</span>
                                     </button>
                                 </div>
 
@@ -691,6 +756,10 @@
                                     <button onclick="applyBatchFilter()"
                                         class="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-[10px] font-bold rounded transition-colors shadow-md active:scale-95 whitespace-nowrap">
                                         일괄 적용
+                                    </button>
+                                    <button onclick="applyBatchRecent10Filters()"
+                                        class="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white text-[10px] font-bold rounded transition-colors shadow-md active:scale-95 whitespace-nowrap">
+                                        최근 10회 일괄 적용
                                     </button>
                                 </div>
                                 <div class="flex items-center justify-end">
@@ -2148,14 +2217,14 @@ ${contextData}
 
                     <!-- Bottom: Prediction Card -->
                     <div
-                        class="bg-indigo-700 rounded-[2rem] p-8 shadow-2xl shadow-indigo-200 text-white flex flex-col justify-center relative overflow-hidden shrink-0">
+                        class="bg-indigo-700 rounded-2xl p-6 shadow-xl shadow-indigo-200 text-white flex flex-col justify-center relative overflow-hidden shrink-0">
                         <div class="relative z-10">
-                            <p class="text-[10px] font-black text-indigo-300 uppercase tracking-widest mb-3">Strategic
+                            <p class="text-[9px] font-black text-indigo-300 uppercase tracking-widest mb-2">Strategic
                                 Intelligence</p>
-                            <h5 class="text-2xl font-black leading-tight">중첩 번호 출현율 <span
+                            <h5 class="text-xl font-black leading-tight">중첩 번호 출현율 <span
                                     class="text-amber-400">4.2배</span> 더 높은 확률</h5>
-                            <div class="mt-4 pt-4 border-t border-indigo-500/50">
-                                <p class="text-sm font-bold text-indigo-50 uppercase tracking-tight">
+                            <div class="mt-3 pt-3 border-t border-indigo-500/50">
+                                <p class="text-xs font-bold text-indigo-50 uppercase tracking-tight">
                                     "상위 중복수 중 최소 1개 출현 확률 72% 이상"
                                 </p>
                             </div>
@@ -2163,7 +2232,7 @@ ${contextData}
                     </div>
                 </div>
 
-                <!-- Footer Removed -->
+                <!-- Spacer removed for compactness -->
             </div>
         </div>
 </body>

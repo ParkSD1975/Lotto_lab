@@ -91,8 +91,8 @@ document.addEventListener("DOMContentLoaded", function () {
             const loginBtnWrapper = container.querySelector('#loginBtn');
             if (loginBtnWrapper && !document.getElementById('expert-memo-trigger')) {
                 const btnHtml = `
-                    <button id="expert-memo-trigger" onclick="window.ExpertMemo.open()" class="flex items-center justify-center w-9 h-9 text-slate-400 hover:text-indigo-600 transition-colors group relative" title="전문가 분석 메모">
-                        <span class="material-symbols-outlined text-[24px]">sticky_note_2</span>
+                    <button id="expert-memo-trigger" onclick="window.ExpertMemo.open()" class="flex items-center justify-center w-9 h-9 rounded-full text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition-all group relative mr-1" title="전문가 분석 메모">
+                        <span class="material-symbols-outlined text-[24px]">edit_note</span>
                         <span class="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border border-white"></span>
                     </button>
                 `;
@@ -612,9 +612,9 @@ You must return a valid JSON object matching this schema:
   "description": "...",
   "type": "static" | "dynamic" | "manual" | "ai_ensemble_fixed" | "ai_ensemble_excluded" | "ai_model_top" | "ai_model_bottom",
   "target_numbers": [], // Only for "static" or "manual"
-  "rules": {
+    "rules": {
     // For "dynamic" type:
-    "formula": "prev_plus_n" | "prev_minus_n" | "carryover" | "draw_date_end" | "math_expression",
+    "formula": "prev_plus_n" | "prev_minus_n" | "carryover" | "draw_date_end" | "round_end_digit" | "math_expression",
     "value": 0,
     "expression": "...",
     
@@ -627,8 +627,9 @@ You must return a valid JSON object matching this schema:
 # Logic Guide
 1. If the user asks for specific fixed numbers (e.g., "Analyze 1, 5, 10"), set type to "static" and fill "target_numbers".
 2. If the user asks for a rule relative to previous rounds (e.g., "+ 2", "- 1", "Carryover"), set type to "dynamic" and appropriate formula.
-3. [IMPORTANT] If the request mentions AI, Deep Learning, Recommendation, Fixed, or Excluded (e.g., "AI 고정수", "제외수 분석"), set type to "ai_ensemble_fixed" or "ai_ensemble_excluded".
-4. [IMPORTANT] If the request mentions a specific model or ranking (e.g., "LSTM 상위 10개", "XGB 하위 5개"), set type to "ai_model_top" or "ai_model_bottom", and specify "model" and "count" in "rules".
+3. [IMPORTANT] If the user asks for a specific round offset end digit (e.g., "회차 - 1 끝수", "전회차 끝수"), set forumla to "round_end_digit" and "value" to the offset (e.g., -1).
+4. [IMPORTANT] If the request mentions AI, Deep Learning, Recommendation, Fixed, or Excluded (e.g., "AI 고정수", "제외수 분석"), set type to "ai_ensemble_fixed" or "ai_ensemble_excluded".
+5. [IMPORTANT] If the request mentions a specific model or ranking (e.g., "LSTM 상위 10개", "XGB 하위 5개"), set type to "ai_model_top" or "ai_model_bottom", and specify "model" and "count" in "rules".
 
 # Response
 Return ONLY the JSON. No markdown.
@@ -705,6 +706,7 @@ Return ONLY the JSON. No markdown.
             else if (formula === 'prev_minus_n') ruleText = `규칙: 직전 회차 번호 - ${val}`;
             else if (formula === 'carryover') ruleText = "규칙: 이월수 (직전 회차 그대로)";
             else if (formula === 'draw_date_end') ruleText = "규칙: 당첨일(추첨일) 일자 기준 끝수 분석";
+            else if (formula === 'round_end_digit') ruleText = val ? `규칙: 회차 끝수 분석 (오프셋: ${val})` : "규칙: 회차 끝수 분석";
             else if (formula === 'math_expression') ruleText = `규칙: 수식 ( ${data.rules?.expression || 'x'} )`;
 
             if (ruleTextEl) ruleTextEl.textContent = ruleText;
@@ -766,10 +768,11 @@ Return ONLY the JSON. No markdown.
         btnSave.disabled = true;
 
         try {
+            const userTitle = document.getElementById('newAnalysisTitle')?.value.trim();
             const { data, error } = await window.supabaseClient
                 .from('ai_custom_analyses')
                 .insert([{
-                    title: tempAnalysisData.title,
+                    title: tempAnalysisData.title || userTitle || '새 분석',
                     prompt: tempAnalysisData.prompt,
                     description: tempAnalysisData.description,
                     type: tempAnalysisData.type,

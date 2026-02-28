@@ -60,6 +60,9 @@ serve(async (req: Request) => {
 - prime_count: 소수 개수 (operator: ==, >=, <=, value: 숫자)
 - carryover: 이월수 개수 (operator: ==, >=, <=, value: 숫자)
 - tail_sum: 끝수합 범위 (min: 숫자, max: 숫자)
+- dynamic_formula: 동적 수식 분석 (formula: prev_plus_n, prev_minus_n, carryover, draw_date_end, round_end_digit, value: 숫자)
+  * draw_date_end: 추첨일(당첨일) 일자 끝수 기준 (예: 25일 -> 5끝수)
+  * round_end_digit: 회차 번호 끝수 기준 (예: 1103회 -> 3끝수)
 
 ## 응답 형식 (순수 JSON만, 마크다운 없이)
 {
@@ -261,26 +264,31 @@ serve(async (req: Request) => {
 
         if (targetRound) {
             try {
-                const { data: memoRow } = await supabaseClient
+                const { data: memoRows } = await supabaseClient
                     .from('user_checkpoints')
                     .select('memo')
                     .eq('round', targetRound)
-                    .limit(1)
-                    .single();
+                    .order('created_at', { ascending: true });
 
-                if (memoRow?.memo) {
-                    rawMemoText = memoRow.memo;
-                    const memoParsedPrompt = `당신은 로또 전문가의 분석 메모를 구조화된 JSON 규칙으로 변환하는 전문가입니다.
+                if (memoRows && memoRows.length > 0) {
+                    const memoTexts = memoRows.map((r: any) => r.memo).filter(Boolean);
+                    rawMemoText = memoTexts.join('\n\n');
+
+                    const memoCount = memoTexts.length;
+                    console.log(`[Phase3.5] 전문가 메모 ${memoCount}개 감지 및 병합 완료`);
+
+                    const memoParsedPrompt = `당신은 로또 전문가의 분석 메모(들)를 구조화된 JSON 규칙으로 변환하는 전문가입니다.
+여러 개의 메모가 입력될 수 있으니, 모든 메모의 내용을 종합하여 하나의 구조화된 규칙으로 변환하세요.
 아래 메모를 분석하여 다음 JSON 형식으로만 응답하세요. 마크다운 없이 순수 JSON만 반환하세요.
 
 {
-  "summary": "메모 요약 (한 문장)",
+  "summary": "모든 메모를 종합한 요약 (한 문장)",
   "excluded_numbers": [제외할 번호 리스트 (없으면 빈 배열)],
   "boost_ranges": [{"start": 시작번호, "end": 끝번호} (확률을 높일 구간, 없으면 빈 배열)],
   "fixed_numbers": [고정 추천 번호 리스트 (없으면 빈 배열)]
 }
 
-[메모]
+[메모 리스트]
 ${rawMemoText}`;
 
                     const memoResponse = await fetch(apiUrl, {
@@ -373,11 +381,11 @@ ${rawMemoText}`;
                 // 필터: Gemini 전략 권장값에서 추출 (없으면 기본 범위)
                 const filterRecs = parsedData?.strategy?.filter_recommendations ?? [];
                 const sumRec = filterRecs.find((f: any) => f.filter === '총합');
-                const acRec  = filterRecs.find((f: any) => f.filter === 'AC값');
+                const acRec = filterRecs.find((f: any) => f.filter === 'AC값');
 
                 const rlFilters = {
-                    sumRange:       sumRec ? [sumRec.min ?? 100, sumRec.max ?? 200] as [number, number] : [80, 220] as [number, number],
-                    acRange:        acRec  ? [acRec.min  ?? 6,   acRec.max  ?? 10]  as [number, number] : undefined,
+                    sumRange: sumRec ? [sumRec.min ?? 100, sumRec.max ?? 200] as [number, number] : [80, 220] as [number, number],
+                    acRange: acRec ? [acRec.min ?? 6, acRec.max ?? 10] as [number, number] : undefined,
                     consecutiveMax: 2,
                 };
 

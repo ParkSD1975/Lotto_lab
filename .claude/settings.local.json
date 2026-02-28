@@ -80,7 +80,17 @@
       "Bash(fly launch --no-deploy --name lotto-filter-api-psd --region nrt --yes)",
       "Bash(fly status --app lotto-filter-api-psd)",
       "Bash(fly logs --app lotto-filter-api-psd)",
-      "Bash(fly logs --app lotto-filter-api-psd --no-tail)"
+      "Bash(fly logs --app lotto-filter-api-psd --no-tail)",
+      "Bash(fly deploy --no-cache)",
+      "Bash(fly status)",
+      "Bash(git commit:*)",
+      "Bash(git push origin main)",
+      "Bash(fly deploy --remote-only)",
+      "Bash(fly machines list)",
+      "Bash(fly logs --no-tail)",
+      "Bash(Select-Object -First 40)",
+      "Bash(git -C \"C:/Users/psdet/Desktop/로또개발\" diff HEAD~3 -- js/ai_deep_learning.js langchain-backend/routes/deep_analysis_v3.py langchain-backend/models/ensemble.py js/aiProxy.js)",
+      "Bash(git rm -r lotto-filter-api/)"
     ]
   }
 }

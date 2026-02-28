@@ -2,9 +2,10 @@ import os
 import json
 import numpy as np
 import torch
+import gc
 
 # ==========================================
-# 🧠 1. 5대 찐모델 완벽 Import
+# 🧠 1. 5대+2대 진짜 모델 완벽 Import
 # ==========================================
 from models.xgboost_model import LottoXGBoost
 from models.lstm_model import LSTMTrainer
@@ -19,38 +20,113 @@ class LottoEnsemble:
         self.save_dir = "saved_models"
         os.makedirs(self.save_dir, exist_ok=True)
         
-        # 🌟 가짜 모델을 모두 버리고, 5대 딥러닝/머신러닝 진짜 모델 완전체 조립
+        # 메타 러닝 가중치 영구 저장 파일
+        self.weights_file = os.path.join(self.save_dir, "ensemble_weights.json")
+        
+        # 🌟 딥러닝/머신러닝 진짜 모델 객체화
         self.models = {
             "xgboost": LottoXGBoost(),
             "lstm": LSTMTrainer(),
             "cnn": CNNTrainer(),
             "transformer": TransformerTrainer(),
             "autoencoder": AutoencoderTrainer(),
-            "gnn": GNNTrainer()  # <== 드디어 GNN 추가!
+            "gnn": GNNTrainer()
         }
         
-        # 가중치 (GNN에게 15%의 힘을 주고, 나머지를 조금씩 양보합니다)
-        self.weights = {
+        # 기본 뼈대 가중치 (초기값)
+        self.default_weights = {
             "xgboost": 0.30,
             "lstm": 0.20,
             "cnn": 0.10,
             "transformer": 0.15,
-            "gnn": 0.15,      # <== 동반출현 전문가 GNN 가중치 배정
-            "markov": 0.10  # 마르코프는 자체 행렬로 계산
+            "gnn": 0.15,
+            "markov": 0.10
         }
+        
+        # ★ 시스템 시작 시 진화된 가중치가 있다면 불러오기
+        self.weights = self._load_meta_weights()
+
+    def _load_meta_weights(self):
+        """저장된 메타 가중치(학습된 비중)를 불러옵니다."""
+        if os.path.exists(self.weights_file):
+            try:
+                with open(self.weights_file, "r") as f:
+                    w = json.load(f)
+                    print(f"🧠 [Meta-Learning] 진화된 동적 가중치 로드 완료: {w}")
+                    return w
+            except Exception:
+                pass
+        return self.default_weights.copy()
+
+    def _update_meta_weights(self, draws):
+        """[핵심] 최신 당첨 번호로 모델별 모의고사를 실시하여 메타 가중치를 스스로 재조정합니다."""
+        print("🧠 [Meta-Learning] 최신 당첨 번호로 모델별 모의고사를 실시합니다...")
+        try:
+            draws_asc = sorted(draws, key=lambda x: x['round'])
+            latest_draw = draws_asc[-1]       # 최신 정답 데이터
+            history = draws_asc[:-1]          # 모의고사용 과거 데이터
+            actual_numbers = set(latest_draw["numbers"])
+
+            # 🛠️ [교정 완료] 리셋하지 않고 현재까지 진화한 가중치(self.weights)를 기준으로 보너스 누적
+            scores = {k: v for k, v in self.weights.items()}
+
+            for name, model in self.models.items():
+                if name == "autoencoder": continue # AE는 이상치 탐지용이므로 제외
+                try:
+                    # 각 모델별로 최신 회차 예측 시뮬레이션
+                    preds = model.predict(history)
+                    top_10 = sorted(preds, key=preds.get, reverse=True)[:10]
+                    
+                    # 실제 당첨 번호와 비교하여 적중 개수 파악
+                    hits = len(set(top_10) & actual_numbers)
+                    
+                    # 적중 1개당 누적 가중치에 5%(0.05)의 보너스 비중 부여
+                    bonus = hits * 0.05
+                    scores[name] += bonus
+                    print(f"    - [{name.upper()}] 모의고사 적중: {hits}개 (가중치 보상 +{bonus:.2f})")
+                except Exception as e:
+                    print(f"    - [{name.upper()}] 평가 보류 (사전 학습 부족): {e}")
+                finally:
+                    # [학습 단계] 메모리 즉시 반환 (OOM 방지)
+                    if hasattr(model, 'model'):
+                        del model.model
+                        model.model = None
+                    if name == "xgboost" and hasattr(model, 'models'):
+                        del model.models
+                        model.models = {}
+                    torch.cuda.empty_cache()
+                    gc.collect()
+
+            # 마르코프 연쇄에는 소폭의 고정 보너스 유지
+            scores["markov"] += 0.02 
+
+            # 부여된 보너스 합산 후 다시 100%(1.0) 비율로 정규화
+            total = sum(scores.values())
+            new_weights = {k: round(v / total, 3) for k, v in scores.items()}
+            
+            self.weights = new_weights
+            # 진화된 가중치 영구 저장
+            with open(self.weights_file, "w") as f:
+                json.dump(self.weights, f)
+            print(f"✅ [Meta-Learning] 새로운 메타 가중치 확정 및 저장 완료!")
+
+        except Exception as e:
+            print(f"⚠️ [Meta-Learning] 가중치 조정 중 오류 발생 (기존값 유지): {e}")
 
     def train_all(self, draws, force_retrain=False):
         if len(draws) < 100:
             return {"success": False, "message": "데이터 부족"}
 
-        print("🧠 [딥러닝 엔진] 6중 앙상블 파인튜닝(증분 학습) 시작...")
+        print("🧠 [딥러닝 엔진] 7중 앙상블 파인튜닝(증분 학습) 시작...")
         
-        # 1. 5대 모델 파인튜닝 (기존 뇌에 최신 데이터 덧붙이기)
+        # ★ 새로운 데이터를 뇌에 각인시키기 전에, 방금 들어온 최신 데이터로 모의고사(평가) 먼저 실시!
+        if not force_retrain:
+            self._update_meta_weights(draws)
+        
+        # 1. 5대 모델 파인튜닝
         for name, model in self.models.items():
-            print(f"  ▶ {name.upper()} 찐모델 파인튜닝 진행 중...")
+            print(f"  ▶ {name.upper()} 진짜 모델 파인튜닝 진행 중...")
             try:
-                # fine_tune 플래그를 전달하여 백지화 방지
-                # Autoencoder는 구조상 fine_tune 파라미터가 없으므로 예외 처리
                 if name == "autoencoder":
                     model.train(draws)
                 else:
@@ -58,22 +134,20 @@ class LottoEnsemble:
             except Exception as e:
                 print(f"  ❌ {name} 모델 파인튜닝 실패: {e}")
             finally:
-                # [OOM 방지] 사용이 끝난 모델 메모리 즉시 반환
                 if hasattr(model, 'model'):
                     del model.model
                     model.model = None
                 if name == "xgboost" and hasattr(model, 'models'):
                     del model.models
                     model.models = {}
-                import gc
                 torch.cuda.empty_cache()
                 gc.collect()
 
         # 2. 마르코프 전이 행렬 파인튜닝
-        print("  ▶ MARKOV 모델 확률 행렬 파인튜닝 중...")
+        print("  ▶ MARKOV 모델 확률 행렬 업데이트 중...")
         self._train_temp_markov(draws)
 
-        return {"success": True, "message": "모든 모델 파인튜닝 완료!"}
+        return {"success": True, "message": "모든 모델 파인튜닝 및 메타 러닝 완료!"}
 
     def _train_temp_markov(self, draws):
         draws_asc = sorted(draws, key=lambda x: x['round'])
@@ -98,9 +172,9 @@ class LottoEnsemble:
             return {"probabilities": {}, "model_contributions": {}, "evidence": {}}
 
         contributions = {m: {} for m in self.weights.keys()}
-        contributions["autoencoder"] = {}  # AE는 별도 계산 (exclusion 역산)
+        contributions["autoencoder"] = {}
 
-        # 1. 메인 딥러닝 예측 (Autoencoder 제외 - 나중에 깎는 용도로 씀)
+        # 1. 딥러닝/머신러닝 예측
         for name, model in self.models.items():
             if name == "autoencoder": continue
             try:
@@ -111,19 +185,9 @@ class LottoEnsemble:
                 print(f"⚠️ {name} 예측 실패: {e}")
                 for n in range(1, 46):
                     contributions[name][n] = 0.0
-            finally:
-                # [OOM 방지] 각 모델 순차 예측 후 즉시 메모리 해제
-                if hasattr(model, 'model'):
-                    del model.model
-                    model.model = None
-                if name == "xgboost" and hasattr(model, 'models'):
-                    del model.models
-                    model.models = {}
-                import gc
-                torch.cuda.empty_cache()
-                gc.collect()
+            # 🛠️ [교정 완료] 실시간 분석(predict)에서는 모델을 메모리에서 지우지 않고 유지하여 0.1초 반응성 확보
 
-        # 2. 마르코프 연쇄 확률 계산
+        # 2. 마르코프 연쇄 예측
         markov_path = os.path.join(self.save_dir, "markov.json")
         if os.path.exists(markov_path):
             with open(markov_path, "r") as f:
@@ -137,10 +201,10 @@ class LottoEnsemble:
             for n in range(1, 46):
                 contributions["markov"][n] = float(pred_markov[n-1])
 
-        # 3. 모델 가중치 1차 합산
+        # 3. ★ 진화된 메타 가중치를 적용하여 1차 합산!
         final_probs = {}
         for n in range(1, 46):
-            score = sum(contributions[m].get(n, 0) * self.weights[m] for m in self.weights.keys())
+            score = sum(contributions[m].get(n, 0) * self.weights.get(m, 0) for m in self.weights.keys())
             final_probs[n] = score
 
         # 4. Autoencoder 비정상 패턴(쏠림/이상치) 페널티 부여
@@ -148,22 +212,12 @@ class LottoEnsemble:
             ae_exclusions = self.models["autoencoder"].predict_exclusions(draws)
         except Exception:
             ae_exclusions = {}
-        finally:
-            # [OOM 방지] 
-            ae_model = self.models["autoencoder"]
-            if hasattr(ae_model, 'model'):
-                del ae_model.model
-                ae_model.model = None
-            import gc
-            torch.cuda.empty_cache()
-            gc.collect()
+        # 🛠️ [교정 완료] 실시간 분석 시 Autoencoder도 메모리에 유지
 
         for n in range(1, 46):
             ae_excl_val = float(ae_exclusions.get(n, 0))
-            # 패널티: 에러율 높은 번호 확률 삭감
             if n in ae_exclusions:
                 final_probs[n] *= (1.0 - ae_excl_val)
-            # AE 기여도: 제외율 역산 → 정상 패턴 점수 (커스텀 분석 모델별 점수용)
             contributions["autoencoder"][n] = max(0.0, 1.0 - ae_excl_val)
 
         # 5. 전문가 메모 (Hard Filter) 철통 방어
@@ -177,11 +231,10 @@ class LottoEnsemble:
                 memo_excl = [int(x) for x in human_rules["excluded_numbers"] if str(x).isdigit() or isinstance(x, int)]
                 
             for n in range(1, 46):
-                # 파인튜닝 딥러닝이 아무리 추천해도 전문가 메모에 있으면 0점 처리
                 if n in memo_excl:
                     final_probs[n] = 0.0
 
-        # 6. 최종 확률 정규화 (100% 맞추기)
+        # 6. 최종 확률 100% 맞추기 (정규화)
         total_score = sum(final_probs.values())
         if total_score > 0:
             final_probs = {n: v / total_score for n, v in final_probs.items()}
@@ -192,7 +245,7 @@ class LottoEnsemble:
             "model_weights": self.weights,
             "top_signals": [
                 {"model": "Human-in-the-loop", "signal": evidence_reasons[0] if evidence_reasons else "전문가 메모 미적용"},
-                {"model": "Ensemble", "signal": "CNN, Transformer, Autoencoder, GNN 등 7중 파인튜닝 통합 적용 완료"}
+                {"model": "Ensemble", "signal": "메타 러닝을 통한 동적 가중치 앙상블 적용 완료"}
             ]
         }
 

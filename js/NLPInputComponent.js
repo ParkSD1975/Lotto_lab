@@ -422,6 +422,7 @@ class NLPInputComponent {
                 case 'prev_minus_n': formulaText = `전회차 -${value}`; break;
                 case 'carryover': formulaText = '이월 (전회차 동일)'; break;
                 case 'draw_date_end': formulaText = '추첨일 끝수'; break;
+                case 'round_end_digit': formulaText = '회차 끝수'; break;
                 case 'math_expression': formulaText = `수식: ${params.rules.expression}`; break;
                 default: formulaText = formula;
             }
@@ -447,7 +448,8 @@ class NLPInputComponent {
             'dynamic_formula': '동적 수식 분석',
             'group_condition': '그룹 조건 분석',
             'statistical': '통계 기반 분석',
-            'filter_condition': '필터 조건'
+            'filter_condition': '필터 조건',
+            'modification': '조건 수정'
         };
         return labels[intent] || intent;
     }
@@ -515,31 +517,38 @@ window.createAnalysis = window.createAnalysis || async function (params) {
 
     try {
         // 분석 제목 생성
-        let title = '';
-        switch (params.type) {
-            case 'static':
-                title = `번호 분석: ${params.target_numbers?.slice(0, 3).join(', ')}...`;
-                break;
-            case 'dynamic':
-                title = `동적 분석: ${params.rules?.formula}`;
-                break;
-            case 'group':
-                title = `그룹 분석: ${params.config?.groups?.length || 0}개 그룹`;
-                // [New] 그룹 번호 자동 채움 (번호가 비어있을 경우 상구 상수로 보정)
-                if (params.config?.groups) {
-                    params.config.groups.forEach(group => {
-                        if (!group.numbers || group.numbers.length === 0) {
-                            const standardKey = Object.keys(window.LOTTO_CONSTANTS?.GROUPS || {}).find(k => group.name.includes(k));
-                            if (standardKey) {
-                                group.numbers = window.LOTTO_CONSTANTS.GROUPS[standardKey];
-                                console.log(`[createAnalysis] Auto-populated group numbers for: ${group.name}`);
+        let title = params.title || '';
+        if (!title) {
+            switch (params.type) {
+                case 'static':
+                    title = `번호 분석: ${params.target_numbers?.slice(0, 3).join(', ')}...`;
+                    break;
+                case 'dynamic':
+                    const formula = params.rules?.formula;
+                    if (formula === 'round_end_digit') {
+                        title = `회차 끝수 분석`;
+                    } else {
+                        title = `동적 분석: ${formula || '미지정'}`;
+                    }
+                    break;
+                case 'group':
+                    title = `그룹 분석: ${params.config?.groups?.length || 0}개 그룹`;
+                    // [New] 그룹 번호 자동 채움 (번호가 비어있을 경우 상구 상수로 보정)
+                    if (params.config?.groups) {
+                        params.config.groups.forEach(group => {
+                            if (!group.numbers || group.numbers.length === 0) {
+                                const standardKey = Object.keys(window.LOTTO_CONSTANTS?.GROUPS || {}).find(k => group.name.includes(k));
+                                if (standardKey) {
+                                    group.numbers = window.LOTTO_CONSTANTS.GROUPS[standardKey];
+                                    console.log(`[createAnalysis] Auto-populated group numbers for: ${group.name}`);
+                                }
                             }
-                        }
-                    });
-                }
-                break;
-            default:
-                title = '새 분석';
+                        });
+                    }
+                    break;
+                default:
+                    title = '새 분석';
+            }
         }
 
         // DB 스키마에 config 컬럼이 없으므로 rules에 통합 저장

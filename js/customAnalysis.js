@@ -219,118 +219,15 @@ function calculateStats(analysis, draws) {
     const rules = analysis.rules || {};
 
     // 헬퍼: 동적 타겟 계산 함수
-    // 날짜 기반 분석을 위해 baseDate 인자 추가
-    const calculateDynamicTargets = (baseNumbers, baseDate) => {
-        let formula = rules.formula || 'prev_plus_n';
-        let val = (rules.value !== undefined && rules.value !== null && rules.value !== '') ? Number(rules.value) : 1;
-        if (isNaN(val)) val = 1;
-        const expression = rules.expression;
-        const filters = rules.filters || [];
-
-        // 제목에 '+1', '+ 1', '+2' 등이 있으면 레거시 호환 (공백 무시)
-        const simplifiedTitle = title.replace(/\s/g, '');
-        if ((!rules.formula || rules.formula === 'carryover') && simplifiedTitle.includes('+1')) {
-            formula = 'prev_plus_n';
-            val = 1;
-        }
-
-        // [Hotfix] 사용자 요청 건에 대한 강제 보정 (ID: 855cefc4-7b76-4f24-b6b8-2a965c89f30b)
-        if (currentAnalysis && currentAnalysis.id === '855cefc4-7b76-4f24-b6b8-2a965c89f30b') {
-            formula = 'prev_plus_n';
-            val = 1;
-        }
-
-        // [New] 날짜 끝수 (당첨일 기준)
-        if (formula === 'draw_date_end') {
-            if (!baseDate) return [];
-            const d = new Date(baseDate);
-            if (isNaN(d.getTime())) return []; // 유효하지 않은 날짜
-
-            const day = d.getDate(); // 1~31
-            const digit = day % 10; // 끝수 (0~9)
-
-            // 끝수에 해당하는 번호 생성 (예: 7 -> 7, 17, 27, 37)
-            // 0 -> 10, 20, 30, 40
-            let targets = [];
-            const start = (digit === 0) ? 10 : digit;
-            for (let n = start; n <= 45; n += 10) {
-                targets.push(n);
-            }
-            return targets;
-        }
-
-        // [New] 날짜 기반 복합 분석 로직 추가
-        if (formula === 'draw_date_math') {
-            if (!baseDate) return [];
-            const d = new Date(baseDate);
-            if (isNaN(d.getTime())) return [];
-
-            const year = d.getFullYear();
-            const month = d.getMonth() + 1;
-            const day = d.getDate();
-
-            // 날짜 구성 요소 분해 (예: 2027, 02, 07 -> 20, 27, 2, 7)
-            const components = [Math.floor(year / 100), year % 100, month, day];
-            let results = new Set();
-
-            // 1. 단일 요소 추가
-            components.forEach(c => { if (c >= 1 && c <= 45) results.add(c); });
-
-            // 2. 구성 요소 간 사칙연산 조합 (합, 차, 곱, 몫)
-            for (let i = 0; i < components.length; i++) {
-                for (let j = 0; j < components.length; j++) {
-                    if (i === j) continue;
-                    const a = components[i], b = components[j];
-                    [a + b, Math.abs(a - b), a * b, Math.floor(a / b), Math.floor(b / a)].forEach(val => {
-                        if (val >= 1 && val <= 45) results.add(val);
-                    });
-                }
-            }
-            return Array.from(results).sort((a, b) => a - b);
-        }
-
-        if (!baseNumbers) return [];
-
-        let calculatedTargets = [];
-        // [Refinement] 입력 번호를 숫자로 강제 변환
-        const sourceNumbers = baseNumbers.map(Number);
-
-        // [New] 수식 기반 계산 (math_expression)
-        if (formula === 'math_expression' && expression && window.LOTTO_CONSTANTS?.safeMathEval) {
-            calculatedTargets = sourceNumbers.map(n => {
-                let nextNum = window.LOTTO_CONSTANTS.safeMathEval(expression, n);
-                // 반올림 (User Request)
-                nextNum = Math.round(Number(nextNum));
-                // 1~45 범위 순환
-                while (nextNum > 45) nextNum -= 45;
-                while (nextNum < 1) nextNum += 45;
-                return nextNum;
-            });
-        }
-        // [Legacy] 기존 규칙 호환
-        else if (formula === 'carryover') {
-            calculatedTargets = [...sourceNumbers];
-        } else {
-            // prev_plus_n / prev_minus_n
-            calculatedTargets = sourceNumbers.map(n => {
-                let nextNum = n;
-                if (formula === 'prev_plus_n') nextNum = n + val;
-                else if (formula === 'prev_minus_n') nextNum = n - val;
-
-                // 1~45 범위 순환
-                while (nextNum > 45) nextNum -= 45;
-                while (nextNum < 1) nextNum += 45;
-
-                return nextNum;
-            });
-        }
-
-        // [New] 필터 적용 (filters)
-        if (filters && filters.length > 0 && window.LOTTO_CONSTANTS?.applyLottoFilters) {
-            calculatedTargets = window.LOTTO_CONSTANTS.applyLottoFilters(calculatedTargets, filters);
-        }
-
-        return [...new Set(calculatedTargets)].sort((a, b) => a - b);
+    // 날짜 기반 분석을 위해 baseDate 인자 추가, 회차 끝수 분석을 위해 baseRound 추가
+    const calculateDynamicTargets = (baseNumbers, baseDate, baseRound) => {
+        // [Refactor] 공통 타겟 계산 함수 사용 (회차 끝수 로직 등 통합 관리)
+        const tempCustom = {
+            ...analysis,
+            rules: { ...analysis.rules, regression_step: 1 } // 이미 결정된 base 데이터를 쓰므로 step=1 고정
+        };
+        const tempDraws = [{ numbers: baseNumbers, date: baseDate, round: baseRound }];
+        return window.LOTTO_CONSTANTS.calculateCustomTargets(tempCustom, tempDraws);
     };
 
     let currentGap = 0;
@@ -372,7 +269,9 @@ function calculateStats(analysis, draws) {
             targets = (globalTargets || []).map(Number);
         } else if (isDynamic) {
             if (rules.formula === 'draw_date_end' || rules.formula === 'draw_date_math') {
-                targets = (calculateDynamicTargets(null, draw.date) || []).map(Number);
+                targets = (calculateDynamicTargets(null, draw.date, draw.round) || []).map(Number);
+            } else if (rules.formula === 'round_end_digit') {
+                targets = (calculateDynamicTargets(null, null, draw.round) || []).map(Number);
             } else {
                 // [New] 회귀 분석(Regression) 지원: regression_step 만큼 뒤의 회차를 참조
                 const step = parseInt(rules.regression_step || 1);
@@ -494,15 +393,9 @@ function calculateStats(analysis, draws) {
     // ---------------------------------------------------------
     let nextTargets = [];
     if (type === 'manual' || type === 'direct') {
-        const hist = (analysis.history_data || []).find(h => h.target_round === nextRound);
-        // [Carry-over Logic] 이번 회차 기록이 없으면 이전 회차 기록을 가져옴
-        if (hist) {
-            nextTargets = hist.target_numbers;
-        } else {
-            // 가장 최근 기록이라도 가져와서 미리 보여줌 (사용자 편의)
-            const sortedHist = [...(analysis.history_data || [])].sort((a, b) => b.target_round - a.target_round);
-            nextTargets = sortedHist[0]?.target_numbers || globalTargets;
-        }
+        // [FIXED] Next round ALWAYS uses the current targets being actively edited,
+        // no historical carry-over dependency for the upcoming predictions to allow live UI updates.
+        nextTargets = [...globalTargets].sort((a, b) => a - b);
     } else if (type === 'static') {
         nextTargets = globalTargets;
     } else if (isDynamic) {
@@ -514,8 +407,10 @@ function calculateStats(analysis, draws) {
                 if (!isNaN(lastDate.getTime())) {
                     const nextDate = new Date(lastDate);
                     nextDate.setDate(lastDate.getDate() + 7); // +1주일
-                    nextTargets = calculateDynamicTargets(null, nextDate.toISOString());
+                    nextTargets = calculateDynamicTargets(null, nextDate.toISOString(), nextRound);
                 }
+            } else if (rules.formula === 'round_end_digit') {
+                nextTargets = calculateDynamicTargets(null, null, nextRound);
             } else {
                 // [New] 회귀 기반 다음 회차 타겟 산출
                 const step = parseInt(rules.regression_step || 1);
@@ -1564,9 +1459,12 @@ window.refreshAIAnalysis = async function () {
 
     section.classList.remove('hidden');
     content.innerHTML = `
-        <div class="flex items-center gap-3 py-4">
-            <div class="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-            <span class="text-indigo-600 font-bold">실제 히스토리 데이터를 기반으로 분석 중입니다...</span>
+        <div class="flex flex-col items-center justify-center gap-4 py-8 min-h-[250px] bg-slate-50/50 rounded-2xl border border-dashed border-indigo-200">
+            <div class="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+            <div class="text-center">
+                <span class="block text-indigo-600 font-bold text-sm tracking-wide animate-pulse mb-1.5">AI 분석 에이전트가 데이터를 검토하고 있습니다...</span>
+                <span class="block text-slate-400 text-[11px]">최초 실행 시 분석 서버 준비(Cold Start)로 인해 약 45초 가량 소요될 수 있습니다.</span>
+            </div>
         </div>
     `;
 
@@ -1623,7 +1521,14 @@ window.refreshAIAnalysis = async function () {
         } else if (currentAnalysis.type === 'dynamic') {
             const rules = currentAnalysis.rules || {};
             const step = rules.regression_step || 1;
-            const formulaMap = { prev_plus_n: `${step}전회차+N`, carryover: `${step}전회차이월`, draw_date_end: '추첨일끝수', draw_date_math: '날짜사칙연산', math_expression: `수식(${rules.expression})` };
+            const formulaMap = {
+                prev_plus_n: `${step}전회차+N`,
+                carryover: `${step}전회차이월`,
+                draw_date_end: '추첨일끝수',
+                round_end_digit: rules.value ? `회차끝수(오프셋:${rules.value})` : '회차끝수',
+                draw_date_math: '날짜사칙연산',
+                math_expression: `수식(${rules.expression})`
+            };
             typeContext = `동적분석 규칙: ${formulaMap[rules.formula] || rules.formula} (회귀간격: ${step})`;
         } else if (currentAnalysis.type === 'static') {
             typeContext = `고정번호 분석: [${targetNumbers.join(', ')}]`;
