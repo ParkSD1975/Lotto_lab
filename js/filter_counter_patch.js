@@ -290,19 +290,28 @@
 
         setStatus('⏳ 조합 목록 로드 중...', '#f59e0b');
         try {
+            // ★ 핵심: 바스켓(fixed/excluded)을 제거하고 요청
+            //   → 캐시에는 무거운 필터만 통과한 전체 조합을 저장
+            //   → clientSideCount에서 바스켓 클라이언트 적용
+            //   (바스켓 포함 로드 시: fixed=[7]→[8] 변경 시 캐시에 8 포함 조합이
+            //    없어서 count=0 오표시되는 버그 방지)
+            const bodyNoBasket = Object.assign({}, body, { fixed: [], excluded: [] });
+
             const res = await fetch(`${API_BASE}/api/combinations`, {
                 method : 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body   : JSON.stringify(body)
+                body   : JSON.stringify(bodyNoBasket)
             });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = await res.json();
 
             if (data.too_many) {
+                // 무거운 필터만으로도 50,000개 초과 → 물리 캐시 사용 불가
+                // 바스켓 변경 시 API 호출로 처리
                 _physicalCache = null;
                 setStatus(
-                    `⚠️ ${data.count.toLocaleString()}개 초과 — 필터를 더 좁혀주세요`,
-                    '#ef4444'
+                    `📊 조합 풀 ${data.count.toLocaleString()}개 — 바스켓 변경 시 자동 재계산`,
+                    '#94a3b8'
                 );
                 return;
             }
@@ -315,11 +324,13 @@
                 window.FilterDashboard._physicalCount  = data.count;
             }
 
+            // 현재 바스켓 기준 실제 카운트 표시
+            const withBasket = clientSideCount(body) ?? data.count;
             setStatus(
-                `✅ ${data.count.toLocaleString()}개 조합 확보 — 바스켓 변경은 즉시 반영`,
+                `✅ ${data.count.toLocaleString()}개 조합 풀 확보 — 현재 ${withBasket.toLocaleString()}개 (바스켓 즉시 반영)`,
                 '#22c55e'
             );
-            console.info(`✅ [FilterCounter] 물리 조합 ${data.count.toLocaleString()}개 로드 완료`);
+            console.info(`✅ [FilterCounter] 물리 조합 ${data.count.toLocaleString()}개 로드 완료 (바스켓 적용 후 ${withBasket.toLocaleString()}개)`);
         } catch (err) {
             _physicalCache = null;
             setStatus('❌ 조합 로드 실패', '#ef4444');
