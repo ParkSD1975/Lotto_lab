@@ -40,30 +40,37 @@ def build_data():
     t0 = time.time()
 
     N = 8145060
-    # Fill numpy array row-by-row: avoids ~650MB intermediate Python list
-    combos = np.empty((N, 6), dtype=np.uint8)
+    # ★ 스레드 안전: 로컬 변수에 완전히 빌드 후 한 번에 전역 변수에 할당
+    #   (전역 변수를 중간에 할당하면 미완성 데이터를 읽는 요청이 발생할 수 있음)
+    _combos = np.empty((N, 6), dtype=np.uint8)
     for i, c in enumerate(combinations(range(1, 46), 6)):
-        combos[i] = c
+        _combos[i] = c
 
     # Pre-calculate Sums (very common)
-    sums = combos.sum(axis=1).astype(np.uint16)
+    _sums = _combos.sum(axis=1).astype(np.uint16)
 
     # Pre-calculate AC using chunked vectorization: avoids 8M-item Python list
     print("🔨 Pre-calculating AC values...")
-    acs = np.empty(N, dtype=np.uint8)
+    _acs = np.empty(N, dtype=np.uint8)
     CHUNK = 500_000
     pairs = [(i, j) for i in range(6) for j in range(i + 1, 6)]  # 15 pairs
 
     for start in range(0, N, CHUNK):
         end = min(start + CHUNK, N)
-        chunk = combos[start:end]
+        chunk = _combos[start:end]
         cs = end - start
         diff_flags = np.zeros((cs, 44), dtype=bool)
         idx = np.arange(cs)
         for i, j in pairs:
             d = chunk[:, j].astype(np.int32) - chunk[:, i].astype(np.int32) - 1
             diff_flags[idx, d] = True
-        acs[start:end] = diff_flags.sum(axis=1, dtype=np.uint8) - 5
+        _acs[start:end] = diff_flags.sum(axis=1, dtype=np.uint8) - 5
+
+    # 모두 완성된 후 한 번에 전역 변수에 원자적 할당
+    # Python GIL 보장: 이 시점부터 combos is not None → 완전한 데이터
+    combos = _combos
+    sums   = _sums
+    acs    = _acs
 
     elapsed = time.time() - t0
     print(f"✅ Data ready in {elapsed:.1f}s. Memory base: ~72MB")
