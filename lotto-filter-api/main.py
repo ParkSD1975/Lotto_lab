@@ -128,13 +128,33 @@ class FilterRequest(BaseModel):
     # 회귀분석 필터 – 과거 회차 번호 기반
     regression_filters: list[dict] = []  # [{"numbers":[...], "min":0, "max":2}, ...]
 
-@app.post("/api/count")
-def count_combos(req: FilterRequest):
-    if combos is None:
-        return {"count": 0, "error": "Initializing..."}
-    
+# ── 공통 상수 (계산 비용 절감용) ────────────────────────────────────
+_PALACE_DEFS = {
+    '1궁': [1,2,3,4,5],    '2궁': [6,7,8,9,10],   '3궁': [11,12,13,14,15],
+    '4궁': [16,17,18,19,20],'5궁': [21,22,23,24,25],'6궁': [26,27,28,29,30],
+    '7궁': [31,32,33,34,35],'8궁': [36,37,38,39,40],'9궁': [41,42,43,44,45],
+}
+_PAPER_DEFS = {
+    '가로1': [1,2,3,4,5,6,7],        '가로2': [8,9,10,11,12,13,14],
+    '가로3': [15,16,17,18,19,20,21],  '가로4': [22,23,24,25,26,27,28],
+    '가로5': [29,30,31,32,33,34,35],  '가로6': [36,37,38,39,40,41,42],
+    '가로7': [43,44,45],
+    '세로1': [1,8,15,22,29,36,43],   '세로2': [2,9,16,23,30,37,44],
+    '세로3': [3,10,17,24,31,38,45],  '세로4': [4,11,18,25,32,39],
+    '세로5': [5,12,19,26,33,40],     '세로6': [6,13,20,27,34,41],
+    '세로7': [7,14,21,28,35,42],
+}
+_BAND_RANGES = {
+    "1_10":  (1,  10), "11_20": (11, 20), "21_30": (21, 30),
+    "31_40": (31, 40), "41_45": (41, 45),
+    "단번대": (1, 10),  "10번대": (11,20),  "20번대": (21,30),
+    "30번대": (31,40),  "40번대": (41,45),
+}
+
+def compute_mask(req: FilterRequest) -> np.ndarray:
+    """모든 필터를 적용한 boolean mask를 반환합니다."""
     mask = np.ones(len(combos), dtype=bool)
-    
+
     # 1. Fixed / Excluded
     if req.fixed:
         for val in req.fixed:
@@ -142,179 +162,157 @@ def count_combos(req: FilterRequest):
     if req.excluded:
         for val in req.excluded:
             mask &= ~np.any(combos == val, axis=1)
-            
+
     # 2. Total Sum
     if req.total_sum_enabled:
         mask &= (sums >= req.total_sum_min) & (sums <= req.total_sum_max)
         if req.total_sum_excluded:
             mask &= ~np.isin(sums, np.array(req.total_sum_excluded, dtype=np.uint16))
-            
-    # 3. Tail Sum (calculate on the fly: 8M * 6 -> fast enough)
+
+    # 3. Tail Digit Sum
     if req.last_digit_sum_enabled:
         tsums = (combos % 10).sum(axis=1)
         mask &= (tsums >= req.last_digit_sum_min) & (tsums <= req.last_digit_sum_max)
         if req.last_digit_sum_excluded:
             mask &= ~np.isin(tsums, np.array(req.last_digit_sum_excluded, dtype=np.uint8))
-            
+
     # 4. AC Value
     if req.ac_value_enabled:
         mask &= (acs >= req.ac_value_min) & (acs <= req.ac_value_max)
         if req.ac_value_excluded:
             mask &= ~np.isin(acs, np.array(req.ac_value_excluded, dtype=np.uint8))
-        
+
     # 5. Odd/Even
     if req.odd_even_enabled and req.odd_even_counts:
         odds = (combos % 2 == 1).sum(axis=1)
         mask &= np.isin(odds, np.array(req.odd_even_counts, dtype=np.uint8))
-        
+
     # 6. High/Low (23~45)
     if req.high_low_enabled and req.high_low_counts:
         highs = (combos >= 23).sum(axis=1)
         mask &= np.isin(highs, np.array(req.high_low_counts, dtype=np.uint8))
-        
+
     # 7. Prime Numbers
     if req.prime_enabled and req.prime_counts:
-        primes_set = {2,3,5,7,11,13,17,19,23,29,31,37,41,43}
-        is_prime = np.isin(combos, list(primes_set))
-        p_counts = is_prime.sum(axis=1)
+        p_counts = np.isin(combos, [2,3,5,7,11,13,17,19,23,29,31,37,41,43]).sum(axis=1)
         mask &= np.isin(p_counts, np.array(req.prime_counts, dtype=np.uint8))
 
     # 8. Composite Numbers
     if req.composite_enabled and req.composite_counts:
-        comp_set = {4,6,8,9,10,12,14,15,16,18,20,21,22,24,25,26,27,28,30,32,33,34,35,36,38,39,40,42,44,45}
-        is_comp = np.isin(combos, list(comp_set))
-        c_counts = is_comp.sum(axis=1)
+        c_counts = np.isin(combos, [4,6,8,9,10,12,14,15,16,18,20,21,22,24,25,
+                                    26,27,28,30,32,33,34,35,36,38,39,40,42,44,45]).sum(axis=1)
         mask &= np.isin(c_counts, np.array(req.composite_counts, dtype=np.uint8))
 
     # 9. Tail Digits
     if req.tail_digit_enabled and req.tail_digit_filters:
         tails = combos % 10
         for d_str, rng in req.tail_digit_filters.items():
-            d = int(d_str)
-            d_count = (tails == d).sum(axis=1)
-            mask &= (d_count >= rng.get("min",0)) & (d_count <= rng.get("max",6))
+            d_count = (tails == int(d_str)).sum(axis=1)
+            mask &= (d_count >= rng.get("min", 0)) & (d_count <= rng.get("max", 6))
 
-    # 10. Number Range (Band) Filter – 번호대별 패턴
-    # 키: "1_10"(단번대), "11_20"(10번대), "21_30"(20번대), "31_40"(30번대), "41_45"(40번대)
-    # 한글 키도 호환 지원
+    # 10. Number Range (Band)
     if req.band_enabled and req.band_filters:
-        BAND_RANGES = {
-            "1_10":  (1,  10),   # 단번대 (1~10)
-            "11_20": (11, 20),   # 10번대 (11~20)
-            "21_30": (21, 30),   # 20번대 (21~30)
-            "31_40": (31, 40),   # 30번대 (31~40)
-            "41_45": (41, 45),   # 40번대 (41~45)
-            # 한글 키 호환
-            "단번대": (1,  10),
-            "10번대": (11, 20),
-            "20번대": (21, 30),
-            "30번대": (31, 40),
-            "40번대": (41, 45),
-        }
         for band_key, rng in req.band_filters.items():
-            if band_key == "entropy":
-                continue  # 엔트로피는 현재 미지원 (skip)
-            band_range = BAND_RANGES.get(band_key)
-            if not band_range:
-                continue
-            lo, hi = band_range
+            if band_key == "entropy": continue
+            br = _BAND_RANGES.get(band_key)
+            if not br: continue
+            lo, hi = br
             band_count = ((combos >= lo) & (combos <= hi)).sum(axis=1)
             mask &= (band_count >= rng.get("min", 0)) & (band_count <= rng.get("max", 6))
 
-    # 11. Missing Period Groups (미출현 기간 그룹) – groups pre-computed by client
+    # 11. Missing Period Groups
     if req.missing_period_enabled and req.missing_groups:
         for grp in req.missing_groups:
             nums = grp.get("numbers", [])
-            if not nums:
-                continue
-            nums_arr = np.array(nums, dtype=np.uint8)
-            g_count = np.isin(combos, nums_arr).sum(axis=1)
+            if not nums: continue
+            g_count = np.isin(combos, np.array(nums, dtype=np.uint8)).sum(axis=1)
             mask &= (g_count >= grp.get("min", 0)) & (g_count <= grp.get("max", 6))
 
-    # 12. Missing Custom Groups (미출현 커스텀 그룹) – user-defined
+    # 12. Missing Custom Groups
     if req.missing_custom_enabled and req.missing_custom_groups:
         for grp in req.missing_custom_groups:
             nums = grp.get("numbers", [])
-            if not nums:
-                continue
-            nums_arr = np.array(nums, dtype=np.uint8)
-            g_count = np.isin(combos, nums_arr).sum(axis=1)
+            if not nums: continue
+            g_count = np.isin(combos, np.array(nums, dtype=np.uint8)).sum(axis=1)
             mask &= (g_count >= grp.get("min", 0)) & (g_count <= grp.get("max", 6))
 
-    # 13. Square Numbers 제곱수 (1,4,9,16,25,36)
+    # 13. Square Numbers (1,4,9,16,25,36)
     if req.square_enabled and req.square_counts:
-        sq_set = {1, 4, 9, 16, 25, 36}
-        sq_counts = np.isin(combos, list(sq_set)).sum(axis=1).astype(np.uint8)
+        sq_counts = np.isin(combos, [1,4,9,16,25,36]).sum(axis=1).astype(np.uint8)
         mask &= np.isin(sq_counts, np.array(req.square_counts, dtype=np.uint8))
 
-    # 14. Triangular Numbers 삼각수 (1,3,6,10,15,21,28,36,45)
+    # 14. Triangular Numbers (1,3,6,10,15,21,28,36,45)
     if req.triangular_enabled and req.triangular_counts:
-        tri_set = {1, 3, 6, 10, 15, 21, 28, 36, 45}
-        tri_counts = np.isin(combos, list(tri_set)).sum(axis=1).astype(np.uint8)
+        tri_counts = np.isin(combos, [1,3,6,10,15,21,28,36,45]).sum(axis=1).astype(np.uint8)
         mask &= np.isin(tri_counts, np.array(req.triangular_counts, dtype=np.uint8))
 
-    # 15. Twin Numbers 쌍수 (11,22,33,44)
+    # 15. Twin Numbers (11,22,33,44)
     if req.twin_enabled and req.twin_counts:
-        twin_set = {11, 22, 33, 44}
-        tw_counts = np.isin(combos, list(twin_set)).sum(axis=1).astype(np.uint8)
+        tw_counts = np.isin(combos, [11,22,33,44]).sum(axis=1).astype(np.uint8)
         mask &= np.isin(tw_counts, np.array(req.twin_counts, dtype=np.uint8))
 
-    # 16. Consecutive Numbers 연속번호 – 연속된 쌍(차이=1)의 개수
-    # 예: [1,2,5,8,9,12] → 쌍(1,2),(8,9) = 2쌍 → count=2
+    # 16. Consecutive pairs
     if req.consecutive_enabled and req.consecutive_counts:
-        diffs = np.diff(combos.astype(np.int16), axis=1)   # (N,5)
-        consec_pairs = (diffs == 1).sum(axis=1).astype(np.uint8)
+        consec_pairs = (np.diff(combos.astype(np.int16), axis=1) == 1).sum(axis=1).astype(np.uint8)
         mask &= np.isin(consec_pairs, np.array(req.consecutive_counts, dtype=np.uint8))
 
-    # 17. Palace Filter 9궁 마방진
-    # {"1궁":[1~5], "2궁":[6~10], ..., "9궁":[41~45]}
-    PALACE_DEFS = {
-        '1궁': [1,2,3,4,5],   '2궁': [6,7,8,9,10],  '3궁': [11,12,13,14,15],
-        '4궁': [16,17,18,19,20],'5궁': [21,22,23,24,25],'6궁': [26,27,28,29,30],
-        '7궁': [31,32,33,34,35],'8궁': [36,37,38,39,40],'9궁': [41,42,43,44,45],
-    }
+    # 17. Palace (9궁)
     if req.palace_enabled and req.palace_filters:
         for gung, rng in req.palace_filters.items():
-            nums = PALACE_DEFS.get(gung)
-            if not nums:
-                continue
-            nums_arr = np.array(nums, dtype=np.uint8)
-            g_count = np.isin(combos, nums_arr).sum(axis=1)
+            nums = _PALACE_DEFS.get(gung)
+            if not nums: continue
+            g_count = np.isin(combos, np.array(nums, dtype=np.uint8)).sum(axis=1)
             mask &= (g_count >= rng.get("min", 0)) & (g_count <= rng.get("max", 6))
 
-    # 18. Paper Pattern Filter 로또용지 패턴
-    # 가로(행) 7개 + 세로(열) 7개
-    PAPER_DEFS = {
-        '가로1': [1,2,3,4,5,6,7],        '가로2': [8,9,10,11,12,13,14],
-        '가로3': [15,16,17,18,19,20,21],  '가로4': [22,23,24,25,26,27,28],
-        '가로5': [29,30,31,32,33,34,35],  '가로6': [36,37,38,39,40,41,42],
-        '가로7': [43,44,45],
-        '세로1': [1,8,15,22,29,36,43],   '세로2': [2,9,16,23,30,37,44],
-        '세로3': [3,10,17,24,31,38,45],  '세로4': [4,11,18,25,32,39],
-        '세로5': [5,12,19,26,33,40],     '세로6': [6,13,20,27,34,41],
-        '세로7': [7,14,21,28,35,42],
-    }
+    # 18. Paper Pattern
     if req.paper_enabled and req.paper_filters:
         for line, rng in req.paper_filters.items():
-            nums = PAPER_DEFS.get(line)
-            if not nums:
-                continue
-            nums_arr = np.array(nums, dtype=np.uint8)
-            g_count = np.isin(combos, nums_arr).sum(axis=1)
+            nums = _PAPER_DEFS.get(line)
+            if not nums: continue
+            g_count = np.isin(combos, np.array(nums, dtype=np.uint8)).sum(axis=1)
             mask &= (g_count >= rng.get("min", 0)) & (g_count <= rng.get("max", 6))
 
-    # 19. Regression Filters 회귀분석 – 과거 회차 번호 기반
+    # 19. Regression Filters
     if req.regression_filters:
         for rf in req.regression_filters:
             nums = rf.get("numbers", [])
-            if not nums:
-                continue
-            nums_arr = np.array(nums, dtype=np.uint8)
-            g_count = np.isin(combos, nums_arr).sum(axis=1)
+            if not nums: continue
+            g_count = np.isin(combos, np.array(nums, dtype=np.uint8)).sum(axis=1)
             mask &= (g_count >= rf.get("min", 0)) & (g_count <= rf.get("max", 6))
 
+    return mask
+
+
+# ── 조합수 카운트 ──────────────────────────────────────────────────
+@app.post("/api/count")
+def count_combos(req: FilterRequest):
+    if combos is None:
+        return {"count": 0, "error": "Initializing..."}
+    mask = compute_mask(req)
+    return {"count": int(np.sum(mask))}
+
+
+# ── 물리 조합 리스트 반환 (count ≤ limit 일 때만) ─────────────────
+@app.post("/api/combinations")
+def get_combinations(req: FilterRequest, limit: int = 50000):
+    """
+    필터를 통과한 실제 조합 목록을 반환합니다.
+    - count ≤ limit(기본 50,000): combinations 배열 포함
+    - count > limit          : too_many=true, count만 반환
+    조합은 [[n1,n2,n3,n4,n5,n6], ...] 형태의 int 배열입니다.
+    """
+    if combos is None:
+        return {"too_many": False, "count": 0, "combinations": [], "error": "Initializing..."}
+    mask = compute_mask(req)
     count = int(np.sum(mask))
-    return {"count": count}
+    if count > limit:
+        return {"too_many": True, "count": count, "combinations": []}
+    filtered = combos[mask]
+    return {
+        "too_many": False,
+        "count": count,
+        "combinations": filtered.tolist()   # [[n1..n6], ...]
+    }
 
 @app.post("/api/count/explain")
 def count_explain(req: FilterRequest):
