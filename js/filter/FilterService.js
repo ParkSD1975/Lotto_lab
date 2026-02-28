@@ -268,7 +268,11 @@ class FilterService {
         }
 
         if (error) {
-            console.error(`❌ 필터 설정 저장 실패 (${filterKey}):`, error);
+            if (error.message && error.message.includes('Failed to fetch')) {
+                // 오프라인 상태 (인터넷 끊김) - 로컬스토리지 백업이 동작하므로 콘솔 에러 생략
+            } else {
+                console.error(`❌ 필터 설정 저장 실패 (${filterKey}):`, error);
+            }
             return null;
         }
 
@@ -460,7 +464,7 @@ class FilterService {
                         await this.saveSetting('tail_digit_patterns', settings, enabled || false);
                         console.log('✅ tail_digit_filter → tail_digit_patterns 보정 마이그레이션 완료');
                     }
-                } catch(e) {
+                } catch (e) {
                     console.warn('⚠️ tail_digit 보정 마이그레이션 실패:', e);
                 }
             }

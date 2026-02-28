@@ -2063,6 +2063,9 @@ ${stats.recent30Str}
             btn.classList.add('from-purple-500', 'to-purple-700');
             btnText.textContent = '필터 해제';
 
+            // 명시적으로 필터를 다시 켰으므로, 기존의 수동 복원 내역을 초기화합니다.
+            restoredAutoSums = [];
+
             const chk = document.getElementById('applyFilterCheck');
             if (chk) chk.checked = true;
 
