@@ -326,8 +326,81 @@
         }
     }
 
+    // ── 단계별 필터 분석 결과를 화면에 표시 ────────────────────────
+    function showExplainPanel(steps, finalCount) {
+        // 기존 패널 제거
+        document.getElementById('filterExplainPanel')?.remove();
+
+        const statusEl = getStatusEl();
+        if (!statusEl) return;
+
+        // 실제로 조합수를 줄인 단계만 표시 (시작 제외)
+        const active = (steps || []).filter((s, i) => i > 0 && s.before !== s.after);
+        if (!active.length) return;
+
+        // 가장 많이 제거한 필터 찾기
+        const maxRemoved = Math.max(...active.map(s => s.before - s.after));
+
+        const panel = document.createElement('div');
+        panel.id = 'filterExplainPanel';
+        panel.style.cssText = [
+            'margin-top:8px', 'border-radius:10px', 'overflow:hidden',
+            'border:1px solid #fee2e2', 'background:#fff',
+            'box-shadow:0 2px 8px rgba(239,68,68,0.10)',
+            'font-size:11px'
+        ].join(';');
+
+        // 헤더
+        const header = document.createElement('div');
+        header.style.cssText = 'background:#fef2f2;padding:6px 12px;display:flex;justify-content:space-between;align-items:center';
+        header.innerHTML = `
+            <span style="font-weight:700;color:#b91c1c">🔍 필터 과다 제거 분석</span>
+            <span style="color:#94a3b8;font-size:10px">최종 ${finalCount.toLocaleString()}개</span>`;
+
+        // 행
+        const rows = document.createElement('div');
+        rows.style.cssText = 'padding:4px 0';
+
+        active.forEach(s => {
+            const removed = s.before - s.after;
+            const pct     = s.before > 0 ? ((removed / s.before) * 100).toFixed(1) : '0.0';
+            const isBig   = removed === maxRemoved;
+            const row     = document.createElement('div');
+            row.style.cssText = [
+                'display:flex', 'align-items:center', 'justify-content:space-between',
+                'padding:4px 12px',
+                isBig ? 'background:#fef2f2' : ''
+            ].join(';');
+
+            // 막대 너비 (최대 제거 필터 기준 비율)
+            const barPct = maxRemoved > 0 ? (removed / maxRemoved * 100).toFixed(0) : 0;
+
+            row.innerHTML = `
+                <span style="flex:0 0 auto;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+                             color:${isBig ? '#b91c1c' : '#475569'};font-weight:${isBig ? '700' : '500'}">
+                    ${isBig ? '⚠️ ' : ''}${s.filter}
+                </span>
+                <div style="flex:1;margin:0 8px;height:4px;background:#f1f5f9;border-radius:2px;overflow:hidden">
+                    <div style="width:${barPct}%;height:100%;background:${isBig ? '#ef4444' : '#94a3b8'};border-radius:2px;transition:width 0.4s"></div>
+                </div>
+                <span style="flex:0 0 auto;text-align:right;color:${isBig ? '#b91c1c' : '#64748b'};font-weight:${isBig ? '700' : '400'}">
+                    -${removed.toLocaleString()} (${pct}%)
+                </span>`;
+            rows.appendChild(row);
+        });
+
+        panel.appendChild(header);
+        panel.appendChild(rows);
+        statusEl.parentNode.insertBefore(panel, statusEl.nextSibling);
+    }
+
+    /** 숨기기 */
+    function hideExplainPanel() {
+        document.getElementById('filterExplainPanel')?.remove();
+    }
+
     // ── 단계별 필터 분석 (count 너무 적을 때) ───────────────────────
-    async function runExplain(body) {
+    async function runExplain(body, showUI = false) {
         try {
             const res = await fetch(`${API_BASE}/api/count/explain`, {
                 method : 'POST',
@@ -336,6 +409,8 @@
             });
             if (!res.ok) return;
             const exp = await res.json();
+
+            // 콘솔 출력
             console.group('🔍 [FilterCounter] 필터별 조합수 단계 분석');
             (exp.steps || []).forEach(s => {
                 const removed = s.before - s.after;
@@ -347,6 +422,10 @@
                 );
             });
             console.groupEnd();
+
+            // UI 패널 표시 (count ≤ 100이면 항상, 명시 요청이면 항상)
+            if (showUI) showExplainPanel(exp.steps, exp.final_count ?? 0);
+
         } catch (_) {}
     }
 
@@ -393,27 +472,34 @@
             if (obj) obj.style.opacity = '1';
             animateCounter(data.count);
 
-            // 조합수가 너무 적으면 단계 분석
-            if (data.count <= EXPLAIN_LIMIT) {
-                console.warn(`⚠️ [FilterCounter] 조합수 ${data.count.toLocaleString()}개 → 단계 분석 실행`);
-                runExplain(body);
-            }
+            // 조합수에 따른 분기 처리
+            if (data.count === 0) {
+                // ── 0개: 원인 분석 패널 자동 표시 ────────────────────
+                _physicalCache = null;
+                if (window.FilterDashboard) window.FilterDashboard._physicalCombos = null;
+                setStatus('⛔ 조합 없음 — 아래 분석을 참고해 필터를 완화해주세요', '#ef4444');
+                runExplain(body, true);   // UI 패널 표시
 
-            // 조합수가 물리 한계 이하면 물리 조합 자동 로드
-            if (data.count > 0 && data.count <= PHYSICAL_LIMIT) {
+            } else if (data.count <= EXPLAIN_LIMIT) {
+                // ── 1~1000개: 경고 + 분석 패널 표시 ──────────────────
+                setStatus(`⚠️ ${data.count.toLocaleString()}개 — 필터가 너무 좁습니다`, '#f59e0b');
+                runExplain(body, true);   // UI 패널 표시
                 loadPhysicalCombos(body, data.count);
-            } else if (data.count > PHYSICAL_LIMIT) {
-                // 너무 많으면 캐시 무효화 + 안내
+
+            } else if (data.count <= PHYSICAL_LIMIT) {
+                // ── 1001~50000개: 물리 조합 자동 로드 ────────────────
+                hideExplainPanel();
+                loadPhysicalCombos(body, data.count);
+
+            } else {
+                // ── 50000개 초과: 안내만 ──────────────────────────────
+                hideExplainPanel();
                 _physicalCache = null;
                 if (window.FilterDashboard) window.FilterDashboard._physicalCombos = null;
                 setStatus(
                     `${data.count.toLocaleString()}개 — 필터를 좁히면 조합 목록을 확보합니다`,
                     '#94a3b8'
                 );
-            } else {
-                // count === 0
-                _physicalCache = null;
-                setStatus('조합 없음 — 필터 조건을 완화해주세요', '#ef4444');
             }
 
         } catch (err) {
