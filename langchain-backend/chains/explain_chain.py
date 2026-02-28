@@ -53,33 +53,94 @@ def create_explain_chain():
     
     return prompt | llm | StrOutputParser()
 
-async def explain_number(number: int, user_query: str, draws_data: list):
-    """특정 번호에 대한 AI 분석 근거 설명."""
+async def explain_number(number: int, user_query: str, target_round: int = None, draws_data: list = None):
+    """특정 번호에 대한 AI 분석 근거 설명.
+    매번 예측을 돌리지 않고, 가장 최신의 deep_analysis_history 데이터를 활용하여 30~40초 로딩 딜레이를 방지합니다.
+    """
     
-    # 1. 모델 예측 데이터 확보
     try:
-        result = get_ensemble().predict(draws_data)
-        probs = result['probabilities']
-        
-        # 순위 계산
-        sorted_nums = sorted(probs.items(), key=lambda x: x[1], reverse=True)
-        rank = [n for n, p in sorted_nums].index(number) + 1
-        
-        # 개별 모델 확률
-        lstm_p = result['model_contributions']['lstm'].get(number, 0) * 100
-        xgb_p = result['model_contributions']['xgboost'].get(number, 0) * 100
-        markov_p = result['model_contributions']['markov'].get(number, 0) * 100
-        total_p = probs.get(number, 0) * 100
-        
-        # XAI 근거 (XGBoost 중요 피처 or Markov 설명)
+        from db.supabase_client import get_client
+        client = get_client()
+
+        # target_round가 없으면 최신 회차를 자동으로 조회
+        if target_round is None:
+            if draws_data is None:
+                from db.supabase_client import fetch_all_draws
+                draws_data = fetch_all_draws()
+            if draws_data:
+                target_round = draws_data[0]["round"] + 1
+            else:
+                target_round = 1104 # fallback
+
+        # 1. DB에서 가장 최근 분석 결과(캐시) 로드
+        cached_res = client.table("deep_analysis_history")\
+            .select("analysis_data")\
+            .eq("target_round", target_round)\
+            .order("created_at", desc=True)\
+            .limit(1)\
+            .execute()
+
+        probs = {}
+        model_contribs = {}
         xai_text = "복합적인 패턴 분석 결과"
-        xgb_feats = result.get('xgb_feature_importance', {})
-        if number in xgb_feats and xgb_feats[number]:
-            feats = xgb_feats[number]
-            xai_text = f"XGBoost 주요 패턴: {feats[0][0]} 영향력 높음"
+
+        if cached_res.data:
+            analysis_data = cached_res.data[0].get("analysis_data", {})
+            if isinstance(analysis_data, str):
+                import json
+                analysis_data = json.loads(analysis_data)
+
+            # DB 캐시에서 데이터 추출
+            evidence = analysis_data.get("evidence", {})
+            model_contribs = analysis_data.get("model_contributions", {})
+            probs = analysis_data.get("probabilities", {})
+
+            xgb_feats = evidence.get('xgb_feature_importance', {})
+            if str(number) in xgb_feats and xgb_feats[str(number)]:
+                feats = xgb_feats[str(number)]
+                xai_text = f"XGBoost 주요 패턴: {feats[0][0]} 영향력 높음"
+            elif number in xgb_feats and xgb_feats[number]:
+                feats = xgb_feats[number]
+                xai_text = f"XGBoost 주요 패턴: {feats[0][0]} 영향력 높음"
+
+        # DB 캐시가 없으면 어쩔수 없이 Fallback 실행
+        if not probs:
+            if draws_data is None:
+                from db.supabase_client import fetch_all_draws
+                draws_data = fetch_all_draws()
+            result = get_ensemble().predict(draws_data)
+            probs = result.get('probabilities', {})
+            model_contribs = result.get('model_contributions', {})
+            
+            xgb_feats = result.get('xgb_feature_importance', {})
+            if number in xgb_feats and xgb_feats[number]:
+                feats = xgb_feats[number]
+                xai_text = f"XGBoost 주요 패턴: {feats[0][0]} 영향력 높음"
+        
+        # 순위 계산 (문자열 키와 정수 키를 모두 지원하도록 float 캐스팅)
+        probs_float = {int(k): float(v) for k, v in probs.items()}
+        sorted_nums = sorted(probs_float.items(), key=lambda x: x[1], reverse=True)
+        # 만약 번호가 목록에 없다면 그냥 하위권 처리
+        try:
+            rank = [n for n, p in sorted_nums].index(number) + 1
+        except ValueError:
+            rank = 45 
+
+        # 개별 모델 확률
+        def safe_get(group, m_name, num):
+            if not group or m_name not in group: return 0
+            val = group[m_name].get(str(num), group[m_name].get(num, 0))
+            return float(val)
+
+        lstm_p = safe_get(model_contribs, 'lstm', number) * 100
+        xgb_p = safe_get(model_contribs, 'xgboost', number) * 100
+        markov_p = safe_get(model_contribs, 'markov', number) * 100
+        total_p = probs_float.get(number, 0) * 100
             
     except Exception as e:
-        return f"죄송합니다. 해당 번호({number})에 대한 정밀 분석 데이터를 가져오는 중 오류가 발생했습니다."
+        import traceback
+        traceback.print_exc()
+        return f"죄송합니다. 해당 번호({number})에 대한 정밀 분석 데이터를 가져오는 중 오류가 발생했습니다: {e}"
 
     # 2. 설명 생성
     chain = create_explain_chain()

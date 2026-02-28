@@ -1407,56 +1407,71 @@ async def get_deep_analysis(round_num: int = None):
         
         final_probs = prediction.get("probabilities", {})
         contribs = prediction.get("model_contributions", {})
-        # 전문가 메모가 존재하면 캐시를 무시하도록 설정 (항상 최신 메모 반영)
-        if expert_memo_data:
-            print("📝 전문가 메모가 감지되어 캐시를 무시하고 새로 분석합니다.")
-        else:
-            # 전문가 메모가 없을 때만 캐시 체크 (v3 신규)
-            try:
-                client = get_client()
-                cached_res = client.table("deep_analysis_history")\
-                    .select("analysis_data, confidence")\
-                    .eq("target_round", target_round)\
-                    .order("created_at", desc=True)\
-                    .limit(1)\
-                    .execute()
+        # 전문가 메모 파싱 완료
+        current_memo_raw = expert_memo_data.get("memo") if expert_memo_data else None
+
+        try:
+            client = get_client()
+            cached_res = client.table("deep_analysis_history")\
+                .select("id, analysis_data, confidence")\
+                .eq("target_round", target_round)\
+                .order("created_at", desc=True)\
+                .limit(1)\
+                .execute()
+            
+            if cached_res.data:
+                analysis_data = cached_res.data[0].get("analysis_data")
+                if isinstance(analysis_data, str):
+                    analysis_data = json.loads(analysis_data)
+
+                cached_memo = (analysis_data.get("expert_memo") or {}).get("raw")
                 
-                if cached_res.data:
-                    print(f"📦 [Cache Hit] {target_round}회차 분석 결과를 캐시에서 로드합니다.")
-                    analysis_data = cached_res.data[0].get("analysis_data")
-                    if isinstance(analysis_data, str):
-                        analysis_data = json.loads(analysis_data)
+                # 메모가 변경되었다면 캐시 무효화
+                if cached_memo != current_memo_raw:
+                    print(f"📝 [Cache Miss] 전문가 메모 변경 감지 (새로 분석 진행)")
+                    raise ValueError("memo_changed")
 
-                    # GNN reason "분석 진행 중" 구버전 캐시 또는 autoencoder 0점 오류 감지 → 캐시 스킵하여 재분석
-                    mtx = (analysis_data.get("analysis") or {}).get("matrix_data") or []
-                    stale_gnn = bool(mtx) and all(
-                        (item.get("models") or {}).get("gnn", {}).get("reason") == "분석 진행 중"
-                        for item in mtx[:5]
-                    )
-                    stale_autoencoder = bool(mtx) and all(
-                        (item.get("models") or {}).get("autoencoder", {}).get("score", 0) == 0
-                        for item in mtx[:5]
-                    )
+                print(f"📦 [Cache Hit] {target_round}회차 분석 결과를 캐시에서 로드합니다.")
 
-                    if stale_gnn or stale_autoencoder:
-                        print(f"⚠️ [Cache] 과거 버전(GNN 미분석 또는 Autoencoder 0점) 캐시 감지 → 재분석 강제 및 파기")
-                        try:
-                            # DB에서 잘못된 캐시 레코드 삭제
-                            del_id = cached_res.data[0].get("id")
-                            if del_id:
-                                client.table("deep_analysis_history").delete().eq("id", del_id).execute()
-                                print(f"⚠️ [Cache] 잘못된 캐시 이력(id: {del_id}) DB에서 자동 파기 완료")
-                        except Exception as de:
-                            print(f"⚠️ [Cache] DB 파기 실패: {de}")
-                            
-                        # raise → except로 빠져나가 정상 분석 진행
-                        raise ValueError("stale_cache_detected")
+                # GNN reason "분석 진행 중" 구버전 캐시 또는 autoencoder 0점 오류 감지 → 캐시 스킵하여 재분석
+                mtx = (analysis_data.get("analysis") or {}).get("matrix_data") or []
+                stale_gnn = bool(mtx) and all(
+                    (item.get("models") or {}).get("gnn", {}).get("reason") == "분석 진행 중"
+                    for item in mtx[:5]
+                )
+                stale_autoencoder = bool(mtx) and all(
+                    (item.get("models") or {}).get("autoencoder", {}).get("score", 0) == 0
+                    for item in mtx[:5]
+                )
 
-                    # 경과 시간 표시용
-                    analysis_data["elapsed_seconds"] = round(time.time() - start_time, 2)
-                    analysis_data["is_cached"] = True
-                    return _json_response(analysis_data)
-            except Exception as e:
+                # [New] Custom Analysis CNN=100 / ATC=0 버그 캐시 파기 로직
+                custom_evals = (analysis_data.get("analysis") or {}).get("custom_evaluations") or []
+                stale_custom = False
+                if custom_evals:
+                    first_custom_scores = custom_evals[0].get("model_scores", {})
+                    if first_custom_scores.get("cnn", {}).get("score", 0) == 100 or first_custom_scores.get("autoencoder", {}).get("score", 0) == 0:
+                        stale_custom = True
+
+                if stale_gnn or stale_autoencoder or stale_custom:
+                    print(f"⚠️ [Cache] 과거 버전(GNN 미분석, AE 0점, 또는 커스텀평가 오류) 캐시 감지 → 재분석 강제 및 파기")
+                    try:
+                        # DB에서 잘못된 캐시 레코드 삭제
+                        del_id = cached_res.data[0].get("id")
+                        if del_id:
+                            client.table("deep_analysis_history").delete().eq("id", del_id).execute()
+                            print(f"⚠️ [Cache] 잘못된 캐시 이력(id: {del_id}) DB에서 자동 파기 완료")
+                    except Exception as de:
+                        print(f"⚠️ [Cache] DB 파기 실패: {de}")
+                        
+                    # raise → except로 빠져나가 정상 분석 진행
+                    raise ValueError("stale_cache_detected")
+
+                # 경과 시간 표시용
+                analysis_data["elapsed_seconds"] = round(time.time() - start_time, 2)
+                analysis_data["is_cached"] = True
+                return _json_response(analysis_data)
+        except Exception as e:
+            if str(e) not in ["stale_cache_detected", "memo_changed"]:
                 print(f"캐시 체크 실패 (정상 분석 진행): {e}")
 
         models = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder", "gnn"]
