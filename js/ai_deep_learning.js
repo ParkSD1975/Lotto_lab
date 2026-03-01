@@ -891,51 +891,68 @@ const DeepLearning = {
 
         // 1. 트렌드 모멘텀 (핫/콜드) 렌더링
         const hcUI = document.getElementById('hotColdUI');
-        if (hcUI && strategy.hot_cold_analysis && typeof strategy.hot_cold_analysis === 'object') {
+        if (hcUI) {
             const hc = strategy.hot_cold_analysis;
-            hcUI.innerHTML = `
-                <div class="flex items-center justify-between text-[11px] font-bold text-slate-500 mb-1">
-                    <span class="text-rose-500">Hot ${hc.hot_ratio}%</span>
-                    <span class="text-blue-500">Cold ${hc.cold_ratio}%</span>
-                </div>
-                <div class="w-full h-2 bg-blue-100 rounded-full overflow-hidden flex">
-                    <div class="h-full bg-rose-400" style="width: ${hc.hot_ratio}%"></div>
-                    <div class="h-full bg-blue-400" style="width: ${hc.cold_ratio}%"></div>
-                </div>
-                <p class="text-xs font-semibold text-slate-700 mt-2 leading-snug">${hc.trend_text}</p>
-            `;
+            if (hc && typeof hc === 'object') {
+                const hotR = hc.hot_ratio || 50;
+                const coldR = hc.cold_ratio || 50;
+                hcUI.innerHTML = `
+                    <div class="flex items-center justify-between text-[11px] font-bold text-slate-500 mb-1">
+                        <span class="text-rose-500">Hot ${hotR}%</span>
+                        <span class="text-blue-500">Cold ${coldR}%</span>
+                    </div>
+                    <div class="w-full h-2 bg-blue-100 rounded-full overflow-hidden flex">
+                        <div class="h-full bg-rose-400" style="width: ${hotR}%"></div>
+                        <div class="h-full bg-blue-400" style="width: ${coldR}%"></div>
+                    </div>
+                    <p class="text-xs font-semibold text-slate-700 mt-2 leading-snug">${hc.trend_text || ''}</p>
+                `;
+            } else if (typeof hc === 'string' && hc) {
+                hcUI.innerHTML = '<p class="text-sm font-semibold text-slate-700 leading-snug">' + hc + '</p>';
+            } else {
+                hcUI.innerHTML = '<p class="text-sm text-slate-400">데이터 없음</p>';
+            }
         }
 
         // 2. 이변 확률 (리스크) 렌더링
         const riskUI = document.getElementById('riskUI');
-        if (riskUI && strategy.risk_assessment && typeof strategy.risk_assessment === 'object') {
+        if (riskUI) {
             const rs = strategy.risk_assessment;
-            let color = rs.risk_score >= 70 ? 'text-red-500' : rs.risk_score >= 40 ? 'text-amber-500' : 'text-emerald-500';
-            let bgColor = rs.risk_score >= 70 ? 'bg-red-100' : rs.risk_score >= 40 ? 'bg-amber-100' : 'bg-emerald-100';
+            if (rs && typeof rs === 'object') {
+                const score = rs.risk_score || 0;
+                let color = score >= 70 ? 'text-red-500' : score >= 40 ? 'text-amber-500' : 'text-emerald-500';
+                let bgColor = score >= 70 ? 'bg-red-100' : score >= 40 ? 'bg-amber-100' : 'bg-emerald-100';
 
-            riskUI.innerHTML = `
-                <div class="flex items-end gap-2 mb-1">
-                    <span class="text-2xl font-black ${color} leading-none">${rs.risk_score}</span>
-                    <span class="text-xs font-bold px-2 py-0.5 rounded ${bgColor} ${color} mb-0.5">${rs.risk_level}</span>
-                </div>
-                <p class="text-xs font-semibold text-slate-700 mt-2 leading-snug break-keep">${rs.warning_text}</p>
-            `;
+                riskUI.innerHTML = `
+                    <div class="flex items-end gap-2 mb-1">
+                        <span class="text-2xl font-black ${color} leading-none">${score}</span>
+                        <span class="text-xs font-bold px-2 py-0.5 rounded ${bgColor} ${color} mb-0.5">${rs.risk_level || ''}</span>
+                    </div>
+                    <p class="text-xs font-semibold text-slate-700 mt-2 leading-snug break-keep">${rs.warning_text || ''}</p>
+                `;
+            } else if (typeof rs === 'string' && rs) {
+                riskUI.innerHTML = '<p class="text-sm font-semibold text-slate-700 leading-snug">' + rs + '</p>';
+            } else {
+                riskUI.innerHTML = '<p class="text-sm text-slate-400">데이터 없음</p>';
+            }
         }
 
         // 3. 핵심 공략 (종합 전략) 렌더링
         const strategyUI = document.getElementById('overallStrategyUI');
-        if (strategyUI && strategy.overall_strategy && typeof strategy.overall_strategy === 'object') {
+        if (strategyUI) {
             const os = strategy.overall_strategy;
-            let actionsHtml = (os.key_actions || []).map(action =>
-                `<span class="inline-block px-2 py-1 bg-green-50 border border-green-200 text-green-700 text-[11px] font-bold rounded mb-1 mr-1">${action}</span>`
-            ).join('');
+            if (os && typeof os === 'object') {
+                let actionsHtml = (os.key_actions || []).map(action =>
+                    '<span class="inline-block px-2 py-1 bg-green-50 border border-green-200 text-green-700 text-[11px] font-bold rounded mb-1 mr-1">' + action + '</span>'
+                ).join('');
 
-            strategyUI.innerHTML = `
-                <div class="flex flex-wrap mb-1">
-                    ${actionsHtml}
-                </div>
-                <p class="text-xs font-semibold text-slate-700 mt-1 leading-snug break-keep">${os.short_advice}</p>
-            `;
+                strategyUI.innerHTML = '<div class="flex flex-wrap mb-1">' + actionsHtml + '</div>' +
+                    '<p class="text-xs font-semibold text-slate-700 mt-1 leading-snug break-keep">' + (os.short_advice || '') + '</p>';
+            } else if (typeof os === 'string' && os) {
+                strategyUI.innerHTML = '<p class="text-sm font-semibold text-slate-700 leading-snug">' + os + '</p>';
+            } else {
+                strategyUI.innerHTML = '<p class="text-sm text-slate-400">데이터 없음</p>';
+            }
         }
     },
 
