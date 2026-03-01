@@ -186,7 +186,11 @@ class LottoEnsemble:
             try:
                 pred_dict = model.predict(draws)
                 for n in range(1, 46):
-                    contributions[name][n] = float(pred_dict.get(n, 0.0))
+                    # 키 타입 불일치 방지: 정수/문자열 모두 시도
+                    val = pred_dict.get(n, None)
+                    if val is None:
+                        val = pred_dict.get(str(n), 0.0)
+                    contributions[name][n] = float(val)
             except Exception as e:
                 print(f"⚠️ {name} 예측 실패: {e}")
                 for n in range(1, 46):

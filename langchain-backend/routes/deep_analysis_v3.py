@@ -1809,8 +1809,12 @@ async def get_deep_analysis(round_num: int = None):
 
         # [5] 번호별 분석 (Matrix)
         model_all_probs = {}
+        model_is_flat = {}  # 균등 분포(분산 없음) 감지
         for m in models:
             probs = [(n, contribs.get(m, {}).get(n, 0)) for n in range(1, 46)]
+            vals = [p for _, p in probs]
+            val_range = max(vals) - min(vals) if vals else 0
+            model_is_flat[m] = val_range < 1e-9  # 모든 확률이 동일하면 flat
             probs.sort(key=lambda x: x[1], reverse=True)
             model_all_probs[m] = {num: (idx, prob) for idx, (num, prob) in enumerate(probs)}
 
@@ -1819,7 +1823,10 @@ async def get_deep_analysis(round_num: int = None):
             m_scores = {}
             total_model_score = 0
             for m in models:
-                if n in model_all_probs[m]:
+                if model_is_flat.get(m, False):
+                    # 균등 분포 → 모든 번호에 동일 점수 (인위적 순위 방지)
+                    norm_score = 50
+                elif n in model_all_probs[m]:
                     rank, raw_prob = model_all_probs[m][n]
                     percentile_score = max(0, (45 - rank) / 45 * 100)
                     norm_score = percentile_score
