@@ -356,10 +356,13 @@
                         <span class="text-xs text-slate-400 font-medium">회</span>
                     </div>
                     <div class="flex items-center gap-2">
-                        <span id="connectionStatus" class="flex items-center gap-1.5 text-[11px] font-bold text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-full border border-slate-200">
+                        <span id="connectionStatus"
+                            class="flex items-center gap-1.5 text-[11px] font-bold text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-full border border-slate-200">
                             <span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span> 연결 대기 중
                         </span>
-                        <select id="historySelect" class="text-[11px] text-slate-600 bg-white border border-slate-200 rounded-md px-2 py-0.5 font-medium cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-300" style="display:none">
+                        <select id="historySelect"
+                            class="text-[11px] text-slate-600 bg-white border border-slate-200 rounded-md px-2 py-0.5 font-medium cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                            style="display:none">
                             <option value="">-- 분석 이력 --</option>
                         </select>
                     </div>
@@ -442,9 +445,12 @@
                         <div class="flex items-center gap-3 mb-4">
                             <span class="text-xs text-slate-500 font-semibold whitespace-nowrap">신뢰도</span>
                             <div class="flex-1 gauge-bar">
-                                <div id="confidenceBar" class="gauge-fill bg-gradient-to-r from-indigo-500 to-purple-500" style="width:0%"></div>
+                                <div id="confidenceBar"
+                                    class="gauge-fill bg-gradient-to-r from-indigo-500 to-purple-500" style="width:0%">
+                                </div>
                             </div>
-                            <span class="text-base font-black text-indigo-700 tabular-nums w-10 text-right" id="confidenceScore">0</span>
+                            <span class="text-base font-black text-indigo-700 tabular-nums w-10 text-right"
+                                id="confidenceScore">0</span>
                             <span class="text-xs text-slate-400">%</span>
                         </div>
                         <!-- 키워드 태그 -->
@@ -452,16 +458,16 @@
                         <!-- 3열 stat-box -->
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                             <div class="stat-box">
-                                <div class="stat-label">핫/콜드</div>
-                                <div class="text-sm font-semibold text-slate-700 mt-1 leading-snug" id="hotColdText">—</div>
+                                <div class="stat-label">트렌드 모멘텀</div>
+                                <div class="mt-1" id="hotColdUI">분석 대기 중...</div>
                             </div>
                             <div class="stat-box" style="border-left-color:#ef4444">
-                                <div class="stat-label">리스크</div>
-                                <div class="text-sm font-semibold text-slate-700 mt-1 leading-snug" id="riskText">—</div>
+                                <div class="stat-label">이변 확률</div>
+                                <div class="mt-1" id="riskUI">분석 대기 중...</div>
                             </div>
                             <div class="stat-box" style="border-left-color:#16a34a">
-                                <div class="stat-label">종합 전략</div>
-                                <div class="text-sm font-semibold text-slate-700 mt-1 leading-snug" id="overallStrategyText">—</div>
+                                <div class="stat-label">핵심 공략</div>
+                                <div class="mt-1" id="overallStrategyUI">분석 대기 중...</div>
                             </div>
                         </div>
                     </div>
@@ -531,7 +537,9 @@
                     <div class="card-header">
                         <span class="material-symbols-outlined text-indigo-600">grid_on</span>
                         <h3>번호 확률 히트맵 (1~45)</h3>
-                        <span class="ml-auto text-[10px] bg-purple-100 text-purple-600 font-bold px-2 py-0.5 rounded-full">앙상블 확률</span>
+                        <span
+                            class="ml-auto text-[10px] bg-purple-100 text-purple-600 font-bold px-2 py-0.5 rounded-full">앙상블
+                            확률</span>
                     </div>
                     <div class="card-body">
                         <p class="text-xs text-slate-500 mb-3">45개 번호의 앙상블 확률을 색상으로 표시합니다. 진한 색일수록 높은 추천 확률입니다.</p>
@@ -544,7 +552,9 @@
                     <div class="card-header">
                         <span class="material-symbols-outlined text-indigo-600">bar_chart</span>
                         <h3>모델별 Top 10 번호</h3>
-                        <span class="ml-auto text-[10px] bg-blue-100 text-blue-600 font-bold px-2 py-0.5 rounded-full">7개 모델 개별 분석</span>
+                        <span
+                            class="ml-auto text-[10px] bg-blue-100 text-blue-600 font-bold px-2 py-0.5 rounded-full">7개
+                            모델 개별 분석</span>
                     </div>
                     <div class="card-body">
                         <div id="modelDetailContainer"></div>
@@ -587,11 +597,14 @@
                     <div class="card-header">
                         <span class="material-symbols-outlined text-indigo-600">filter_list</span>
                         <h3>AI 필터 범위 추천</h3>
-                        <span class="ml-auto text-[10px] bg-green-100 text-green-600 font-bold px-2 py-0.5 rounded-full">딥러닝 역산 기반</span>
+                        <span
+                            class="ml-auto text-[10px] bg-green-100 text-green-600 font-bold px-2 py-0.5 rounded-full">딥러닝
+                            역산 기반</span>
                     </div>
                     <div class="card-body">
                         <p class="text-xs text-slate-500 mb-3">앙상블 추천 번호를 기반으로 각 필터의 최적 설정 범위를 역산하여 추천합니다.</p>
-                        <div id="filterRecommendations" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3"></div>
+                        <div id="filterRecommendations" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                        </div>
                     </div>
                 </div>
 
