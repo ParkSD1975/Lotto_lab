@@ -1142,7 +1142,7 @@ async def _ask_llm_strategy_v3(target_round, top_5, exclude_10, history_draws, c
                 else:
                     range_str = str(raw)
                 filter_summary.append(f"- {name}: 추천범위 {range_str}")
-        filter_text = "\n".join(filter_summary[:8])
+        filter_text = "\n".join(filter_summary)
 
         prompt = f"""당신은 로또 번호 분석 전문가입니다.
 {target_round}회차 예측을 위한 전략을 한국어로 수립하세요.
