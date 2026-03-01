@@ -1188,8 +1188,8 @@ async def _ask_llm_strategy_v3(target_round, top_5, exclude_10, history_draws, c
 1. 반드시 순수 한국어만 사용하세요. 영문 단어(XGBoost, LSTM, momentum, probability 등) 사용 절대 금지.
 2. 소수점 확률값(예: 0.5775, 0.3421)을 절대 출력하지 마세요. 대신 "출현 가능성 높음/보통/낮음"으로 표현하세요.
 3. "통계적 유의성", "앙상블 확률" 같은 학술 전문용어 사용 금지. 일반인이 쉽게 이해할 수 있는 표현만 사용하세요.
-4. 근거는 "최근 5회차 중 출현 횟수", "미출현 기간", "출현 주기" 등 직관적 표현을 사용하세요.
-5. 반드시 아래 JSON 형식으로만 응답하세요. 마크다운 없이 순수 JSON만 반환하세요.
+5. **반드시 아래 제공된 15개 항목의 필터를 하나도 빠짐없이 전부 분석하여 응답하세요.** 데이터가 부족하더라도 '통계 기반' 근거를 활용하여 범위를 추천해야 합니다.
+6. 반드시 아래 JSON 형식으로만 응답하세요. 마크다운 없이 순수 JSON만 반환하세요.
 
 {{
   "confidence": 72,
@@ -1205,17 +1205,22 @@ async def _ask_llm_strategy_v3(target_round, top_5, exclude_10, history_draws, c
   }},
   "filter_recommendations": [
     {"filter": "총합", "min": 100, "max": 180, "evidence": "근거"},
+    {"filter": "끝수합", "min": 15, "max": 35, "evidence": "근거"},
+    {"filter": "AC값", "min": 7, "max": 10, "evidence": "근거"},
     {"filter": "홀짝", "pattern": "3:3", "evidence": "근거"},
     {"filter": "저고", "pattern": "3:3", "evidence": "근거"},
-    {"filter": "AC값", "min": 7, "max": 10, "evidence": "근거"},
     {"filter": "소수", "min": 1, "max": 3, "evidence": "근거"},
     {"filter": "합성수", "min": 2, "max": 4, "evidence": "근거"},
     {"filter": "제곱수", "min": 0, "max": 1, "evidence": "근거"},
+    {"filter": "삼각수", "min": 0, "max": 2, "evidence": "근거"},
     {"filter": "쌍둥이수", "min": 0, "max": 1, "evidence": "근거"},
     {"filter": "연속수", "min": 0, "max": 1, "evidence": "근거"},
+    {"filter": "3의 배수", "min": 1, "max": 3, "evidence": "근거"},
+    {"filter": "4의 배수", "min": 0, "max": 2, "evidence": "근거"},
+    {"filter": "5의 배수", "min": 0, "max": 2, "evidence": "근거"},
+    {"filter": "비배수", "min": 1, "max": 3, "evidence": "근거"},
     {"filter": "최근 10회 출현", "min": 3, "max": 5, "evidence": "근거"},
     {"filter": "장기 미출현", "min": 0, "max": 2, "evidence": "근거"},
-    {"filter": "3의 배수", "min": 1, "max": 3, "evidence": "근거"},
     {"filter": "이웃수", "min": 1, "max": 3, "evidence": "근거"},
     {"filter": "이월수", "min": 0, "max": 1, "evidence": "근거"}
   ],
