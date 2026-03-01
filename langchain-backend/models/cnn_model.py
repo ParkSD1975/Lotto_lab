@@ -88,8 +88,11 @@ class CNNTrainer:
         if fine_tune:
             path = os.path.join(config.MODEL_DIR, "cnn_model.pt")
             if os.path.exists(path):
-                self.model.load_state_dict(torch.load(path, map_location=self.device, weights_only=True))
-                print("  [CNN] 기존 뇌(.pt) 가중치를 성공적으로 불러와 파인튜닝을 시작합니다.")
+                try:
+                    self.model.load_state_dict(torch.load(path, map_location=self.device, weights_only=True))
+                    print("  [CNN] 기존 뇌(.pt) 가중치를 성공적으로 불러와 파인튜닝을 시작합니다.")
+                except Exception as e:
+                    print(f"  [CNN] 구 버전 가중치 호환 불가, 초기 상태에서 학습합니다: {e}")
             else:
                 print("  [CNN] 기존 뇌가 없어 초기 상태에서 학습합니다.")
 
@@ -137,5 +140,15 @@ class CNNTrainer:
     def _load_model(self):
         path = os.path.join(config.MODEL_DIR, "cnn_model.pt")
         if os.path.exists(path):
-            self.model = LottoCNN2D().to(self.device)
-            self.model.load_state_dict(torch.load(path, map_location=self.device, weights_only=True))
+            try:
+                self.model = LottoCNN2D().to(self.device)
+                self.model.load_state_dict(torch.load(path, map_location=self.device, weights_only=True))
+            except Exception as e:
+                print(f"⚠️ [CNN] 구 버전 가중치 호환 불가 → 삭제 후 재학습 필요: {e}")
+                self.model = None
+                # 호환 불가 체크포인트 삭제 → 다음 학습 시 새 아키텍처로 저장
+                try:
+                    os.remove(path)
+                    print(f"🗑️ [CNN] 구 버전 체크포인트 삭제 완료: {path}")
+                except Exception:
+                    pass
