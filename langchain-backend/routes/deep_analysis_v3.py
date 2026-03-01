@@ -1188,7 +1188,7 @@ async def _ask_llm_strategy_v3(target_round, top_5, exclude_10, history_draws, c
 1. 반드시 순수 한국어만 사용하세요. 영문 단어(XGBoost, LSTM, momentum, probability 등) 사용 절대 금지.
 2. 소수점 확률값(예: 0.5775, 0.3421)을 절대 출력하지 마세요. 대신 "출현 가능성 높음/보통/낮음"으로 표현하세요.
 3. "통계적 유의성", "앙상블 확률" 같은 학술 전문용어 사용 금지. 일반인이 쉽게 이해할 수 있는 표현만 사용하세요.
-5. **반드시 아래 제공된 15개 항목의 필터를 하나도 빠짐없이 전부 분석하여 응답하세요.** 데이터가 부족하더라도 '통계 기반' 근거를 활용하여 범위를 추천해야 합니다.
+5. **반드시 아래 제공된 19개 항목의 필터를 하나도 빠짐없이 전부 분석하여 응답하세요.** 데이터가 부족하더라도 '통계 기반' 근거를 활용하여 범위를 추천해야 합니다.
 6. 반드시 아래 JSON 형식으로만 응답하세요. 마크다운 없이 순수 JSON만 반환하세요.
 
 {{
@@ -1258,17 +1258,22 @@ def _fallback_strategy_v3(top_5: list, exclude_10: list) -> dict:
         "exclude_numbers": {"numbers": exclude_10[:6], "evidence": "앙상블 모델 하위 확률 기반 (LLM 미사용)"},
         "filter_recommendations": [
             {"filter": "총합", "min": 100, "max": 180, "evidence": "통계적 1표준편차 범위"},
+            {"filter": "끝수합", "min": 15, "max": 35, "evidence": "역대 평균 기반"},
             {"filter": "AC값", "min": 7, "max": 10, "evidence": "역대 평균 기반"},
             {"filter": "홀짝", "pattern": "3:3 또는 4:2", "evidence": "최빈 패턴"},
             {"filter": "저고", "pattern": "3:3", "evidence": "균형 분포"},
             {"filter": "소수", "min": 1, "max": 3, "evidence": "평균 출현 기대치"},
             {"filter": "합성수", "min": 2, "max": 4, "evidence": "확률적 최빈 구간"},
             {"filter": "제곱수", "min": 0, "max": 1, "evidence": "자연 발생 확률"},
+            {"filter": "삼각수", "min": 0, "max": 2, "evidence": "일반적 패턴 확률"},
             {"filter": "쌍둥이수", "min": 0, "max": 1, "evidence": "일반적 패턴 확률"},
             {"filter": "연속수", "min": 0, "max": 1, "evidence": "자주 관측되는 구간"},
             {"filter": "최근 10회 출현", "min": 3, "max": 4, "evidence": "모멘텀 회귀 구간"},
             {"filter": "장기 미출현", "min": 0, "max": 1, "evidence": "콜드 번호 출현 확률"},
             {"filter": "3의 배수", "min": 1, "max": 2, "evidence": "균등 분포 1/3 할당"},
+            {"filter": "4의 배수", "min": 0, "max": 2, "evidence": "통계 기반 할당"},
+            {"filter": "5의 배수", "min": 0, "max": 2, "evidence": "통계 기반 할당"},
+            {"filter": "비배수", "min": 1, "max": 3, "evidence": "확률적 할당"},
             {"filter": "이웃수", "min": 1, "max": 2, "evidence": "회귀 분석 기반 평균"},
             {"filter": "이월수", "min": 0, "max": 1, "evidence": "최근 5회 이월비율 고려"}
         ],

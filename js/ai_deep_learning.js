@@ -1389,12 +1389,13 @@ const DeepLearning = {
 
         var iconMap = {
             '총합': 'functions', '끝수합': 'pin', 'AC값': 'calculate',
-            '홀짝': 'contrast', '저고': 'swap_vert', '연속수': 'linear_scale',
-            '이월수': 'replay', '소수': 'looks_one', '합성수': 'looks_two',
-            '제곱수': 'crop_square', '삼각수': 'change_history', '쌍둥이수': 'group',
+            '홀짝': 'contrast', '홀짝비율': 'contrast', '저고': 'swap_vert', '저고비율': 'swap_vert',
+            '연속수': 'linear_scale', '연속번호': 'linear_scale',
+            '이월수': 'replay', '소수': 'looks_one', '소수개수': 'looks_one',
+            '합성수': 'looks_two', '제곱수': 'crop_square', '삼각수': 'change_history', '쌍둥이수': 'group',
             '핫콜드': 'local_fire_department', '범위': 'expand',
             '최근 10회 출현': 'history', '장기 미출현': 'hourglass_empty',
-            '3의 배수': 'view_week', '이웃수': 'people_alt'
+            '3의 배수': 'view_week', '4의 배수': 'view_week', '5의 배수': 'view_week', '비배수': 'block', '이웃수': 'people_alt'
         };
 
         container.innerHTML = recs.map(function (r) {
