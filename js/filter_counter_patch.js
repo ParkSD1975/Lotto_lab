@@ -49,6 +49,10 @@
             if (data.type === 'INIT_DONE') {
                 isWorkerReady = true;
                 triggerCount();
+            } else if (data.type === 'STEPCNT_RESULT') {
+                printStepCount(data.result);
+            } else if (data.type === 'DIAGNOSE_RESULT') {
+                showDiagnoseResult(data.result);
             } else if (data.type === 'COUNT_RESULT') {
                 isCounting = false;
                 updateCounterUI(data.count);
@@ -74,7 +78,7 @@
                 }));
 
                 const btn = document.getElementById('btnGenerateCombos');
-                if (btn) btn.innerHTML = '<span class="material-symbols-outlined text-[18px]">play_arrow</span>조합 생성 완료!';
+                if (btn) btn.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px;">check_circle</span>조합 생성 완료!';
 
                 window.location.href = 'combination_generator.html';
             }
@@ -322,15 +326,22 @@
         }
 
         // ── 이월수 ────────────────────────────────────────
-        const carryoverSet = getSetting('carryover_count');
-        if (carryoverSet) {
+        const carryoverSet      = getSetting('carryover_count');
+        const carryoverBonusSet = getSetting('carryover_with_bonus');   // ← 이전에 무시되던 필터
+
+        if (carryoverSet || carryoverBonusSet) {
             const prevNums      = (S.dynamicTargets && S.dynamicTargets['carryover_count'])       || [];
             const prevBonusNums = (S.dynamicTargets && S.dynamicTargets['carryover_bonus_count']) || [];
             filters.carryoverFilter = {
-                selectedCounts:     carryoverSet.selectedCounts              || [],
-                carryoverNums:      prevNums,
-                selectedBonusCounts: carryoverSet.selectedBonusIncludedCounts || [],
-                carryoverBonusNums: prevBonusNums
+                // 이월수(보너스 제외): carryover_count 필터 설정
+                selectedCounts:      (carryoverSet      && carryoverSet.selectedCounts)              || [],
+                carryoverNums:       prevNums,
+                // 이월수(보너스 포함): carryover_with_bonus 필터의 selectedCounts 우선 사용
+                //   없으면 carryover_count의 selectedBonusIncludedCounts 로 폴백
+                selectedBonusCounts: (carryoverBonusSet && carryoverBonusSet.selectedCounts)
+                                  || (carryoverSet      && carryoverSet.selectedBonusIncludedCounts)
+                                  || [],
+                carryoverBonusNums:  prevBonusNums
             };
         }
 
@@ -446,18 +457,30 @@
         if (S.customFilters && S.customFilters.length > 0 && window.LOTTO_CONSTANTS && window.LOTTO_CONSTANTS.calculateCustomTargets) {
             const cfArr = [];
             S.customFilters.forEach(cf => {
-                if (!cf.enabled) return;
+                // filter_config.enabled 우선, 없으면 cf.enabled (최상위) 확인
+                const fc = (typeof cf.filter_config === 'string'
+                    ? JSON.parse(cf.filter_config || '{}')
+                    : (cf.filter_config || {}));
+                const isEnabled = fc.enabled !== undefined ? fc.enabled : (cf.enabled === true);
+                if (!isEnabled) return;
+
                 try {
                     const targetNums = window.LOTTO_CONSTANTS.calculateCustomTargets(cf, S.allDraws, { isPrediction: true });
                     if (!targetNums || targetNums.length === 0) return;
 
-                    // min/max: rules 우선 → cf 직접 필드 → 0/6 기본값
+                    // min/max 우선순위:
+                    //   1) rules.minCount / rules.maxCount
+                    //   2) cf.min_count / cf.max_count
+                    //   3) filter_config.min / filter_config.max  ← 신규 (manual/직접입력형)
+                    //   4) 기본값 0 / 6
                     let rules = {};
                     try { rules = typeof cf.rules === 'string' ? JSON.parse(cf.rules || '{}') : (cf.rules || {}); } catch (_) {}
                     const minCount = rules.minCount !== undefined ? rules.minCount
-                        : (cf.min_count !== undefined ? cf.min_count : 0);
+                        : (cf.min_count !== undefined ? cf.min_count
+                        : (fc.min !== undefined ? fc.min : 0));
                     const maxCount = rules.maxCount !== undefined ? rules.maxCount
-                        : (cf.max_count !== undefined ? cf.max_count : 6);
+                        : (cf.max_count !== undefined ? cf.max_count
+                        : (fc.max !== undefined ? fc.max : 6));
 
                     cfArr.push({
                         id:         cf.id,
@@ -516,6 +539,235 @@
     }
 
     // ──────────────────────────────────────────────────
+    // 진단 결과 표시
+    // ──────────────────────────────────────────────────
+    function showDiagnoseResult(result) {
+        if (!result) { alert('진단 실패: 조합 데이터가 없습니다.'); return; }
+
+        const { pass, total, failMap } = result;
+        const top = failMap.slice(0, 15); // 상위 15개
+
+        let html = `
+<div style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:99999;display:flex;align-items:center;justify-content:center;">
+  <div style="background:#1e293b;border-radius:16px;padding:28px;max-width:600px;width:90%;max-height:90vh;overflow-y:auto;color:#fff;font-family:monospace;box-shadow:0 25px 50px rgba(0,0,0,0.5);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+      <h2 style="margin:0;font-size:18px;color:#f8fafc;">🔬 필터 진단 결과</h2>
+      <button onclick="this.closest('div[style]').parentElement.remove()" style="background:#475569;border:none;color:#fff;border-radius:8px;padding:6px 14px;cursor:pointer;font-size:14px;">✕ 닫기</button>
+    </div>
+    <div style="background:#0f172a;border-radius:10px;padding:14px;margin-bottom:16px;text-align:center;">
+      <div style="font-size:13px;color:#94a3b8;margin-bottom:6px;">최종 통과 조합</div>
+      <div style="font-size:32px;font-weight:900;color:${pass === 0 ? '#ef4444' : '#10b981'};">${pass.toLocaleString()}개</div>
+      <div style="font-size:11px;color:#64748b;margin-top:4px;">전체 ${total.toLocaleString()}개 중 ${(pass/total*100).toFixed(4)}%</div>
+    </div>
+    <div style="font-size:13px;color:#94a3b8;margin-bottom:10px;font-family:sans-serif;">📊 필터별 탈락 통계 (첫 번째 탈락 기준)</div>
+    <div style="display:flex;flex-direction:column;gap:6px;">`;
+
+        const maxFail = top.length > 0 ? top[0].count : 1;
+        top.forEach((item, idx) => {
+            const pct = (item.count / total * 100).toFixed(1);
+            const barW = Math.round(item.count / maxFail * 100);
+            const color = idx < 3 ? '#ef4444' : idx < 7 ? '#f59e0b' : '#3b82f6';
+            html += `
+      <div style="background:#0f172a;border-radius:8px;padding:10px 12px;">
+        <div style="display:flex;justify-content:space-between;font-size:12px;font-family:sans-serif;margin-bottom:5px;">
+          <span style="color:#e2e8f0;font-weight:600;">${idx+1}. ${item.name}</span>
+          <span style="color:${color};font-weight:900;">${item.count.toLocaleString()}개 (${pct}%)</span>
+        </div>
+        <div style="background:#1e293b;border-radius:4px;height:6px;overflow:hidden;">
+          <div style="background:${color};height:100%;width:${barW}%;transition:width 0.3s;"></div>
+        </div>
+      </div>`;
+        });
+
+        if (pass > 0) {
+            html += `<div style="margin-top:12px;padding:12px;background:#052e16;border-radius:8px;color:#86efac;font-size:12px;font-family:sans-serif;">
+        ✅ ${pass.toLocaleString()}개 조합이 모든 필터를 통과했습니다.
+      </div>`;
+        } else {
+            html += `<div style="margin-top:12px;padding:12px;background:#450a0a;border-radius:8px;color:#fca5a5;font-size:12px;font-family:sans-serif;">
+        ⚠️ 통과 조합이 없습니다. 위의 필터 중 하나 이상을 완화해 주세요.
+      </div>`;
+        }
+
+        html += `</div></div></div>`;
+
+        const overlay = document.createElement('div');
+        overlay.innerHTML = html;
+        document.body.appendChild(overlay);
+    }
+
+    // ──────────────────────────────────────────────────
+    // 단계별 카운팅 결과 — 페이지 모달 + 한 줄씩 순서대로 표시
+    // ──────────────────────────────────────────────────
+    function printStepCount(result) {
+        if (!result) { alert('단계별 분석 실패: 조합 데이터가 없습니다.'); return; }
+
+        const { steps, total, pass } = result;
+        const INTERVAL = 80; // ms — 한 줄씩 추가되는 간격
+
+        // ── 모달 오버레이 생성 ─────────────────────────
+        const overlay = document.createElement('div');
+        overlay.id = 'stepCountOverlay';
+        overlay.style.cssText = [
+            'position:fixed', 'inset:0', 'background:rgba(0,0,0,0.75)',
+            'z-index:99999', 'display:flex', 'align-items:center', 'justify-content:center',
+            'font-family:ui-monospace,SFMono-Regular,Menlo,monospace'
+        ].join(';');
+
+        overlay.innerHTML = `
+<div id="stepCountBox" style="background:#0f172a;border-radius:18px;padding:28px 32px;
+  width:min(860px,95vw);max-height:88vh;display:flex;flex-direction:column;
+  box-shadow:0 30px 80px rgba(0,0,0,0.6);border:1px solid #1e293b;">
+
+  <!-- 헤더 -->
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-shrink:0;">
+    <div>
+      <div style="font-size:17px;font-weight:900;color:#c4b5fd;letter-spacing:-0.3px;">
+        🔢 필터 단계별 조합 카운팅
+      </div>
+      <div style="font-size:12px;color:#475569;margin-top:3px;">
+        전체 <span style="color:#94a3b8;font-weight:700;">${total.toLocaleString()}</span>개 →
+        필터 적용 순서대로 탈락 현황
+      </div>
+    </div>
+    <button onclick="document.getElementById('stepCountOverlay').remove()"
+      style="background:#1e293b;border:none;color:#94a3b8;border-radius:10px;
+             padding:8px 16px;cursor:pointer;font-size:13px;font-weight:700;
+             transition:background 0.2s;" onmouseover="this.style.background='#334155'"
+      onmouseout="this.style.background='#1e293b'">✕ 닫기</button>
+  </div>
+
+  <!-- 시작 행 -->
+  <div style="background:#1e293b;border-radius:10px;padding:10px 14px;
+    display:flex;justify-content:space-between;align-items:center;
+    margin-bottom:6px;flex-shrink:0;">
+    <span style="color:#64748b;font-size:12px;font-weight:700;">시작</span>
+    <span style="color:#64748b;font-size:13px;">
+      남은 조합 <span style="color:#94a3b8;font-weight:900;font-size:15px;">
+        ${total.toLocaleString()}
+      </span> 개
+    </span>
+  </div>
+
+  <!-- 단계 목록 (스크롤) -->
+  <div id="stepCountList" style="overflow-y:auto;flex:1;display:flex;
+    flex-direction:column;gap:4px;padding-right:4px;min-height:0;"></div>
+
+  <!-- 푸터 (처음엔 숨김) -->
+  <div id="stepCountFooter" style="display:none;margin-top:12px;flex-shrink:0;"></div>
+</div>`;
+
+        document.body.appendChild(overlay);
+
+        const list   = document.getElementById('stepCountList');
+        const footer = document.getElementById('stepCountFooter');
+
+        // ── 활성 필터 없음 ───────────────────────────
+        if (steps.length === 0) {
+            list.innerHTML = `<div style="color:#475569;font-size:13px;padding:16px;text-align:center;">
+              활성화된 필터가 없습니다. 전체 ${total.toLocaleString()}개 통과.
+            </div>`;
+            return;
+        }
+
+        // ── 각 단계를 INTERVAL ms 간격으로 하나씩 추가 ─
+        steps.forEach((s, i) => {
+            setTimeout(() => {
+                const eliminated = s.eliminated;
+                const pct = (eliminated / total * 100).toFixed(2);
+                const survivorsPct = (s.survivors / total * 100).toFixed(1);
+                const barW = Math.max(1, Math.round(s.survivors / total * 100));
+
+                // 색상 결정
+                let nameColor, countColor, bg, borderColor;
+                if (s.survivors === 0) {
+                    bg = '#450a0a'; nameColor = '#fca5a5'; countColor = '#f87171'; borderColor = '#7f1d1d';
+                } else if (eliminated === 0) {
+                    bg = '#0f172a'; nameColor = '#374151'; countColor = '#4b5563'; borderColor = '#1e293b';
+                } else if (eliminated > total * 0.15) {
+                    bg = '#1c1008'; nameColor = '#fdba74'; countColor = '#fb923c'; borderColor = '#431407';
+                } else if (eliminated > total * 0.05) {
+                    bg = '#1a1205'; nameColor = '#fde68a'; countColor = '#fbbf24'; borderColor = '#422006';
+                } else {
+                    bg = '#0f172a'; nameColor = '#94a3b8'; countColor = '#cbd5e1'; borderColor = '#1e293b';
+                }
+
+                const row = document.createElement('div');
+                row.style.cssText = `background:${bg};border:1px solid ${borderColor};
+                  border-radius:8px;padding:8px 12px;animation:fadeInRow 0.2s ease;`;
+
+                row.innerHTML = `
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+    <span style="color:${nameColor};font-size:11px;font-weight:700;white-space:nowrap;min-width:0;flex-shrink:0;">
+      <span style="color:#4b5563;">[${i+1}]</span> ${s.name}
+    </span>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;">
+      <span style="color:${countColor};font-size:13px;font-weight:900;white-space:nowrap;">
+        ${s.survivors === 0 ? '0' : s.survivors.toLocaleString()} 개
+      </span>
+      ${eliminated > 0 ? `<span style="color:#64748b;font-size:11px;white-space:nowrap;">
+        탈락 <span style="color:${countColor};">-${eliminated.toLocaleString()}</span>
+        (${pct}%)
+      </span>` : `<span style="color:#374151;font-size:11px;">탈락 없음</span>`}
+    </div>
+  </div>
+  ${eliminated > 0 ? `
+  <div style="margin-top:5px;background:#1e293b;border-radius:3px;height:3px;overflow:hidden;">
+    <div style="background:${countColor};height:100%;width:${barW}%;opacity:0.6;transition:width 0.3s;"></div>
+  </div>` : ''}`;
+
+                list.appendChild(row);
+                // 자동 스크롤 (항상 최신 항목이 보이도록)
+                list.scrollTop = list.scrollHeight;
+
+                // ── 마지막 단계 → 푸터 표시 ───────────
+                if (i === steps.length - 1) {
+                    setTimeout(() => {
+                        footer.style.display = 'block';
+                        footer.innerHTML = pass === 0
+                            ? `<div style="background:#450a0a;border:1px solid #7f1d1d;border-radius:10px;
+                                padding:14px 18px;color:#fca5a5;font-size:14px;font-weight:900;text-align:center;">
+                                ⚠️ 최종 통과 조합: 0개 — 필터를 일부 완화해 주세요
+                              </div>`
+                            : `<div style="background:#052e16;border:1px solid #14532d;border-radius:10px;
+                                padding:14px 18px;color:#86efac;font-size:14px;font-weight:900;text-align:center;">
+                                ✅ 최종 통과 조합: ${pass.toLocaleString()}개
+                                <span style="font-size:12px;color:#4ade80;font-weight:500;">
+                                  (전체의 ${(pass / total * 100).toFixed(4)}%)
+                                </span>
+                              </div>`;
+                    }, INTERVAL);
+                }
+            }, (i + 1) * INTERVAL);
+        });
+    }
+
+    // ──────────────────────────────────────────────────
+    // 단계별 카운팅 실행 (외부 호출용)
+    // ──────────────────────────────────────────────────
+    window.stepCountCombinations = function () {
+        if (!isWorkerReady) { alert('조합 엔진이 준비 중입니다. 잠시 후 다시 시도해주세요.'); return; }
+        const btn = document.getElementById('btnStepCount');
+        if (btn) btn.innerHTML = '<span class="material-symbols-outlined animate-spin" style="font-size:16px;">sync</span>계산 중...';
+        worker.postMessage({ type: 'STEPCNT', filters: gatherActiveFilters() });
+        // 버튼 원복 (최대 40초 후)
+        setTimeout(() => {
+            if (btn) btn.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px;">filter_list</span>단계별 분석';
+        }, 40000);
+    };
+
+    // ──────────────────────────────────────────────────
+    // 진단 실행 (외부 호출용)
+    // ──────────────────────────────────────────────────
+    window.diagnoseCombinations = function () {
+        if (!isWorkerReady) { alert('조합 엔진이 준비 중입니다. 잠시 후 다시 시도해주세요.'); return; }
+        const btn = document.getElementById('btnDiagnose');
+        if (btn) btn.innerHTML = '<span class="material-symbols-outlined animate-spin" style="font-size:16px;">sync</span>진단 중...';
+        worker.postMessage({ type: 'DIAGNOSE', filters: gatherActiveFilters() });
+        setTimeout(() => { if (btn) btn.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px;">bug_report</span>필터 진단'; }, 15000);
+    };
+
+    // ──────────────────────────────────────────────────
     // 조합 생성 버튼
     // ──────────────────────────────────────────────────
     window.generateFinalCombinations = function () {
@@ -544,7 +796,7 @@
 
         isGenerating = true;
         const btn = document.getElementById('btnGenerateCombos');
-        if (btn) btn.innerHTML = '<span class="material-symbols-outlined animate-spin text-[18px]">sync</span>추출 중...';
+        if (btn) btn.innerHTML = '<span class="material-symbols-outlined animate-spin" style="font-size:16px;">sync</span>추출 중...';
 
         worker.postMessage({ type: 'GENERATE', filters: gatherActiveFilters() });
     };
