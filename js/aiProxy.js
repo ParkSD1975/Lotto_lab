@@ -13,15 +13,20 @@
         _isServerDown: false,
         _lastCheckTime: 0,
 
-        async checkHealth(force = false) {
+        async checkHealth(force = false, isStartup = false) {
             const now = Date.now();
+
+            // 캐시된 결과가 있고 강제 실행이 아니면 즉시 반환
             if (!force && this._isServerDown && (now - this._lastCheckTime < 30000)) return false;
+            if (!force && !this._isServerDown && (now - this._lastCheckTime < 60000)) return true;
+
+            // 초기 로딩 시에는 5초, 이후에는 기본 30~60초 타임아웃 적용
+            const checkTimeout = isStartup ? 5000 : TIMEOUT;
 
             for (const url of BASE_URLS) {
                 try {
                     const controller = new AbortController();
-                    // Render 서버 콜드스타트로 인한 5초 타임아웃 조기종료 문제 방지 (60초 대기 허용)
-                    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT);
+                    const timeoutId = setTimeout(() => controller.abort(), checkTimeout);
 
                     const res = await fetch(`${url}/health`, { method: 'GET', signal: controller.signal });
                     clearTimeout(timeoutId);
@@ -30,7 +35,6 @@
                         CURRENT_BASE_URL = url;
                         this._isServerDown = false;
                         this._lastCheckTime = now;
-                        // console.log(`✅ Python Server Connected: ${CURRENT_BASE_URL}`);
                         return true;
                     }
                 } catch (e) {
@@ -38,7 +42,6 @@
                 }
             }
 
-            // console.warn("❌ All Python Server Connection Attempts Failed.");
             this._isServerDown = true;
             this._lastCheckTime = now;
             return false;

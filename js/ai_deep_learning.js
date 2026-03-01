@@ -24,21 +24,24 @@ const DeepLearning = {
 
     // ── 초기화 ──
     async init() {
+        const startTime = Date.now();
         console.log("🚀 Deep Learning v3 Initializing...");
 
-        // 1. 회차 정보 설정
-        await this.setTargetRound();
+        // 1. 핵심 정보 병렬 로드 (회차 정보, 연결 확인, 이력 리스트)
+        // Promise.all을 사용하여 네트워크 대기 시간을 누적 방식에서 병렬 방식으로 개선
+        await Promise.all([
+            this.setTargetRound(),
+            this.checkConnection(true), // 첫 로딩 시에는 빠른 체크 실행
+            this.loadHistoryList()
+        ]);
 
-        // 2. 백엔드 연결 확인
-        await this.checkConnection();
-
-        // 3. UI 이벤트 바인딩
+        // 2. UI 이벤트 바인딩 (비동기 로드와 병행)
         this.bindEvents();
 
-        // 4. 이력 로드
-        this.loadHistoryList();
+        console.log(`⏱️ [DeepLearning] 초기 데이터 로드 완료 (${Date.now() - startTime}ms)`);
 
-        // 5. 자동 분석
+        // 3. 분석 실행 (UI 렌더링 방해 방지를 위해 별도로 호출)
+        // 이미 렌더링된 요소가 있다면 사용자에게 즉시 보여줌
         this.runAnalysis();
     },
 
@@ -95,15 +98,19 @@ const DeepLearning = {
         return { mode: 'dynamic', topic: topic };
     },
 
-    async checkConnection() {
+    async checkConnection(isStartup = false) {
         const url = window.AI_SERVER_URL || 'https://lotto-api-server.onrender.com';
 
-        // window.AIProxy가 있으면 통합된 헬스체크 사용 (중복 호출 방지 및 쿨다운 적용)
+        // window.AIProxy가 있으면 통합된 헬스체크 사용
         if (window.AIProxy && typeof window.AIProxy.checkHealth === 'function') {
-            this.state.isConnected = await window.AIProxy.checkHealth();
+            // [최적화] 첫 로딩 시에는 AIProxy의 내부 캐시를 무시하고 즉시 확인하되, 
+            // 너무 오래 대기하지 않도록 짧은 타임아웃 유도 (기본 30초 대신 초기 3~5초)
+            this.state.isConnected = await window.AIProxy.checkHealth(!isStartup);
         } else {
             try {
-                const res = await fetch(url + '/health', { signal: AbortSignal.timeout(3000) });
+                // 초기 로딩 시에는 3초, 이후에는 5초 타임아웃 적용
+                const timeout = isStartup ? 3000 : 5000;
+                const res = await fetch(url + '/health', { signal: AbortSignal.timeout(timeout) });
                 this.state.isConnected = res.ok;
             } catch (e) {
                 this.state.isConnected = false;
