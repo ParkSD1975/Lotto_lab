@@ -718,7 +718,7 @@ def analyze_tail_detailed(final_probs, history_draws, model_contributions=None):
     if ens_total == 0:
         norm_final = {n: 0 for n in final_probs}
     else:
-        norm_final = {n: v / ens_total for n, v in final_probs.items()}
+        norm_final = {int(n): v / ens_total for n, v in final_probs.items()}
 
     # 모델별 확률 정규화 캐시 (한 번만 계산)
     norm_model = {}
@@ -727,9 +727,9 @@ def analyze_tail_detailed(final_probs, history_draws, model_contributions=None):
             m_probs = model_contributions.get(m, {})
             m_total = sum(m_probs.values())
             if m_total == 0:
-                norm_model[m] = {n: 0 for n in m_probs}
+                norm_model[m] = {}
             else:
-                norm_model[m] = {n: v / m_total for n, v in m_probs.items()}
+                norm_model[m] = {int(n): v / m_total for n, v in m_probs.items()}
 
     for t in range(10):
         t_nums = [n for n in range(1, 46) if n % 10 == t]
@@ -856,24 +856,13 @@ def analyze_all_regressions(history_draws, final_probs, model_contributions=None
         })
     return results
 
-# ------------------------------------------------------------------
-# 4. 로또용지 분석 (7×7 실제 용지 기준)
-# ------------------------------------------------------------------
-def analyze_lotto_paper(final_probs, history_draws, model_contributions=None):
-    """
-    로또용지 실제 배열 기준 분석 (lotto_paper.html paperDefinitions와 동일):
-    - 가로 라인: 가로1(1-7), 가로2(8-14), ..., 가로7(43-45)
-    - 세로 라인: 세로1(1,8,15,22,29,36,43), 세로2(2,9,16,23,30,37,44), ...
-    - 각 라인별 Gap(미출현 연속 횟수), STR(연속 출현 횟수) 포함
-    """
-    models = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder", "gnn"]
-
+    # [4-1] 로또용지 분석
     # 앙상블 확률 정규화
     ens_total = sum(final_probs.values())
     if ens_total == 0:
         norm_final = {n: 0 for n in final_probs}
     else:
-        norm_final = {n: v / ens_total for n, v in final_probs.items()}
+        norm_final = {int(n): v / ens_total for n, v in final_probs.items()}
 
     # 모델별 확률 정규화
     norm_model = {}
@@ -882,9 +871,9 @@ def analyze_lotto_paper(final_probs, history_draws, model_contributions=None):
             m_probs = model_contributions.get(m, {})
             m_total = sum(m_probs.values())
             if m_total == 0:
-                norm_model[m] = {n: 0 for n in m_probs}
+                norm_model[m] = {}
             else:
-                norm_model[m] = {n: v / m_total for n, v in m_probs.items()}
+                norm_model[m] = {int(n): v / m_total for n, v in m_probs.items()}
 
     # 가로 라인 정의 (실제 로또 용지 7열 기준)
     rows = [
@@ -975,7 +964,7 @@ def analyze_magic_square(final_probs, history_draws, model_contributions=None):
     if ens_total == 0:
         norm_final = {n: 0 for n in final_probs}
     else:
-        norm_final = {n: v / ens_total for n, v in final_probs.items()}
+        norm_final = {int(n): v / ens_total for n, v in final_probs.items()}
 
     # 모델별 확률 정규화
     norm_model = {}
@@ -984,9 +973,9 @@ def analyze_magic_square(final_probs, history_draws, model_contributions=None):
             m_probs = model_contributions.get(m, {})
             m_total = sum(m_probs.values())
             if m_total == 0:
-                norm_model[m] = {n: 0 for n in m_probs}
+                norm_model[m] = {}
             else:
-                norm_model[m] = {n: v / m_total for n, v in m_probs.items()}
+                norm_model[m] = {int(n): v / m_total for n, v in m_probs.items()}
 
     # 9궁 정의 (magic_square.html gungDefinitions와 완전히 동일)
     gung_defs = [
@@ -1057,7 +1046,7 @@ def analyze_number_band(final_probs, history_draws, model_contributions=None):
     if ens_total == 0:
         norm_final = {n: 0 for n in final_probs}
     else:
-        norm_final = {n: v / ens_total for n, v in final_probs.items()}
+        norm_final = {int(n): v / ens_total for n, v in final_probs.items()}
 
     # 모델별 확률 정규화
     norm_model = {}
@@ -1066,9 +1055,9 @@ def analyze_number_band(final_probs, history_draws, model_contributions=None):
             m_probs = model_contributions.get(m, {})
             m_total = sum(m_probs.values())
             if m_total == 0:
-                norm_model[m] = {n: 0 for n in m_probs}
+                norm_model[m] = {}
             else:
-                norm_model[m] = {n: v / m_total for n, v in m_probs.items()}
+                norm_model[m] = {int(n): v / m_total for n, v in m_probs.items()}
 
     bands = [
         {"label": "01~10",  "nums": list(range(1,  11))},
@@ -1888,6 +1877,40 @@ async def get_deep_analysis(round_num: int = None):
             target_round, top_5, exclude_10, 
             history_draws, combinations, range_analysis
         )
+
+        # [NEW] LLM이 누락한 필터 강제 병합
+        FILTER_NAMES_KO = {
+            "sum": "총합", "tail_sum": "끝수합", "ac": "AC값",
+            "odd": "홀짝비율", "high": "저고비율", "prime": "소수",
+            "composite": "합성수", "consecutive": "연속수", "square": "제곱수",
+            "triangular": "삼각수", "twin": "쌍둥이수", "mul3": "3의 배수",
+            "mul4": "4의 배수", "mul5": "5의 배수", "non_multiple": "비배수"
+        }
+        
+        if "filter_recommendations" not in strategy:
+            strategy["filter_recommendations"] = []
+            
+        existing_filters = {str(f.get("filter", "")).replace(" ", "") for f in strategy["filter_recommendations"]}
+        
+        for key, name in FILTER_NAMES_KO.items():
+            alt_name = name.replace("비율", "")
+            if name.replace(" ", "") not in existing_filters and alt_name.replace(" ", "") not in existing_filters:
+                if key in range_analysis:
+                    val = range_analysis[key].get("range")
+                    rec = {"filter": name, "evidence": "앙상블 시뮬레이션 기반 자동 추천"}
+                    if isinstance(val, list) and len(val) == 2:
+                        rec["min"] = val[0]
+                        rec["max"] = val[1]
+                    elif isinstance(val, str) and "~" in val:
+                        parts = val.split("~")
+                        try:
+                            rec["min"] = int(parts[0])
+                            rec["max"] = int(parts[1])
+                        except:
+                            rec["pattern"] = val
+                    else:
+                        rec["pattern"] = str(val)
+                    strategy["filter_recommendations"].append(rec)
 
         elapsed = round(time.time() - start_time, 2)
 

@@ -754,7 +754,9 @@ const DeepLearning = {
                 const sorted = [...matrixData].sort((a, b) => {
                     const sa = (a.models[m] || {}).score || 0;
                     const sb = (b.models[m] || {}).score || 0;
-                    return sb - sa;
+                    if (sb !== sa) return sb - sa;
+                    // 점수가 같을 경우 번호 순(오름차순)으로 정렬하여 안정성 확보
+                    return a.num - b.num;
                 }).slice(0, 10);
                 modelTop10[m] = sorted.map(item => ({
                     number: item.num,
@@ -956,7 +958,9 @@ const DeepLearning = {
             var cfg = modelConfig[key];
             var items = modelTop10[key] || [];
             if (items.length === 0) return; // 데이터가 없는 모델은 숨김
-            var weight = weights ? (weights[key] * 100).toFixed(1) : '--';
+            // weights[key]가 undefined일 경우 NaN 방지 (|| 0 추가)
+            var w_val = (weights && weights[key] !== undefined) ? weights[key] : 0;
+            var weight = (w_val * 100).toFixed(1);
             var maxProb = items.length > 0 ? Math.max.apply(null, items.map(function (i) { return i.prob; })) : 1;
 
             html += '<div class="bg-slate-50 rounded-xl border border-slate-100 overflow-hidden animate-fadeInUp">' +
@@ -1526,11 +1530,13 @@ const DeepLearning = {
             const MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7', gnn: '#ef4444' };
             const MODEL_LABELS = { lstm: 'LSTM', xgboost: 'XGBoost', cnn: 'CNN', transformer: 'Transformer', markov: 'Markov', autoencoder: 'Autoenc.', gnn: 'GNN' };
             const weights = pipeline.modelWeights;
-            const maxW = Math.max(...Object.values(weights));
+            const weightValues = Object.values(weights).map(v => v || 0);
+            const maxW = weightValues.length > 0 ? Math.max(...weightValues) : 0;
 
             const barsHtml = Object.entries(weights).map(([name, w]) => {
-                const pct = (w * 100).toFixed(1);
-                const barW = maxW > 0 ? (w / maxW * 100).toFixed(1) : 0;
+                const w_val = w || 0;
+                const pct = (w_val * 100).toFixed(1);
+                const barW = maxW > 0 ? (w_val / maxW * 100).toFixed(1) : 0;
                 const color = MODEL_COLORS[name] || '#94a3b8';
                 return `<div style="display:flex;align-items:center;gap:8px;font-size:11px">
                     <span style="width:64px;color:#475569;font-weight:700;text-align:right">${MODEL_LABELS[name] || name}</span>

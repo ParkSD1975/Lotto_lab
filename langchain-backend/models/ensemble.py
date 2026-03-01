@@ -40,7 +40,8 @@ class LottoEnsemble:
             "cnn": 0.10,
             "transformer": 0.15,
             "gnn": 0.15,
-            "markov": 0.10
+            "markov": 0.10,
+            "autoencoder": 0.0 # 0% weight, used for penalty only but needs to be in UI
         }
         
         # ★ 시스템 시작 시 진화된 가중치가 있다면 불러오기
@@ -48,15 +49,20 @@ class LottoEnsemble:
 
     def _load_meta_weights(self):
         """저장된 메타 가중치(학습된 비중)를 불러옵니다."""
+        base_weights = self.default_weights.copy()
         if os.path.exists(self.weights_file):
             try:
                 with open(self.weights_file, "r") as f:
                     w = json.load(f)
-                    print(f"🧠 [Meta-Learning] 진화된 동적 가중치 로드 완료: {w}")
-                    return w
+                    # 기존 가중치에 새로운 모델이 추가된 경우 대응 (e.g. autoencoder)
+                    for k, v in w.items():
+                        if k in base_weights:
+                            base_weights[k] = v
+                    print(f"🧠 [Meta-Learning] 진화된 동적 가중치 로드 완료: {base_weights}")
+                    return base_weights
             except Exception:
                 pass
-        return self.default_weights.copy()
+        return base_weights
 
     def _update_meta_weights(self, draws):
         """[핵심] 최신 당첨 번호로 모델별 모의고사를 실시하여 메타 가중치를 스스로 재조정합니다."""
