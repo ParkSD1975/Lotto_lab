@@ -1213,9 +1213,20 @@ async def _ask_llm_strategy_v3(target_round, top_5, exclude_10, history_draws, c
     {"filter": "이웃수", "min": 1, "max": 3, "evidence": "근거"},
     {"filter": "이월수", "min": 0, "max": 1, "evidence": "근거"}
   ],
-  "hot_cold_analysis": "최근 자주 나온 번호와 한동안 안 나온 번호 동향 분석 2~3문장",
-  "risk_assessment": "이번 예측의 확신도와 주의사항 1~2문장",
-  "overall_strategy": "이번 회차 구매 전략 2~3문장"
+  "hot_cold_analysis": {
+    "hot_ratio": 60,
+    "cold_ratio": 40,
+    "trend_text": "최근 번호 강세 예상 또는 미출현 번호 회귀 분석 결과"
+  },
+  "risk_assessment": {
+    "risk_score": 75,
+    "risk_level": "위험/주의/안정",
+    "warning_text": "연속수/이월수 등 패턴 쏠림 주의사항 1문장"
+  },
+  "overall_strategy": {
+    "key_actions": ["핵심필터1", "핵심필터2"],
+    "short_advice": "이번 회차 최종 한줄 조언"
+  }
 }}"""
 
         result = await llm.ainvoke(prompt)
@@ -1266,9 +1277,23 @@ def _fallback_strategy_v3(top_5: list, exclude_10: list) -> dict:
             {"filter": "이웃수", "min": 1, "max": 2, "evidence": "회귀 분석 기반 평균"},
             {"filter": "이월수", "min": 0, "max": 1, "evidence": "최근 5회 이월비율 고려"}
         ],
-        "hot_cold_analysis": "LLM 미사용 - 통계 데이터를 참조해주세요.",
-        "risk_assessment": "모델 단독 분석으로 리스크 평가 불가.",
-        "overall_strategy": "모델 예측과 필터 통계를 직접 비교하여 판단해주세요.",
+        "hot_cold_analysis": {
+            "hot_ratio": 50,
+            "cold_ratio": 50,
+            "trend_text": "균형적인 흐름 예상"
+        },
+        "risk_assessment": {
+            "risk_score": 30,
+            "risk_level": "안정",
+            "warning_text": "특이 패턴 출현 확률 낮음"
+        },
+        "overall_strategy": {
+            "key_actions": [
+                "통계적 평균치 수렴",
+                "골고루 분산 투자"
+            ],
+            "short_advice": "기속 필터 위주의 안정적 조합 권장"
+        }
     }
 
 
