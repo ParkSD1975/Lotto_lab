@@ -1492,6 +1492,14 @@ async def get_deep_analysis(round_num: int = None):
                 filter_recs = (analysis_data.get("strategy") or {}).get("filter_recommendations") or []
                 stale_filters = len(filter_recs) < 10
 
+                # [New] Custom Analysis CNN=100 / ATC=0 버그 캐시 파기 로직
+                custom_evals = (analysis_data.get("analysis") or {}).get("custom_evaluations") or []
+                stale_custom = False
+                if custom_evals:
+                    first_custom_scores = custom_evals[0].get("model_scores", {})
+                    if first_custom_scores.get("cnn", {}).get("score", 0) == 100 or first_custom_scores.get("autoencoder", {}).get("score", 0) == 0:
+                        stale_custom = True
+
                 if stale_gnn or stale_autoencoder or stale_custom or stale_filters:
                     print(f"⚠️ [Cache] 과거 버전(GNN 미분석, AE 0점, 필터 개수 부족 등) 캐시 감지 → 재분석 강제 및 파기")
                     try:
