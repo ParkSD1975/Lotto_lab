@@ -435,13 +435,36 @@ if (window._COMMON_V2_LOADED) {
             // 🔹 [Modified] Minimal Rendering for Chat (No Card Wrapper)
             if (renderType === 'minimal') {
                 const content = analysis.response || analysis.recommendation || JSON.stringify(analysis);
-                return `<div class="text-base leading-relaxed text-gray-900 font-medium">${formatText(content)}</div>`;
+                let html = `<div class="text-base leading-relaxed text-gray-900 font-medium">${formatText(content)}</div>`;
+
+                // Add filter recommendations if present
+                if (analysis.filter_recommendations && analysis.filter_recommendations.length > 0) {
+                    const iconMap = {
+                        '총합': 'functions', '끝수합': 'pin', 'AC값': 'calculate',
+                        '홀짝': 'contrast', '저고': 'swap_vert', '연속수': 'linear_scale',
+                        '이월수': 'replay', '소수': 'looks_one', '합성수': 'looks_two',
+                        '제곱수': 'crop_square', '삼각수': 'change_history', '쌍둥이수': 'group',
+                        '핫콜드': 'local_fire_department', '범위': 'expand',
+                        '최근 10회 출현': 'history', '장기 미출현': 'hourglass_empty',
+                        '3의 배수': 'view_week', '이웃수': 'people_alt'
+                    };
+                    const filterHtml = analysis.filter_recommendations.map(function (r) {
+                        const icon = iconMap[r.filter] || 'tune';
+                        const valueText = r.pattern ? '패턴: ' + r.pattern : (r.min !== undefined && r.max !== undefined) ? r.min + ' ~ ' + r.max : r.max !== undefined ? '최대 ' + r.max : '-';
+                        return `<div class="bg-blue-50/50 rounded-xl border border-blue-100 p-3 hover:border-blue-300 transition-colors">
+                            <div class="flex items-center gap-2 mb-2"><span class="material-symbols-outlined text-blue-500 text-base">${icon}</span><h4 class="font-bold text-gray-800 text-xs">${r.filter}</h4></div>
+                            <p class="text-blue-700 font-black text-sm mb-1.5">${valueText}</p>
+                            <div class="bg-white p-2 rounded text-[11px] text-gray-600 leading-snug border border-blue-50/50">${r.evidence || '근거 데이터 없음'}</div></div>`;
+                    }).join('');
+                    html += `<div class="mt-4 pt-4 border-t border-gray-100"><h5 class="text-sm font-bold text-gray-800 mb-3 flex items-center gap-1.5"><span class="material-symbols-outlined text-blue-500 text-lg">tune</span>AI 필터 추천 구간</h5><div class="grid grid-cols-2 lg:grid-cols-4 gap-3">${filterHtml}</div></div>`;
+                }
+                return html;
             }
 
             // 🔹 [Modified] 단순 응답 모드 (response 필드가 있거나 trend 필드가 없는 경우)
             if (analysis.response || (!analysis.trend && analysis.recommendation)) {
                 const content = analysis.response || analysis.recommendation;
-                return `
+                let html = `
                 <div class="rounded-xl p-6 shadow-lg bg-gray-900 text-white animate-fade-in">
                     <div class="flex items-center gap-3 mb-4 border-b border-gray-700 pb-3">
                         <div class="p-1.5 bg-blue-600 rounded-lg">
@@ -451,8 +474,32 @@ if (window._COMMON_V2_LOADED) {
                     </div>
                     <div class="text-base leading-7 text-gray-100 font-medium">
                         ${formatTextDark(content)}
-                    </div>
-                </div>`;
+                    </div>`;
+
+                // Add filter recommendations in Dark Mode format
+                if (analysis.filter_recommendations && analysis.filter_recommendations.length > 0) {
+                    const iconMap = {
+                        '총합': 'functions', '끝수합': 'pin', 'AC값': 'calculate',
+                        '홀짝': 'contrast', '저고': 'swap_vert', '연속수': 'linear_scale',
+                        '이월수': 'replay', '소수': 'looks_one', '합성수': 'looks_two',
+                        '제곱수': 'crop_square', '삼각수': 'change_history', '쌍둥이수': 'group',
+                        '핫콜드': 'local_fire_department', '범위': 'expand',
+                        '최근 10회 출현': 'history', '장기 미출현': 'hourglass_empty',
+                        '3의 배수': 'view_week', '이웃수': 'people_alt'
+                    };
+                    const filterHtml = analysis.filter_recommendations.map(function (r) {
+                        const icon = iconMap[r.filter] || 'tune';
+                        const valueText = r.pattern ? '패턴: ' + r.pattern : (r.min !== undefined && r.max !== undefined) ? r.min + ' ~ ' + r.max : r.max !== undefined ? '최대 ' + r.max : '-';
+                        return `<div class="bg-gray-800 rounded-xl border border-gray-700 p-3 hover:border-blue-500 transition-colors">
+                            <div class="flex items-center gap-2 mb-2"><span class="material-symbols-outlined text-blue-400 text-base">${icon}</span><h4 class="font-bold text-gray-200 text-xs">${r.filter}</h4></div>
+                            <p class="text-blue-300 font-black text-sm mb-1.5">${valueText}</p>
+                            <div class="bg-gray-900 p-2 rounded text-[11px] text-gray-400 leading-snug border border-gray-800">${r.evidence || '근거 데이터 없음'}</div></div>`;
+                    }).join('');
+                    html += `<div class="mt-5 pt-5 border-t border-gray-700"><h5 class="text-sm font-bold text-gray-200 mb-3 flex items-center gap-1.5"><span class="material-symbols-outlined text-blue-400 text-lg">tune</span>AI 필터 추천 구간</h5><div class="grid grid-cols-2 lg:grid-cols-4 gap-3">${filterHtml}</div></div>`;
+                }
+
+                html += `</div>`;
+                return html;
             }
 
             // 🔹 기존 3단 구성 리포트
@@ -553,7 +600,12 @@ ${customRules}
 
 # [JSON 구조]
 {
-  "response": "분석 결과 및 답변 (태그 포함, 3-4문장)"
+  "response": "분석 결과 및 답변 (태그 포함, 3-4문장)",
+  "filter_recommendations": [
+    {"filter": "총합", "min": 100, "max": 180, "evidence": "근거"},
+    {"filter": "홀짝", "pattern": "3:3", "evidence": "근거"},
+    {"filter": "AC값", "min": 7, "max": 10, "evidence": "근거"}
+  ]
 }`;
             }
 
