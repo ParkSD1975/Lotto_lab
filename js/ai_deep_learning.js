@@ -636,7 +636,8 @@ const DeepLearning = {
                 modelWeights: modelWeights,
                 weightReasons: `통계 기반 클라이언트 계산 (Python 미연결). ${TOTAL}회 DB 데이터.`,
                 rlGenerated: false,
-                topCompatiblePairs: []
+                topCompatiblePairs: [],
+                filter_recommendations: filterRecs // 🔹 Ensure filter recommendations are also in pipeline if needed
             };
 
             // ── 17. 최종 result 조립 ──────────────────────────────────
@@ -2504,9 +2505,14 @@ const DeepLearning = {
                 fixed_numbers: { numbers: [3, 11, 19], evidence: '데모 데이터' },
                 exclude_numbers: { numbers: [1, 6, 13], evidence: '데모 데이터' },
                 filter_recommendations: [
-                    { filter: '총합', min: 100, max: 180, evidence: '데모' },
+                    { filter: '총합', min: 110, max: 170, evidence: '데모 데이터입니다. 서버 연결을 확인해 주세요.' },
                     { filter: '홀짝', pattern: '3:3', evidence: '데모' },
-                    { filter: 'AC값', min: 7, max: 10, evidence: '데모' }
+                    { filter: '저고', pattern: '3:3', evidence: '데모' },
+                    { filter: 'AC값', min: 7, max: 10, evidence: '데모' },
+                    { filter: '소수', min: 1, max: 3, evidence: '데모' },
+                    { filter: '연속수', min: 0, max: 1, evidence: '데모' },
+                    { filter: '이월수', min: 0, max: 1, evidence: '데모' },
+                    { filter: '3의 배수', min: 1, max: 3, evidence: '데모' }
                 ]
             },
             combinations: [
