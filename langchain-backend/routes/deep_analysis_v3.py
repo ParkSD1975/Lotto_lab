@@ -41,7 +41,7 @@ def _json_response(data: dict):
 # ------------------------------------------------------------------
 # 1. 기초분석 시뮬레이터 (15종+)
 # ------------------------------------------------------------------
-def simulate_all_filters(model_probs, n_sim=1000):
+def simulate_all_filters(model_probs, history_draws, n_sim=1000):
     nums = list(model_probs.keys())
     probs = list(model_probs.values())
     total_prob = sum(probs)
@@ -49,7 +49,7 @@ def simulate_all_filters(model_probs, n_sim=1000):
         return {}, {}
     norm_probs = [p/total_prob for p in probs]
 
-    stats = {k: [] for k in ["sum", "ac", "odd", "high", "prime", "consecutive", "tail_sum", "composite", "square", "triangular", "twin", "mul3", "mul4", "mul5", "non_multiple"]}
+    stats = {k: [] for k in ["sum", "ac", "odd", "high", "prime", "consecutive", "tail_sum", "composite", "square", "triangular", "twin", "mul3", "mul4", "mul5", "non_multiple", "hot10", "missing", "neighbor", "carryover"]}
     PRIMES = {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43}
     SQUARES = {1, 4, 9, 16, 25, 36}
     TRIANGULARS = {1, 3, 6, 10, 15, 21, 28, 36, 45}
@@ -58,6 +58,25 @@ def simulate_all_filters(model_probs, n_sim=1000):
     MUL4_NUMS = {4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44}
     MUL5_NUMS = {5, 10, 15, 20, 25, 30, 35, 40, 45}
     MULTIPLE_ALL = MUL3_NUMS | MUL4_NUMS | MUL5_NUMS
+    
+    # 핫10, 장기미출현, 이웃수, 이월수 기준 데이터 준비
+    last_10 = [set(d.get("numbers", [])) for d in history_draws[:10]]
+    hot10_nums = set().union(*last_10) if last_10 else set()
+    
+    missing_nums = set()
+    for n in range(1, 46):
+        gap = 0
+        for d in history_draws:
+            if n in d.get("numbers", []): break
+            gap += 1
+        if gap >= 10: missing_nums.add(n)
+        
+    latest_nums = set(history_draws[0].get("numbers", [])) if history_draws else set()
+    neighbor_nums = set()
+    for n in latest_nums:
+        for offset in [-1, 1]:
+            neighbor = n + offset
+            if 1 <= neighbor <= 45: neighbor_nums.add(neighbor)
 
     for _ in range(n_sim):
         c = sorted(np.random.choice(nums, 6, replace=False, p=norm_probs))
@@ -81,6 +100,10 @@ def simulate_all_filters(model_probs, n_sim=1000):
         stats["mul5"].append(sum(1 for x in c_int if x%5==0))
         stats["consecutive"].append(sum(1 for i in range(5) if c_int[i+1]-c_int[i]==1))
         stats["non_multiple"].append(sum(1 for x in c_int if x not in MULTIPLE_ALL))
+        stats["hot10"].append(sum(1 for x in c_int if x in hot10_nums))
+        stats["missing"].append(sum(1 for x in c_int if x in missing_nums))
+        stats["neighbor"].append(sum(1 for x in c_int if x in neighbor_nums))
+        stats["carryover"].append(sum(1 for x in c_int if x in latest_nums))
 
     ranges = {}
     filter_settings = {}
@@ -1125,10 +1148,11 @@ async def _ask_llm_strategy_v3(target_round, top_5, exclude_10, history_draws, c
         # 필터 요약 - raw 수치 대신 사람이 읽기 쉬운 형식으로 변환
         FILTER_NAMES = {
             "sum": "총합", "tail_sum": "끝수합", "ac": "AC값",
-            "odd": "홀수개수", "high": "고번호개수", "prime": "소수개수",
-            "consecutive": "연속번호", "composite": "합성수", "square": "제곱수",
-            "triangular": "삼각수", "twin": "쌍수", "mul3": "3배수",
-            "mul4": "4배수", "mul5": "5배수", "non_multiple": "비배수"
+            "odd": "홀짝", "high": "저고", "prime": "소수",
+            "consecutive": "연속수", "composite": "합성수", "square": "제곱수",
+            "triangular": "삼각수", "twin": "쌍둥이수", "mul3": "3의 배수",
+            "mul4": "4의 배수", "mul5": "5의 배수", "non_multiple": "비배수",
+            "hot10": "최근 10회 출현", "missing": "장기 미출현", "neighbor": "이웃수", "carryover": "이월수"
         }
         filter_summary = []
         for key, val in range_analysis.items():
@@ -1464,16 +1488,12 @@ async def get_deep_analysis(round_num: int = None):
                     for item in mtx[:5]
                 )
 
-                # [New] Custom Analysis CNN=100 / ATC=0 버그 캐시 파기 로직
-                custom_evals = (analysis_data.get("analysis") or {}).get("custom_evaluations") or []
-                stale_custom = False
-                if custom_evals:
-                    first_custom_scores = custom_evals[0].get("model_scores", {})
-                    if first_custom_scores.get("cnn", {}).get("score", 0) == 100 or first_custom_scores.get("autoencoder", {}).get("score", 0) == 0:
-                        stale_custom = True
+                # [New] AI 필터 개수가 부족한 구버전 캐시 파기 (4개만 나오는 현상 방지)
+                filter_recs = (analysis_data.get("strategy") or {}).get("filter_recommendations") or []
+                stale_filters = len(filter_recs) < 10
 
-                if stale_gnn or stale_autoencoder or stale_custom:
-                    print(f"⚠️ [Cache] 과거 버전(GNN 미분석, AE 0점, 또는 커스텀평가 오류) 캐시 감지 → 재분석 강제 및 파기")
+                if stale_gnn or stale_autoencoder or stale_custom or stale_filters:
+                    print(f"⚠️ [Cache] 과거 버전(GNN 미분석, AE 0점, 필터 개수 부족 등) 캐시 감지 → 재분석 강제 및 파기")
                     try:
                         # DB에서 잘못된 캐시 레코드 삭제
                         del_id = cached_res.data[0].get("id")
@@ -1522,7 +1542,7 @@ async def get_deep_analysis(round_num: int = None):
             corrected_probs = {n: v / total_cp for n, v in corrected_probs.items()}
 
         # [1] 기초분석
-        range_analysis_simple, filter_settings = simulate_all_filters(corrected_probs)
+        range_analysis_simple, filter_settings = simulate_all_filters(corrected_probs, history_draws)
         range_analysis = {}
         for filter_key, filter_value in range_analysis_simple.items():
             model_expectations = get_model_filter_expectations(filter_key, history_draws, contribs)
