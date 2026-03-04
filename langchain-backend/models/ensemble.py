@@ -182,7 +182,6 @@ class LottoEnsemble:
 
         # 1. 딥러닝/머신러닝 예측
         for name, model in self.models.items():
-            if name == "autoencoder": continue
             try:
                 pred_dict = model.predict(draws)
                 for n in range(1, 46):
@@ -228,7 +227,6 @@ class LottoEnsemble:
             ae_excl_val = float(ae_exclusions.get(n, 0))
             if n in ae_exclusions:
                 final_probs[n] *= (1.0 - ae_excl_val)
-            contributions["autoencoder"][n] = max(0.0, 1.0 - ae_excl_val)
 
         # 5. 전문가 메모 (Hard Filter) 철통 방어
         evidence_reasons = []
