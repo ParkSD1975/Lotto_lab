@@ -227,6 +227,25 @@ def get_model_filter_expectations(filter_name: str, history_draws: list, model_c
     MUL3_NUMS = {3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45}
     MUL4_NUMS = {4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44}
     MUL5_NUMS = {5, 10, 15, 20, 25, 30, 35, 40, 45}
+    
+    # 동적 컨텍스트 데이터 계산 (Hot10, Missing, Neighbor, Carryover)
+    last_10 = [set(d.get("numbers", [])) for d in history_draws[:10]]
+    hot10_nums = set().union(*last_10) if last_10 else set()
+    
+    missing_nums = set()
+    for n in range(1, 46):
+        gap = 0
+        for d in history_draws:
+            if n in d.get("numbers", []): break
+            gap += 1
+        if gap >= 10: missing_nums.add(n)
+        
+    latest_nums = set(history_draws[0].get("numbers", [])) if history_draws else set()
+    neighbor_nums = set()
+    for n in latest_nums:
+        for offset in [-1, 1]:
+            neighbor = n + offset
+            if 1 <= neighbor <= 45: neighbor_nums.add(neighbor)
 
     # 각 모델의 상위 15개 번호 추출 (확률 비례 포함)
     model_top15 = {}
@@ -287,6 +306,11 @@ def get_model_filter_expectations(filter_name: str, history_draws: list, model_c
         "mul4":         lambda c: sum(1 for x in c if x in MUL4_NUMS),
         "mul5":         lambda c: sum(1 for x in c if x in MUL5_NUMS),
         "non_multiple": lambda c: sum(1 for x in c if x not in MULTIPLE_ALL),
+        # [New] 추가 필터
+        "hot10":        lambda c: sum(1 for x in c if x in hot10_nums),
+        "missing":      lambda c: sum(1 for x in c if x in missing_nums),
+        "neighbor":     lambda c: sum(1 for x in c if x in neighbor_nums),
+        "carryover":    lambda c: sum(1 for x in c if x in latest_nums),
     }
 
     # 필터별 물리적 상한/하한 (6개 번호 기준 절대 범위)
@@ -306,6 +330,10 @@ def get_model_filter_expectations(filter_name: str, history_draws: list, model_c
         "mul4":         (0,   6),
         "mul5":         (0,   6),
         "non_multiple": (0,   6),
+        "hot10":        (0,   6),
+        "missing":      (0,   6),
+        "neighbor":     (0,   6),
+        "carryover":    (0,   6),
     }
 
     fn = FILTER_FN.get(filter_name)
@@ -1613,7 +1641,6 @@ async def get_deep_analysis(round_num: int = None):
 
         def score_for_nums(nums):
             """번호 목록에 대한 모델 점수, 과거적중분포, avg_hit, GAP/STR 계산"""
-            print(f"ANTIGRAVITY DEBUG: score_for_nums called with {len(nums)} numbers")
             if not nums:
                 return {}, 0, 0, 0, 0, {}
 
@@ -1655,8 +1682,9 @@ async def get_deep_analysis(round_num: int = None):
             model_scores = {}
             for m in models:
                 m_contrib = contribs.get(m, {})
+                # [Fix] 모델 결과가 없어도 0점으로 초기화하여 항상 반환 보장
                 if not m_contrib:
-                    model_scores[m] = {"score": 0, "reasoning": "데이터 없음"}
+                    model_scores[m] = {"score": 0, "reasoning": "모델 데이터 없음"}
                     continue
 
                 all_vals = sorted(m_contrib.values(), reverse=True)
