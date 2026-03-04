@@ -4,7 +4,7 @@
  */
 (function () {
     const BASE_URLS = [
-        (window.LANGCHAIN_CONFIG && window.LANGCHAIN_CONFIG.URL) || 'https://lotto-api-server.onrender.com'
+        (window.LANGCHAIN_CONFIG && window.LANGCHAIN_CONFIG.URL) || 'http://127.0.0.1:8000'
     ];
     let CURRENT_BASE_URL = BASE_URLS[0];
     const TIMEOUT = (window.LANGCHAIN_CONFIG && window.LANGCHAIN_CONFIG.TIMEOUT) || 60000;

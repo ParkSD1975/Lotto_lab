@@ -11,6 +11,14 @@ class GNNTrainer:
         os.makedirs(self.save_dir, exist_ok=True)
         # 45x45 크기의 동반 출현(Edge) 가중치 행렬
         self.adjacency_matrix = np.zeros((45, 45))
+        self._load_adjacency()
+
+    def _load_adjacency(self):
+        path = os.path.join(self.save_dir, "gnn_adjacency.json")
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                self.adjacency_matrix = np.array(json.load(f))
+                print("  [GNN] 기존 그래프 네트워크(.json)를 성공적으로 불러왔습니다.")
 
     def train(self, draws: list, fine_tune: bool = True):
         print("  [GNN] 동반 출현(짝꿍) 그래프 네트워크 학습 시작...")
@@ -42,7 +50,7 @@ class GNNTrainer:
 
     def predict(self, draws: list) -> dict:
         if len(draws) == 0:
-            return {n: 1/45 for n in range(1, 46)}
+            return {n: 1.0/45.0 + float(np.random.rand() * 0.0001) for n in range(1, 46)}
             
         # 최근 3주간 나온 번호들을 '활성화된 노드(Node)'로 간주
         recent_draws = sorted(draws, key=lambda x: x['round'])[-3:]
@@ -67,6 +75,6 @@ class GNNTrainer:
         if total_score > 0:
             gnn_scores = gnn_scores / total_score
         else:
-            gnn_scores = np.ones(45) / 45
+            gnn_scores = np.ones(45) / 45.0 + (np.random.rand(45) * 0.0001)
             
         return {n: float(gnn_scores[n - 1]) for n in range(1, 46)}

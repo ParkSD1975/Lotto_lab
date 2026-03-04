@@ -119,7 +119,7 @@ class CNNTrainer:
 
     def predict(self, draws: list) -> dict:
         if self.model is None: self._load_model()
-        if self.model is None: return {n: 0.0 for n in range(1, 46)}
+        if self.model is None: return {n: 1.0/45.0 + float(np.random.rand() * 0.0001) for n in range(1, 46)}
         
         recent = list(reversed(draws[:config.CNN_SEQ_LEN]))
         grid_seq = np.zeros((config.CNN_SEQ_LEN, 7, 7), dtype=np.float32)

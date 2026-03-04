@@ -1726,7 +1726,10 @@ async def get_deep_analysis(round_num: int = None):
                 # 균등 분포 감지: 모든 확률이 동일하면 모델이 번호를 구분 못함 → 50점(중립)
                 val_range = (all_vals[0] - all_vals[-1]) if all_vals else 0
                 if val_range < 1e-9:
-                    model_scores[m] = {"score": 50, "reasoning": "모델 예측 분산 미미 (균등 분포 — 참고용)"}
+                    if all_vals and all_vals[0] == 0.0:
+                        model_scores[m] = {"score": 0, "reasoning": "점수 계산 실패 (모든 값 0.0)"}
+                    else:
+                        model_scores[m] = {"score": 50, "reasoning": "모델 예측 분산 미미 (균등 분포 — 참고용)"}
                     continue
 
                 m_scores_for_nums = []

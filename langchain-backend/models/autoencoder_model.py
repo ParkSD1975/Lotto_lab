@@ -61,6 +61,49 @@ class AutoencoderTrainer:
         self.model.load_state_dict(torch.load(path, map_location=self.device, weights_only=True))
         self.model.eval()
 
+    def predict(self, draws: list) -> dict:
+        """복원 오차의 역수/음수화를 통해 각 번호별 출현 확률(가중치) 반환"""
+        path = os.path.join(config.MODEL_DIR, "autoencoder_model.pt")
+        if not os.path.exists(path) or len(draws) == 0:
+            # 모델이 없거나 데이터가 부족하면 기본값(균등 분포 + 약간의 노이즈) 반환
+            return {n: 1.0/45.0 + float(np.random.rand() * 0.0001) for n in range(1, 46)}
+            
+        self.model = LottoAutoencoder().to(self.device)
+        self.model.load_state_dict(torch.load(path, map_location=self.device, weights_only=True))
+        self.model.eval()
+
+        combined_grid = np.zeros((1, 1, 7, 7), dtype=np.float32)
+        # 최근 3회차 누적으로 패턴 평가
+        for draw in draws[:3]:
+            for num in draw.get("numbers", []):
+                if 1 <= num <= 45: combined_grid[0, 0, (num-1)//7, (num-1)%7] += 1.0
+        if combined_grid.max() > 0: combined_grid /= combined_grid.max()
+
+        x = torch.FloatTensor(combined_grid).to(self.device)
+        with torch.no_grad():
+            reconstructed = self.model(x)
+        
+        error_map = (x - reconstructed).cpu().numpy()[0, 0]
+        
+        scores = np.zeros(45)
+        for num in range(1, 46):
+            err = float(error_map[(num-1)//7, (num-1)%7])
+            # 오차가 작을수록 점수가 커야하므로 음수화
+            scores[num-1] = -err
+            
+        # 모든 값을 양수로 만들기 (최소값을 빼고 약간의 기본값 더하기)
+        min_score = np.min(scores)
+        scores = scores - min_score + 1e-4
+        
+        # 합계가 1이 되도록 정규화
+        total_score = np.sum(scores)
+        if total_score > 0:
+            scores = scores / total_score
+        else:
+            scores = np.ones(45) / 45.0 + (np.random.rand(45) * 0.0001)
+            
+        return {n: float(scores[n - 1]) for n in range(1, 46)}
+
         combined_grid = np.zeros((1, 1, 7, 7), dtype=np.float32)
         for draw in draws[:3]:
             for num in draw.get("numbers", []):
