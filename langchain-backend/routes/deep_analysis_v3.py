@@ -884,7 +884,15 @@ def analyze_all_regressions(history_draws, final_probs, model_contributions=None
         })
     return results
 
-    # [4-1] 로또용지 분석
+# ------------------------------------------------------------------
+# 4-1. 로또용지 분석
+# ------------------------------------------------------------------
+def analyze_lotto_paper(final_probs, history_draws, model_contributions=None):
+    """
+    로또 용지 기준 가로/세로 라인 분석
+    """
+    models = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder", "gnn"]
+
     # 앙상블 확률 정규화
     ens_total = sum(final_probs.values())
     if ens_total == 0:
