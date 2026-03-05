@@ -21,316 +21,174 @@
     <style>
         body {
             font-family: 'Pretendard', sans-serif;
-            background: linear-gradient(135deg, #f8f9fa 0%, #f0f4f8 100%);
+            background-color: #F9FAFB; /* Dashboard style background */
+            color: #111827;
         }
 
         .custom-scrollbar::-webkit-scrollbar {
-            width: 6px;
+            width: 5px;
         }
-
         .custom-scrollbar::-webkit-scrollbar-track {
             background: transparent;
         }
-
         .custom-scrollbar::-webkit-scrollbar-thumb {
-            background-color: #cbd5e1;
+            background-color: #D1D5DB;
             border-radius: 20px;
         }
-
         .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-            background-color: #94a3b8;
+            background-color: #9CA3AF;
         }
 
         #lnb-container {
             display: none !important;
         }
 
-        /* 카드 스타일 */
+        /* 럭셔리 카드 스타일 (Dashboard 매칭) */
         .card {
             background: white;
-            border-radius: 16px;
-            border: 1px solid #e8eef7;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            border-radius: 20px;
+            border: 1px solid #F3F4F6; /* 매우 연한 테두리 */
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02), 0 2px 4px -1px rgba(0, 0, 0, 0.02);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
         }
-
         .card:hover {
-            border-color: #d0d8e8;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
             transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.025);
+            border-color: #E5E7EB;
         }
 
         /* 헤더 스타일 */
         .card-header {
             padding: 20px 24px;
-            border-bottom: 1px solid #f1f5f9;
+            border-bottom: 1px solid #F3F4F6;
             display: flex;
             align-items: center;
-            gap: 12px;
-            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-            border-radius: 16px 16px 0 0;
+            gap: 10px;
+            background: white; /* 그라디언트 제거, 심플 화이트 */
+            border-radius: 20px 20px 0 0;
         }
-
         .card-header h3 {
-            font-size: 1.125rem;
+            font-size: 1.05rem;
             font-weight: 700;
-            color: #1f2937;
+            color: #111827;
+            letter-spacing: -0.01em;
             margin: 0;
         }
-
         .card-header .icon {
-            font-size: 1.5rem;
-            color: #4f46e5;
+            font-size: 1.25rem;
+            color: #4B5563; /* 중립적인 아이콘 색상 */
         }
-
         .card-body {
             padding: 24px;
         }
 
-        /* 연결형 탭 스타일 */
-        .connected-tab {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 10px 18px;
-            font-weight: 600;
-            font-size: 0.8rem;
-            color: #94a3b8;
-            background: transparent;
-            border: none;
-            border-bottom: 2px solid transparent;
-            cursor: pointer;
-            transition: all 0.2s;
-            white-space: nowrap;
-            margin-bottom: -1px;
-        }
-
-        .connected-tab:hover {
-            color: #4f46e5;
-            background: #f5f3ff;
-            border-radius: 8px 8px 0 0;
-        }
-
-        .connected-tab-active {
-            color: #4f46e5 !important;
-            border-bottom: 2px solid #4f46e5 !important;
-            background: transparent !important;
-        }
-
-        /* 기존 탭 스타일 (하위 호환) */
-        .tab-btn {
-            padding: 10px 18px;
-            border-radius: 8px;
-            font-weight: 600;
-            font-size: 0.85rem;
-            color: #64748b;
-            transition: all 0.2s;
-            background: white;
-            border: 1px solid #e2e8f0;
-            cursor: pointer;
-        }
-
-        .tab-active {
-            background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%) !important;
-            color: white !important;
-            border-color: #4f46e5 !important;
-        }
-
-        /* 번호 공 스타일 */
-        .number-ball {
-            width: 56px;
-            height: 56px;
+        /* 고급스러운 입체 공 스타일 (Dashboard 매칭) */
+        .ball-common {
             display: inline-flex;
             align-items: center;
             justify-content: center;
             border-radius: 50%;
-            background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
             color: white;
-            font-weight: 900;
-            font-size: 1.25rem;
-            box-shadow: 0 2px 8px rgba(79, 70, 229, 0.25);
+            font-weight: 800;
+            text-shadow: 0px 1px 2px rgba(0,0,0,0.3);
+            box-shadow: inset -2px -2px 4px rgba(0,0,0,0.15), 2px 2px 4px rgba(0,0,0,0.1);
+            transition: transform 0.2s;
+        }
+        .ball-common:hover { transform: scale(1.1); }
+
+        .ball-yellow { background: radial-gradient(circle at 35% 35%, #FDE047 0%, #EAB308 100%); border: 1px solid #CA8A04; } /* 1-10 */
+        .ball-blue   { background: radial-gradient(circle at 35% 35%, #60A5FA 0%, #2563EB 100%); border: 1px solid #1D4ED8; } /* 11-20 */
+        .ball-red    { background: radial-gradient(circle at 35% 35%, #F87171 0%, #DC2626 100%); border: 1px solid #B91C1C; } /* 21-30 */
+        .ball-gray   { background: radial-gradient(circle at 35% 35%, #9CA3AF 0%, #4B5563 100%); border: 1px solid #374151; } /* 31-40 */
+        .ball-green  { background: radial-gradient(circle at 35% 35%, #4ADE80 0%, #16A34A 100%); border: 1px solid #15803D; } /* 41-45 */
+
+        /* 탭 네비게이션 (Pill Style) */
+        .connected-tab {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            font-weight: 600;
+            font-size: 0.85rem;
+            color: #6B7280;
+            background: transparent;
+            border-radius: 9999px;
             cursor: pointer;
             transition: all 0.2s;
-            border: 2px solid transparent;
+            margin-right: 4px;
+        }
+        .connected-tab:hover {
+            background-color: #F3F4F6;
+            color: #1F2937;
+        }
+        .connected-tab-active {
+            background-color: #1F2937 !important; /* 진한 차콜 */
+            color: white !important;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
         }
 
-        .number-ball:hover {
-            transform: scale(1.1);
-            box-shadow: 0 4px 16px rgba(79, 70, 229, 0.4);
-            border-color: white;
-        }
-
-        .number-ball-small {
-            width: 44px;
-            height: 44px;
-            font-size: 1rem;
-        }
-
-        .number-ball-disabled {
-            background: linear-gradient(135deg, #cbd5e1 0%, #a1aec7 100%);
-            opacity: 0.6;
-            cursor: not-allowed;
-        }
-
-        .number-ball-disabled:hover {
-            transform: none;
-        }
-
-        /* 모달 스타일 */
-        .modal-overlay {
-            animation: fadeIn 0.2s ease-out;
-        }
-
-        .modal-content {
-            animation: slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        @keyframes fadeIn {
-            from {
-                opacity: 0;
-            }
-
-            to {
-                opacity: 1;
-            }
-        }
-
-        @keyframes slideUp {
-            from {
-                transform: translateY(20px);
-                opacity: 0;
-            }
-
-            to {
-                transform: translateY(0);
-                opacity: 1;
-            }
-        }
-
-        /* 스코어 색상 */
-        .score-high {
-            color: #dc2626;
-            font-weight: 900;
-            font-size: 1.1rem;
-        }
-
-        .score-mid {
-            color: #4f46e5;
-            font-weight: 700;
-            font-size: 1rem;
-        }
-
-        .score-low {
-            color: #94a3b8;
-            font-weight: 600;
-        }
-
-        /* 게이지 바 */
-        .gauge-bar {
-            height: 6px;
-            background: #e5e7eb;
-            border-radius: 3px;
-            overflow: hidden;
-            margin: 4px 0;
-        }
-
-        .gauge-fill {
-            height: 100%;
-            border-radius: 3px;
-            transition: width 0.3s ease-out;
-        }
-
-        /* 모델 색상 */
-        .model-lstm {
-            background: linear-gradient(90deg, #4f46e5, #4338ca);
-        }
-
-        .model-xgboost {
-            background: linear-gradient(90deg, #2563eb, #1d4ed8);
-        }
-
-        .model-cnn {
-            background: linear-gradient(90deg, #dc2626, #b91c1c);
-        }
-
-        .model-transformer {
-            background: linear-gradient(90deg, #16a34a, #15803d);
-        }
-
-        .model-markov {
-            background: linear-gradient(90deg, #0891b2, #06b6d4);
-        }
-
-        /* 조합 카드 */
-        .combo-card {
-            background: white;
-            padding: 16px;
-            border-radius: 12px;
-            border: 1px solid #e5e7eb;
-            display: flex;
-            align-items: center;
-            gap: 16px;
-            transition: all 0.2s;
-        }
-
-        .combo-card:hover {
-            border-color: #4f46e5;
-            box-shadow: 0 4px 12px rgba(79, 70, 229, 0.1);
-            background: #f8f9ff;
-        }
-
-        .combo-number {
-            width: 40px;
-            height: 40px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: linear-gradient(135deg, #4f46e5, #4338ca);
-            color: white;
-            font-weight: 700;
-            border-radius: 8px;
-            flex-shrink: 0;
-        }
-
-        /* 그리드 레이아웃 */
-        .content-grid {
-            display: grid;
-            gap: 20px;
-        }
-
+        /* 데이터 그리드 */
         .number-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(50px, 1fr));
             gap: 12px;
-            margin-top: 16px;
         }
 
-        /* 통계 박스 */
+        /* 통계 박스 리뉴얼 */
         .stat-box {
             padding: 16px;
-            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-            border-radius: 12px;
-            border-left: 4px solid #4f46e5;
+            background: #F9FAFB;
+            border-radius: 16px;
+            border: 1px solid #E5E7EB; /* 테두리 추가로 깔끔하게 */
+            /* border-left 제거하여 심플하게 */
         }
-
         .stat-label {
-            font-size: 0.875rem;
-            color: #64748b;
+            font-size: 0.8rem;
+            color: #6B7280;
             font-weight: 600;
-            margin-bottom: 4px;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
         }
 
-        .stat-value {
-            font-size: 1.5rem;
-            font-weight: 900;
-            color: #1f2937;
+        /* 게이지 바 모던화 */
+        .gauge-bar {
+            height: 8px;
+            background: #E5E7EB;
+            border-radius: 999px;
+            overflow: hidden;
+        }
+        .gauge-fill {
+            height: 100%;
+            border-radius: 999px;
+            /* 그라디언트 대신 단색 계열 사용으로 차분하게, 필요시 그라디언트 유지 */
+            background: linear-gradient(90deg, #6366F1, #8B5CF6); 
         }
 
-        /* 상태 카드 */
-        .status-card {
-            padding: 16px;
-            border-radius: 12px;
-            text-align: center;
+        /* 테이블 스타일 */
+        table thead th {
+            background-color: #F9FAFB;
+            color: #374151;
+            font-weight: 700;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border-bottom: 2px solid #E5E7EB;
+        }
+        table tbody tr:hover {
+            background-color: #F9FAFB;
+        }
+        table td {
+            color: #4B5563;
+        }
+
+        /* 애니메이션 */
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fadeInUp {
+            animation: fadeInUp 0.4s ease-out forwards;
         }
     </style>
 </head>
@@ -344,28 +202,28 @@
             <!-- 상단 타이틀 바 -->
             <div class="flex items-end justify-between mb-5">
                 <div class="flex items-center gap-3">
-                    <span class="material-symbols-outlined text-2xl text-indigo-500">analytics</span>
+                    <span class="material-symbols-outlined text-2xl text-blue-600">neurology</span> <!-- 아이콘 변경 및 색상 변경 -->
                     <div>
-                        <h1 class="text-xl font-bold text-slate-800 leading-tight tracking-tight">
+                        <h1 class="text-xl font-bold text-gray-900 leading-tight tracking-tight">
                             AI 딥러닝 분석
                         </h1>
-                        <p class="text-xs text-slate-400 mt-0.5">5중 앙상블 딥러닝 · 최적 조합 추천</p>
+                        <p class="text-xs text-gray-500 mt-0.5">5중 앙상블 딥러닝 · 최적 조합 추천</p>
                     </div>
                 </div>
                 <div class="flex flex-col items-end gap-1.5">
                     <div class="flex items-baseline gap-1.5">
-                        <span class="text-xs text-slate-400 font-medium">목표 회차</span>
-                        <span class="text-3xl font-black text-slate-800 tabular-nums tracking-tight"
+                        <span class="text-xs text-gray-400 font-medium">목표 회차</span>
+                        <span class="text-3xl font-black text-gray-900 tabular-nums tracking-tight"
                             id="targetRoundDisplay">-</span>
-                        <span class="text-xs text-slate-400 font-medium">회</span>
+                        <span class="text-xs text-gray-400 font-medium">회</span>
                     </div>
                     <div class="flex items-center gap-2">
                         <span id="connectionStatus"
-                            class="flex items-center gap-1.5 text-[11px] font-bold text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-full border border-slate-200">
-                            <span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span> 연결 대기 중
+                            class="flex items-center gap-1.5 text-[11px] font-bold text-gray-500 bg-gray-100 px-2.5 py-0.5 rounded-full border border-gray-200">
+                            <span class="w-1.5 h-1.5 rounded-full bg-gray-400"></span> 연결 대기 중
                         </span>
                         <select id="historySelect"
-                            class="text-[11px] text-slate-600 bg-white border border-slate-200 rounded-md px-2 py-0.5 font-medium cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                            class="text-[11px] text-gray-600 bg-white border border-gray-200 rounded-md px-2 py-0.5 font-medium cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-300"
                             style="display:none">
                             <option value="">-- 분석 이력 --</option>
                         </select>
@@ -373,11 +231,11 @@
                 </div>
             </div>
             <div id="aiSummaryText"
-                class="mb-5 empty:hidden pl-4 border-l-2 border-indigo-300 text-[13px] text-slate-500 leading-relaxed italic">
+                class="mb-5 empty:hidden pl-4 border-l-2 border-blue-400 text-[13px] text-gray-600 leading-relaxed italic bg-blue-50/50 py-2 rounded-r-lg">
             </div>
 
             <!-- 연결형 탭 네비게이션 -->
-            <div class="flex border-b border-slate-200">
+            <div class="flex border-b border-gray-200 pb-1 gap-1">
                 <button onclick="window.DeepLearning && window.DeepLearning.switchTab('status')" id="btn-status"
                     class="connected-tab">
                     <span class="material-symbols-outlined text-sm align-middle">neurology</span>
@@ -422,11 +280,11 @@
                 <!-- ★ 전문가 메모 섹션 (모델 컨디션 바 바로 아래) -->
                 <div id="expertMemoSection" class="card col-span-1 lg:col-span-2" style="display:none">
                     <div class="card-header">
-                        <span class="material-symbols-outlined icon">edit_note</span>
+                        <span class="material-symbols-outlined icon text-blue-600">edit_note</span>
                         <h3>전문가 메모</h3>
                         <span id="expertMemoCount"
-                            class="ml-1 text-[10px] bg-slate-100 text-slate-500 font-bold px-2 py-0.5 rounded-full"></span>
-                        <span class="ml-auto text-[10px] text-slate-400 font-medium whitespace-nowrap">분석에 반영됨</span>
+                            class="ml-1 text-[10px] bg-blue-50 text-blue-600 font-bold px-2 py-0.5 rounded-full"></span>
+                        <span class="ml-auto text-[10px] text-gray-400 font-medium whitespace-nowrap">분석에 반영됨</span>
                     </div>
                     <div class="card-body">
                         <div id="expertMemoList" class="flex flex-col gap-3"></div>
@@ -440,22 +298,22 @@
                 <!-- AI 전략 개요 카드 -->
                 <div class="card col-span-1 lg:col-span-2">
                     <div class="card-header">
-                        <span class="material-symbols-outlined text-indigo-600">psychology</span>
+                        <span class="material-symbols-outlined text-purple-600">psychology</span>
                         <h3>AI 전략 개요</h3>
-                        <span class="ml-auto text-[11px] text-slate-400 font-medium" id="elapsedTime"></span>
+                        <span class="ml-auto text-[11px] text-gray-400 font-medium" id="elapsedTime"></span>
                     </div>
                     <div class="card-body">
                         <!-- 신뢰도 게이지 -->
                         <div class="flex items-center gap-3 mb-4">
-                            <span class="text-xs text-slate-500 font-semibold whitespace-nowrap">신뢰도</span>
+                            <span class="text-xs text-gray-500 font-semibold whitespace-nowrap">신뢰도</span>
                             <div class="flex-1 gauge-bar">
                                 <div id="confidenceBar"
-                                    class="gauge-fill bg-gradient-to-r from-indigo-500 to-purple-500" style="width:0%">
+                                    class="gauge-fill bg-gradient-to-r from-blue-500 to-purple-500" style="width:0%">
                                 </div>
                             </div>
-                            <span class="text-base font-black text-indigo-700 tabular-nums w-10 text-right"
+                            <span class="text-base font-black text-purple-700 tabular-nums w-10 text-right"
                                 id="confidenceScore">0</span>
-                            <span class="text-xs text-slate-400">%</span>
+                            <span class="text-xs text-gray-400">%</span>
                         </div>
                         <!-- 키워드 태그 -->
                         <div id="keywordTags" class="flex flex-wrap gap-2 mb-4"></div>
@@ -465,11 +323,11 @@
                                 <div class="stat-label">트렌드 모멘텀</div>
                                 <div class="mt-1" id="hotColdUI">분석 대기 중...</div>
                             </div>
-                            <div class="stat-box" style="border-left-color:#ef4444">
+                            <div class="stat-box"> <!-- border 제거 -->
                                 <div class="stat-label">이변 확률</div>
                                 <div class="mt-1" id="riskUI">분석 대기 중...</div>
                             </div>
-                            <div class="stat-box" style="border-left-color:#16a34a">
+                            <div class="stat-box"> <!-- border 제거 -->
                                 <div class="stat-label">핵심 공략</div>
                                 <div class="mt-1" id="overallStrategyUI">분석 대기 중...</div>
                             </div>
@@ -482,12 +340,12 @@
                     <!-- AI 강력 추천 카드 -->
                     <div class="card">
                         <div class="card-header">
-                            <span class="material-symbols-outlined text-indigo-600">trending_up</span>
+                            <span class="material-symbols-outlined text-green-600">trending_up</span>
                             <h3>AI 강력 추천 (Top 5)</h3>
                         </div>
                         <div class="card-body">
                             <div class="number-grid" id="fixedNumbers"></div>
-                            <p id="fixedEvidence" class="text-xs text-slate-500 mt-3 hidden"></p>
+                            <p id="fixedEvidence" class="text-xs text-gray-500 mt-3 hidden"></p>
                         </div>
                     </div>
 
@@ -499,7 +357,7 @@
                         </div>
                         <div class="card-body">
                             <div class="number-grid" id="excludeNumbers"></div>
-                            <p id="excludeEvidence" class="text-xs text-slate-500 mt-3 hidden"></p>
+                            <p id="excludeEvidence" class="text-xs text-gray-500 mt-3 hidden"></p>
                         </div>
                     </div>
                 </div>
@@ -507,31 +365,18 @@
                 <!-- ★ 번호별 모델 근거 매트릭스 (필터 탭에서 이동) -->
                 <div class="card col-span-1 lg:col-span-2">
                     <div class="card-header">
-                        <span class="material-symbols-outlined text-indigo-600">grid_on</span>
+                        <span class="material-symbols-outlined text-blue-600">grid_on</span>
                         <h3>번호별 모델 분석</h3>
                         <div class="ml-auto flex items-center gap-1" style="flex-wrap:nowrap">
-                            <span style="font-size:10px;color:#94a3b8;white-space:nowrap">정렬:</span>
+                            <span style="font-size:10px;color:#9CA3AF;white-space:nowrap">정렬:</span>
                             <button id="sort-btn-total" onclick="DeepLearning.sortMatrix('total')"
-                                style="font-size:10px;padding:2px 8px;border-radius:4px;border:1px solid #6366f1;background:#6366f1;color:#fff;cursor:pointer;font-weight:700;white-space:nowrap">종합</button>
-                            <button id="sort-btn-lstm" onclick="DeepLearning.sortMatrix('lstm')"
-                                style="font-size:10px;padding:2px 8px;border-radius:4px;border:1px solid #e2e8f0;background:#fff;color:#818cf8;cursor:pointer;font-weight:700;white-space:nowrap">LSTM</button>
-                            <button id="sort-btn-xgboost" onclick="DeepLearning.sortMatrix('xgboost')"
-                                style="font-size:10px;padding:2px 8px;border-radius:4px;border:1px solid #e2e8f0;background:#fff;color:#60a5fa;cursor:pointer;font-weight:700;white-space:nowrap">XGB</button>
-                            <button id="sort-btn-cnn" onclick="DeepLearning.sortMatrix('cnn')"
-                                style="font-size:10px;padding:2px 8px;border-radius:4px;border:1px solid #e2e8f0;background:#fff;color:#f472b6;cursor:pointer;font-weight:700;white-space:nowrap">CNN</button>
-                            <button id="sort-btn-transformer" onclick="DeepLearning.sortMatrix('transformer')"
-                                style="font-size:10px;padding:2px 8px;border-radius:4px;border:1px solid #e2e8f0;background:#fff;color:#fb923c;cursor:pointer;font-weight:700;white-space:nowrap">TF</button>
-                            <button id="sort-btn-markov" onclick="DeepLearning.sortMatrix('markov')"
-                                style="font-size:10px;padding:2px 8px;border-radius:4px;border:1px solid #e2e8f0;background:#fff;color:#34d399;cursor:pointer;font-weight:700;white-space:nowrap">MKV</button>
-                            <button id="sort-btn-autoencoder" onclick="DeepLearning.sortMatrix('autoencoder')"
-                                style="font-size:10px;padding:2px 8px;border-radius:4px;border:1px solid #e2e8f0;background:#fff;color:#a855f7;cursor:pointer;font-weight:700;white-space:nowrap">ATC</button>
-                            <button id="sort-btn-gnn" onclick="DeepLearning.sortMatrix('gnn')"
-                                style="font-size:10px;padding:2px 8px;border-radius:4px;border:1px solid #e2e8f0;background:#fff;color:#ef4444;cursor:pointer;font-weight:700;white-space:nowrap">GNN</button>
+                                style="font-size:10px;padding:2px 8px;border-radius:6px;border:1px solid #4F46E5;background:#4F46E5;color:#fff;cursor:pointer;font-weight:700;white-space:nowrap">종합</button>
+                            <!-- 나머지 버튼은 JS에서 동적 렌더링 시 스타일 적용됨 -->
                         </div>
                     </div>
                     <div class="card-body">
                         <div id="matrixDataContainer">
-                            <div class="text-center py-8 text-slate-400 text-sm">분석 중...</div>
+                            <div class="text-center py-8 text-gray-400 text-sm">분석 중...</div>
                         </div>
                     </div>
                 </div>
@@ -539,14 +384,14 @@
                 <!-- 번호 확률 히트맵 -->
                 <div class="card col-span-1 lg:col-span-2">
                     <div class="card-header">
-                        <span class="material-symbols-outlined text-indigo-600">grid_on</span>
+                        <span class="material-symbols-outlined text-orange-500">heat_map</span>
                         <h3>번호 확률 히트맵 (1~45)</h3>
                         <span
-                            class="ml-auto text-[10px] bg-purple-100 text-purple-600 font-bold px-2 py-0.5 rounded-full">앙상블
+                            class="ml-auto text-[10px] bg-orange-100 text-orange-600 font-bold px-2 py-0.5 rounded-full">앙상블
                             확률</span>
                     </div>
                     <div class="card-body">
-                        <p class="text-xs text-slate-500 mb-3">45개 번호의 앙상블 확률을 색상으로 표시합니다. 진한 색일수록 높은 추천 확률입니다.</p>
+                        <p class="text-xs text-gray-500 mb-3">45개 번호의 앙상블 확률을 색상으로 표시합니다. 진한 색일수록 높은 추천 확률입니다.</p>
                         <div id="heatmapContainer" class="grid grid-cols-9 gap-1.5"></div>
                     </div>
                 </div>
@@ -554,10 +399,10 @@
                 <!-- 모델별 Top 10 -->
                 <div class="card col-span-1 lg:col-span-2">
                     <div class="card-header">
-                        <span class="material-symbols-outlined text-indigo-600">bar_chart</span>
+                        <span class="material-symbols-outlined text-teal-600">bar_chart</span>
                         <h3>모델별 Top 10 번호</h3>
                         <span
-                            class="ml-auto text-[10px] bg-blue-100 text-blue-600 font-bold px-2 py-0.5 rounded-full">7개
+                            class="ml-auto text-[10px] bg-teal-50 text-teal-600 font-bold px-2 py-0.5 rounded-full">7개
                             모델 개별 분석</span>
                     </div>
                     <div class="card-body">
@@ -574,23 +419,23 @@
                         <span class="material-symbols-outlined text-indigo-600">casino</span>
                         <h3>AI 추천 조합 (10게임)</h3>
                         <span
-                            class="ml-auto text-[10px] bg-indigo-100 text-indigo-600 font-bold px-2 py-0.5 rounded-full whitespace-nowrap">딥러닝
+                            class="ml-auto text-[10px] bg-indigo-50 text-indigo-600 font-bold px-2 py-0.5 rounded-full whitespace-nowrap">딥러닝
                             앙상블 기반</span>
                     </div>
                     <div class="card-body">
                         <!-- 범례 -->
                         <div
-                            style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;padding:8px 12px;background:#f8fafc;border-radius:8px;font-size:11px;color:#64748b">
-                            <span><span
-                                    style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#6366f1;margin-right:4px;vertical-align:middle"></span>앙상블
+                            style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;padding:10px 14px;background:#F9FAFB;border-radius:12px;font-size:11px;color:#6B7280;border:1px solid #F3F4F6">
+                            <span class="flex items-center gap-1.5"><span
+                                    style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#4F46E5"></span>앙상블
                                 Top5 포함</span>
-                            <span><span
-                                    style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#f1f5f9;border:1px solid #e2e8f0;margin-right:4px;vertical-align:middle"></span>번호
+                            <span class="flex items-center gap-1.5"><span
+                                    style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#E5E7EB"></span>번호
                                 (색상=볼색)</span>
                             <span><b>점수</b>: 앙상블 확률 합계 기반</span>
                             <span><b>Top포함</b>: 상위 추천번호 몇 개 포함했는지</span>
                         </div>
-                        <div id="combos" class="space-y-2"></div>
+                        <div id="combos" class="space-y-3"></div>
                         <!-- [Phase 6] AI 분석 리포트 카드 -->
                         <div id="aiReportContainer" style="display:none"></div>
                     </div>
@@ -599,15 +444,15 @@
                 <!-- AI 필터 추천 카드 -->
                 <div class="card col-span-1 lg:col-span-2">
                     <div class="card-header">
-                        <span class="material-symbols-outlined text-indigo-600">filter_list</span>
+                        <span class="material-symbols-outlined text-blue-500">filter_list</span>
                         <h3>AI 필터 범위 추천</h3>
                         <span
-                            class="ml-auto text-[10px] bg-green-100 text-green-600 font-bold px-2 py-0.5 rounded-full">딥러닝
+                            class="ml-auto text-[10px] bg-blue-50 text-blue-600 font-bold px-2 py-0.5 rounded-full">딥러닝
                             역산 기반</span>
                     </div>
                     <div class="card-body">
-                        <p class="text-xs text-slate-500 mb-3">앙상블 추천 번호를 기반으로 각 필터의 최적 설정 범위를 역산하여 추천합니다.</p>
-                        <div id="filterRecommendations" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                        <p class="text-xs text-gray-500 mb-4">앙상블 추천 번호를 기반으로 각 필터의 최적 설정 범위를 역산하여 추천합니다.</p>
+                        <div id="filterRecommendations" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         </div>
                     </div>
                 </div>
@@ -620,17 +465,16 @@
                 <!-- ★ 모델별 필터 비교표 (v3 신규) -->
                 <div class="card col-span-1 lg:col-span-2">
                     <div class="card-header">
-                        <span class="material-symbols-outlined text-indigo-600">compare_arrows</span>
+                        <span class="material-symbols-outlined text-purple-600">compare_arrows</span>
                         <h3>모델별 필터 예상 범위 비교</h3>
                         <span
-                            class="ml-auto text-[10px] bg-indigo-100 text-indigo-600 font-bold px-2 py-0.5 rounded-full">5중
+                            class="ml-auto text-[10px] bg-purple-50 text-purple-600 font-bold px-2 py-0.5 rounded-full">5중
                             앙상블</span>
                     </div>
                     <div class="card-body">
-                        <p class="text-xs text-slate-500 mb-3">각 딥러닝 모델이 상위 15개 추천 번호로부터 역산한 필터 예상 범위입니다. 5개 모델이 동의하는
-                            범위가 핵심 필터 조건입니다.</p>
+                        <p class="text-xs text-gray-500 mb-4">각 딥러닝 모델이 상위 15개 추천 번호로부터 역산한 필터 예상 범위입니다.</p>
                         <div id="rangeAnalysisContainer">
-                            <div class="text-center py-8 text-slate-400 text-sm">분석 중...</div>
+                            <div class="text-center py-8 text-gray-400 text-sm">분석 중...</div>
                         </div>
                     </div>
                 </div>
@@ -638,27 +482,27 @@
                 <!-- 끝수 분석 -->
                 <div class="card col-span-1 lg:col-span-2">
                     <div class="card-header">
-                        <span class="material-symbols-outlined text-indigo-600">pin</span>
+                        <span class="material-symbols-outlined text-pink-500">pin</span>
                         <h3>끝수 분석 (0~9)</h3>
                     </div>
                     <div class="overflow-x-auto">
                         <table class="w-full text-center text-sm">
-                            <thead class="sticky top-0 bg-black border-b border-slate-700">
+                            <thead class="sticky top-0 bg-gray-50 border-b border-gray-200">
                                 <tr>
-                                    <th class="px-4 py-3 font-semibold text-white">끝수</th>
-                                    <th class="px-4 py-3 font-semibold text-indigo-300">앙상블</th>
-                                    <th class="px-2 py-3 font-semibold" style="color:#818cf8">LSTM</th>
-                                    <th class="px-2 py-3 font-semibold" style="color:#60a5fa">XGB</th>
-                                    <th class="px-2 py-3 font-semibold" style="color:#f472b6">CNN</th>
-                                    <th class="px-2 py-3 font-semibold" style="color:#fb923c">TF</th>
-                                    <th class="px-2 py-3 font-semibold" style="color:#34d399">MKV</th>
-                                    <th class="px-2 py-3 font-semibold" style="color:#a855f7">ATC</th>
-                                    <th class="px-2 py-3 font-semibold" style="color:#ef4444">GNN</th>
-                                    <th class="px-4 py-3 font-semibold text-white">Gap</th>
-                                    <th class="px-4 py-3 font-semibold text-white">STR</th>
+                                    <th class="px-4 py-3 font-bold text-gray-700">끝수</th>
+                                    <th class="px-4 py-3 font-bold text-indigo-600">앙상블</th>
+                                    <th class="px-2 py-3 font-semibold text-gray-500">LSTM</th>
+                                    <th class="px-2 py-3 font-semibold text-gray-500">XGB</th>
+                                    <th class="px-2 py-3 font-semibold text-gray-500">CNN</th>
+                                    <th class="px-2 py-3 font-semibold text-gray-500">TF</th>
+                                    <th class="px-2 py-3 font-semibold text-gray-500">MKV</th>
+                                    <th class="px-2 py-3 font-semibold text-gray-500">ATC</th>
+                                    <th class="px-2 py-3 font-semibold text-gray-500">GNN</th>
+                                    <th class="px-4 py-3 font-bold text-gray-600">Gap</th>
+                                    <th class="px-4 py-3 font-bold text-gray-600">STR</th>
                                 </tr>
                             </thead>
-                            <tbody id="tail-body" class="divide-y divide-slate-100"></tbody>
+                            <tbody id="tail-body" class="divide-y divide-gray-100"></tbody>
                         </table>
                     </div>
                 </div>
@@ -666,17 +510,17 @@
                 <!-- 로또용지 분석 -->
                 <div class="card col-span-1 lg:col-span-2">
                     <div class="card-header">
-                        <span class="material-symbols-outlined text-indigo-600">grid_on</span>
+                        <span class="material-symbols-outlined text-gray-700">grid_on</span>
                         <h3>로또용지 분석</h3>
                         <span
-                            class="ml-auto text-[10px] bg-purple-100 text-purple-600 font-bold px-2 py-0.5 rounded-full">가로/세로
+                            class="ml-auto text-[10px] bg-gray-100 text-gray-600 font-bold px-2 py-0.5 rounded-full">가로/세로
                             분포</span>
                     </div>
                     <div class="card-body">
-                        <p class="text-xs text-slate-500 mb-3">로또용지 기준 가로(1~7행) 7라인, 세로(1~7열) 7라인별 번호 분포를 AI 모델별로 분석합니다.
+                        <p class="text-xs text-gray-500 mb-4">로또용지 기준 가로(1~7행) 7라인, 세로(1~7열) 7라인별 번호 분포를 AI 모델별로 분석합니다.
                         </p>
                         <div id="lottoPaperContainer">
-                            <div class="text-center py-8 text-slate-400 text-sm">분석 중...</div>
+                            <div class="text-center py-8 text-gray-400 text-sm">분석 중...</div>
                         </div>
                     </div>
                 </div>
@@ -684,16 +528,16 @@
                 <!-- 9궁 분석 -->
                 <div class="card col-span-1 lg:col-span-2">
                     <div class="card-header">
-                        <span class="material-symbols-outlined text-indigo-600">grid_view</span>
+                        <span class="material-symbols-outlined text-green-600">grid_view</span>
                         <h3>9궁 분석</h3>
                         <span
-                            class="ml-auto text-[10px] bg-emerald-100 text-emerald-600 font-bold px-2 py-0.5 rounded-full">5개씩
+                            class="ml-auto text-[10px] bg-green-50 text-green-600 font-bold px-2 py-0.5 rounded-full">5개씩
                             9구간</span>
                     </div>
                     <div class="card-body">
-                        <p class="text-xs text-slate-500 mb-3">45개 번호를 5개씩 9개 구간(궁)으로 나누어 각 구간별 AI 모델 기대 분포를 분석합니다.</p>
+                        <p class="text-xs text-gray-500 mb-4">45개 번호를 5개씩 9개 구간(궁)으로 나누어 각 구간별 AI 모델 기대 분포를 분석합니다.</p>
                         <div id="magicSquareContainer">
-                            <div class="text-center py-8 text-slate-400 text-sm">분석 중...</div>
+                            <div class="text-center py-8 text-gray-400 text-sm">분석 중...</div>
                         </div>
                     </div>
                 </div>
@@ -701,17 +545,17 @@
                 <!-- 번호대별 분석 -->
                 <div class="card col-span-1 lg:col-span-2">
                     <div class="card-header">
-                        <span class="material-symbols-outlined text-indigo-600">bar_chart</span>
+                        <span class="material-symbols-outlined text-blue-500">bar_chart</span>
                         <h3>번호대별 분석</h3>
                         <span
-                            class="ml-auto text-[10px] bg-green-100 text-green-600 font-bold px-2 py-0.5 rounded-full">10단위
+                            class="ml-auto text-[10px] bg-blue-50 text-blue-600 font-bold px-2 py-0.5 rounded-full">10단위
                             구간</span>
                     </div>
                     <div class="card-body">
-                        <p class="text-xs text-slate-500 mb-3">번호대(1~10, 11~20, 21~30, 31~40, 41~45) 구간별 AI 모델 기대 분포를
+                        <p class="text-xs text-gray-500 mb-4">번호대(1~10, 11~20, 21~30, 31~40, 41~45) 구간별 AI 모델 기대 분포를
                             분석합니다.</p>
                         <div id="numberBandContainer">
-                            <div class="text-center py-8 text-slate-400 text-sm">분석 중...</div>
+                            <div class="text-center py-8 text-gray-400 text-sm">분석 중...</div>
                         </div>
                     </div>
                 </div>
@@ -719,17 +563,17 @@
                 <!-- 미출현 그룹 분석 -->
                 <div class="card col-span-1 lg:col-span-2">
                     <div class="card-header">
-                        <span class="material-symbols-outlined text-slate-500">hourglass_empty</span>
+                        <span class="material-symbols-outlined text-amber-500">hourglass_empty</span>
                         <h3>미출현 그룹 분석</h3>
                         <span
-                            class="ml-auto text-[10px] bg-slate-100 text-slate-600 font-bold px-2 py-0.5 rounded-full">미출현
+                            class="ml-auto text-[10px] bg-amber-50 text-amber-600 font-bold px-2 py-0.5 rounded-full">미출현
                             회차 기준 4구간</span>
                     </div>
                     <div class="card-body">
-                        <p class="text-xs text-slate-400 mb-3">번호별 마지막 당첨 이후 경과 회차(미출현 수)를 4구간으로 분류합니다. Supabase DB 기반.
+                        <p class="text-xs text-gray-500 mb-4">번호별 마지막 당첨 이후 경과 회차(미출현 수)를 4구간으로 분류합니다.
                         </p>
                         <div id="missingGroupContainer">
-                            <div class="text-center py-8 text-slate-400 text-sm">분석 중...</div>
+                            <div class="text-center py-8 text-gray-400 text-sm">분석 중...</div>
                         </div>
                     </div>
                 </div>
@@ -737,17 +581,16 @@
                 <!-- 핫/콜드 분석 -->
                 <div class="card col-span-1 lg:col-span-2">
                     <div class="card-header">
-                        <span class="material-symbols-outlined text-slate-500">device_thermostat</span>
+                        <span class="material-symbols-outlined text-red-500">device_thermostat</span>
                         <h3>핫/콜드 번호 분석</h3>
                         <span
-                            class="ml-auto text-[10px] bg-slate-100 text-slate-600 font-bold px-2 py-0.5 rounded-full">마지막
+                            class="ml-auto text-[10px] bg-red-50 text-red-600 font-bold px-2 py-0.5 rounded-full">마지막
                             당첨 후 미출현 회차(Gap)</span>
                     </div>
                     <div class="card-body">
-                        <p class="text-xs text-slate-400 mb-3">각 번호의 <b>마지막 당첨 이후 연속 미출현 회차 수(Gap)</b>로 온도를 분류합니다. 특정
-                            N회차 기준이 아닌 전체 이력 기준으로, Hot(≤2회)~DeadCold(&gt;25회) 5단계로 나눕니다.</p>
+                        <p class="text-xs text-gray-500 mb-4">각 번호의 <b>마지막 당첨 이후 연속 미출현 회차 수(Gap)</b>로 온도를 분류합니다.</p>
                         <div id="hotColdContainer">
-                            <div class="text-center py-8 text-slate-400 text-sm">분석 중...</div>
+                            <div class="text-center py-8 text-gray-400 text-sm">분석 중...</div>
                         </div>
                     </div>
                 </div>
@@ -757,34 +600,34 @@
             <div id="tab-regression" class="content-grid hidden pb-8">
                 <div class="card col-span-1 lg:col-span-2">
                     <div class="card-header">
-                        <span class="material-symbols-outlined text-indigo-600">history</span>
+                        <span class="material-symbols-outlined text-cyan-600">history</span>
                         <h3>회귀 분석 (2~200회귀)</h3>
                     </div>
                     <div class="overflow-x-auto">
                         <table class="w-full text-center text-sm">
-                            <thead class="sticky top-0 bg-black">
+                            <thead class="sticky top-0 bg-gray-50 border-b border-gray-200">
                                 <tr>
-                                    <th class="px-3 py-3 font-semibold text-white"
+                                    <th class="px-3 py-3 font-bold text-gray-700"
                                         style="white-space:nowrap;cursor:pointer" onclick="DeepLearning._regSort('id')"
                                         title="클릭하여 정렬">회귀 <span id="reg-sort-arrow-id"></span></th>
-                                    <th class="px-3 py-3 font-semibold text-white" style="white-space:nowrap">대상번호</th>
-                                    <th class="px-3 py-3 font-semibold text-white"
+                                    <th class="px-3 py-3 font-bold text-gray-700" style="white-space:nowrap">대상번호</th>
+                                    <th class="px-3 py-3 font-bold text-gray-700"
                                         style="white-space:nowrap;cursor:pointer" onclick="DeepLearning._regSort('gap')"
                                         title="클릭하여 정렬">Gap <span id="reg-sort-arrow-gap"></span></th>
-                                    <th class="px-3 py-3 font-semibold text-white"
+                                    <th class="px-3 py-3 font-bold text-gray-700"
                                         style="white-space:nowrap;cursor:pointer" onclick="DeepLearning._regSort('str')"
                                         title="클릭하여 정렬">STR <span id="reg-sort-arrow-str"></span></th>
-                                    <th class="px-3 py-3 font-semibold text-slate-300"
+                                    <th class="px-3 py-3 font-bold text-gray-500"
                                         style="white-space:nowrap;cursor:pointer"
                                         onclick="DeepLearning._regSort('avg_hit')" title="클릭하여 정렬">과거평균 <span
                                             id="reg-sort-arrow-avg_hit"></span></th>
-                                    <th class="px-3 py-3 font-semibold text-slate-300" style="white-space:nowrap">적중분포
+                                    <th class="px-3 py-3 font-bold text-gray-500" style="white-space:nowrap">적중분포
                                         (0~6) <span id="reg-filter-count"
-                                            style="font-size:9px;font-weight:400;color:#94a3b8;margin-left:4px"></span>
+                                            style="font-size:9px;font-weight:400;color:#9CA3AF;margin-left:4px"></span>
                                     </th>
                                 </tr>
                             </thead>
-                            <tbody id="reg-body" class="divide-y divide-slate-100"></tbody>
+                            <tbody id="reg-body" class="divide-y divide-gray-100"></tbody>
                         </table>
                     </div>
                 </div>
@@ -797,13 +640,13 @@
                         <span class="material-symbols-outlined text-indigo-600">tune</span>
                         <h3>커스텀 분석 딥러닝 평가</h3>
                         <span
-                            class="ml-auto text-[10px] bg-indigo-100 text-indigo-600 font-bold px-2 py-0.5 rounded-full whitespace-nowrap">5중
+                            class="ml-auto text-[10px] bg-indigo-50 text-indigo-600 font-bold px-2 py-0.5 rounded-full whitespace-nowrap">5중
                             앙상블 배치 분석</span>
                     </div>
                     <div class="card-body">
-                        <p class="text-xs text-slate-500 mb-4">각 커스텀분석의 현재 회차 대상번호를 5개 딥러닝 모델로 평가하고 필터 범위를 제안합니다.</p>
-                        <div id="custom-container" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                            <div class="text-center py-8 text-slate-400 text-sm col-span-full">분석 중...</div>
+                        <p class="text-xs text-gray-500 mb-4">각 커스텀분석의 현재 회차 대상번호를 5개 딥러닝 모델로 평가하고 필터 범위를 제안합니다.</p>
+                        <div id="custom-container" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                            <div class="text-center py-8 text-gray-400 text-sm col-span-full">분석 중...</div>
                         </div>
                     </div>
                 </div>
