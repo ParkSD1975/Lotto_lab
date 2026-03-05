@@ -911,33 +911,49 @@ const DeepLearning = {
             const ballsHtml = nums.map(n => {
                 const colorClass = self.getBallColorClass(n);
                 const isTop = top5Set.has(n);
-                return `<span style="position:relative;display:inline-flex;flex-direction:column;align-items:center;gap:1px;cursor:pointer" onclick="window.DeepLearning.explainNumber(${n})">
-                    <span class="ball-common ${colorClass} w-8 h-8 text-xs ${isTop ? 'ring-2 ring-offset-2 ring-indigo-500 shadow-lg' : ''}">${n}</span>
-                    ${isTop ? '<span style="font-size:8px;font-weight:800;color:#4F46E5;line-height:1;margin-top:4px">TOP</span>' : '<span style="font-size:8px;line-height:1;opacity:0;margin-top:4px">&nbsp;</span>'}
+                // [디자인 수정] Top5 표시는 금색 테두리와 상단 점(Dot)으로 심플하게 변경
+                return `<span style="position:relative;display:inline-flex;flex-direction:column;align-items:center;cursor:pointer" onclick="window.DeepLearning.explainNumber(${n})">
+                    <span class="ball-common ${colorClass} w-9 h-9 text-sm ${isTop ? 'ring-2 ring-amber-400 ring-offset-2' : ''}">${n}</span>
+                    ${isTop ? '<span style="position:absolute;top:-4px;right:-4px;width:8px;height:8px;background:#FBBF24;border-radius:50%;border:2px solid white;"></span>' : ''}
                 </span>`;
             }).join('');
+            
             const modelBar = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'].map(m => {
                 const colors = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7', gnn: '#ef4444' };
                 const labels = { lstm: 'L', xgboost: 'X', cnn: 'C', transformer: 'T', markov: 'M', autoencoder: 'A', gnn: 'G' };
                 const agree = nums.some(n => modelTop[m] && modelTop[m].has(n));
-                return `<span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:6px;font-size:9px;font-weight:800;background:${agree ? colors[m] : '#F3F4F6'};color:${agree ? '#fff' : '#D1D5DB'}">${labels[m]}</span>`;
+                // 모델 바도 더 얇고 심플하게
+                return `<div style="width:4px;height:24px;border-radius:2px;background:${agree ? colors[m] : '#F3F4F6'};" title="${labels[m]}"></div>`;
             }).join('');
-            return `<div style="background:#fff;border:1px solid #E5E7EB;border-radius:20px;padding:20px;display:flex;align-items:center;gap:20px;flex-wrap:wrap;box-shadow:0 1px 3px rgba(0,0,0,0.02);transition:all 0.2s" class="hover:-translate-y-1 hover:shadow-lg">
-                <span style="min-width:36px;height:36px;border-radius:12px;background:${rankBg};color:#fff;font-size:14px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 4px 6px -1px rgba(0,0,0,0.1)">#${rank}</span>
-                <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:nowrap">${ballsHtml}</div>
-                <div style="margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:8px;flex-shrink:0">
-                    <div style="display:flex;gap:4px">${modelBar}</div>
-                    <div style="display:flex;gap:12px;font-size:12px;color:#6B7280;white-space:nowrap;font-family:'Pretendard'">
-                        <span>합<b style="color:#111827;margin-left:3px">${sum}</b></span>
-                        <span>홀<b style="color:#111827;margin-left:3px">${odd}</b></span>
-                        <span>고<b style="color:#111827;margin-left:3px">${high}</b></span>
-                        <span>AC<b style="color:#111827;margin-left:3px">${ac}</b></span>
-                        <span style="color:${topIncluded.length >= 2 ? '#4F46E5' : '#9CA3AF'};font-weight:700">Top${topIncluded.length}</span>
-                        <span style="color:${scoreColor};font-weight:800">${(score * 100).toFixed(1)}점</span>
-                        ${isVerified ? '<span style="background:#ECFDF5;color:#059669;font-size:10px;font-weight:700;padding:2px 6px;border-radius:6px;border:1px solid #A7F3D0">✓AI검증</span>' : (pipeline.rlGenerated ? '<span style="background:#FEFCE8;color:#CA8A04;font-size:10px;font-weight:700;padding:2px 6px;border-radius:6px;border:1px solid #FEF08A">⚠주의</span>' : '')}
+
+            // [디자인 수정] 순위는 큰 숫자로, 전체 레이아웃 간소화
+            return `<div class="group relative bg-white border border-gray-100 rounded-2xl p-5 hover:border-indigo-200 hover:shadow-lg transition-all duration-300">
+                <div class="absolute left-0 top-0 bottom-0 w-1 bg-transparent group-hover:bg-indigo-500 rounded-l-2xl transition-colors"></div>
+                <div class="flex items-center gap-6">
+                    <span class="text-2xl font-black text-gray-200 group-hover:text-indigo-500 w-10 text-center transition-colors font-mono">${String(rank).padStart(2, '0')}</span>
+                    
+                    <div class="flex gap-2">${ballsHtml}</div>
+                    
+                    <div class="ml-auto flex items-center gap-6">
+                        <div class="flex gap-1 items-center" title="모델 동의">${modelBar}</div>
+                        
+                        <div class="text-right">
+                            <div class="text-xs text-gray-400 font-medium mb-0.5">예측점수</div>
+                            <div class="text-lg font-black ${scorePct >= 0.8 ? 'text-indigo-600' : 'text-gray-700'}">${(score * 100).toFixed(0)}<span class="text-xs font-normal text-gray-400 ml-0.5">점</span></div>
+                        </div>
                     </div>
                 </div>
+                
+                <!-- 하단 상세 스탯 (마우스 오버 시 또는 항상 표시) -->
+                <div class="mt-4 pt-3 border-t border-gray-50 flex items-center gap-4 text-xs text-gray-400 font-mono">
+                    <span class="${topIncluded.length >= 2 ? 'text-indigo-600 font-bold' : ''}">Top5: ${topIncluded.length}개</span>
+                    <span>합: ${sum}</span>
+                    <span>홀짝: ${odd}:${6-odd}</span>
+                    <span>AC: ${ac}</span>
+                    ${isVerified ? '<span class="ml-auto text-emerald-600 font-bold flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">check_circle</span>AI검증</span>' : ''}
+                </div>
             </div>`;
+        }).join('');
         }).join('');
     },
 
