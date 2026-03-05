@@ -1843,7 +1843,7 @@ async def get_deep_analysis(round_num: int = None):
                 if n in memo_excluded_list:
                     excluded_via_memo = True
                     corrected_score = 0.0
-                    print(f"🚫 [Memo Filter] {n}번 제외 (전문가 메모 반영)")
+                    print(f"[Memo Filter] {n}번 제외 (전문가 메모 반영)")
 
             matrix_data.append({
                 "num": n,
