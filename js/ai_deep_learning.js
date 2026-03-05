@@ -303,6 +303,21 @@ const DeepLearning = {
     // ── 전체 렌더링 ──
     renderAll(result) {
         console.log("🎨 [DeepLearning] renderAll() Called", result);
+        
+        // [DEBUG] 중요 데이터 구조 확인 로그
+        if (result && result.analysis && result.analysis.matrix_data) {
+            const sample = result.analysis.matrix_data[0];
+            console.log("🔍 [DEBUG] First matrix item:", sample);
+            if (sample && sample.models) {
+                console.log("🔍 [DEBUG] Models keys:", Object.keys(sample.models));
+                console.log("🔍 [DEBUG] Models sample:", sample.models);
+            } else {
+                console.error("🚨 [DEBUG] Models object is MISSING in matrix_data item!");
+            }
+        } else {
+            console.error("🚨 [DEBUG] matrix_data is MISSING or EMPTY in result.analysis!");
+        }
+
         this.state.pipeline = result.pipeline || null;
         const combinations = result.combinations;
         const strategy = result.strategy;
