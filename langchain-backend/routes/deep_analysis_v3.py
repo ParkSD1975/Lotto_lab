@@ -1888,13 +1888,15 @@ async def get_deep_analysis(round_num: int = None):
             history_draws, combinations, range_analysis
         )
 
-        # [NEW] LLM이 누락한 필터 강제 병합
+        # [NEW] LLM이 누락한 필터 강제 병합 및 특수 분석 결과 통합
         FILTER_NAMES_KO = {
             "sum": "총합", "tail_sum": "끝수합", "ac": "AC값",
             "odd": "홀짝비율", "high": "저고비율", "prime": "소수",
             "composite": "합성수", "consecutive": "연속수", "square": "제곱수",
-            "triangular": "삼각수", "twin": "쌍둥이수", "mul3": "3의 배수",
-            "mul4": "4의 배수", "mul5": "5의 배수", "non_multiple": "비배수"
+            "triangular": "삼각수", "twin": "동형수", "mul3": "3의 배수", # [수정] 쌍둥이수 -> 동형수
+            "mul4": "4의 배수", "mul5": "5의 배수", "non_multiple": "배수외", # [수정] 비배수 -> 배수외
+            "hot10": "최근 10회 출현", "missing": "장기 미출현", 
+            "neighbor": "이웃수", "carryover": "이월수"
         }
         
         if "filter_recommendations" not in strategy:
@@ -1902,6 +1904,7 @@ async def get_deep_analysis(round_num: int = None):
             
         existing_filters = {str(f.get("filter", "")).replace(" ", "") for f in strategy["filter_recommendations"]}
         
+        # 1. 일반 수치형 필터 추가
         for key, name in FILTER_NAMES_KO.items():
             alt_name = name.replace("비율", "")
             if name.replace(" ", "") not in existing_filters and alt_name.replace(" ", "") not in existing_filters:
@@ -1921,6 +1924,75 @@ async def get_deep_analysis(round_num: int = None):
                     else:
                         rec["pattern"] = str(val)
                     strategy["filter_recommendations"].append(rec)
+
+        # 2. [신규] 복합 분석 필터 추가 (핫콜드, 미출현, 번호대, 9궁, 용지)
+        
+        # (1) 핫/콜드: 가장 번호가 많은 구간 추천
+        try:
+            if hot_cold_data:
+                # hot/cold 중 가장 카운트가 높은 상태 찾기
+                top_status = max(hot_cold_data.items(), key=lambda x: x[1].get('count', 0))
+                status_key = top_status[0] # hot, cold 등
+                status_label = {"hot": "Hot(최근)", "active": "Active(활성)", "cooling": "Cooling(보통)", "cold": "Cold(장기)", "deadcold": "Dead(초장기)"}.get(status_key, status_key)
+                count = top_status[1].get('count', 0)
+                strategy["filter_recommendations"].append({
+                    "filter": "핫콜드",
+                    "pattern": f"{status_label} 강세",
+                    "evidence": f"해당 구간에 {count}개 번호 집중 분포"
+                })
+        except: pass
+
+        # (2) 미출현 그룹: 가장 확률 높은 그룹 추천
+        try:
+            if missing_group_data and "groups" in missing_group_data:
+                groups = missing_group_data["groups"]
+                # avg_prob가 가장 높은 그룹 찾기
+                top_grp_key = max(groups.keys(), key=lambda k: groups[k].get('avg_prob', 0))
+                top_grp = groups[top_grp_key]
+                strategy["filter_recommendations"].append({
+                    "filter": "미출현그룹",
+                    "pattern": f"{top_grp['label']} 구간",
+                    "evidence": f"평균 당첨확률 {top_grp['avg_prob']}%로 최대 기대"
+                })
+        except: pass
+
+        # (3) 번호대별: 앙상블 기대값(exp)이 가장 높은 구간
+        try:
+            if number_band_analysis:
+                top_band = max(number_band_analysis, key=lambda x: x.get('exp', 0))
+                strategy["filter_recommendations"].append({
+                    "filter": "번호대별",
+                    "pattern": f"{top_band['label']} 집중",
+                    "evidence": f"앙상블 기대 출현값 {top_band['exp']}개로 최대"
+                })
+        except: pass
+
+        # (4) 9궁 분석: 기대값(exp) 높은 상위 2개 궁
+        try:
+            if magic_square_analysis:
+                sorted_gung = sorted(magic_square_analysis, key=lambda x: x.get('exp', 0), reverse=True)
+                top_gungs = [g['label'] for g in sorted_gung[:2]]
+                strategy["filter_recommendations"].append({
+                    "filter": "9궁분석",
+                    "pattern": ", ".join(top_gungs),
+                    "evidence": "모델 예측 밀도 상위 구간"
+                })
+        except: pass
+
+        # (5) 로또용지: 가로/세로 중 가장 강한 라인 1개씩
+        try:
+            if lotto_paper_analysis:
+                rows = lotto_paper_analysis.get('rows', [])
+                cols = lotto_paper_analysis.get('cols', [])
+                if rows and cols:
+                    top_row = max(rows, key=lambda x: x.get('exp', 0))
+                    top_col = max(cols, key=lambda x: x.get('exp', 0))
+                    strategy["filter_recommendations"].append({
+                        "filter": "로또용지",
+                        "pattern": f"{top_row['label']}, {top_col['label']}",
+                        "evidence": "가로/세로 라인별 출현 기대값 분석"
+                    })
+        except: pass
 
         elapsed = round(time.time() - start_time, 2)
 
