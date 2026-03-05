@@ -1,13 +1,8 @@
 /**
- * ai_deep_learning.js  v3.3 (Design Fix)
+ * ai_deep_learning.js  v3.4 (Design Fix + Function Restore)
  *
  * AI 딥러닝 심층 분석 대시보드 컨트롤러 (3-Tab 버전)
  * aiProxy.js를 통해 Python 백엔드(LangChain RAG)와 통신합니다.
- *
- * v3.3 변경점:
- *  - 디자인 전면 개편 (Simple Luxury, Dashboard 스타일 통일)
- *  - 공(Ball) 스타일 CSS 클래스 기반으로 변경 (ball-common, ball-yellow 등)
- *  - 카드 및 테이블 스타일 모던화 (Rounded, Shadow, Gray scale)
  */
 
 const DeepLearning = {
@@ -23,7 +18,7 @@ const DeepLearning = {
     // ── 초기화 ──
     async init() {
         const startTime = Date.now();
-        console.log("🚀 Deep Learning v3.3 (Design Fix) Initializing...");
+        console.log("🚀 Deep Learning v3.4 Initializing...");
 
         // 1. 핵심 정보 병렬 로드
         await Promise.all([
@@ -196,7 +191,6 @@ const DeepLearning = {
         return [...excluded];
     },
 
-    // ── 메인 분석 실행 ──
     async runAnalysis(forceReload = false) {
         console.log("🚀 [DeepLearning] runAnalysis() Called");
         if (this.state.isAnalyzing) return;
@@ -214,7 +208,6 @@ const DeepLearning = {
         this.showLoading(true, 'AI 심층 분석 데이터 조회 중...');
 
         try {
-            // [1] DB 조회 우선
             const dbData = await this._fetchAnalysisFromDB(this.state.targetRound);
             if (dbData) {
                 console.log("📦 [DeepLearning] DB에서 분석 결과 로드 성공!");
@@ -226,7 +219,6 @@ const DeepLearning = {
                 return;
             }
 
-            // [2] DB 없으면 Python 서버 요청
             if (!this.state.isConnected) await this.checkConnection();
 
             if (this.state.isConnected && window.AIProxy) {
@@ -422,6 +414,15 @@ const DeepLearning = {
         this.renderExpertMemoSection(this.state.expertMemos || []);
     },
 
+    getBallColorClass(n) {
+        n = parseInt(n);
+        if (n <= 10) return 'ball-yellow';
+        if (n <= 20) return 'ball-blue';
+        if (n <= 30) return 'ball-red';
+        if (n <= 40) return 'ball-gray';
+        return 'ball-green';
+    },
+
     renderStrategy(strategy, elapsed) {
         if (!strategy) return;
         const conf = strategy.confidence || 0;
@@ -530,7 +531,7 @@ const DeepLearning = {
     },
 
     getHeatmapColor(norm) {
-        if (norm < 0.25) return 'rgba(229, 231, 235, ' + (0.6 + norm * 1.6) + ')'; // Grayish
+        if (norm < 0.25) return 'rgba(229, 231, 235, ' + (0.6 + norm * 1.6) + ')';
         else if (norm < 0.5) {
             var t = (norm - 0.25) / 0.25;
             return 'rgb(' + 253 + ', ' + Math.round(224 + t * 10) + ', ' + Math.round(71 + (1 - t) * 100) + ')';
@@ -585,18 +586,8 @@ const DeepLearning = {
             });
             html += '</div></div>';
         });
-        container.className = "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"; // gap 4 -> 6
+        container.className = "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6";
         container.innerHTML = html;
-    },
-
-    // [디자인 수정] 번호별 색상 클래스 반환 (CSS 클래스 활용)
-    getBallColorClass(n) {
-        n = parseInt(n);
-        if (n <= 10) return 'ball-yellow';
-        if (n <= 20) return 'ball-blue';
-        if (n <= 30) return 'ball-red';
-        if (n <= 40) return 'ball-gray';
-        return 'ball-green';
     },
 
     renderRangeAnalysis(rangeAnalysis) {
@@ -627,7 +618,7 @@ const DeepLearning = {
         const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
         let html = '<div class="overflow-x-auto rounded-2xl border border-gray-100 shadow-sm bg-white">';
         html += '<table class="w-full text-xs">';
-        html += '<thead><tr>'; // bg-slate-800 제거 -> CSS에서 처리
+        html += '<thead><tr>';
         html += '<th class="px-5 py-4 text-left font-bold text-gray-700">지표</th>';
         html += '<th class="px-4 py-4 text-center font-bold text-indigo-600 bg-indigo-50/50">앙상블<br>범위</th>';
         models.forEach(m => {
@@ -742,7 +733,7 @@ const DeepLearning = {
             const sb = ((b.models || {})[key] || {}).score || 0;
             return sb - sa;
         });
-        let html = '<div class="space-y-4">'; // 여백 증가
+        let html = '<div class="space-y-4">';
         sorted.forEach(item => {
             const num = item.num;
             const total = Math.round(item.total || 0);
@@ -1149,6 +1140,543 @@ const DeepLearning = {
         });
         html += '</tbody></table></div>';
         container.innerHTML = html;
+    },
+
+    renderMissingGroupAnalysis(data) {
+        const container = document.getElementById('missingGroupContainer');
+        if (!container || !data) return;
+        const groups = data.groups || {};
+        const self = this;
+        const GC = {
+            1: { label: '1~5회', sub: '최근', dot: '#1e293b', bar: '#1e293b', dimText: '#475569' },
+            2: { label: '6~10회', sub: '중기', dot: '#475569', bar: '#475569', dimText: '#64748b' },
+            3: { label: '11~15회', sub: '장기', dot: '#94a3b8', bar: '#94a3b8', dimText: '#94a3b8' },
+            4: { label: '16회+', sub: '극장기', dot: '#cbd5e1', bar: '#cbd5e1', dimText: '#cbd5e1' },
+        };
+        const total = Object.values(groups).reduce((s, d) => s + (d.count || 0), 0) || 1;
+        let html = '<div class="grid grid-cols-4 gap-px bg-gray-100 rounded-xl overflow-hidden mb-5 border border-gray-200">'; // bg-slate-200 -> bg-gray-100
+        for (let g = 1; g <= 4; g++) {
+            const d = groups[g] || {}; const c = GC[g];
+            const pct = ((d.count || 0) / total * 100).toFixed(0);
+            html += `<div class="bg-white px-3 py-4 text-center">
+                <div style="font-size:11px;font-weight:700;color:#1F2937;white-space:nowrap">${c.label}</div>
+                <div style="font-size:10px;color:#9CA3AF;margin-bottom:4px;white-space:nowrap">${c.sub}</div>
+                <div style="font-size:24px;font-weight:900;color:${c.dot};line-height:1">${d.count || 0}</div>
+                <div style="font-size:10px;color:#9CA3AF;margin-top:4px;white-space:nowrap">${pct}% · T15 ${d.top_count || 0}</div>
+            </div>`;
+        }
+        html += '</div>';
+        html += '<div class="divide-y divide-gray-100 border border-gray-200 rounded-xl overflow-hidden bg-white">';
+        for (let g = 1; g <= 4; g++) {
+            const d = groups[g] || {}; const c = GC[g];
+            const nums = d.numbers || [];
+            if (!nums.length) continue;
+            const sid = 'mg-' + g;
+            const maxProb = Math.max(...nums.map(n => n.prob), 0.01);
+            html += `<div>
+                <button onclick="document.getElementById('${sid}').classList.toggle('hidden')"
+                    class="w-full flex items-center gap-3 px-5 py-4 bg-white hover:bg-gray-50 transition text-left">
+                    <span style="width:8px;height:8px;border-radius:50%;background:${c.dot};flex-shrink:0;display:inline-block"></span>
+                    <span style="font-weight:700;font-size:14px;color:#1F2937;flex:1;white-space:nowrap">${c.label} <span style="font-weight:500;font-size:12px;color:#9CA3AF;margin-left:4px">${c.sub}</span></span>
+                    <span style="font-size:12px;color:#6B7280;white-space:nowrap">${nums.length}개 · 평균 ${(d.avg_prob || 0).toFixed(2)}%</span>
+                    <span class="material-symbols-outlined" style="font-size:18px;color:#D1D5DB">expand_more</span>
+                </button>
+                <div id="${sid}" class="hidden bg-gray-50/50 px-5 pb-4 pt-2">
+                    <div style="display:grid;gap:8px;grid-template-columns:repeat(auto-fill,minmax(200px,1fr))">`;
+            nums.forEach(item => {
+                const colorClass = self.getBallColorClass(item.num); // [수정]
+                const bw = maxProb > 0 ? (item.prob / maxProb * 100).toFixed(1) : 0;
+                const topBadge = item.is_top15
+                    ? `<span style="font-size:9px;background:#F3F4F6;color:#4B5563;font-weight:800;padding:2px 5px;border-radius:4px;white-space:nowrap;flex-shrink:0">TOP</span>`
+                    : `<span style="width:28px;flex-shrink:0;display:inline-block"></span>`;
+                html += `<div style="display:flex;align-items:center;gap:8px;background:#fff;border-radius:12px;padding:8px 10px;cursor:pointer;border:1px solid #E5E7EB;box-shadow:0 1px 2px rgba(0,0,0,0.02)" onclick="window.DeepLearning.explainNumber(${item.num})">
+                    <span class="ball-common ${colorClass} w-7 h-7 text-xs flex-shrink-0">${item.num}</span>
+                    ${topBadge}
+                    <span style="font-size:11px;color:#6B7280;white-space:nowrap;flex-shrink:0">미출 <b style="color:${c.dot}">${item.missing_count}</b></span>
+                    <div style="flex:1;height:4px;border-radius:9999px;background:#F3F4F6;min-width:30px;overflow:hidden">
+                        <div style="width:${bw}%;height:100%;background:${c.bar};border-radius:9999px"></div>
+                    </div>
+                    <span style="font-size:11px;font-weight:700;color:#374151;white-space:nowrap;flex-shrink:0">${item.prob}%</span>
+                </div>`;
+            });
+            html += '</div></div></div>';
+        }
+        html += '</div>';
+        container.innerHTML = html;
+    },
+
+    renderHotColdAnalysis(hotColdData) {
+        const container = document.getElementById('hotColdContainer');
+        if (!container || !hotColdData) return;
+        const self = this;
+        const SC = {
+            hot: { label: 'Hot', sub: 'Gap ≤ 2', dot: '#0f172a', accent: '#0f172a' },
+            active: { label: 'Active', sub: 'Gap 3~7', dot: '#334155', accent: '#334155' },
+            cooling: { label: 'Cooling', sub: 'Gap 8~15', dot: '#64748b', accent: '#64748b' },
+            cold: { label: 'Cold', sub: 'Gap 16~25', dot: '#94a3b8', accent: '#94a3b8' },
+            deadcold: { label: 'Dead', sub: 'Gap > 25', dot: '#cbd5e1', accent: '#cbd5e1' },
+        };
+        const MC = {
+            lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7', gnn: '#ef4444'
+        };
+        const ML = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV', autoencoder: 'ATC', gnn: 'GNN' };
+        const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
+        const statusOrder = ['hot', 'active', 'cooling', 'cold', 'deadcold'];
+        const sigBadge = (sig) => {
+            if (sig === 'positive') return '<span style="color:#10b981;font-weight:700;font-size:10px;white-space:nowrap">▲선호</span>';
+            if (sig === 'negative') return '<span style="color:#ef4444;font-weight:700;font-size:10px;white-space:nowrap">▼기피</span>';
+            return '<span style="color:#D1D5DB;font-size:10px;white-space:nowrap">—</span>';
+        };
+        let html = '<div class="grid grid-cols-5 gap-px bg-gray-100 rounded-xl overflow-hidden mb-5 border border-gray-200">';
+        statusOrder.forEach(st => {
+            const d = hotColdData[st] || {}; const c = SC[st];
+            html += `<div class="bg-white px-2 py-4 text-center">
+                <div style="font-size:12px;font-weight:700;color:${c.dot};white-space:nowrap">${c.label}</div>
+                <div style="font-size:10px;color:#9CA3AF;margin-bottom:6px;white-space:nowrap">${c.sub}</div>
+                <div style="font-size:24px;font-weight:900;color:${c.dot};line-height:1">${d.count || 0}</div>
+                <div style="font-size:10px;color:#9CA3AF;margin-top:4px;white-space:nowrap">Gap ${d.avg_gap != null ? d.avg_gap : '-'}</div>
+                <div style="font-size:10px;color:#9CA3AF;white-space:nowrap">T15·${d.top_count || 0}</div>
+            </div>`;
+        });
+        html += '</div>';
+        html += '<div class="rounded-xl overflow-hidden border border-gray-200 mb-6 bg-white"><div class="overflow-x-auto">';
+        html += '<table class="w-full text-xs border-collapse">';
+        html += '<thead><tr style="background:#F9FAFB;border-bottom:1px solid #E5E7EB">';
+        html += '<th style="padding:10px 14px;text-align:left;font-weight:700;color:#374151;white-space:nowrap;font-size:11px">모델</th>';
+        statusOrder.forEach(st => {
+            const c = SC[st];
+            html += `<th style="padding:10px;text-align:center;font-weight:700;color:#4B5563;white-space:nowrap;font-size:11px">${c.label}<br><span style="font-size:9px;color:#9CA3AF;font-weight:400">${c.sub}</span></th>`;
+        });
+        html += '</tr></thead><tbody>';
+        models.forEach((m, idx) => {
+            const bg = idx % 2 === 0 ? '#fff' : '#F9FAFB';
+            html += `<tr style="background:${bg};border-bottom:1px solid #F3F4F6">`;
+            html += `<td style="padding:10px 14px;font-weight:700;color:${MC[m]};white-space:nowrap">${ML[m]}</td>`;
+            statusOrder.forEach(st => {
+                const d = hotColdData[st] || {};
+                const ms = (d.model_scores || {})[m] || {};
+                const ar = ms.avg_rank != null ? ms.avg_rank : '-';
+                const tc = ms.top_count != null ? ms.top_count : '-';
+                html += `<td style="padding:8px 10px;text-align:center;background:${bg}">
+                    ${sigBadge(ms.signal || 'neutral')}
+                    <div style="font-size:10px;color:#6B7280;white-space:nowrap">순위 <b style="color:#374151">${ar}</b></div>
+                    <div style="font-size:10px;color:#6B7280;white-space:nowrap">T15 <b style="color:#374151">${tc}</b></div>
+                </td>`;
+            });
+            html += '</tr>';
+        });
+        html += '</tbody></table></div></div>';
+        html += '<div class="divide-y divide-gray-100 border border-gray-200 rounded-xl overflow-hidden bg-white">';
+        statusOrder.forEach(st => {
+            const d = hotColdData[st] || {}; const c = SC[st];
+            const details = d.num_details || [];
+            if (!details.length) return;
+            const sid = 'hc-' + st;
+            html += `<div>
+                <button onclick="document.getElementById('${sid}').classList.toggle('hidden')"
+                    class="w-full flex items-center gap-3 px-5 py-4 bg-white hover:bg-gray-50 transition text-left">
+                    <span style="width:8px;height:8px;border-radius:50%;background:${c.dot};flex-shrink:0;display:inline-block"></span>
+                    <span style="font-weight:700;font-size:14px;color:#1F2937;flex:1;white-space:nowrap">${c.label} <span style="font-weight:500;font-size:12px;color:#9CA3AF;margin-left:4px">${c.sub}</span></span>
+                    <span style="font-size:12px;color:#6B7280;white-space:nowrap">${details.length}개</span>
+                    <span class="material-symbols-outlined" style="font-size:18px;color:#D1D5DB">expand_more</span>
+                </button>
+                <div id="${sid}" class="hidden overflow-x-auto bg-white">
+                    <table class="w-full text-xs" style="border-top:1px solid #F3F4F6">
+                        <thead style="background:#F9FAFB">
+                            <tr>
+                                <th style="padding:8px 14px;text-align:center;font-weight:600;color:#6B7280;white-space:nowrap">번호</th>
+                                <th style="padding:8px 10px;text-align:center;font-weight:600;color:#6B7280;white-space:nowrap">Gap</th>
+                                <th style="padding:8px 10px;text-align:center;font-weight:600;color:#6366f1;white-space:nowrap">앙상블%</th>
+                                <th style="padding:8px 8px;text-align:center;font-weight:600;color:#818cf8;white-space:nowrap">LSTM</th>
+                                <th style="padding:8px 8px;text-align:center;font-weight:600;color:#60a5fa;white-space:nowrap">XGB</th>
+                                <th style="padding:8px 8px;text-align:center;font-weight:600;color:#f472b6;white-space:nowrap">CNN</th>
+                                <th style="padding:8px 8px;text-align:center;font-weight:600;color:#fb923c;white-space:nowrap">TF</th>
+                                <th style="padding:8px 8px;text-align:center;font-weight:600;color:#34d399;white-space:nowrap">MKV</th>
+                                <th style="padding:8px 8px;text-align:center;font-weight:600;color:#a855f7;white-space:nowrap">ATC</th>
+                            </tr>
+                        </thead>
+                        <tbody>`;
+            details.forEach((nd, i) => {
+                const colorClass = self.getBallColorClass(nd.num); // [수정]
+                const bg = i % 2 === 0 ? '#fff' : '#F9FAFB';
+                const topBadge = nd.is_top15
+                    ? `<span style="font-size:9px;background:#F3F4F6;color:#4B5563;font-weight:800;padding:2px 5px;border-radius:4px;white-space:nowrap;vertical-align:middle">TOP</span>`
+                    : `<span style="display:inline-block;width:26px"></span>`;
+                let modelCells = '';
+                models.forEach(m => {
+                    const md = (nd.models || {})[m] || {};
+                    const rank = md.rank != null ? md.rank : '-';
+                    const prob = md.prob != null ? md.prob : '-';
+                    modelCells += `<td style="padding:8px;text-align:center;background:${bg}">
+                        <span style="font-weight:700;color:${MC[m]};white-space:nowrap">${rank}위</span>
+                        <div style="font-size:10px;color:#9CA3AF;white-space:nowrap">${prob}%</div>
+                    </td>`;
+                });
+                html += `<tr style="border-bottom:1px solid #F3F4F6">
+                    <td style="padding:8px 14px;text-align:center;background:${bg};white-space:nowrap">
+                        <span class="ball-common ${colorClass} w-7 h-7 text-xs cursor-pointer vertical-align-middle" onclick="window.DeepLearning.explainNumber(${nd.num})">${nd.num}</span>
+                        ${topBadge}
+                    </td>
+                    <td style="padding:8px 10px;text-align:center;font-weight:700;color:#111827;background:${bg};white-space:nowrap">${nd.gap}</td>
+                    <td style="padding:8px 10px;text-align:center;font-weight:700;color:#6366f1;background:${bg};white-space:nowrap">${nd.ensemble_prob}%</td>
+                    ${modelCells}
+                </tr>`;
+            });
+            html += `</tbody></table></div></div>`;
+        });
+        html += '</div>';
+        container.innerHTML = html;
+    },
+
+    renderRegressionAnalysis(regrData) {
+        const tbody = document.getElementById('reg-body');
+        if (!tbody || !regrData) return;
+        const self = this;
+        this._regrData = regrData;
+        this._regrRender = render;
+        function render(data) {
+            const countEl = document.getElementById('reg-filter-count');
+            if (countEl) countEl.textContent = `${data.length} / ${regrData.length}`;
+            tbody.innerHTML = data.map((item, i) => {
+                const bg = i % 2 === 0 ? '#fff' : '#F9FAFB';
+                const ballsHtml = (item.targets || []).map(n => {
+                    const colorClass = self.getBallColorClass(n); // [수정]
+                    return `<span class="ball-common ${colorClass} w-7 h-7 text-xs mx-0.5">${n}</span>`;
+                }).join('');
+                const avg = parseFloat(item.avg_hit ?? 0).toFixed(1);
+                const avgColor = parseFloat(avg) >= 2 ? '#6366f1' : parseFloat(avg) >= 1 ? '#475569' : '#94a3b8';
+                const dist = item.hit_dist || {};
+                const total = Object.values(dist).reduce((a, b) => a + b, 0) || 1;
+                const distBars = [0, 1, 2, 3, 4, 5, 6].map(k => {
+                    const cnt = dist[k] || 0;
+                    const pct = Math.round(cnt / total * 100);
+                    const barColor = k === 0 ? '#E5E7EB' : k <= 2 ? '#9CA3AF' : k <= 4 ? '#6366f1' : '#4f46e5';
+                    return `<span style="display:inline-flex;flex-direction:column;align-items:center;gap:1px;margin:0 2px">
+                        <span style="font-size:9px;font-weight:700;color:${k === 0 ? '#9CA3AF' : '#1F2937'}">${pct}%</span>
+                        <span style="display:block;width:14px;height:${Math.max(2, Math.round(pct * 0.3))}px;background:${barColor};border-radius:2px"></span>
+                        <span style="font-size:8px;color:#9CA3AF">${k}</span>
+                    </span>`;
+                }).join('');
+                const step = item.id;
+                return `<tr style="background:${bg};border-bottom:1px solid #F3F4F6;cursor:pointer" title="${step}회귀 기초분석 보기" onclick="window.open('regression.html?step=${step}','_blank')">
+                    <td style="padding:8px 14px;text-align:center;font-weight:700;color:#6366f1;white-space:nowrap;background:${bg};text-decoration:underline">${step}회귀</td>
+                    <td style="padding:8px 10px;text-align:center;background:${bg}">${ballsHtml}</td>
+                    <td style="padding:8px 10px;text-align:center;font-weight:700;color:#4B5563;white-space:nowrap;background:${bg}">${item.gap}</td>
+                    <td style="padding:8px 10px;text-align:center;font-weight:700;color:#4B5563;white-space:nowrap;background:${bg}">${item.str ?? 0}</td>
+                    <td style="padding:8px 10px;text-align:center;font-weight:700;white-space:nowrap;background:${bg};color:${avgColor}">${avg}</td>
+                    <td style="padding:8px 10px;text-align:center;background:${bg}">
+                        <div style="display:inline-flex;align-items:flex-end;height:42px">${distBars}</div>
+                    </td>
+                </tr>`;
+            }).join('');
+        }
+        render(regrData);
+        this._regrSortKey = null;
+        this._regrSortAsc = false;
+        this._regSort = (key) => {
+            const cols = ['id', 'gap', 'str', 'avg_hit'];
+            if (this._regrSortKey === key) { this._regrSortAsc = !this._regrSortAsc; }
+            else { this._regrSortKey = key; this._regrSortAsc = false; }
+            cols.forEach(c => { const el = document.getElementById('reg-sort-arrow-' + c); if (el) el.textContent = ''; });
+            const arrow = document.getElementById('reg-sort-arrow-' + key);
+            if (arrow) arrow.textContent = this._regrSortAsc ? ' ▲' : ' ▼';
+            const sorted = [...regrData].sort((a, b) => {
+                const av = parseFloat(a[key] ?? 0), bv = parseFloat(b[key] ?? 0);
+                return this._regrSortAsc ? av - bv : bv - av;
+            });
+            render(sorted);
+        };
+    },
+
+    renderCustomEvaluations(customData) {
+        const container = document.getElementById('custom-container');
+        if (!container || !customData) return;
+        const self = this;
+        const MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7', gnn: '#ef4444' };
+        const MODEL_LABELS = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV', autoencoder: 'ATC', gnn: 'GNN' };
+        const MODEL_ORDER = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
+        if (!customData || customData.length === 0) {
+            container.innerHTML = '<p class="text-sm text-slate-400 col-span-full py-8 text-center">커스텀 분석 데이터가 없습니다.</p>';
+            return;
+        }
+        container.innerHTML = customData.map(grp => {
+            const avgHit = grp.avg_hit != null ? parseFloat(grp.avg_hit).toFixed(1) : '-';
+            const gap = grp.gap ?? '-';
+            const str = grp.str ?? '-';
+            const dist = grp.hit_dist || {};
+            const distTotal = Object.values(dist).reduce((a, b) => a + b, 0) || 1;
+            const gapColor = (typeof gap === 'number' && gap >= 5) ? '#EF4444' : '#64748b';
+            const strColor = (typeof str === 'number' && str >= 2) ? '#6366f1' : '#64748b';
+            const avgColor = parseFloat(avgHit) >= 2 ? '#6366f1' : parseFloat(avgHit) >= 1 ? '#475569' : '#9CA3AF';
+            const typeMap = { static: '고정', dynamic: '동적', manual: '매뉴얼', group: '그룹', regression_overlap: '회귀중첩' };
+            const typeBadge = typeMap[grp.type] || grp.type || '';
+            const ballsHtml = (grp.targets || []).map(n => {
+                const colorClass = self.getBallColorClass(n); // [수정]
+                return `<span class="ball-common ${colorClass} w-7 h-7 text-xs mx-0.5">${n}</span>`;
+            }).join('');
+            const distBars = [0, 1, 2, 3, 4, 5, 6].map(k => {
+                const cnt = dist[k] || 0;
+                const pct = Math.round(cnt / distTotal * 100);
+                const barColor = k === 0 ? '#E5E7EB' : k <= 2 ? '#9CA3AF' : k <= 4 ? '#6366f1' : '#4f46e5';
+                return `<span style="display:inline-flex;flex-direction:column;align-items:center;gap:1px;margin:0 2px">
+                    <span style="font-size:9px;font-weight:700;color:${k === 0 ? '#9CA3AF' : '#1F2937'}">${pct}%</span>
+                    <span style="display:block;width:14px;height:${Math.max(2, Math.round(pct * 0.3))}px;background:${barColor};border-radius:2px"></span>
+                    <span style="font-size:8px;color:#9CA3AF">${k}</span>
+                </span>`;
+            }).join('');
+            const modelBars = MODEL_ORDER.map(m => {
+                const v = (grp.model_scores || {})[m];
+                const s = v ? Math.round(v.score || 0) : 0;
+                const color = MODEL_COLORS[m];
+                return `<div style="display:flex;align-items:center;gap:6px;font-size:10px;margin-bottom:3px">
+                    <span style="width:28px;font-weight:800;color:${color};flex-shrink:0">${MODEL_LABELS[m]}</span>
+                    <div style="flex:1;height:5px;background:#F3F4F6;border-radius:3px;overflow:hidden">
+                        <div style="height:100%;width:${s}%;background:${color};border-radius:3px;transition:width 0.6s ease"></div>
+                    </div>
+                    <span style="width:24px;text-align:right;font-weight:700;color:${color}">${s}</span>
+                </div>`;
+            }).join('');
+            return `<div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.06)">
+                <div style="padding:10px 14px;background:#f8fafc;border-bottom:1px solid #f1f5f9;display:flex;align-items:center;gap:6px;min-width:0">
+                    <span style="font-size:9px;padding:1px 5px;background:#ede9fe;color:#6d28d9;border-radius:4px;font-weight:700;flex-shrink:0">${typeBadge}</span>
+                    <span style="font-weight:700;color:#1e293b;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${grp.title || ''}">${grp.title || '커스텀'}</span>
+                </div>
+                <div style="padding:10px 14px 6px;display:flex;flex-wrap:wrap;gap:0;align-items:center">
+                    ${ballsHtml || '<span style="font-size:11px;color:#94a3b8">대상번호 없음</span>'}
+                </div>
+                <div style="padding:4px 14px 8px;display:flex;gap:14px;font-size:11px;flex-wrap:wrap">
+                    <span>평균적중 <strong style="font-size:13px;color:${avgColor}">${avgHit}</strong></span>
+                    <span>Gap <strong style="color:${gapColor}">${gap}</strong></span>
+                    <span>STR <strong style="color:${strColor}">${str}</strong></span>
+                </div>
+                <div style="padding:4px 14px 8px;border-top:1px solid #f8fafc">
+                    <div style="font-size:9px;color:#94a3b8;margin-bottom:3px">적중 분포 (0~6개)</div>
+                    <div style="display:inline-flex;align-items:flex-end;height:40px">${distBars}</div>
+                </div>
+                <div style="padding:8px 14px;border-top:1px solid #f1f5f9">
+                    ${modelBars}
+                </div>
+            </div>`;
+        }).join('');
+    },
+
+    async loadHistoryList() {
+        var select = document.getElementById('historySelect');
+        if (!select || !this.state.isConnected) return;
+        var url = this._getBaseUrl();
+        try {
+            var res = await fetch(url + '/api/deep-analysis/v3/history', {
+                signal: AbortSignal.timeout(5000)
+            });
+            if (!res.ok) return;
+            var data = await res.json();
+            if (!data.success) return;
+            while (select.options.length > 1) select.remove(1);
+            (data.history || []).forEach(function (h) {
+                var opt = document.createElement('option');
+                opt.value = h.id;
+                var date = new Date(h.created_at).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                opt.textContent = h.target_round + '회 (' + date + ') - ' + h.confidence + '%';
+                select.appendChild(opt);
+            });
+            
+            // 이력 선택 이벤트 바인딩
+            select.onchange = (e) => {
+                if (e.target.value) {
+                    this.loadHistory(e.target.value);
+                }
+            };
+            
+        } catch (e) {
+            console.warn('이력 목록 로드 실패:', e);
+        }
+    },
+
+    async loadHistory(historyId) {
+        if (!historyId) return;
+        var url = this._getBaseUrl();
+        try {
+            this.showLoading(true, '이력 데이터 로드 중...');
+            var res = await fetch(url + '/api/deep-analysis/v3/history/' + historyId, {
+                signal: AbortSignal.timeout(10000)
+            });
+            if (!res.ok) throw new Error('이력 조회 실패');
+            var data = await res.json();
+            if (!data.success) throw new Error(data.error);
+            var analysisData = JSON.parse(data.data.analysis_data);
+            this.state.analysisData = analysisData;
+            var roundEl = document.getElementById('targetRoundDisplay');
+            if (roundEl) roundEl.textContent = analysisData.target_round;
+            this.renderAll(analysisData);
+        } catch (e) {
+            console.error('이력 로드 실패:', e);
+            alert('이력 로드 실패: ' + e.message);
+        } finally {
+            setTimeout(function () { DeepLearning.showLoading(false); }, 300);
+        }
+    },
+
+    async explainNumber(number) {
+        var modal = document.getElementById('xaiModal');
+        var content = document.getElementById('xaiContent');
+        var title = document.getElementById('xaiTitle');
+        if (!modal || !content) return;
+        modal.classList.remove('hidden');
+        if (title) title.textContent = number + '번 XAI 심층 분석';
+        content.innerHTML = '<div class="text-center text-slate-400 py-8"><div class="w-10 h-10 border-3 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mx-auto mb-3"></div><p>' + number + '번 분석 중...</p></div>';
+        var localInfo = '';
+        if (this.state.analysisData) {
+            var d = this.state.analysisData;
+            var evidenceText = (d.evidence && d.evidence[number]) ? d.evidence[number] : null;
+            if (!evidenceText) {
+                try {
+                    const url = window.AI_SERVER_URL || 'https://lotto-api-server.onrender.com';
+                    const reqBody = { number: number, user_query: "이 번호에 대한 심층 분석을 해줘" };
+                    if (d.target_round) reqBody.target_round = d.target_round;
+                    const res = await fetch(url + '/api/explain/', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(reqBody),
+                        signal: AbortSignal.timeout(30000)
+                    });
+                    if (res.ok) {
+                        const xaiData = await res.json();
+                        evidenceText = xaiData.explanation;
+                        if (!d.evidence) d.evidence = {};
+                        d.evidence[number] = evidenceText;
+                    }
+                } catch (e) {
+                    console.warn(`[XAI] Failed to fetch explanation for ${number}:`, e);
+                }
+            }
+            var matrixItem = null;
+            var _mtxSource = (d.analysis && d.analysis.matrix_data) ? d.analysis.matrix_data : (d.matrix_data || []);
+            if (_mtxSource.length) {
+                matrixItem = _mtxSource.find(function (m) { return m.num === number; });
+            }
+            var prob = matrixItem ? (matrixItem.total || 0) / 100 : null;
+            var isRecommended = (d.top_5 || []).indexOf(number) >= 0;
+            if (!isRecommended && d.recommended) isRecommended = d.recommended.indexOf(number) >= 0;
+            var isExcluded = (d.exclude_10 || []).indexOf(number) >= 0;
+            if (!isExcluded && d.excluded) isExcluded = d.excluded.indexOf(number) >= 0;
+            var statusClass = isRecommended ? 'bg-emerald-50 text-emerald-600 border border-emerald-200'
+                : isExcluded ? 'bg-rose-50 text-rose-600 border border-rose-200'
+                    : 'bg-slate-50 text-slate-500 border border-slate-200';
+            var statusText = isRecommended ? '강력추천' : isExcluded ? '제외예상' : '일반';
+            
+            // [수정] 모달 헤더 디자인 (공 스타일 적용)
+            const colorClass = this.getBallColorClass(number);
+            localInfo = '<div class="space-y-5 mb-6">' +
+                '<div class="flex items-center gap-4 p-4 bg-gray-50 rounded-2xl border border-gray-100">' +
+                '<span class="ball-common ' + colorClass + ' w-14 h-14 text-xl shadow-lg ring-4 ring-white">' + number + '</span>' +
+                '<div class="flex-1">' +
+                '<div class="flex items-center justify-between mb-1">' +
+                '<p class="font-black text-gray-900 text-lg">번호 ' + number + ' 분석결과</p>' +
+                '<span class="px-3 py-1 rounded-full text-xs font-bold ' + statusClass + '">' + statusText + '</span>' +
+                '</div>' +
+                '<p class="text-sm text-gray-500">앙상블 예측 확률: <span class="font-black text-indigo-600 text-base">' + (prob !== null ? (prob * 100).toFixed(2) : '--') + '%</span></p>' +
+                '</div></div>';
+            
+            if (matrixItem) {
+                var corrInfo = '';
+                if (matrixItem.penalty != null && matrixItem.penalty < 1.0) {
+                    corrInfo += ' <span class="text-rose-500 font-bold ml-1">⚠️과출현제어(' + Math.round((1 - matrixItem.penalty) * 100) + '%)</span>';
+                }
+                if (matrixItem.boost != null && matrixItem.boost > 1.0) {
+                    corrInfo += ' <span class="text-emerald-600 font-bold ml-1">⚡주기임박</span>';
+                }
+                localInfo += '<div class="flex items-center gap-4 text-xs text-slate-500 bg-slate-50 px-4 py-2 rounded-lg border border-slate-100">' +
+                    '<span>Gap: <strong class="text-slate-700">' + matrixItem.gap + '</strong></span>' +
+                    '<span class="w-px h-3 bg-slate-300"></span>' +
+                    '<span>빈도: <strong class="text-slate-700">' + (matrixItem.freq * 100).toFixed(1) + '%</strong></span>' +
+                    corrInfo +
+                    '</div></div>';
+            } else {
+                localInfo += '</div>';
+            }
+            if (evidenceText) {
+                const reasons = evidenceText.split(" | ");
+                let reasonsHtml = '<ul class="space-y-2">';
+                reasons.forEach(reason => {
+                    const isWarning = reason.includes("[경고]") || reason.includes("제외") || reason.includes("부족") || reason.includes("높음");
+                    const isPositive = reason.includes("추천") || reason.includes("유력") || reason.includes("매우") || reason.includes("적합");
+                    let boxClass = "bg-white border-slate-100 text-slate-600";
+                    let icon = "check_circle";
+                    let iconClass = "text-slate-400";
+                    if (isWarning) {
+                        boxClass = "bg-rose-50/50 border-rose-100 text-rose-700";
+                        icon = "warning";
+                        iconClass = "text-rose-500";
+                    } else if (isPositive) {
+                        boxClass = "bg-indigo-50/50 border-indigo-100 text-indigo-700";
+                        icon = "auto_awesome";
+                        iconClass = "text-indigo-500";
+                    }
+                    reasonsHtml += `
+                        <li class="flex items-start gap-3 p-3 rounded-xl border ${boxClass}">
+                            <span class="material-symbols-outlined ${iconClass} text-lg mt-0.5 flex-shrink-0">${icon}</span>
+                            <span class="text-sm leading-relaxed font-medium">${reason}</span>
+                        </li>
+                    `;
+                });
+                reasonsHtml += '</ul>';
+                localInfo += `
+                    <div class="mb-5">
+                        <h4 class="font-bold text-slate-800 text-sm mb-3 flex items-center gap-2">
+                            <span class="material-symbols-outlined text-indigo-600">psychology</span> AI 심층 분석 리포트
+                        </h4>
+                        ${reasonsHtml}
+                    </div>
+                `;
+            }
+            if (matrixItem && matrixItem.models) {
+                var MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7' };
+                var MODEL_LABELS = { lstm: 'LSTM (시계열)', xgboost: 'XGBoost (패턴)', cnn: 'CNN (공간)', transformer: 'Transformer (맥락)', markov: 'Markov (전이)', autoencoder: 'Autoencoder (압축)' };
+                var modelHtml = '';
+                ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder'].forEach(mKey => {
+                    var mVal = matrixItem.models[mKey] || {};
+                    var score = mVal.score || 0;
+                    var color = MODEL_COLORS[mKey] || '#94a3b8';
+                    var label = MODEL_LABELS[mKey] || mKey;
+                    modelHtml += `<div class="flex items-center gap-3 mb-2"><span class="text-[10px] font-bold w-28 text-slate-500 flex-shrink-0">${label}</span><div class="flex-1 bg-slate-100 h-1.5 rounded-full overflow-hidden"><div class="h-full rounded-full" style="width:${score}%;background:${color}"></div></div><span class="text-[10px] font-bold w-8 text-right text-slate-600">${score}</span></div>`;
+                });
+                localInfo += `<div class="bg-slate-50 rounded-xl p-4 border border-slate-100 mt-4"><h5 class="font-bold text-slate-600 text-xs mb-3">6개 모델별 기여도</h5>${modelHtml}</div>`;
+            }
+        }
+        content.innerHTML = localInfo || '<div class="text-center text-slate-400 py-8"><p>분석 데이터를 먼저 실행해주세요.</p></div>';
+    },
+
+    closeXaiModal() {
+        var modal = document.getElementById('xaiModal');
+        if (modal) modal.classList.add('hidden');
+    },
+
+    _getBaseUrl() {
+        return window.AI_SERVER_URL || 'https://lotto-api-server.onrender.com';
+    },
+
+    getBallColor(n) {
+        n = parseInt(n);
+        if (n <= 10) return '#fbc400';
+        if (n <= 20) return '#69c8f2';
+        if (n <= 30) return '#ff7272';
+        if (n <= 40) return '#aaaaaa';
+        return '#b0d840';
+    },
+
+    renderBalls(id, nums) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        if (!nums || nums.length === 0) {
+            el.innerHTML = '<span class="text-slate-400 text-xs">추천 없음</span>';
+            return;
+        }
+        var self = this;
+        el.className = (el.className || '') + ' flex flex-wrap gap-2';
+        el.innerHTML = nums.map(function (n) {
+            var color = self.getBallColor(n);
+            return '<span class="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-black text-white shadow cursor-pointer hover:scale-110 transition-transform" style="background-color: ' + color + '" onclick="window.DeepLearning.explainNumber(' + n + ')" title="' + n + '번 클릭 시 XAI 분석">' + n + '</span>';
+        }).join('');
     },
 
     showLoading(show, text) {
