@@ -1010,15 +1010,31 @@ const DeepLearning = {
         if (!tbody || !tailData) return;
         const MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7', gnn: '#ef4444' };
         const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
+        
         tbody.innerHTML = tailData.map(item => {
             const exp = typeof item.exp === 'number' ? item.exp.toFixed(2) : item.exp;
             const str = item.str != null ? item.str : '-';
+            
+            // [디자인 수정] 모델별 숫자 대신 히트맵 스타일 바(Bar) 표시
             const modelCells = models.map(m => {
-                const mExp = item.model_exp && item.model_exp[m] != null
-                    ? parseFloat(item.model_exp[m]).toFixed(2)
-                    : '-';
-                return `<td class="px-2 py-3 text-center font-mono text-xs" style="color:${MODEL_COLORS[m]}">${mExp}</td>`;
+                const val = item.model_exp && item.model_exp[m] != null ? parseFloat(item.model_exp[m]) : 0;
+                
+                // 값의 크기에 따라 투명도 및 스타일 결정 (최대 2.0 기준)
+                let opacity = 0.1;
+                let height = '4px';
+                if (val >= 1.5) { opacity = 1.0; height = '12px'; }
+                else if (val >= 1.0) { opacity = 0.7; height = '10px'; }
+                else if (val >= 0.6) { opacity = 0.4; height = '6px'; }
+                else if (val >= 0.3) { opacity = 0.2; height = '4px'; }
+                
+                // 툴팁에만 정확한 수치 표시
+                return `<td class="px-2 py-3 text-center" title="${m.toUpperCase()}: ${val.toFixed(2)}개 예상">
+                    <div style="width:100%;height:16px;display:flex;align-items:center;justify-content:center">
+                        <div style="width:16px;height:${height};background-color:${MODEL_COLORS[m]};opacity:${opacity};border-radius:2px"></div>
+                    </div>
+                </td>`;
             }).join('');
+
             return `<tr class="hover:bg-gray-50 border-b border-gray-100 last:border-0 transition-colors">
                 <td class="px-4 py-3 font-bold text-center text-gray-700">${item.tail}</td>
                 <td class="px-4 py-3 text-center font-mono font-bold text-indigo-600 bg-indigo-50/30 rounded-lg mx-2">${exp}</td>
