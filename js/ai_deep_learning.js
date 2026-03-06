@@ -1432,7 +1432,7 @@ const DeepLearning = {
         if (!this._regressionData) this._regressionData = data;
 
         let displayData = [...data];
-        const sort = this.regressionSort;
+        const sort = this.state.regressionSort;
 
         // 정렬 화살표 초기화
         ['id', 'gap', 'str', 'avg_hit'].forEach(f => {
@@ -1482,11 +1482,11 @@ const DeepLearning = {
     },
 
     _regSort(field) {
-        if (this.regressionSort.field === field) {
-            this.regressionSort.asc = !this.regressionSort.asc;
+        if (this.state.regressionSort.field === field) {
+            this.state.regressionSort.asc = !this.state.regressionSort.asc;
         } else {
-            this.regressionSort.field = field;
-            this.regressionSort.asc = true;
+            this.state.regressionSort.field = field;
+            this.state.regressionSort.asc = true;
         }
 
         const data = this.state.analysisData ? this.state.analysisData.regression_analysis : this._regressionData;
