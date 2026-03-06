@@ -1083,39 +1083,70 @@ const DeepLearning = {
         const container = document.getElementById('lottoPaperContainer');
         if (!container || !paperData) return;
         const MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7', gnn: '#ef4444' };
-        const MODEL_LABELS = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV', autoencoder: 'ATC', gnn: 'GNN' };
         const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
+        
         const buildTable = (title, items) => {
-            let html = `<div class="mb-6">`;
-            html += `<div class="text-xs font-bold text-gray-500 mb-3 px-1 uppercase tracking-wider">${title}</div>`;
-            html += '<div class="overflow-x-auto rounded-2xl border border-gray-100 shadow-sm bg-white">';
+            let html = `<div class="mb-8">`;
+            html += `<div class="flex items-center gap-2 mb-4 px-1"><span class="w-1 h-4 bg-gray-800 rounded-full"></span><span class="text-sm font-bold text-gray-800 uppercase tracking-wide">${title}</span></div>`;
+            html += '<div class="overflow-x-auto rounded-2xl border border-gray-200 shadow-sm bg-white">';
             html += '<table class="w-full text-xs">';
-            html += '<thead><tr>'; // bg-black 제거
-            html += '<th class="px-5 py-3 text-left font-bold text-gray-700">구분</th>';
-            html += '<th class="px-4 py-3 text-center font-bold text-indigo-600 bg-indigo-50/50">앙상블</th>';
+            html += '<thead><tr class="bg-gray-50/50 border-b border-gray-200">';
+            html += '<th class="px-5 py-4 text-left font-bold text-gray-600">구분</th>';
+            html += '<th class="px-2 py-4 text-center font-bold text-teal-900 w-24">앙상블</th>';
             models.forEach(m => {
-                html += `<th class="px-2 py-3 text-center font-bold" style="color:${MODEL_COLORS[m]}">${MODEL_LABELS[m]}</th>`;
+                html += `<th class="px-1 py-4 text-center font-bold text-gray-400 w-8" title="${m.toUpperCase()}">${m.substring(0,1).toUpperCase()}</th>`;
             });
-            html += '<th class="px-4 py-3 text-center font-bold text-gray-500">Gap</th>';
-            html += '<th class="px-4 py-3 text-center font-bold text-gray-500">STR</th>';
+            html += '<th class="px-4 py-4 text-center font-bold text-gray-500">Gap</th>';
+            html += '<th class="px-4 py-4 text-center font-bold text-gray-500">STR</th>';
             html += '</tr></thead><tbody>';
+            
             items.forEach((item, idx) => {
-                const exp = typeof item.exp === 'number' ? item.exp.toFixed(2) : '-';
+                const exp = typeof item.exp === 'number' ? item.exp : 0;
+                
+                // 1. 앙상블 (Deep Teal Bar)
+                let barColor = '#CCFBF1'; // Low
+                let width = '10%';
+                if (exp >= 2.0) { width = '100%'; barColor = '#134E4A'; } // Hot
+                else if (exp >= 1.5) { width = '85%'; barColor = '#0F766E'; }
+                else if (exp >= 1.0) { width = '60%'; barColor = '#14B8A6'; }
+                else if (exp >= 0.5) { width = '30%'; barColor = '#5EEAD4'; }
+                
+                const expCell = `
+                    <div class="flex flex-col items-center justify-center h-full px-2" title="예상 개수: ${exp.toFixed(2)}">
+                        <div class="w-full h-1.5 bg-teal-50 rounded-full overflow-hidden">
+                            <div style="width:${width};height:100%;background-color:${barColor};border-radius:99px;"></div>
+                        </div>
+                    </div>
+                `;
+
+                // 2. 모델별 미니 바
                 const modelCells = models.map(m => {
-                    const mVal = item.model_exp && item.model_exp[m] != null ? parseFloat(item.model_exp[m]).toFixed(2) : '-';
-                    return `<td class="px-2 py-3 text-center font-mono text-gray-500" style="color:${MODEL_COLORS[m]}">${mVal}</td>`;
+                    const val = item.model_exp && item.model_exp[m] != null ? parseFloat(item.model_exp[m]) : 0;
+                    let opacity = 0.15;
+                    let height = '4px';
+                    if (val >= 1.5) { opacity = 1.0; height = '14px'; }
+                    else if (val >= 1.0) { opacity = 0.7; height = '10px'; }
+                    else if (val >= 0.5) { opacity = 0.4; height = '6px'; }
+                    
+                    return `<td class="px-1 py-4 text-center align-bottom" title="${m.toUpperCase()}: ${val.toFixed(2)}">
+                        <div style="display:flex;align-items:flex-end;justify-content:center;height:16px;">
+                            <div style="width:6px;height:${height};background-color:${MODEL_COLORS[m]};opacity:${opacity};border-radius:2px;"></div>
+                        </div>
+                    </td>`;
                 }).join('');
-                html += `<tr class="border-b border-gray-50 last:border-0 hover:bg-gray-50 transition-colors">`;
-                html += `<td class="px-5 py-3 font-bold text-gray-700">${item.label}</td>`;
-                html += `<td class="px-4 py-3 text-center font-mono font-bold text-indigo-600 bg-indigo-50/30">${exp}</td>`;
+
+                html += `<tr class="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors">`;
+                html += `<td class="px-5 py-4 font-bold text-gray-700 text-sm">${item.label}</td>`;
+                html += `<td class="px-2 py-4 text-center">${expCell}</td>`;
                 html += modelCells;
-                html += `<td class="px-4 py-3 text-center font-mono text-gray-600">${item.gap != null ? item.gap : '-'}</td>`;
-                html += `<td class="px-4 py-3 text-center font-mono text-gray-600">${item.str != null ? item.str : '-'}</td>`;
+                html += `<td class="px-4 py-4 text-center font-mono text-gray-500">${item.gap != null ? item.gap : '-'}</td>`;
+                html += `<td class="px-4 py-4 text-center font-mono text-gray-500">${item.str != null ? item.str : '-'}</td>`;
                 html += '</tr>';
             });
             html += '</tbody></table></div></div>';
             return html;
         };
+        
         let html = '';
         if (paperData.rows) html += buildTable('가로 라인 분포', paperData.rows);
         if (paperData.cols) html += buildTable('세로 라인 분포', paperData.cols);
@@ -1126,31 +1157,59 @@ const DeepLearning = {
         const container = document.getElementById('numberBandContainer');
         if (!container || !bandData || !bandData.length) return;
         const MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7', gnn: '#ef4444' };
-        const MODEL_LABELS = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV', autoencoder: 'ATC', gnn: 'GNN' };
         const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
-        let html = '<div class="overflow-x-auto rounded-2xl border border-gray-100 shadow-sm bg-white">';
+        
+        let html = '<div class="overflow-x-auto rounded-2xl border border-gray-200 shadow-sm bg-white">';
         html += '<table class="w-full text-xs">';
-        html += '<thead><tr>';
-        html += '<th class="px-5 py-3 text-left font-bold text-gray-700">번호대</th>';
-        html += '<th class="px-4 py-3 text-center font-bold text-indigo-600 bg-indigo-50/50">앙상블</th>';
+        html += '<thead><tr class="bg-gray-50/50 border-b border-gray-200">';
+        html += '<th class="px-5 py-4 text-left font-bold text-gray-600">번호대</th>';
+        html += '<th class="px-2 py-4 text-center font-bold text-teal-900 w-24">앙상블</th>';
         models.forEach(m => {
-            html += `<th class="px-2 py-3 text-center font-bold" style="color:${MODEL_COLORS[m]}">${MODEL_LABELS[m]}</th>`;
+            html += `<th class="px-1 py-4 text-center font-bold text-gray-400 w-8" title="${m.toUpperCase()}">${m.substring(0,1).toUpperCase()}</th>`;
         });
-        html += '<th class="px-4 py-3 text-center font-bold text-gray-500">Gap</th>';
-        html += '<th class="px-4 py-3 text-center font-bold text-gray-500">STR</th>';
+        html += '<th class="px-4 py-4 text-center font-bold text-gray-500">Gap</th>';
+        html += '<th class="px-4 py-4 text-center font-bold text-gray-500">STR</th>';
         html += '</tr></thead><tbody>';
+        
         bandData.forEach((item, idx) => {
-            const exp = typeof item.exp === 'number' ? item.exp.toFixed(2) : '-';
+            const exp = typeof item.exp === 'number' ? item.exp : 0;
+            
+            let barColor = '#CCFBF1';
+            let width = '10%';
+            if (exp >= 2.0) { width = '100%'; barColor = '#134E4A'; }
+            else if (exp >= 1.5) { width = '85%'; barColor = '#0F766E'; }
+            else if (exp >= 1.0) { width = '60%'; barColor = '#14B8A6'; }
+            else if (exp >= 0.5) { width = '30%'; barColor = '#5EEAD4'; }
+            
+            const expCell = `
+                <div class="flex flex-col items-center justify-center h-full px-2" title="예상 개수: ${exp.toFixed(2)}">
+                    <div class="w-full h-1.5 bg-teal-50 rounded-full overflow-hidden">
+                        <div style="width:${width};height:100%;background-color:${barColor};border-radius:99px;"></div>
+                    </div>
+                </div>
+            `;
+
             const modelCells = models.map(m => {
-                const mVal = item.model_exp && item.model_exp[m] != null ? parseFloat(item.model_exp[m]).toFixed(2) : '-';
-                return `<td class="px-2 py-3 text-center font-mono text-gray-500" style="color:${MODEL_COLORS[m]}">${mVal}</td>`;
+                const val = item.model_exp && item.model_exp[m] != null ? parseFloat(item.model_exp[m]) : 0;
+                let opacity = 0.15;
+                let height = '4px';
+                if (val >= 1.5) { opacity = 1.0; height = '14px'; }
+                else if (val >= 1.0) { opacity = 0.7; height = '10px'; }
+                else if (val >= 0.5) { opacity = 0.4; height = '6px'; }
+                
+                return `<td class="px-1 py-4 text-center align-bottom" title="${m.toUpperCase()}: ${val.toFixed(2)}">
+                    <div style="display:flex;align-items:flex-end;justify-content:center;height:16px;">
+                        <div style="width:6px;height:${height};background-color:${MODEL_COLORS[m]};opacity:${opacity};border-radius:2px;"></div>
+                    </div>
+                </td>`;
             }).join('');
-            html += `<tr class="border-b border-gray-50 last:border-0 hover:bg-gray-50 transition-colors">`;
-            html += `<td class="px-5 py-3 font-bold text-gray-700">${item.label}</td>`;
-            html += `<td class="px-4 py-3 text-center font-mono font-bold text-indigo-600 bg-indigo-50/30">${exp}</td>`;
+
+            html += `<tr class="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors">`;
+            html += `<td class="px-5 py-4 font-bold text-gray-700 text-sm">${item.label}</td>`;
+            html += `<td class="px-2 py-4 text-center">${expCell}</td>`;
             html += modelCells;
-            html += `<td class="px-4 py-3 text-center font-mono text-gray-600">${item.gap != null ? item.gap : '-'}</td>`;
-            html += `<td class="px-4 py-3 text-center font-mono text-gray-600">${item.str != null ? item.str : '-'}</td>`;
+            html += `<td class="px-4 py-4 text-center font-mono text-gray-500">${item.gap != null ? item.gap : '-'}</td>`;
+            html += `<td class="px-4 py-4 text-center font-mono text-gray-500">${item.str != null ? item.str : '-'}</td>`;
             html += '</tr>';
         });
         html += '</tbody></table></div>';
@@ -1161,31 +1220,59 @@ const DeepLearning = {
         const container = document.getElementById('magicSquareContainer');
         if (!container || !squareData || !squareData.length) return;
         const MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7', gnn: '#ef4444' };
-        const MODEL_LABELS = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV', autoencoder: 'ATC', gnn: 'GNN' };
         const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
-        let html = '<div class="overflow-x-auto rounded-2xl border border-gray-100 shadow-sm bg-white">';
+        
+        let html = '<div class="overflow-x-auto rounded-2xl border border-gray-200 shadow-sm bg-white">';
         html += '<table class="w-full text-xs">';
-        html += '<thead><tr>';
-        html += '<th class="px-5 py-3 text-left font-bold text-gray-700">궁</th>';
-        html += '<th class="px-4 py-3 text-center font-bold text-indigo-600 bg-indigo-50/50">앙상블</th>';
+        html += '<thead><tr class="bg-gray-50/50 border-b border-gray-200">';
+        html += '<th class="px-5 py-4 text-left font-bold text-gray-600">궁</th>';
+        html += '<th class="px-2 py-4 text-center font-bold text-teal-900 w-24">앙상블</th>';
         models.forEach(m => {
-            html += `<th class="px-2 py-3 text-center font-bold" style="color:${MODEL_COLORS[m]}">${MODEL_LABELS[m]}</th>`;
+            html += `<th class="px-1 py-4 text-center font-bold text-gray-400 w-8" title="${m.toUpperCase()}">${m.substring(0,1).toUpperCase()}</th>`;
         });
-        html += '<th class="px-4 py-3 text-center font-bold text-gray-500">Gap</th>';
-        html += '<th class="px-4 py-3 text-center font-bold text-gray-500">STR</th>';
+        html += '<th class="px-4 py-4 text-center font-bold text-gray-500">Gap</th>';
+        html += '<th class="px-4 py-4 text-center font-bold text-gray-500">STR</th>';
         html += '</tr></thead><tbody>';
+        
         squareData.forEach((item, idx) => {
-            const exp = typeof item.exp === 'number' ? item.exp.toFixed(2) : '-';
+            const exp = typeof item.exp === 'number' ? item.exp : 0;
+            
+            let barColor = '#CCFBF1';
+            let width = '10%';
+            if (exp >= 2.0) { width = '100%'; barColor = '#134E4A'; }
+            else if (exp >= 1.5) { width = '85%'; barColor = '#0F766E'; }
+            else if (exp >= 1.0) { width = '60%'; barColor = '#14B8A6'; }
+            else if (exp >= 0.5) { width = '30%'; barColor = '#5EEAD4'; }
+            
+            const expCell = `
+                <div class="flex flex-col items-center justify-center h-full px-2" title="예상 개수: ${exp.toFixed(2)}">
+                    <div class="w-full h-1.5 bg-teal-50 rounded-full overflow-hidden">
+                        <div style="width:${width};height:100%;background-color:${barColor};border-radius:99px;"></div>
+                    </div>
+                </div>
+            `;
+
             const modelCells = models.map(m => {
-                const mVal = item.model_exp && item.model_exp[m] != null ? parseFloat(item.model_exp[m]).toFixed(2) : '-';
-                return `<td class="px-2 py-3 text-center font-mono text-gray-500" style="color:${MODEL_COLORS[m]}">${mVal}</td>`;
+                const val = item.model_exp && item.model_exp[m] != null ? parseFloat(item.model_exp[m]) : 0;
+                let opacity = 0.15;
+                let height = '4px';
+                if (val >= 1.5) { opacity = 1.0; height = '14px'; }
+                else if (val >= 1.0) { opacity = 0.7; height = '10px'; }
+                else if (val >= 0.5) { opacity = 0.4; height = '6px'; }
+                
+                return `<td class="px-1 py-4 text-center align-bottom" title="${m.toUpperCase()}: ${val.toFixed(2)}">
+                    <div style="display:flex;align-items:flex-end;justify-content:center;height:16px;">
+                        <div style="width:6px;height:${height};background-color:${MODEL_COLORS[m]};opacity:${opacity};border-radius:2px;"></div>
+                    </div>
+                </td>`;
             }).join('');
-            html += `<tr class="border-b border-gray-50 last:border-0 hover:bg-gray-50 transition-colors">`;
-            html += `<td class="px-5 py-3 font-bold text-gray-700">${item.label}</td>`;
-            html += `<td class="px-4 py-3 text-center font-mono font-bold text-indigo-600 bg-indigo-50/30">${exp}</td>`;
+
+            html += `<tr class="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors">`;
+            html += `<td class="px-5 py-4 font-bold text-gray-700 text-sm">${item.label}</td>`;
+            html += `<td class="px-2 py-4 text-center">${expCell}</td>`;
             html += modelCells;
-            html += `<td class="px-4 py-3 text-center font-mono text-gray-600">${item.gap != null ? item.gap : '-'}</td>`;
-            html += `<td class="px-4 py-3 text-center font-mono text-gray-600">${item.str != null ? item.str : '-'}</td>`;
+            html += `<td class="px-4 py-4 text-center font-mono text-gray-500">${item.gap != null ? item.gap : '-'}</td>`;
+            html += `<td class="px-4 py-4 text-center font-mono text-gray-500">${item.str != null ? item.str : '-'}</td>`;
             html += '</tr>';
         });
         html += '</tbody></table></div>';
