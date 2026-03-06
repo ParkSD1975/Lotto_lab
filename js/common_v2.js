@@ -371,6 +371,17 @@ if (window._COMMON_V2_LOADED) {
             // 4. 단일 태그 처리 {value} -> value (불필요한 강조 제거)
             result = result.replace(/\{([^{}]+)\}/g, '$1');
 
+            // 5. 로또 번호 (1~45번) 자동 색상 배지 적용
+            result = result.replace(/(?<!\d)([1-9]|[1-3][0-9]|4[0-5])번/g, function (match, numStr) {
+                const num = parseInt(numStr, 10);
+                let colorClass = "bg-emerald-500 border-emerald-600";
+                if (num <= 10) colorClass = "bg-amber-400 border-amber-500";
+                else if (num <= 20) colorClass = "bg-blue-500 border-blue-600";
+                else if (num <= 30) colorClass = "bg-rose-500 border-rose-600";
+                else if (num <= 40) colorClass = "bg-slate-500 border-slate-600";
+                return `<span class="inline-flex items-center justify-center w-[22px] h-[22px] rounded-full text-[11px] font-black text-white shadow-sm border mx-[2px] ${colorClass}">${num}</span><span class="font-bold text-gray-700">번</span>`;
+            });
+
             if (mode === 'dark') {
                 result = result.replace(/text-gray-900/g, 'text-white');
             }
@@ -1067,10 +1078,14 @@ Format: JSON
 
             try {
                 // 활성화된 커스텀분석 필터 조회
-                const { data, error } = await window.supabaseClient
+                const _v2UserId = window.filterService?.userId
+                    || (await window.supabaseClient.auth.getUser()).data?.user?.id;
+                let _v2Query = window.supabaseClient
                     .from('ai_custom_analyses')
                     .select('id, title, target_numbers, type, rules, config, filter_config')
                     .not('filter_config', 'is', null);
+                if (_v2UserId) _v2Query = _v2Query.eq('user_id', _v2UserId);
+                const { data, error } = await _v2Query;
 
                 if (error) throw error;
 
@@ -1129,10 +1144,14 @@ Format: JSON
             if (!window.supabaseClient) return 0;
 
             try {
-                const { data } = await window.supabaseClient
+                const _cntUserId = window.filterService?.userId
+                    || (await window.supabaseClient.auth.getUser()).data?.user?.id;
+                let _cntQuery = window.supabaseClient
                     .from('ai_custom_analyses')
                     .select('id, filter_config')
                     .not('filter_config', 'is', null);
+                if (_cntUserId) _cntQuery = _cntQuery.eq('user_id', _cntUserId);
+                const { data } = await _cntQuery;
 
                 return (data || []).filter(item => item.filter_config?.enabled === true).length;
             } catch (err) {
