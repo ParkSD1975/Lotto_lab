@@ -929,8 +929,8 @@
 
         /* ========== 매트릭스 테이블 (강력 초기화 버전) ========== */
         .matrix-table {
-            border-collapse: separate !important;
-            /* 셀 겹침 방지 */
+            border-collapse: collapse !important;
+            /* 셀 간격 완벽 방지 */
             border-spacing: 0 !important;
             width: 100%;
             font-size: 13px;
@@ -989,21 +989,26 @@
             position: sticky;
             top: 0;
             z-index: 50;
-            background: #0f172a !important;
-            color: #94a3b8 !important;
+            background: #f8fafc !important;
+            /* 부드러운 배경색 */
+            color: #475569 !important;
+            /* 세련된 텍스트 색상 */
             height: 40px;
             min-width: 32px;
             font-weight: 700;
             cursor: pointer;
             user-select: none;
-            font-family: 'JetBrains Mono', monospace;
+            font-family: 'Inter', 'Pretendard', sans-serif;
+            /* 폰트 변경 */
             border: none !important;
             font-size: 11px;
+            border-bottom: 2px solid #e2e8f0 !important;
+            /* 헤더 하단 경계선 */
         }
 
         .matrix-table thead th:hover {
-            background: #1e3a5f !important;
-            color: #ffffff !important;
+            background: #f1f5f9 !important;
+            color: #0f172a !important;
         }
 
         /* Sticky Column (Left Property Column) - 흰 배경으로 매트릭스와 명확히 구분 */
@@ -1030,12 +1035,13 @@
             left: 0 !important;
             top: 0 !important;
             z-index: 60 !important;
-            background: #0f172a !important;
-            color: #64748b !important;
+            background: #f8fafc !important;
+            color: #334155 !important;
             min-width: 150px;
             font-size: 11px;
             font-weight: 700;
-            border-right: 2px solid #334155 !important;
+            border-right: 2px solid #e2e8f0 !important;
+            border-bottom: 2px solid #e2e8f0 !important;
             box-shadow: none !important;
         }
 
