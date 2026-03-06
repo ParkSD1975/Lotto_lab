@@ -191,6 +191,7 @@
 
         // 필터 설정 저장 함수 (DB 저장)
         async function saveFilterSettings() {
+            if (window.isLoadingSettings) return; // 로드 중에는 저장 방지
             const minInput = document.getElementById('minFilter');
             const maxInput = document.getElementById('maxFilter');
             const toggle = document.getElementById('applyFilterCheck');
@@ -219,58 +220,71 @@
 
         // 필터 설정 불러오기 함수 (DB 로드)
         async function loadFilterSettings() {
-            let saved = null;
+            window.isLoadingSettings = true;
+            try {
+                let saved = null;
 
-            if (window.filterService && window.filterService.initialized) {
-                const data = await window.filterService.loadSetting('ac_value');
-                if (data) saved = { ...data.settings, enabled: data.enabled };
-            }
-
-            if (!saved) {
-                const raw = localStorage.getItem('ac_value') || localStorage.getItem('ac_value_filter');
-                if (raw) try { saved = JSON.parse(raw); } catch (e) { }
-            }
-            if (!saved && window.Utils && window.Utils.loadFilter) {
-                saved = window.Utils.loadFilter('ac_value') || window.Utils.loadFilter('ac_filter');
-            }
-
-            if (saved && typeof saved.min === 'number' && typeof saved.max === 'number') {
-                const minInput = document.getElementById('minFilter');
-                const maxInput = document.getElementById('maxFilter');
-                const toggle = document.getElementById('applyFilterCheck');
-
-                if (minInput) minInput.value = saved.min;
-                if (maxInput) maxInput.value = saved.max;
-                if (toggle) toggle.checked = saved.enabled !== undefined ? saved.enabled : true;
-
-                // restoredAutoAcValues 복원
-                restoredAutoAcValues = (saved.restoredAutoAcValues && Array.isArray(saved.restoredAutoAcValues))
-                    ? [...new Set(saved.restoredAutoAcValues)] : [];
-                // excludedAcValues 복원
-                excludedAcValues = (saved.excludedAcValues && Array.isArray(saved.excludedAcValues))
-                    ? [...new Set(saved.excludedAcValues)] : [];
-
-                // recent10FilterActive 복원
-                if (saved.recent10FilterActive) {
-                    const btn = document.getElementById('recent10FilterBtn');
-                    const btnText = document.getElementById('recent10BtnText');
-                    if (btn && btnText) {
-                        btn.classList.remove('from-blue-500', 'to-indigo-600');
-                        btn.classList.add('from-purple-500', 'to-purple-700');
-                        btnText.textContent = '필터 해제';
-                    }
+                if (window.filterService && window.filterService.initialized) {
+                    const data = await window.filterService.loadSetting('ac_value');
+                    if (data) saved = { ...data.settings, enabled: data.enabled };
                 }
 
-                // [Fix] 0~10(전체 범위)인 경우 초기화되지 않은 것으로 간주
-                if (saved.min === 0 && saved.max === 10 && !saved.recent10FilterActive) return false;
+                if (!saved) {
+                    const raw = localStorage.getItem('ac_value') || localStorage.getItem('ac_value_filter');
+                    if (raw) try { saved = JSON.parse(raw); } catch (e) { }
+                }
+                if (!saved && window.Utils && window.Utils.loadFilter) {
+                    saved = window.Utils.loadFilter('ac_value') || window.Utils.loadFilter('ac_filter');
+                }
 
-                setTimeout(() => {
-                    if (typeof renderExcludedAcBadges === 'function') renderExcludedAcBadges();
-                }, 0);
-                return true;
+                if (saved && typeof saved.min === 'number' && typeof saved.max === 'number') {
+                    const minInput = document.getElementById('minFilter');
+                    const maxInput = document.getElementById('maxFilter');
+                    const toggle = document.getElementById('applyFilterCheck');
+
+                    if (minInput) minInput.value = saved.min;
+                    if (maxInput) maxInput.value = saved.max;
+                    if (toggle) toggle.checked = saved.enabled !== undefined ? saved.enabled : true;
+
+                    // restoredAutoAcValues 복원
+                    restoredAutoAcValues = (saved.restoredAutoAcValues && Array.isArray(saved.restoredAutoAcValues))
+                        ? [...new Set(saved.restoredAutoAcValues)] : [];
+                    // excludedAcValues 복원
+                    excludedAcValues = (saved.excludedAcValues && Array.isArray(saved.excludedAcValues))
+                        ? [...new Set(saved.excludedAcValues)] : [];
+
+                    // recent10FilterActive 복원
+                    if (saved.recent10FilterActive) {
+                        const btn = document.getElementById('recent10FilterBtn');
+                        const btnText = document.getElementById('recent10BtnText');
+                        if (btn && btnText) {
+                            btn.classList.remove('from-blue-500', 'to-indigo-600');
+                            btn.classList.add('from-purple-500', 'to-purple-700');
+                            btnText.textContent = '필터 해제';
+                        }
+                    }
+
+                    // 리스트 및 차트 바로 갱신 (저장 없이)
+                    applyFilter(true);
+
+                    setTimeout(() => {
+                        if (typeof renderExcludedAcBadges === 'function') renderExcludedAcBadges();
+                    }, 0);
+                    return true;
+                }
+                return false;
+            } finally {
+                window.isLoadingSettings = false;
             }
-            return false;
         }
+
+        // [추가] 실시간 동기화를 위한 스토리지 이벤트 리스너
+        window.addEventListener('storage', (e) => {
+            if (e.key === 'ac_value' || e.key === 'ac_value_filter') {
+                console.log('🔄 대시보드에서 AC값 필터 변경 감지: UI 갱신');
+                loadFilterSettings();
+            }
+        });
     </script>
 </head>
 
@@ -1414,6 +1428,38 @@ ${recent30}
             }
         }
 
+        // [추가] 최근 10회차 필터 토글 적용 (버튼 클릭용)
+        function applyRecent10Filters() {
+            const btn = document.getElementById('recent10FilterBtn');
+            const btnText = document.getElementById('recent10BtnText');
+            const chk = document.getElementById('applyFilterCheck');
+
+            // 토글: 이미 켜져있으면 끄기
+            if (btn && btn.classList.contains('from-purple-500')) {
+                btn.classList.remove('from-purple-500', 'to-purple-700');
+                btn.classList.add('from-blue-500', 'to-indigo-600');
+                if (btnText) btnText.textContent = '최근 10회차 필터 적용';
+
+                // 필터 초기화
+                const minInput = document.getElementById('minFilter');
+                const maxInput = document.getElementById('maxFilter');
+                if (minInput) minInput.value = '';
+                if (maxInput) maxInput.value = '';
+
+                highlightStartRound = null;
+                applyFilter();
+
+                const key = 'ac_value';
+                const cur = JSON.parse(localStorage.getItem(key) || '{}');
+                cur.recent10FilterActive = false;
+                localStorage.setItem(key, JSON.stringify(cur));
+                localStorage.setItem(key + '_filter', JSON.stringify(cur));
+                return;
+            }
+
+            autoApplyRecent10OnLoad();
+        }
+
         // 페이지 로드 시 자동 필터 적용 (새 회차 감지 시만)
         function autoApplyRecent10OnLoad() {
             if (!allDrawData || allDrawData.length < 10) return;
@@ -1429,7 +1475,7 @@ ${recent30}
             if (maxInput) maxInput.value = Math.max(...acValues);
             if (chk) chk.checked = true;
             if (btn) {
-                btn.classList.remove('from-indigo-500', 'to-indigo-600');
+                btn.classList.remove('from-blue-500', 'to-indigo-600');
                 btn.classList.add('from-purple-500', 'to-purple-700');
             }
             if (btnText) btnText.textContent = '필터 해제';
@@ -1440,7 +1486,9 @@ ${recent30}
             cur.recent10FilterActive = true;
             localStorage.setItem(key, JSON.stringify(cur));
             localStorage.setItem(key + '_filter', JSON.stringify(cur));
-            setTimeout(() => renderExcludedAcBadges(), 50);
+            setTimeout(() => {
+                if (typeof renderExcludedAcBadges === 'function') renderExcludedAcBadges();
+            }, 50);
         }
 
         function initChart() {
@@ -1737,8 +1785,8 @@ ${recent30}
         }
 
         // [수정됨] 필터 적용 시마다 저장 함수 호출
-        function applyFilter() {
-            saveFilterSettings();
+        function applyFilter(skipSave = false) {
+            if (!skipSave) saveFilterSettings();
 
             // [표준화] 리스트 렌더링은 필터링하지 않음 (Range 동기화만 유지)
             renderDrawsList();

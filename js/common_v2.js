@@ -379,7 +379,7 @@ if (window._COMMON_V2_LOADED) {
                 else if (num <= 20) colorClass = "bg-blue-500 border-blue-600";
                 else if (num <= 30) colorClass = "bg-rose-500 border-rose-600";
                 else if (num <= 40) colorClass = "bg-slate-500 border-slate-600";
-                return `<span class="inline-flex items-center justify-center w-[22px] h-[22px] rounded-full text-[11px] font-black text-white shadow-sm border mx-[2px] ${colorClass}">${num}</span><span class="font-bold text-gray-700">번</span>`;
+                return `<span class="inline-flex items-center justify-center w-[22px] h-[22px] rounded-full text-[11px] font-black text-white shadow-sm border mx-[2px] ${colorClass}">${num}</span><span class="font-bold text-gray-900">번</span>`;
             });
 
             if (mode === 'dark') {
@@ -1048,9 +1048,15 @@ Format: JSON
             return window.AIAnalysis.formatText(text, mode);
         },
 
-        saveFilter: function (pageKey, filterData) {
+        saveFilter: function (pageKey, filterData, enabled) {
             try {
-                localStorage.setItem(pageKey, JSON.stringify(filterData));
+                let dataToSave = filterData;
+                if (enabled !== undefined) {
+                    dataToSave = { ...filterData, enabled: enabled };
+                }
+                localStorage.setItem(pageKey, JSON.stringify(dataToSave));
+                // 대시보드 호환성을 위해 _filter 접미어 키도 함께 저장
+                localStorage.setItem(pageKey + '_filter', JSON.stringify(dataToSave));
             } catch (e) {
                 console.error('필터 저장 실패:', e);
             }

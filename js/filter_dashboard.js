@@ -31,12 +31,73 @@ window.FilterDashboard = {
         await this.loadDataFromDB();
         this.renderUI();
 
-        // [추가] 실시간 동기화: 다른 탭(total_sum.html 등)에서 저장 시 즉시 반영
+        // [수정] 실시간 동기화: 다른 탭에서 필터 변경 시 즉시 반영
         window.addEventListener('storage', (e) => {
-            if (e.key && (e.key === 'total_sum' || e.key.endsWith('_filter') || e.key === 'regression_analysis' || e.key === 'lotto_basket' || e.key === 'prime_number_patterns' || e.key === 'composite_count' || e.key === 'twin_number_patterns' || e.key === 'square_number_patterns' || e.key === 'triangular_number_patterns')) {
-                console.log(`🔄 Storage Change Detected: ${e.key}. Refreshing Dashboard...`);
+            if (!e.key) return;
+
+            const watchedKeys = new Set([
+                'total_sum', 'last_digit_sum', 'ac_value', 'odd_even_pattern', 'high_low_pattern',
+                'prime_number_patterns', 'composite_count', 'square_number_patterns',
+                'triangular_number_patterns', 'twin_number_patterns', 'neighbor_number_patterns',
+                'carryover_count', 'consecutive_count', 'multiple_3_count', 'number_range_patterns',
+                'magic_square_pattern', 'lotto_paper_pattern', 'hot_cold_5', 'hot_cold_10',
+                'hot_cold_15', 'hot_cold_20', 'missing_period', 'missing_custom_filter',
+                'regression_analysis', 'lotto_basket', 'tail_digit_patterns'
+            ]);
+            // [수정] 커스텀 분석 관련 키 감지 추가
+            const isCustomFilter = e.key.startsWith('custom_filter_');
+            const isAnalysisRefresh = e.key === 'custom_analysis_refresh';
+
+            const isWatched = watchedKeys.has(e.key) || e.key.endsWith('_filter') || isCustomFilter || isAnalysisRefresh;
+            if (!isWatched) return;
+
+            console.log(`🔄 Storage Change Detected: ${e.key}. Refreshing Dashboard...`);
+
+            // 커스텀 분석 생성/삭제/수정 시 즉시 DB 재로드
+            if (isAnalysisRefresh) {
                 this.loadDataFromDB().then(() => this.renderUI());
+                return;
             }
+
+            // 개별 커스텀 필터 설정 변경 시 state 반영
+            if (isCustomFilter && e.newValue) {
+                try {
+                    const customId = e.key.replace('custom_filter_', '');
+                    const newData = JSON.parse(e.newValue);
+                    const custom = this.state.customFilters.find(c => c.id === customId);
+                    if (custom) {
+                        custom.filter_config = newData;
+                        this.renderCustomFilters();
+                        this.updateNeonCounter();
+                        return;
+                    }
+                } catch (err) { }
+            }
+
+            // [핵심] localStorage 변경값을 state에 즉시 병합 후 UI 갱신
+            // DB 재조회보다 빠르고, DB 저장 타이밍 차이도 해소됨
+            if (e.newValue && e.key !== 'lotto_basket') {
+                try {
+                    const newData = JSON.parse(e.newValue);
+                    // foundationFilters에서 해당 key의 def를 찾아 userSettings 업데이트
+                    const def = this.state.foundationFilters.find(d => d.filter_key === e.key);
+                    if (def && this.state.userSettings[def.id]) {
+                        const { enabled, _ts, ...settings } = newData;
+                        if (enabled !== undefined) this.state.userSettings[def.id].enabled = enabled;
+                        if (Object.keys(settings).length > 0) {
+                            this.state.userSettings[def.id].settings = {
+                                ...this.state.userSettings[def.id].settings,
+                                ...settings
+                            };
+                        }
+                        this.renderUI();
+                        return; // DB 재조회 없이 완료
+                    }
+                } catch (err) { /* JSON 파싱 실패 시 DB 재조회로 폴백 */ }
+            }
+
+            // 폴백: DB에서 전체 재조회
+            this.loadDataFromDB().then(() => this.renderUI());
         });
 
         // [추가] GNB 바스켓 실시간 동기화 (같은 탭 내 이벤트 감지)
@@ -72,11 +133,17 @@ window.FilterDashboard = {
     },
 
     renderUI() {
+        this.state.totalActiveCount = 0;
         this.renderBasket();
         this.renderFoundationFilters();
         this.renderRegressionFilters();
         this.renderCustomFilters();
         this.updateNeonCounter();
+
+        const totalCountEl = document.getElementById('totalActiveFilterCount');
+        if (totalCountEl) {
+            totalCountEl.textContent = this.state.totalActiveCount;
+        }
     },
 
     handleDeepLink(focusId) {
@@ -243,6 +310,35 @@ window.FilterDashboard = {
                 }
             }
 
+            // ── missing_custom_filter: 회차 불일치 시 자동 초기화 ──────────────────
+            // missing.html이 로컬에서만 리셋하고 DB 저장 안 한 경우 대시보드에서 정리
+            const mcDef = this.state.foundationFilters.find(d => d.filter_key === 'missing_custom_filter');
+            if (mcDef && this.state.userSettings[mcDef.id] && this.state.allDraws.length > 0) {
+                const mcSet = this.state.userSettings[mcDef.id];
+                const savedRound = mcSet.settings?.targetRound;
+                const currentRound = this.state.allDraws[0].round;
+                const hasOldFilters = (mcSet.settings?.filters || []).some(f => f.numbers && f.numbers.length > 0);
+
+                // 회차가 바뀌었거나, targetRound 기록 자체가 없는 오래된 데이터면 초기화
+                const roundMismatch = savedRound && savedRound !== currentRound;
+                const noRoundStamp = !savedRound;  // targetRound 없는 레거시 데이터
+
+                if ((roundMismatch || noRoundStamp) && hasOldFilters) {
+                    console.log(`[Dashboard] missing_custom_filter 자동 초기화 (savedRound=${savedRound}, current=${currentRound})`);
+                    mcSet.settings.filters = [];
+                    mcSet.settings.counter = 1;
+                    mcSet.settings.targetRound = currentRound;
+                    mcSet.enabled = false;
+                    // DB에 즉시 저장 → 다음 로드에서도 빈 상태 유지
+                    if (window.filterService?.initialized) {
+                        await window.filterService.saveSetting('missing_custom_filter', mcSet.settings, false);
+                        localStorage.removeItem('missGroupFilters');
+                        localStorage.removeItem('missGroupFilterCounter');
+                    }
+                }
+            }
+            // ────────────────────────────────────────────────────────────────────────
+
             // [수정] 회귀 분석 키값 통일 (regression_analysis 우선, regression_patterns 호환)
             if (allSettings['regression_analysis']) {
                 this.state.regressionSettings = allSettings['regression_analysis'].settings || {};
@@ -260,7 +356,17 @@ window.FilterDashboard = {
             }
 
 
-            const { data: customs } = await window.supabaseClient.from('ai_custom_analyses').select('*');
+            // [수정] 커스텀 분석 데이터 로드 (필터링 조건 완화 및 안정화)
+            let _customQuery = window.supabaseClient.from('ai_custom_analyses').select('*');
+            const _customUserId = window.filterService?.userId;
+
+            if (_customUserId) {
+                // 사용자가 로그인한 경우: 본인 데이터 OR 공용(user_id가 null인 경우) 데이터 모두 가져옴
+                _customQuery = _customQuery.or(`user_id.eq.${_customUserId},user_id.is.null`);
+            }
+
+            const { data: customs, error: customsError } = await _customQuery;
+            if (customsError) console.error("Custom Analyses Load Error:", customsError);
             this.state.customFilters = customs || [];
 
             let loadedBasket = { fixed: [], exclude: [] };
@@ -302,8 +408,8 @@ window.FilterDashboard = {
             'carryover_count': 'carryover.html', 'consecutive_count': 'consecutive_number.html',
             'odd_even_pattern': 'odd_even.html', 'high_low_pattern': 'low_high.html',
             'tail_digit_patterns': 'tail_digit.html',
-            'hot_cold_5': 'hot_cold.html', 'hot_cold_10': 'hot_cold.html',
-            'hot_cold_15': 'hot_cold.html', 'hot_cold_20': 'hot_cold.html',
+            'hot_cold_5': 'hot_cold.html?period=5', 'hot_cold_10': 'hot_cold.html?period=10',
+            'hot_cold_15': 'hot_cold.html?period=15', 'hot_cold_20': 'hot_cold.html?period=20',
             'missing_period': 'missing.html',
             'missing_custom_filter': 'missing.html',
             'long_term_miss': 'missing.html',
@@ -1070,43 +1176,40 @@ window.FilterDashboard = {
 
 
         } else if (key === 'missing_custom_filter') {
-            const savedFilters = vals.filters || [];
-
-            if (savedFilters.length === 0) {
+            // 그룹이 없으면 renderFoundationFilters()에서 카드 자체가 스킵되므로
+            // 여기에 도달할 때는 항상 실제 번호가 있는 그룹이 최소 1개 이상
+            const savedFilters = (vals.filters || []).filter(f => f.numbers && f.numbers.length > 0);
+            const ballColor = n => n <= 10 ? '#fbbf24' : n <= 20 ? '#60a5fa' : n <= 30 ? '#f87171' : n <= 40 ? '#9ca3af' : '#34d399';
+            html += `<div class="flex flex-col gap-2.5">`;
+            savedFilters.forEach(f => {
+                const isEnabled = f.enabled || false;
+                const nums = [...new Set(f.numbers || [])].sort((a, b) => a - b);
+                const mn = f.minCount ?? 0;
+                const mx = f.maxCount ?? 6;
                 html += `
-                    <div class="flex flex-col items-center justify-center py-6 text-center gap-2">
-                        <span class="material-symbols-outlined text-3xl text-slate-300">tune</span>
-                        <p class="text-xs text-slate-400 font-bold">저장된 커스텀 필터가 없습니다.</p>
-                        <a href="missing.html" class="mt-1 text-xs font-black text-indigo-600 hover:underline">미출현 페이지에서 추가하기 →</a>
+                    <div class="flex flex-col gap-2 p-3 rounded-xl border ${isEnabled ? 'border-indigo-300 bg-indigo-50/30' : 'border-slate-200 bg-white opacity-60'}">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-xs font-black text-slate-700 flex-1 min-w-0 truncate">${f.name || '미출현그룹'}</span>
+                            <div class="flex items-center gap-1.5 flex-shrink-0">
+                                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wide">MIN</span>
+                                <input type="number" min="0" max="6" value="${mn}"
+                                    class="w-9 h-6 text-center text-[12px] font-bold border border-slate-200 rounded-lg bg-white focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-200"
+                                    onchange="FilterDashboard.updateMissingCustomMinMax('${def.id}', '${f.id}', 'min', this.value)">
+                                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wide">MAX</span>
+                                <input type="number" min="0" max="6" value="${mx}"
+                                    class="w-9 h-6 text-center text-[12px] font-bold border border-slate-200 rounded-lg bg-white focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-200"
+                                    onchange="FilterDashboard.updateMissingCustomMinMax('${def.id}', '${f.id}', 'max', this.value)">
+                            </div>
+                        </div>
+                        <div class="flex flex-wrap gap-1 pt-1.5 border-t border-slate-100">
+                            ${nums.map(n => `<span class="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black text-white" style="background-color:${ballColor(n)}">${String(n).padStart(2, '0')}</span>`).join('')}
+                        </div>
                     </div>`;
-            } else {
-                const ballColor = n => {
-                    if (n <= 10) return '#fbbf24';
-                    if (n <= 20) return '#60a5fa';
-                    if (n <= 30) return '#f87171';
-                    if (n <= 40) return '#9ca3af';
-                    return '#34d399';
-                };
-                html += `<div class="flex flex-col gap-3">`;
-                savedFilters.forEach(f => {
-                    const isEnabled = f.enabled || false;
-                    const nums = [...new Set(f.numbers || [])].sort((a, b) => a - b);
-                    html += `
-                        <div class="flex flex-col gap-2 p-3 rounded-xl border ${isEnabled ? 'border-indigo-300 bg-indigo-50/30' : 'border-slate-200 bg-white opacity-70'}">
-                            <div class="flex items-center justify-between">
-                                <span class="text-xs font-black text-slate-700">${f.name || '미출현그룹'} <span class="text-[11px] font-black text-slate-400">(${nums.length}개 / ${f.minCount ?? 0}~${f.maxCount ?? 6}개)</span></span>
-                                <span class="text-[10px] font-black px-2 py-0.5 rounded-full ${isEnabled ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-500'}">${isEnabled ? 'ON' : 'OFF'}</span>
-                            </div>
-                            <div class="flex flex-wrap gap-1 pt-1 border-t border-slate-100">
-                                ${nums.map(n => `<span class="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black text-white shadow-sm" style="background-color:${ballColor(n)}">${String(n).padStart(2, '0')}</span>`).join('')}
-                            </div>
-                        </div>`;
-                });
-                html += `</div>
-                <div class="mt-2 text-center">
-                    <a href="missing.html" class="text-xs font-black text-indigo-600 hover:underline">미출현 페이지에서 편집 →</a>
-                </div>`;
-            }
+            });
+            html += `</div>
+            <div class="mt-2 text-center">
+                <a href="missing.html" class="text-xs font-black text-indigo-500 hover:underline">미출현 페이지에서 편집 →</a>
+            </div>`;
 
         } else if (key === 'tail_digit_patterns') {
 
@@ -1280,7 +1383,16 @@ window.FilterDashboard = {
 
         orderedFilters.forEach(def => {
             const userSet = this.state.userSettings[def.id] || { enabled: false, settings: {} };
-            if (userSet.enabled) activeCount++;
+
+            // missing_custom_filter는 번호가 실제로 있는 그룹이 없으면 카드 자체를 렌더링하지 않음
+            // (numbers.length > 0 조건으로 빈 껍데기 그룹도 걸러냄)
+            const isMissingCustom = def.filter_key === 'missing_custom_filter';
+            const hasGroups = isMissingCustom
+                ? (userSet.settings?.filters || []).some(f => f.numbers && f.numbers.length > 0)
+                : true;
+            if (isMissingCustom && !hasGroups) return; // 그룹 없으면 카드 통째로 스킵
+
+            if (userSet.enabled && hasGroups) activeCount++;
 
             const isCarryover = def.filter_key === 'carryover_count';
             let displayName = def.filter_name.replace(' 패턴', '').replace('패턴', '').replace(' 개수', '').replace('개수', '').replace('(전체)', '').replace('(당번)', '').trim();
@@ -1315,7 +1427,7 @@ window.FilterDashboard = {
                         <span class="material-symbols-outlined text-[16px] text-slate-400 ${editIconColor}">edit_square</span>
                     </a>
                     <div class="flex items-center gap-2">
-                        <button onclick="FilterDashboard.loadDataFromDB().then(()=>FilterDashboard.renderUI())" 
+                        <button onclick="FilterDashboard.loadDataFromDB().then(()=>FilterDashboard.renderUI())"
                             title="데이터 수동 동기화"
                             class="p-1 text-slate-300 hover:text-indigo-500 transition-colors">
                             <span class="material-symbols-outlined text-[18px]">sync</span>
@@ -1331,6 +1443,7 @@ window.FilterDashboard = {
         });
         container.innerHTML = html;
         document.getElementById('foundationActiveCount').textContent = `${activeCount}개 적용중`;
+        if (this.state.totalActiveCount !== undefined) this.state.totalActiveCount += activeCount;
     },
 
     // 🔥 핵심 변경점: 회귀 분석 렌더링 (입력창 추가 및 텍스트 수정)
@@ -1376,6 +1489,7 @@ window.FilterDashboard = {
         }
         container.innerHTML = html;
         document.getElementById('regressionActiveCount').textContent = `${activeCount}개 적용중`;
+        if (this.state.totalActiveCount !== undefined) this.state.totalActiveCount += activeCount;
     },
 
     renderCustomFilters() {
@@ -1385,54 +1499,104 @@ window.FilterDashboard = {
         let activeCount = 0;
 
         this.state.customFilters.forEach(custom => {
-            let config = typeof custom.filter_config === 'string' ? JSON.parse(custom.filter_config) : (custom.filter_config || {});
-            let targetNums = this.calculateCustomTargets(custom);
-            if (config.enabled) activeCount++;
+            try {
+                let config = {};
+                if (typeof custom.filter_config === 'string') {
+                    try { config = JSON.parse(custom.filter_config || '{}'); } catch (e) { config = {}; }
+                } else {
+                    config = custom.filter_config || {};
+                }
 
-            let targetHtml = targetNums.length > 0
-                ? `<div class="mb-2 flex justify-between items-center"><span class="text-xs font-bold text-slate-500">대상번호</span><span class="text-[11px] font-black text-pink-600">${targetNums.length}개</span></div><div class="flex flex-wrap gap-1">${this.renderBalls(targetNums)}</div>`
-                : `<div class="text-[11px] font-bold text-slate-400 flex items-center justify-center py-2 bg-slate-100 rounded">타겟 생성 중/없음</div>`;
+                let targetNums = [];
+                try {
+                    targetNums = this.calculateCustomTargets(custom);
+                } catch (e) {
+                    console.warn(`[Dashboard] Target calculation failed for: ${custom.title}`, e);
+                }
 
-            html += `
-            <div id="filter-card-${custom.id}" class="bg-white rounded-2xl border ${config.enabled ? 'border-pink-500 shadow-md ring-1 ring-pink-100' : 'border-slate-200 opacity-70'} p-5 transition-all">
-                <div class="flex items-center justify-between mb-3">
-                    <div class="flex items-center gap-2">
-                        <span class="px-2 py-0.5 rounded text-[10px] font-black bg-slate-100 text-slate-500 uppercase">${custom.type}</span>
-                        <a href="custom_analysis.html?id=${custom.id}" class="text-base font-black text-slate-800 truncate w-48">${custom.title}</a>
+                if (config.enabled) activeCount++;
+
+                let targetHtml = targetNums.length > 0
+                    ? `<div class="mb-2 flex justify-between items-center"><span class="text-xs font-bold text-slate-500">대상번호</span><span class="text-[11px] font-black text-pink-600">${targetNums.length}개</span></div><div class="flex flex-wrap gap-1">${this.renderBalls(targetNums)}</div>`
+                    : `<div class="text-[11px] font-bold text-slate-400 flex items-center justify-center py-2 bg-slate-100 rounded">타겟 생성 중/없음</div>`;
+
+                html += `
+                <div id="filter-card-${custom.id}" class="bg-white rounded-2xl border ${config.enabled ? 'border-pink-500 shadow-md ring-1 ring-pink-100' : 'border-slate-200 opacity-70'} p-5 transition-all">
+                    <div class="flex items-center justify-between mb-3">
+                        <div class="flex items-center gap-2">
+                            <span class="px-2 py-0.5 rounded text-[10px] font-black bg-slate-100 text-slate-500 uppercase">${custom.type || '분석'}</span>
+                            <a href="custom_analysis.html?id=${custom.id}" class="text-base font-black text-slate-800 truncate w-48">${custom.title || '제목 없음'}</a>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" class="sr-only peer" ${config.enabled ? 'checked' : ''} onchange="FilterDashboard.toggleCustom('${custom.id}', this.checked)">
+                            <div class="w-10 h-5 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 transition-all peer-checked:bg-pink-600"></div>
+                        </label>
                     </div>
-                    <label class="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" class="sr-only peer" ${config.enabled ? 'checked' : ''} onchange="FilterDashboard.toggleCustom('${custom.id}', this.checked)">
-                        <div class="w-10 h-5 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 transition-all peer-checked:bg-pink-600"></div>
-                    </label>
-                </div>
-                <div class="p-3 bg-slate-50 border border-slate-100 rounded-xl mb-3">${targetHtml}</div>
-                <div class="flex items-center gap-3">
-                    <div class="flex-1 bg-white border border-slate-200 rounded-lg flex items-center px-3 py-2 shadow-sm">
-                        <span class="text-xs font-black text-slate-400 uppercase w-8">Min</span>
-                        <input type="number" value="${config.min || 0}" class="w-full text-right font-black text-slate-700 bg-transparent border-none p-0 focus:ring-0">
+                    <div class="p-3 bg-slate-50 border border-slate-100 rounded-xl mb-3">${targetHtml}</div>
+                    <div class="flex items-center gap-3">
+                        <div class="flex-1 bg-white border border-slate-200 rounded-lg flex items-center px-3 py-2 shadow-sm">
+                            <span class="text-xs font-black text-slate-400 uppercase w-8">Min</span>
+                            <input type="number" value="${config.min || 0}" 
+                                oninput="FilterDashboard.updateCustomMinMax('${custom.id}', 'min', this.value)"
+                                class="w-full text-right font-black text-slate-700 bg-transparent border-none p-0 focus:ring-0">
+                        </div>
+                        <span class="text-slate-300 font-bold">~</span>
+                        <div class="flex-1 bg-white border border-slate-200 rounded-lg flex items-center px-3 py-2 shadow-sm">
+                            <span class="text-xs font-black text-slate-400 uppercase w-8">Max</span>
+                            <input type="number" value="${config.max || 6}" 
+                                oninput="FilterDashboard.updateCustomMinMax('${custom.id}', 'max', this.value)"
+                                class="w-full text-right font-black text-slate-700 bg-transparent border-none p-0 focus:ring-0">
+                        </div>
                     </div>
-                    <span class="text-slate-300 font-bold">~</span>
-                    <div class="flex-1 bg-white border border-slate-200 rounded-lg flex items-center px-3 py-2 shadow-sm">
-                        <span class="text-xs font-black text-slate-400 uppercase w-8">Max</span>
-                        <input type="number" value="${config.max || 6}" class="w-full text-right font-black text-slate-700 bg-transparent border-none p-0 focus:ring-0">
-                    </div>
-                </div>
-            </div>`;
+                </div>`;
+            } catch (err) {
+                console.error(`[Dashboard] Critical error rendering custom filter card:`, err, custom);
+            }
         });
         container.innerHTML = html;
         if (document.getElementById('customActiveCount')) document.getElementById('customActiveCount').textContent = `${activeCount}개 적용중`;
+        if (this.state.totalActiveCount !== undefined) this.state.totalActiveCount += activeCount;
     },
 
     async toggleSetting(id, isEnabled) {
         if (this.state.userSettings[id]) {
             this.state.userSettings[id].enabled = isEnabled;
-            if (window.filterService?.initialized) {
-                const def = this.state.foundationFilters.find(d => d.id === id);
-                if (def) await window.filterService.saveSetting(def.filter_key, this.state.userSettings[id].settings, isEnabled);
+            const def = this.state.foundationFilters.find(d => d.id === id);
+            if (def) {
+                const settings = this.state.userSettings[id].settings || {};
+                // [수정] Utils.saveFilter 사용 → DB + localStorage 동시 저장으로 실시간 동기화
+                if (window.Utils && window.Utils.saveFilter) {
+                    await window.Utils.saveFilter(def.filter_key, { ...settings, enabled: isEnabled });
+                } else if (window.filterService?.initialized) {
+                    await window.filterService.saveSetting(def.filter_key, settings, isEnabled);
+                }
             }
         }
         this.renderFoundationFilters();
         this.updateNeonCounter();
+    },
+
+    // 미출현 커스텀 그룹별 min/max 인라인 수정
+    async updateMissingCustomMinMax(defId, groupId, type, rawVal) {
+        const userSet = this.state.userSettings[defId];
+        if (!userSet) return;
+        const filters = userSet.settings.filters || [];
+        const group = filters.find(f => String(f.id) === String(groupId));
+        if (!group) return;
+
+        const v = Math.max(0, Math.min(6, parseInt(rawVal) || 0));
+        if (type === 'min') group.minCount = v;
+        else group.maxCount = v;
+
+        // 디바운스 저장 (400ms) — input 포커스 유지를 위해 renderFoundationFilters 호출 안 함
+        if (this._mcSaveTimer) clearTimeout(this._mcSaveTimer);
+        this._mcSaveTimer = setTimeout(async () => {
+            const def = this.state.foundationFilters.find(d => d.id === defId);
+            if (def && window.filterService?.initialized) {
+                await window.Utils.saveFilter(def.filter_key, userSet.settings, userSet.enabled);
+            }
+            this.updateNeonCounter();
+        }, 400);
     },
 
     async updateFilterValue(id, type, value) {
@@ -1443,9 +1607,14 @@ window.FilterDashboard = {
 
             if (this._saveTimer) clearTimeout(this._saveTimer);
             this._saveTimer = setTimeout(async () => {
-                if (window.filterService?.initialized) {
-                    const def = this.state.foundationFilters.find(d => d.id === id);
-                    if (def) await window.filterService.saveSetting(def.filter_key, this.state.userSettings[id].settings, this.state.userSettings[id].enabled);
+                const def = this.state.foundationFilters.find(d => d.id === id);
+                if (def) {
+                    // [수정] window.Utils.saveFilter 사용 (DB + localStorage 동시 저장 및 타 탭 동기화 유도)
+                    if (window.Utils && window.Utils.saveFilter) {
+                        await window.Utils.saveFilter(def.filter_key, this.state.userSettings[id].settings, this.state.userSettings[id].enabled);
+                    } else if (window.filterService?.initialized) {
+                        await window.filterService.saveSetting(def.filter_key, this.state.userSettings[id].settings, this.state.userSettings[id].enabled);
+                    }
                 }
                 this.updateNeonCounter();
             }, 500);
@@ -1463,9 +1632,13 @@ window.FilterDashboard = {
             }
             this.state.userSettings[id].settings[arrayName] = arr;
 
-            if (window.filterService?.initialized) {
-                const def = this.state.foundationFilters.find(d => d.id === id);
-                if (def) await window.filterService.saveSetting(def.filter_key, this.state.userSettings[id].settings, this.state.userSettings[id].enabled);
+            const def = this.state.foundationFilters.find(d => d.id === id);
+            if (def) {
+                if (window.Utils && window.Utils.saveFilter) {
+                    await window.Utils.saveFilter(def.filter_key, this.state.userSettings[id].settings, this.state.userSettings[id].enabled);
+                } else if (window.filterService?.initialized) {
+                    await window.filterService.saveSetting(def.filter_key, this.state.userSettings[id].settings, this.state.userSettings[id].enabled);
+                }
             }
             this.renderFoundationFilters();
             this.updateNeonCounter();
@@ -1479,9 +1652,13 @@ window.FilterDashboard = {
             }
             this.state.userSettings[id].settings.runFilters[runKey] = isChecked;
 
-            if (window.filterService?.initialized) {
-                const def = this.state.foundationFilters.find(d => d.id === id);
-                if (def) await window.filterService.saveSetting(def.filter_key, this.state.userSettings[id].settings, this.state.userSettings[id].enabled);
+            const def = this.state.foundationFilters.find(d => d.id === id);
+            if (def) {
+                if (window.Utils && window.Utils.saveFilter) {
+                    await window.Utils.saveFilter(def.filter_key, this.state.userSettings[id].settings, this.state.userSettings[id].enabled);
+                } else if (window.filterService?.initialized) {
+                    await window.filterService.saveSetting(def.filter_key, this.state.userSettings[id].settings, this.state.userSettings[id].enabled);
+                }
             }
             this.renderFoundationFilters();
             this.updateNeonCounter();
@@ -1504,7 +1681,7 @@ window.FilterDashboard = {
 
         const def = this.state.foundationFilters.find(f => f.id === id);
         if (def && window.filterService?.initialized) {
-            await window.filterService.saveSetting(def.filter_key, userSet.settings, userSet.enabled);
+            await window.Utils.saveFilter(def.filter_key, userSet.settings, userSet.enabled);
         }
         this.renderFoundationFilters();
         this.updateNeonCounter();
@@ -1521,7 +1698,7 @@ window.FilterDashboard = {
 
         const def = this.state.foundationFilters.find(f => f.id === id);
         if (def && window.filterService?.initialized) {
-            await window.filterService.saveSetting(def.filter_key, userSet.settings, userSet.enabled);
+            await window.Utils.saveFilter(def.filter_key, userSet.settings, userSet.enabled);
         }
         this.renderFoundationFilters();
         this.updateNeonCounter();
@@ -1538,7 +1715,7 @@ window.FilterDashboard = {
 
         const def = this.state.foundationFilters.find(f => f.id === id);
         if (def && window.filterService?.initialized) {
-            await window.filterService.saveSetting(def.filter_key, userSet.settings, userSet.enabled);
+            await window.Utils.saveFilter(def.filter_key, userSet.settings, userSet.enabled);
         }
         this.renderFoundationFilters();
         this.updateNeonCounter();
@@ -1555,7 +1732,7 @@ window.FilterDashboard = {
 
         const def = this.state.foundationFilters.find(f => f.id === id);
         if (def && window.filterService?.initialized) {
-            await window.filterService.saveSetting(def.filter_key, userSet.settings, userSet.enabled);
+            await window.Utils.saveFilter(def.filter_key, userSet.settings, userSet.enabled);
         }
         this.renderFoundationFilters();
         this.updateNeonCounter();
@@ -1577,7 +1754,7 @@ window.FilterDashboard = {
 
         const def = this.state.foundationFilters.find(f => f.id === id);
         if (def && window.filterService?.initialized) {
-            await window.filterService.saveSetting(def.filter_key, userSet.settings, userSet.enabled);
+            await window.Utils.saveFilter(def.filter_key, userSet.settings, userSet.enabled);
         }
         this.renderFoundationFilters();
         this.updateNeonCounter();
@@ -1601,7 +1778,7 @@ window.FilterDashboard = {
 
         const def = this.state.foundationFilters.find(f => f.id === id);
         if (def && window.filterService?.initialized) {
-            await window.filterService.saveSetting(def.filter_key, userSet.settings, userSet.enabled);
+            await window.Utils.saveFilter(def.filter_key, userSet.settings, userSet.enabled);
         }
         this.renderFoundationFilters();
         this.updateNeonCounter();
@@ -1641,7 +1818,7 @@ window.FilterDashboard = {
 
         const def = this.state.foundationFilters.find(f => f.id === id);
         if (def && window.filterService?.initialized) {
-            await window.filterService.saveSetting(def.filter_key, userSet.settings, userSet.enabled);
+            await window.Utils.saveFilter(def.filter_key, userSet.settings, userSet.enabled);
         }
         this.renderFoundationFilters();
         this.updateNeonCounter();
@@ -1655,7 +1832,7 @@ window.FilterDashboard = {
 
         const def = this.state.foundationFilters.find(f => f.id === id);
         if (def && window.filterService?.initialized) {
-            await window.filterService.saveSetting(def.filter_key, userSet.settings, userSet.enabled);
+            await window.Utils.saveFilter(def.filter_key, userSet.settings, userSet.enabled);
         }
         this.renderFoundationFilters();
         this.updateNeonCounter();
@@ -1699,9 +1876,39 @@ window.FilterDashboard = {
             if (window.supabaseClient) {
                 await window.supabaseClient.from('ai_custom_analyses').update({ filter_config: conf, updated_at: new Date().toISOString() }).eq('id', id);
             }
+            // [추가] 실시간 동기화를 위한 localStorage 저장
+            if (window.Utils && window.Utils.saveFilter) {
+                window.Utils.saveFilter(`custom_filter_${id}`, conf);
+            } else {
+                localStorage.setItem(`custom_filter_${id}`, JSON.stringify(conf));
+            }
             this.renderCustomFilters();
             this.updateNeonCounter();
         }
+    },
+
+    // [New] 커스텀 분석 Min/Max 변경 핸들러
+    async updateCustomMinMax(id, type, value) {
+        const custom = this.state.customFilters.find(c => c.id === id);
+        if (!custom) return;
+
+        let conf = typeof custom.filter_config === 'string' ? JSON.parse(custom.filter_config) : custom.filter_config;
+        conf[type] = parseInt(value) || 0;
+        custom.filter_config = conf;
+
+        // DB Update
+        if (window.supabaseClient) {
+            await window.supabaseClient.from('ai_custom_analyses').update({ filter_config: conf }).eq('id', id);
+        }
+
+        // localStorage 저장 (실시간 동기화용)
+        if (window.Utils && window.Utils.saveFilter) {
+            window.Utils.saveFilter(`custom_filter_${id}`, conf);
+        } else {
+            localStorage.setItem(`custom_filter_${id}`, JSON.stringify(conf));
+        }
+
+        this.updateNeonCounter();
     },
 
     async bulkToggleRegression(isOn) {
@@ -1757,11 +1964,15 @@ window.FilterDashboard = {
                 }
             }
 
-            if (window.filterService?.initialized && key) {
-                await window.filterService.saveSetting(key, record.settings, record.enabled);
-                // localStorage 동기화
-                const settingsWithEnabled = { ...record.settings, enabled: record.enabled };
-                localStorage.setItem(key, JSON.stringify(settingsWithEnabled));
+            if (key) {
+                // [수정] window.Utils.saveFilter 사용 (DB + localStorage 동시 저장 및 실시간 동기화)
+                if (window.Utils && window.Utils.saveFilter) {
+                    await window.Utils.saveFilter(key, record.settings, record.enabled);
+                } else if (window.filterService?.initialized) {
+                    await window.filterService.saveSetting(key, record.settings, record.enabled);
+                    const settingsWithEnabled = { ...record.settings, enabled: record.enabled };
+                    localStorage.setItem(key, JSON.stringify(settingsWithEnabled));
+                }
             }
             this.renderFoundationFilters();
             this.updateNeonCounter();
@@ -1796,12 +2007,16 @@ window.FilterDashboard = {
                 }
             }
 
-            if (window.filterService?.initialized && key) {
-                await window.filterService.saveSetting(key, record.settings, record.enabled);
-                // localStorage 동기화
-                const settingsWithEnabled = { ...record.settings, enabled: record.enabled };
-                localStorage.setItem(key, JSON.stringify(settingsWithEnabled));
-                localStorage.setItem(key + '_filter', JSON.stringify(settingsWithEnabled));
+            if (key) {
+                // [수정] window.Utils.saveFilter 사용 (DB + localStorage 동시 저장 및 실시간 동기화)
+                if (window.Utils && window.Utils.saveFilter) {
+                    await window.Utils.saveFilter(key, record.settings, record.enabled);
+                } else if (window.filterService?.initialized) {
+                    await window.filterService.saveSetting(key, record.settings, record.enabled);
+                    const settingsWithEnabled = { ...record.settings, enabled: record.enabled };
+                    localStorage.setItem(key, JSON.stringify(settingsWithEnabled));
+                    localStorage.setItem(key + '_filter', JSON.stringify(settingsWithEnabled));
+                }
             }
             this.renderFoundationFilters();
             this.updateNeonCounter();
@@ -1917,5 +2132,44 @@ window.FilterDashboard = {
         } catch (error) {
             console.error("🚨 [Counter Error] 카운팅 로직 중 치명적 에러 발생:", error);
         }
+    },
+
+    // [추가] 대시보드에서 미출현 그룹 필터(Min/Max)를 변경하면 저장 및 동기화
+    async updateMissingPeriodFilter(defId, rangeKey, value) {
+        const setting = this.state.userSettings[defId];
+        if (!setting) return;
+
+        if (!setting.settings.ranges) setting.settings.ranges = {};
+        setting.settings.ranges[rangeKey] = parseInt(value) || 0;
+
+        // Utils.saveFilter 를 통해 DB + localStorage 동시 저장 → missing.html의 storage 이벤트 트리거
+        if (window.Utils && window.Utils.saveFilter) {
+            await window.Utils.saveFilter('missing_period', {
+                useRangeFilter: true,
+                ranges: setting.settings.ranges
+            }, setting.enabled !== false);
+        }
+
+        console.log(`✅ [Dashboard] missing_period 저장: ${rangeKey} = ${value}`);
+    },
+
+    // [추가] 대시보드에서 미출현 커스텀 필터(Min/Max)를 변경하면 저장 및 동기화
+    async updateMissingCustomMinMax(defId, filterId, type, value) {
+        const setting = this.state.userSettings[defId];
+        if (!setting || !setting.settings.filters) return;
+
+        const filter = setting.settings.filters.find(f => String(f.id) === String(filterId));
+        if (!filter) return;
+
+        if (type === 'min') filter.minCount = parseInt(value) || 0;
+        else filter.maxCount = parseInt(value) || 0;
+
+        if (window.Utils && window.Utils.saveFilter) {
+            await window.Utils.saveFilter('missing_custom_filter', {
+                filters: setting.settings.filters
+            }, setting.enabled !== false);
+        }
+
+        console.log(`✅ [Dashboard] missing_custom_filter 저장: filterId=${filterId}, ${type}=${value}`);
     }
 };

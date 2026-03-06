@@ -52,10 +52,9 @@
             };
             const enabled = data.useRangeFilter;
 
-            if (window.filterService && window.filterService.initialized) {
-                await window.filterService.saveSetting('missing_period', data, enabled);
-            } else if (window.Utils && window.Utils.saveFilter) {
-                window.Utils.saveFilter('missing_filter', data);
+            // 공통 Utils를 통해 DB 및 localStorage 동시 저장 (실시간 동기화 'storage' 이벤트 트리거)
+            if (window.Utils && window.Utils.saveFilter) {
+                await window.Utils.saveFilter('missing_period', data, enabled);
             }
         }
 
@@ -64,8 +63,9 @@
             let saved = null;
             const currentRound = (allData && allData.length > 0) ? allData[0].round : null;
 
-            if (window.filterService && window.filterService.initialized) {
-                const data = await window.filterService.loadSetting('missing_period');
+            // 공통 Utils를 통해 DB 및/또는 localStorage에서 로드
+            if (window.Utils && window.Utils.loadFilter) {
+                const data = await window.Utils.loadFilter('missing_period');
                 if (data && data.settings) {
                     // [New] 새 회차 감지: savedRound ≠ currentRound 시 자동 초기화
                     if (data.settings.targetRound && currentRound && data.settings.targetRound !== currentRound) {
@@ -73,11 +73,13 @@
                         return false;
                     }
                     saved = data.settings;
+                } else if (data) {
+                    // DB 설정 없이 localStorage에서만 로드된 경우 (기존 호환성)
+                    if (data.targetRound && currentRound && data.targetRound !== currentRound) {
+                        return false;
+                    }
+                    saved = data;
                 }
-            }
-
-            if (!saved && window.Utils && window.Utils.loadFilter) {
-                saved = window.Utils.loadFilter('missing_filter');
             }
 
             if (saved) {
@@ -1440,6 +1442,7 @@
         function deleteFilter(filterId) {
             customFilters = customFilters.filter(f => f.id !== filterId);
             renderFiltersList();
+            saveFilters(); // 삭제 즉시 DB/localStorage에 반영 (카드 동기화)
         }
 
         async function saveFilters() {
@@ -1467,12 +1470,13 @@
                 const data = await window.filterService.loadSetting('missing_custom_filter');
                 if (data && data.settings) {
                     const s = data.settings;
-                    // 새 회차이면 커스텀 필터 초기화
+                    // 새 회차이면 커스텀 필터 초기화 + DB에도 즉시 저장
                     if (s.targetRound && currentRound && s.targetRound !== currentRound) {
                         console.log('🔄 새 회차 - 커스텀 필터 초기화');
                         customFilters = [];
                         filterIdCounter = 1;
                         renderFiltersList();
+                        await saveFilters(); // 초기화된 빈 상태를 DB에도 반영
                         return;
                     }
                     if (Array.isArray(s.filters)) {
@@ -2084,14 +2088,23 @@
         document.addEventListener('DOMContentLoaded', function () {
             loadData();
 
+            // [추가] 대시보드(filter.html) 또는 다른 탭에서 필터를 변경했을 때 실시간 반영
+            window.addEventListener('storage', (e) => {
+                if (e.key === 'missing_period' || e.key === 'missing_filter') {
+                    console.log('🔄 미출현 필터 변경 감지 - UI 갱신');
+                    loadFilterSettings().then(() => {
+                        if (useRangeFilter) renderDrawsList();
+                    });
+                }
+            });
+
             // [New] NLP Initialize
             if (window.BasicAnalysisNLP) {
                 new BasicAnalysisNLP('#nlp-main-input-container', {
                     onNavigate: (round) => {
-                        selectRound(round); // Reuse existing selectRound function
+                        selectRound(round);
                     },
                     onHighlight: (params) => {
-                        // TODO: Implement specific highlighting logic if needed
                         console.log('Highlight requested:', params);
                     }
                 });

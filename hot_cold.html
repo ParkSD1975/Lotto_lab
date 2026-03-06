@@ -64,6 +64,15 @@
             20: { hot: 5, neutral: [4, 2], cold: [1, 0] }
         };
 
+        // [추가] 필터 UI 값 변경 시 저장
+        async function updateFilters() {
+            await saveFilterSettings();
+        }
+
+        async function toggleFilterApply() {
+            await saveFilterSettings();
+        }
+
         // [수정] 필터 저장 함수 - 기간별 키(hot_cold_5/10/15/20)로 각각 저장
         async function saveFilterSettings() {
             // GNB 바스켓 동기화: 로쫬스토리에서 읽어 전역 변수 업데이트
@@ -95,15 +104,16 @@
             };
             const enabled = document.getElementById('filterToggle').checked;
 
-            // DB 저장 (기간별 키 hot_cold_5/10/15/20)
-            if (window.filterService && window.filterService.initialized) {
-                const periodKey = `hot_cold_${currentPeriod}`;
-                await window.filterService.saveSetting(periodKey, {
+            // DB 및 로컬스토리지 저장 (기간별 키 hot_cold_5/10/15/20)
+            const periodKey = `hot_cold_${currentPeriod}`;
+            if (window.Utils && window.Utils.saveFilter) {
+                await window.Utils.saveFilter(periodKey, {
                     periodFilter: periodFilters[currentPeriod],
                     targetRound: targetRound
                 }, enabled);
-            } else if (window.Utils && window.Utils.saveFilter) {
-                window.Utils.saveFilter('hot_cold_filter_v2', { ...settings, filterApplied: enabled });
+
+                // 구버전 호환성을 위해 v2 키에도 동시에 백업
+                // window.Utils.saveFilter('hot_cold_filter_v2', { ...settings, filterApplied: enabled });
             }
         }
 
@@ -239,14 +249,21 @@
             renderFilterZones();
             renderDrawsList(); // 기간 변경 시에는 리스트 새로고침 필요
 
-            // AI 분석 새로고침
-            await refreshAIAnalysis();
+            // 로딩 속도 최적화를 위해 자동 AI 분석(타이틀 분석) 실행 제거
+            // await refreshAIAnalysis();
         }
 
         // [신규] 분석 업데이트 함수
         function updateAnalysis() {
             if (allData.length === 0) return;
             updateSelectedRoundDisplay();
+        }
+
+        // [추가] 필터 페이지로 이동 - 현재 기준 회차를 URL에 반영
+        // 대시보드의 해당 핫/콜드 세션으로 바로 이동 + 하이라이트
+        function goToFilterPage() {
+            const periodKey = `hot_cold_${currentPeriod}`;
+            window.location.href = `filter.html?tab=foundation&id=${periodKey}`;
         }
 
         // 🔹 페이지 전용 Tailwind 설정
@@ -492,9 +509,8 @@
             <main class="flex-1 overflow-y-auto p-8 custom-scrollbar">
                 <div class="max-w-7xl mx-auto space-y-6">
                     <div>
-                        <h1 class="text-3xl font-bold text-gray-900 mb-2">핫/콜드 분석</h1>
-                        <p class="text-sm text-gray-600">최근 당첨 패턴을 분석하여 뜨거운 번호(Hot), 중립 번호(Neutral), 차가운 번호(Cold)를
-                            식별합니다.</p>
+                        <h1 class="text-3xl font-bold text-gray-900 mb-1">핫/콜드</h1>
+                        <p class="text-sm text-gray-600">번호별 출현 빈도를 분석하여 핫, 중립, 콜드 그룹으로 분류합니다.</p>
                     </div>
 
                     <div class="ai-section p-8 pb-10 mb-6">
@@ -511,9 +527,10 @@
                         </div>
 
                         <div id="aiAnalysisContent" class="min-h-[100px] flex items-center justify-center">
-                            <div class="flex items-center gap-2 text-gray-500">
-                                <span class="material-symbols-outlined text-lg animate-spin">progress_activity</span>
-                                <span>AI가 핫/콜드 패턴을 분석하고 있습니다...</span>
+                            <!-- 기본 안내 문구 -->
+                            <div class="text-center text-gray-500">
+                                <span class="material-symbols-outlined text-4xl mb-2 opacity-50">smart_toy</span>
+                                <p>질문을 선택하거나 입력하여 AI 분석을 시작하세요.</p>
                             </div>
                         </div>
 
@@ -579,11 +596,11 @@
                     <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
                         <div class="flex items-center justify-between mb-4">
                             <h3 class="text-lg font-bold text-gray-900">기간 당첨 개수별 번호 및 필터</h3>
-                            <a href="filter.html?tab=foundation&id=hot_cold_10"
+                            <button onclick="goToFilterPage()"
                                 class="text-sm font-medium text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
                                 <span class="material-symbols-outlined text-[18px]">tune</span>
                                 필터 페이지 가기
-                            </a>
+                            </button>
                         </div>
 
                         <div
@@ -830,6 +847,8 @@
                     client.from('lotto_draws').select('*').order('round', { ascending: false }).range(0, 5000),
                     client.from('number_features_by_round')
                         .select('round, number, appearance_count_5, appearance_count_10, appearance_count_15, appearance_count_20')
+                        .order('round', { ascending: false })
+                        .range(0, 13500) // 최근 약 300회차만 가져와서 로딩 속도 최적화 (1회 당 45row -> 13,500row)
                 ]);
 
                 if (drawsResult.error) throw drawsResult.error;
@@ -869,6 +888,14 @@
                 // [수정] 필터 로드 (저장된 값이 없으면 기본값)
                 await loadFilterSettings();
 
+                // [추가] URL 파라미터 ?period=N 으로 진입 시 해당 기준 회차 자동 선택
+                // 대시보드(filter.html)에서 핫/콜드 5회 세션 → 링크 클릭 시 자동 5회차 선택
+                const urlParams = new URLSearchParams(window.location.search);
+                const periodParam = parseInt(urlParams.get('period'));
+                if ([5, 10, 15, 20].includes(periodParam) && periodParam !== currentPeriod) {
+                    await setPeriod(periodParam);
+                }
+
                 // 만약 저장된 필터가 없었다면(첫 진입), 현재 Period에 대해 자동 계산 수행
                 if (!periodFilters[currentPeriod]) {
                     calculateAndSetMinMax(currentPeriod);
@@ -902,10 +929,48 @@
             renderFilterZones();
         });
 
-        // [New] 다른 탭/창에서 바스켓 변경 시도 감지 (localStorage 이벤트)
+        // [New] 다른 탭/창에서 바스켓 변경 및 필터 변경 시도 감지 (localStorage 이벤트)
         window.addEventListener('storage', (e) => {
             if (e.key === 'lotto_basket') {
                 syncBasketFromGNB();
+                return;
+            }
+
+            if (e.key && e.key.startsWith('hot_cold_')) {
+                const period = parseInt(e.key.replace('hot_cold_', ''));
+                if ([5, 10, 15, 20].includes(period)) {
+                    try {
+                        const parsed = JSON.parse(e.newValue);
+                        const settings = parsed.settings || parsed;
+                        const enabled = parsed.enabled !== undefined ? parsed.enabled : true;
+
+                        if (settings && settings.periodFilter) {
+                            periodFilters[period] = settings.periodFilter;
+
+                            // 현재 보고 있는 기준 회차 탭과 동일할 경우 UI 즉시 업데이트
+                            if (currentPeriod === period) {
+                                document.getElementById('hotMin').value = settings.periodFilter.hotMin ?? 0;
+                                document.getElementById('hotMax').value = settings.periodFilter.hotMax ?? 6;
+                                document.getElementById('neutralMin').value = settings.periodFilter.neutralMin ?? 0;
+                                document.getElementById('neutralMax').value = settings.periodFilter.neutralMax ?? 6;
+                                document.getElementById('coldMin').value = settings.periodFilter.coldMin ?? 0;
+                                document.getElementById('coldMax').value = settings.periodFilter.coldMax ?? 6;
+
+                                const toggle = document.getElementById('filterToggle');
+                                if (toggle) toggle.checked = enabled;
+
+                                // 하이라이트/카운트 테이블 비주얼 업데이트 트리거
+                                if (typeof highlightStartRound !== 'undefined' && highlightStartRound) {
+                                    if (typeof highlightTenDraws === 'function') highlightTenDraws(highlightStartRound);
+                                } else {
+                                    if (typeof renderCountTable === 'function') renderCountTable();
+                                }
+                            }
+                        }
+                    } catch (err) {
+                        console.error('필터 실시간 동기화 파싱 오류:', err);
+                    }
+                }
             }
         });
 

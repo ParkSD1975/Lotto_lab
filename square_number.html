@@ -63,9 +63,14 @@
             afterDatasetsDraw: function (chart) { }
         };
 
+        // 전역 로딩 플래그 (무한 루프 방지)
+        window.isLoadingSettings = false;
+
         // [수정됨] 필터 설정 저장 함수
         // [수정] 필터 설정 저장 함수 (DB 저장)
         async function saveFilterSettings() {
+            if (window.isLoadingSettings) return;
+
             const toggle = document.getElementById('applyFilterCheck');
 
             // 활성화된 개수 필터 수집
@@ -79,82 +84,114 @@
 
             const data = {
                 selectedCounts: activeCounts,
-                excludedNumbers: Array.from(excludedNumbers)
+                excludedNumbers: Array.from(excludedNumbers),
+                recent10FilterActive: isRecentTenFilter
             };
             const enabled = toggle ? toggle.checked : true;
+            const settingsWithEnabled = { ...data, enabled };
 
             // DB 저장 (FilterService 사용)
             if (window.filterService && window.filterService.initialized) {
                 await window.filterService.saveSetting('square_number_patterns', data, enabled);
             } else if (window.Utils && window.Utils.saveFilter) {
                 // Fallback: localStorage
-                window.Utils.saveFilter('square_filter', { ...data, enabled });
+                window.Utils.saveFilter('square_filter', settingsWithEnabled);
             }
+
+            // localStorage sync
+            localStorage.setItem('square_number_patterns', JSON.stringify(settingsWithEnabled));
+            localStorage.setItem('square_number_patterns_filter', JSON.stringify(settingsWithEnabled));
         }
 
         // [수정] 필터 설정 불러오기 함수 (DB 로드)
         async function loadFilterSettings() {
-            let saved = null;
+            window.isLoadingSettings = true;
+            try {
+                let saved = null;
 
-            // DB에서 로드 (FilterService 사용)
-            if (window.filterService && window.filterService.initialized) {
-                const data = await window.filterService.loadSetting('square_number_patterns');
-                if (data) {
-                    saved = { ...data.settings, enabled: data.enabled };
-                }
-            }
-
-            // Fallback: localStorage
-            if (!saved && window.Utils && window.Utils.loadFilter) {
-                saved = window.Utils.loadFilter('square_filter');
-            }
-
-            if (saved) {
-                // 개수 필터 복구
-                const counts = new Set(saved.selectedCounts || []);
-                for (let i = 0; i <= 6; i++) {
-                    const btn = document.getElementById(`filter-btn-${i}`);
-                    const card = document.getElementById(`card-${i}`);
-                    if (counts.has(i)) {
-                        if (btn) btn.classList.add('filter-btn-active');
-                        if (card) {
-                            card.classList.remove('bg-white', 'border-gray-200');
-                            card.classList.add('bg-blue-600', 'border-blue-600', 'shadow-md');
-                            const val = document.getElementById(`count_${i}`);
-                            if (val) { val.classList.remove('text-gray-900'); val.classList.add('text-white'); }
-                            const title = card.querySelector('.text-xs');
-                            if (title) { title.classList.remove('text-gray-500'); title.classList.add('text-blue-100'); }
-                        }
-                    } else {
-                        if (btn) btn.classList.remove('filter-btn-active');
-                        if (card) {
-                            card.classList.add('bg-white', 'border-gray-200');
-                            card.classList.remove('bg-blue-600', 'border-blue-600', 'shadow-md');
-                            const val = document.getElementById(`count_${i}`);
-                            if (val) { val.classList.add('text-gray-900'); val.classList.remove('text-white'); }
-                            const title = card.querySelector('.text-xs');
-                            if (title) { title.classList.add('text-gray-500'); title.classList.remove('text-blue-100'); }
-                        }
+                // DB에서 로드 (FilterService 사용)
+                if (window.filterService && window.filterService.initialized) {
+                    const data = await window.filterService.loadSetting('square_number_patterns');
+                    if (data) {
+                        saved = { ...data.settings, enabled: data.enabled };
                     }
                 }
 
-                // 제외수 복구
-                excludedNumbers = new Set(saved.excludedNumbers || []);
-                const squareNums = [1, 4, 9, 16, 25, 36];
-                squareNums.forEach(n => {
-                    const chk = document.getElementById(`exclude_${n}`);
-                    if (chk) chk.checked = excludedNumbers.has(n);
-                });
-                const input = document.getElementById('excludeNumbersInput');
-                if (input) input.value = Array.from(excludedNumbers).join(', ');
+                // Fallback: localStorage
+                if (!saved) {
+                    const raw = localStorage.getItem('square_number_patterns') || localStorage.getItem('square_number_patterns_filter') || localStorage.getItem('square_filter');
+                    if (raw) try { saved = JSON.parse(raw); } catch (e) { }
+                }
 
-                // 필터 적용 여부 복구
-                const toggle = document.getElementById('applyFilterCheck');
-                if (toggle) toggle.checked = saved.enabled;
+                if (saved) {
+                    // 개수 필터 복구
+                    const counts = new Set(saved.selectedCounts || []);
+                    for (let i = 0; i <= 6; i++) {
+                        const btn = document.getElementById(`filter-btn-${i}`);
+                        const card = document.getElementById(`card-${i}`);
+                        if (counts.has(i)) {
+                            if (btn) btn.classList.add('filter-btn-active');
+                            if (card) {
+                                card.classList.remove('bg-white', 'border-gray-200');
+                                card.classList.add('bg-blue-600', 'border-blue-600', 'shadow-md');
+                                const val = document.getElementById(`count_${i}`);
+                                if (val) { val.classList.remove('text-gray-900'); val.classList.add('text-white'); }
+                                const title = card.querySelector('.text-xs');
+                                if (title) { title.classList.remove('text-gray-500'); title.classList.add('text-blue-100'); }
+                            }
+                        } else {
+                            if (btn) btn.classList.remove('filter-btn-active');
+                            if (card) {
+                                card.classList.add('bg-white', 'border-gray-200');
+                                card.classList.remove('bg-blue-600', 'border-blue-600', 'shadow-md');
+                                const val = document.getElementById(`count_${i}`);
+                                if (val) { val.classList.add('text-gray-900'); val.classList.remove('text-white'); }
+                                const title = card.querySelector('.text-xs');
+                                if (title) { title.classList.add('text-gray-500'); title.classList.remove('text-blue-100'); }
+                            }
+                        }
+                    }
 
-                return true;
+                    // 제외수 복구
+                    excludedNumbers = new Set(saved.excludedNumbers || []);
+                    const squareNums = [1, 4, 9, 16, 25, 36];
+                    squareNums.forEach(n => {
+                        const chk = document.getElementById(`exclude_${n}`);
+                        if (chk) chk.checked = excludedNumbers.has(n);
+                    });
+                    const input = document.getElementById('excludeNumbersInput');
+                    if (input) input.value = Array.from(excludedNumbers).join(', ');
+
+                    // 필터 적용 여부 복구
+                    const toggle = document.getElementById('applyFilterCheck');
+                    if (toggle) toggle.checked = saved.enabled;
+
+                    if (saved.recent10FilterActive) {
+                        const btn = document.getElementById('recent10FilterBtn');
+                        const btnText = document.getElementById('recent10BtnText');
+                        if (btn && btnText) {
+                            btn.classList.remove('from-blue-500', 'to-indigo-600');
+                            btn.classList.add('from-purple-500', 'to-purple-700');
+                            btnText.textContent = '필터 해제';
+                        }
+                        isRecentTenFilter = true;
+                    } else {
+                        const btn = document.getElementById('recent10FilterBtn');
+                        const btnText = document.getElementById('recent10BtnText');
+                        if (btn && btnText) {
+                            btn.classList.remove('from-purple-500', 'to-purple-700');
+                            btn.classList.add('from-blue-500', 'to-indigo-600');
+                            btnText.textContent = '최근 10회차 필터 적용';
+                        }
+                        isRecentTenFilter = false;
+                    }
+
+                    return true;
+                }
+                return false;
+            } finally {
+                window.isLoadingSettings = false;
             }
-            return false;
         }
     </script>
     <style>
@@ -730,8 +767,14 @@
                 if (chk && chk.checked) {
                     excludedNumbers.add(n);
                     selectedList.push(n);
+                    if (window.Basket) window.Basket.addExclude(n);
+                } else {
+                    if (window.Basket) window.Basket.removeExclude(n);
                 }
             });
+
+            if (window.BasketUI && window.BasketUI.refresh) window.BasketUI.refresh();
+
             const input = document.getElementById('excludeNumbersInput');
             if (input) {
                 input.value = selectedList.length > 0 ? selectedList.join(', ') : '';
@@ -740,27 +783,82 @@
             applyFilter(); // [추가됨] 변경 시 자동 적용
         }
 
-        // [수정] 필터 적용 및 저장 함수 (리스트 필터링 기능 제거 - 분석 범위만 연동)
+        // [수정] 필터 적용 및 저장 함수
         function applyFilter() {
             saveFilterSettings();
+            const isFilterEnabled = document.getElementById('applyFilterCheck').checked;
 
             // 리스트는 필터링과 무관하게 분석 범위(currentRange)만 반영
             const drawsToShow = allDrawData.slice(0, currentRange);
             renderDrawsList(drawsToShow);
 
-            updateRecent10FilterUI();
+            // [표준화] AI 정보와 기타 요소들은 필터링된 데이터 사용 가능
+            let filteredData = drawsToShow;
+            if (isFilterEnabled) {
+                // 1. 소수/제곱수 개수 필터
+                const activeCounts = [];
+                for (let i = 0; i <= 6; i++) {
+                    const btn = document.getElementById(`filter-btn-${i}`);
+                    if (btn && btn.classList.contains('filter-btn-active')) {
+                        activeCounts.push(i);
+                    }
+                }
+                if (activeCounts.length > 0) {
+                    filteredData = filteredData.filter(d => activeCounts.includes(d.squareCount));
+                }
+
+                // 2. 제외수 필터
+                if (excludedNumbers.size > 0) {
+                    filteredData = filteredData.filter(d => {
+                        return !d.numbers.some(num => excludedNumbers.has(num));
+                    });
+                }
+            }
+
+            updateRecentTenFilterFlag();
+            highlightRecentTenRows();
+        }
+
+        // [New] 필터 플래그 업데이트
+        function updateRecentTenFilterFlag() {
+            // applyRecent10Filters에서 버튼 상태로 직접 관리함
+        }
+
+        // [New] 행 하이라이트 실행
+        function highlightRecentTenRows() {
+            if (highlightStartRound) {
+                const index = allDrawData.findIndex(d => d.round === highlightStartRound);
+                if (index !== -1) highlightRows(index);
+            } else {
+                document.querySelectorAll('.row-highlight').forEach(el => el.classList.remove('row-highlight'));
+            }
         }
 
         // 🆕 토요일 새 회차 감지 시 필터 자동 리셋
-        function checkAndResetOnNewDraw() {
+        async function checkAndResetOnNewDraw() {
             if (!allDrawData || allDrawData.length === 0) return;
             const latestRound = allDrawData[0].round;
             const lastKnownRound = parseInt(localStorage.getItem('square_number_last_round') || '0');
 
             if (latestRound > lastKnownRound) {
-                localStorage.setItem('square_number_last_round', latestRound);
+                localStorage.setItem('square_number_last_round', String(latestRound));
+
+                // [NEW] 수동 제외수 초기화 (새 회차 갱신 시점)
                 if (lastKnownRound > 0) {
-                    console.log(`🆕 새 회차 감지: ${latestRound}회 → 최근 10회차 필터 자동 갱신`);
+                    excludedNumbers.clear();
+                    const squareNums = [1, 4, 9, 16, 25, 36];
+                    squareNums.forEach(n => {
+                        const chk = document.getElementById(`exclude_${n}`);
+                        if (chk) chk.checked = false;
+                        if (window.Basket) window.Basket.removeExclude(n);
+                    });
+                    if (window.BasketUI && window.BasketUI.refresh) window.BasketUI.refresh();
+
+                    const input = document.getElementById('excludeNumbersInput');
+                    if (input) input.value = '';
+                    await saveFilterSettings();
+
+                    console.log(`🆕 새 회차 감지: ${latestRound}회 → 최근 10회차 필터 자동 갱신 및 수동 제외수 초기화`);
                 }
                 autoApplyRecent10OnLoad();
             }
@@ -904,7 +1002,7 @@
 
                 // 🆕 다른 탭(대시보드)에서의 변경사항 실시간 감지
                 window.addEventListener('storage', (e) => {
-                    if (e.key === 'square_number_patterns' || e.key === 'square_filter') {
+                    if (e.key === 'square_number_patterns' || e.key === 'square_number_patterns_filter' || e.key === 'square_filter') {
                         loadFilterSettings().then(() => applyFilter());
                     }
                 });
@@ -949,6 +1047,8 @@
                 const toggle = document.getElementById('applyFilterCheck');
                 if (toggle) toggle.checked = false;
 
+                isRecentTenFilter = false;
+                highlightStartRound = null;
                 applyFilter();
                 return;
             }

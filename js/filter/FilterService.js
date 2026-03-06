@@ -221,12 +221,26 @@ class FilterService {
         }
         if (!this.currentPresetId) return null;
 
-        // filter_key로 definition_id 조회
-        const definition = await this.getDefinitionByKey(filterKey);
+        // filter_key 또는 filter_id로 definition 조회
+        let definition;
+
+        // 첫 시도: filter_key로 조회
+        definition = await this.getDefinitionByKey(filterKey);
+
+        // 두 번째 시도: ID로 조회 (FilterDashboard에서 ID를 전달하는 경우)
+        if (!definition) {
+            const definitions = await this.loadDefinitions();
+            definition = definitions.find(d => d.id === filterKey);
+        }
+
         if (!definition) {
             console.error(`❌ 필터 정의를 찾을 수 없음: ${filterKey}`);
+            console.log('🔍 사용 가능한 필터들:', (await this.loadDefinitions()).map(d => ({ id: d.id, key: d.filter_key, name: d.filter_name })));
             return null;
         }
+
+        // 필터_key로 통일 (이후 DB 쿼리는 filter_definition_id 사용)
+        const actualFilterKey = definition.filter_key;
 
         // 기존 레코드 확인 후 insert/update 분기
         let query = this.supabase
@@ -655,10 +669,12 @@ class FilterService {
      * 활성화된 커스텀분석 필터 조회
      */
     async getCustomAnalysisFilters() {
-        const { data, error } = await this.supabase
+        let query = this.supabase
             .from('ai_custom_analyses')
             .select('id, title, target_numbers, filter_config')
             .not('filter_config', 'is', null);
+        if (this.userId) query = query.eq('user_id', this.userId);
+        const { data, error } = await query;
 
         if (error) {
             console.error('❌ 커스텀분석 필터 조회 실패:', error);
@@ -781,14 +797,30 @@ if (window.Utils) {
     const originalSaveFilter = window.Utils.saveFilter;
     const originalLoadFilter = window.Utils.loadFilter;
 
-    window.Utils.saveFilter = async function (pageKey, filterData) {
+    window.Utils.saveFilter = async function (pageKey, filterData, enabledArg) {
+        // [수정] 3개 인자 호출 방식 지원: (key, data, enabled) 또는 (key, {enabled, ...data})
+        // missing.html, neighbor_number.html 등은 3번째 인자로 enabled를 별도로 전달함
+        let settings = filterData || {};
+        let enabled;
+        if (enabledArg !== undefined) {
+            // 3개 인자 방식: saveFilter('missing_period', data, true)
+            enabled = enabledArg;
+        } else {
+            // 2개 인자 방식: saveFilter('missing_period', { enabled, ...settings })
+            const { enabled: _e, ...rest } = filterData || {};
+            enabled = _e;
+            settings = rest;
+        }
+
         // DB 저장 시도
         if (window.filterService?.initialized) {
-            const { enabled, ...settings } = filterData;
-            await window.filterService.saveSetting(pageKey, settings, enabled || false);
-        } else {
-            // fallback: localStorage
-            originalSaveFilter(pageKey, filterData);
+            await window.filterService.saveSetting(pageKey, settings, enabled !== false);
+        }
+        // [핵심] localStorage에도 항상 기록 → 다른 탭의 storage 이벤트 트리거
+        try {
+            localStorage.setItem(pageKey, JSON.stringify({ ...settings, enabled, _ts: Date.now() }));
+        } catch (e) {
+            // localStorage 용량 초과 등 예외는 무시
         }
     };
 

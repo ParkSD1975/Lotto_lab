@@ -52,6 +52,8 @@
         let restoredAutoOddEvens = []; // 복원된 자동 제외 항목
         let excludedOddEvens = [];     // 수동 제외 항목
 
+        window.isLoadingSettings = false; // [추가] 설정 로딩 중 플래그
+
         // 🔹 [Optimized] Debounce mechanism for heavy updates
         let rangeDebounceTimer = null;
 
@@ -206,7 +208,6 @@
             updateRecentTenFilterFlag();
             applyFilter();
             highlightRecentTenRows();
-            saveFilterSettings();
         }
 
         // [표준화] 최근 10회차 필터 자동 적용 (missing.html 기준)
@@ -334,6 +335,8 @@
 
         // [수정] 필터 설정 저장 함수 (DB 저장)
         async function saveFilterSettings() {
+            if (window.isLoadingSettings) return; // [추가] 로딩 중에는 저장하지 않음
+
             const toggle = document.getElementById('applyFilterCheck');
             const btn = document.getElementById('recent10FilterBtn');
             const recent10FilterActive = btn && btn.classList.contains('from-purple-500');
@@ -359,50 +362,73 @@
             localStorage.setItem('odd_even_pattern_filter', JSON.stringify(settingsWithEnabled));
         }
 
+        // [추가] 대시보드 상호작용을 위한 storage 이벤트 리스너
+        window.addEventListener('storage', (event) => {
+            if (event.key === 'odd_even_pattern' || event.key === 'odd_even_pattern_filter' || event.key === 'odd_even_filter') {
+                console.log('🔄 대시보드 필터 변경 감지: 홀짝 패턴 설정 동기화');
+                loadFilterSettings();
+            }
+        });
+
         // [수정] 필터 설정 불러오기 함수 (DB 로드)
         async function loadFilterSettings() {
-            let saved = null;
+            window.isLoadingSettings = true;
+            try {
+                let saved = null;
 
-            // DB에서 로드 (FilterService 사용)
-            if (window.filterService && window.filterService.initialized) {
-                const data = await window.filterService.loadSetting('odd_even_pattern');
-                if (data) {
-                    saved = { ...data.settings, enabled: data.enabled };
-                }
-            }
-
-            // Fallback: localStorage
-            if (!saved) {
-                const raw = localStorage.getItem('odd_even_pattern') || localStorage.getItem('odd_even_pattern_filter') || localStorage.getItem('odd_even_filter');
-                if (raw) try { saved = JSON.parse(raw); } catch (e) { }
-            }
-
-            if (saved) {
-                activeFilters = new Set(saved.selectedRatios || []);
-                excludedOddEvens = saved.excludedOddEvens || [];
-                restoredAutoOddEvens = saved.restoredAutoOddEvens || [];
-
-                const toggle = document.getElementById('applyFilterCheck');
-                if (toggle) toggle.checked = saved.enabled !== undefined ? saved.enabled : true;
-
-                if (saved.recent10FilterActive) {
-                    const btn = document.getElementById('recent10FilterBtn');
-                    const btnText = document.getElementById('recent10BtnText');
-                    if (btn && btnText) {
-                        btn.classList.remove('from-blue-500', 'to-indigo-600');
-                        btn.classList.add('from-purple-500', 'to-purple-700');
-                        btnText.textContent = '필터 해제';
+                // DB에서 로드 (FilterService 사용)
+                if (window.filterService && window.filterService.initialized) {
+                    const data = await window.filterService.loadSetting('odd_even_pattern');
+                    if (data) {
+                        saved = { ...data.settings, enabled: data.enabled };
                     }
-                    isRecentTenFilter = true;
                 }
 
-                updateUIState();
-                setTimeout(() => {
-                    renderExcludedOddEvenBadges();
-                }, 0);
-                return true;
+                // Fallback: localStorage
+                if (!saved) {
+                    const raw = localStorage.getItem('odd_even_pattern') || localStorage.getItem('odd_even_pattern_filter') || localStorage.getItem('odd_even_filter');
+                    if (raw) try { saved = JSON.parse(raw); } catch (e) { }
+                }
+
+                if (saved) {
+                    activeFilters = new Set(saved.selectedRatios || []);
+                    excludedOddEvens = saved.excludedOddEvens || [];
+                    restoredAutoOddEvens = saved.restoredAutoOddEvens || [];
+
+                    const toggle = document.getElementById('applyFilterCheck');
+                    if (toggle) toggle.checked = saved.enabled !== undefined ? saved.enabled : true;
+
+                    if (saved.recent10FilterActive) {
+                        const btn = document.getElementById('recent10FilterBtn');
+                        const btnText = document.getElementById('recent10BtnText');
+                        if (btn && btnText) {
+                            btn.classList.remove('from-blue-500', 'to-indigo-600');
+                            btn.classList.add('from-purple-500', 'to-purple-700');
+                            btnText.textContent = '필터 해제';
+                        }
+                        isRecentTenFilter = true;
+                    } else {
+                        const btn = document.getElementById('recent10FilterBtn');
+                        const btnText = document.getElementById('recent10BtnText');
+                        if (btn && btnText && btn.classList.contains('from-purple-500')) {
+                            btn.classList.remove('from-purple-500', 'to-purple-700');
+                            btn.classList.add('from-blue-500', 'to-indigo-600');
+                            btnText.textContent = '최근 10회차 필터 적용';
+                        }
+                        isRecentTenFilter = false;
+                    }
+
+                    updateUIState();
+                    applyFilter(true); // UI 갱신 (저장 스킵)
+                    setTimeout(() => {
+                        renderExcludedOddEvenBadges();
+                    }, 0);
+                    return true;
+                }
+                return false;
+            } finally {
+                window.isLoadingSettings = false;
             }
-            return false;
         }
 
         // 수동 제외 토글 함수
@@ -415,7 +441,6 @@
             applyFilter();
             openStatsModal(); // 테이블 갱신
             renderExcludedOddEvenBadges();
-            saveFilterSettings();
         }
 
         // 자동 제외 취소 (복원)
@@ -423,7 +448,6 @@
             if (!restoredAutoOddEvens.includes(ratio)) restoredAutoOddEvens.push(ratio);
             applyFilter();
             renderExcludedOddEvenBadges();
-            saveFilterSettings();
         }
 
         // 수동 제외 취소
@@ -431,7 +455,6 @@
             excludedOddEvens = excludedOddEvens.filter(r => r !== ratio);
             applyFilter();
             renderExcludedOddEvenBadges();
-            saveFilterSettings();
         }
 
         // 제외 배지 렌더링
@@ -1225,8 +1248,8 @@
             updateChart(counts, total);
         }
 
-        function applyFilter() {
-            saveFilterSettings(); // [수정됨] 변경 시 자동 저장
+        function applyFilter(skipSave = false) {
+            if (!skipSave) saveFilterSettings(); // [수정됨] 변경 시 자동 저장
             const isFilterOn = document.getElementById('applyFilterCheck')?.checked ?? false;
 
             let data = allDrawData.slice(0, currentRange);

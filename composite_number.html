@@ -77,9 +77,12 @@
             afterDatasetsDraw: function (chart) { }
         };
 
+        // 전역 로딩 플래그 (무한 루프 방지)
+        window.isLoadingSettings = false;
+
         // [수정됨] 필터 설정 저장 함수 (Dashboard 필드명 표준화: selectedCounts)
         async function saveFilterSettings() {
-            if (!window.filterService || !window.filterService.initialized) return;
+            if (window.isLoadingSettings) return;
 
             const enabled = document.getElementById('applyFilterCheck').checked;
             const data = {
@@ -87,72 +90,80 @@
                 excludedComposites: Array.from(excludedComposites),
                 recent10FilterActive: isRecentTenFilter
             };
+            const settingsWithEnabled = { ...data, enabled };
 
             // DB 저장 (FilterService 사용)
-            await window.filterService.saveSetting('composite_count', data, enabled);
+            if (window.filterService && window.filterService.initialized) {
+                await window.filterService.saveSetting('composite_count', data, enabled);
+            } else if (window.Utils && window.Utils.saveFilter) {
+                window.Utils.saveFilter('composite_count', settingsWithEnabled);
+            }
 
             // localStorage sync (Dashboard sync key: composite_count)
-            localStorage.setItem('composite_count', JSON.stringify({
-                enabled: enabled,
-                ...data
-            }));
+            localStorage.setItem('composite_count', JSON.stringify(settingsWithEnabled));
+            localStorage.setItem('composite_count_filter', JSON.stringify(settingsWithEnabled));
         }
 
         async function loadFilterSettings() {
-            let saved = null;
+            window.isLoadingSettings = true;
+            try {
+                let saved = null;
 
-            // 1. DB에서 로드 (FilterService 사용)
-            if (window.filterService && window.filterService.initialized) {
-                const data = await window.filterService.loadSetting('composite_count');
-                if (data) {
-                    saved = { ...data.settings, enabled: data.enabled };
-                }
-            }
-
-            // 2. Fallback: localStorage
-            if (!saved) {
-                const raw = localStorage.getItem('composite_count');
-                if (raw) saved = JSON.parse(raw);
-            }
-
-            if (saved) {
-                // 필드명 표준화 대응
-                const counts = saved.selectedCounts || saved.activeFilters || [];
-                activeFilters = new Set(counts);
-
-                if (saved.excludedComposites) excludedComposites = new Set(saved.excludedComposites);
-                if (saved.recent10FilterActive !== undefined) isRecentTenFilter = saved.recent10FilterActive;
-
-                const chk = document.getElementById('applyFilterCheck');
-                if (chk) chk.checked = saved.enabled !== false; // undefined/null일 경우 true 기본값 유지를 고려
-
-                // UI 상태 복원
-                const btn = document.getElementById('recent10FilterBtn');
-                const btnText = document.getElementById('recent10BtnText');
-                if (btn && btnText) {
-                    if (isRecentTenFilter) {
-                        btn.classList.remove('from-blue-500', 'to-indigo-600');
-                        btn.classList.add('from-purple-500', 'to-purple-700');
-                        btnText.textContent = '필터 해제';
-                        highlightStartRound = allDrawData[0]?.round;
-                    } else {
-                        btn.classList.remove('from-purple-500', 'to-purple-700');
-                        btn.classList.add('from-blue-500', 'to-indigo-600');
-                        btnText.textContent = '최근 10회차 필터 적용';
-                        highlightStartRound = null;
+                // 1. DB에서 로드 (FilterService 사용)
+                if (window.filterService && window.filterService.initialized) {
+                    const data = await window.filterService.loadSetting('composite_count');
+                    if (data) {
+                        saved = { ...data.settings, enabled: data.enabled };
                     }
                 }
 
-                const input = document.getElementById('excludeNumbersInput');
-                if (input) {
-                    const excludedArr = Array.from(excludedComposites);
-                    input.value = excludedArr.length > 0 ? excludedArr.join(', ') : '';
+                // 2. Fallback: localStorage
+                if (!saved) {
+                    const raw = localStorage.getItem('composite_count') || localStorage.getItem('composite_count_filter') || localStorage.getItem('composite_filter');
+                    if (raw) try { saved = JSON.parse(raw); } catch (e) { }
                 }
 
-                updateUIState();
-                return true;
+                if (saved) {
+                    // 필드명 표준화 대응
+                    const counts = saved.selectedCounts || saved.activeFilters || [];
+                    activeFilters = new Set(counts);
+
+                    if (saved.excludedComposites) excludedComposites = new Set(saved.excludedComposites);
+                    if (saved.recent10FilterActive !== undefined) isRecentTenFilter = saved.recent10FilterActive;
+
+                    const chk = document.getElementById('applyFilterCheck');
+                    if (chk) chk.checked = saved.enabled !== false; // undefined/null일 경우 true 기본값 유지를 고려
+
+                    // UI 상태 복원
+                    const btn = document.getElementById('recent10FilterBtn');
+                    const btnText = document.getElementById('recent10BtnText');
+                    if (btn && btnText) {
+                        if (isRecentTenFilter) {
+                            btn.classList.remove('from-blue-500', 'to-indigo-600');
+                            btn.classList.add('from-purple-500', 'to-purple-700');
+                            btnText.textContent = '필터 해제';
+                            highlightStartRound = allDrawData[0]?.round;
+                        } else {
+                            btn.classList.remove('from-purple-500', 'to-purple-700');
+                            btn.classList.add('from-blue-500', 'to-indigo-600');
+                            btnText.textContent = '최근 10회차 필터 적용';
+                            highlightStartRound = null;
+                        }
+                    }
+
+                    const input = document.getElementById('excludeNumbersInput');
+                    if (input) {
+                        const excludedArr = Array.from(excludedComposites);
+                        input.value = excludedArr.length > 0 ? excludedArr.join(', ') : '';
+                    }
+
+                    updateUIState();
+                    return true;
+                }
+                return false;
+            } finally {
+                window.isLoadingSettings = false;
             }
-            return false;
         }
 
         // [추가됨] 필터 적용 함수 (리스트 갱신)
@@ -247,6 +258,26 @@
                 const isNewRoundDay = (today.getDay() === 6); // 토요일
 
                 localStorage.setItem(storageKey, String(latestRound));
+
+                // [NEW] 수동 제외수 초기화 (새 회차 갱신 시점)
+                if (savedRound > 0) {
+                    excludedComposites.clear();
+                    const compositeArray = [
+                        4, 6, 8, 9, 10, 12, 14, 15, 16, 18,
+                        20, 21, 22, 24, 25, 26, 27, 28, 30, 32,
+                        33, 34, 35, 36, 38, 39, 40, 42, 44, 45
+                    ];
+                    compositeArray.forEach(p => {
+                        const chk = document.getElementById(`exclude_${p}`);
+                        if (chk) chk.checked = false;
+                        if (window.Basket) window.Basket.removeExclude(p);
+                    });
+                    if (window.BasketUI && window.BasketUI.refresh) window.BasketUI.refresh();
+
+                    const input = document.getElementById('excludeNumbersInput');
+                    if (input) input.value = '';
+                    await saveFilterSettings();
+                }
 
                 // 토요일이거나 저장된 회차가 없을 때(최초 실행) 자동 적용
                 if (isNewRoundDay || savedRound === 0) {
@@ -745,7 +776,7 @@
 
         // 🔥 대시보드(filter.html) 혹은 다른 페이지에서의 설정을 실시간 동기화
         window.addEventListener('storage', (e) => {
-            if (e.key === 'composite_count') {
+            if (e.key === 'composite_count' || e.key === 'composite_count_filter' || e.key === 'composite_filter') {
                 console.log('🔄 Dashboard -> Composite Number Sync Detected');
                 loadFilterSettings().then(() => {
                     applyFilter(false); // 외부 데이터 로드 시에는 다시 저장(loop)하지 않음
@@ -1365,13 +1396,31 @@ ${distText}
         }
 
         function syncExcludeFilter() {
-            const checkboxes = document.querySelectorAll('input[id^="exclude_"]:checked');
-            const excluded = Array.from(checkboxes).map(cb => parseInt(cb.id.replace('exclude_', '')));
-
+            const compositeArray = [
+                4, 6, 8, 9, 10, 12, 14, 15, 16, 18,
+                20, 21, 22, 24, 25, 26, 27, 28, 30, 32,
+                33, 34, 35, 36, 38, 39, 40, 42, 44, 45
+            ];
             excludedComposites.clear();
-            excluded.forEach(n => excludedComposites.add(n));
+            const selectedList = [];
 
-            document.getElementById('excludeNumbersInput').value = excluded.join(', ');
+            compositeArray.forEach(p => {
+                const chk = document.getElementById(`exclude_${p}`);
+                if (chk && chk.checked) {
+                    excludedComposites.add(p);
+                    selectedList.push(p);
+                    if (window.Basket) window.Basket.addExclude(p);
+                } else {
+                    if (window.Basket) window.Basket.removeExclude(p);
+                }
+            });
+
+            if (window.BasketUI && window.BasketUI.refresh) window.BasketUI.refresh();
+
+            const input = document.getElementById('excludeNumbersInput');
+            if (input) {
+                input.value = selectedList.length > 0 ? selectedList.join(', ') : '';
+            }
             saveFilterSettings(); // [추가됨] 변경사항 저장
             applyFilter(); // [추가됨] 체크박스 변경 시 즉시 필터 적용
         }

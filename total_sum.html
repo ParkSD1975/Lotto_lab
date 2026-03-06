@@ -249,6 +249,17 @@
             }
             return false;
         }
+
+        // [신규] 다른 탭(대시보드 등)에서 필터 변경 시 총합 페이지 실시간 동기화
+        window.addEventListener('storage', async (e) => {
+            if (e.key === 'total_sum' || e.key === 'total_sum_filter') {
+                console.log('🔄 [Sync] 대시보드에서 총합 필터 변경 감지, UI 갱신 중...');
+                const loaded = await loadFilterSettings();
+                if (loaded) {
+                    if (typeof applyFilter === 'function') applyFilter();
+                }
+            }
+        });
     </script>
 
     <style>

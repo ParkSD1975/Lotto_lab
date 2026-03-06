@@ -155,8 +155,24 @@
             updateAll(); // 화면 갱신
         }
 
-        // [추가됨] 전 회귀 최근 10회 성적 기반 일괄 적용
+        // [추가됨] 전 회귀 최근 10회 성적 기반 일괄 적용 (토글 방식)
         function applyBatchRecent10Filters() {
+            const btn = document.getElementById('batchRecent10Btn');
+            const btnText = document.getElementById('batchRecent10BtnText');
+
+            // 토글: 이미 보라색이면 필터 해제 (batchRecent10Active 플래그 체크)
+            if (btn && btn.classList.contains('bg-purple-600')) {
+                btn.classList.remove('bg-purple-600', 'hover:bg-purple-700');
+                btn.classList.add('bg-blue-500', 'hover:bg-blue-600');
+                if (btnText) btnText.textContent = '최근 10회 일괄 적용';
+
+                // periodFilters 전체 초기화
+                periodFilters = {};
+                savePeriodFilters();
+                updateAll();
+                return;
+            }
+
             if (!allData || allData.length === 0) return;
 
             const batchEnabled = document.getElementById('batchFilterToggle').checked;
@@ -191,6 +207,13 @@
 
             savePeriodFilters();
 
+            // 버튼 보라색으로 변경 (활성화 상태)
+            if (btn) {
+                btn.classList.remove('bg-blue-500', 'hover:bg-blue-600');
+                btn.classList.add('bg-purple-600', 'hover:bg-purple-700');
+            }
+            if (btnText) btnText.textContent = '일괄 필터 해제';
+
             // 현재 활성화된 회귀 단계의 UI 필터값도 갱신
             const currentSaved = periodFilters[regressionStep];
             if (currentSaved) {
@@ -209,6 +232,12 @@
     </script>
 
     <style>
+        /* 🔹 [Fix] AI Insight 섹션 최대 높이 고정 (흔들림 방지) */
+        #aiAnalysisContent {
+            max-height: 420px;
+            overflow-y: auto;
+        }
+
         /* 🔹 AI 섹션 스타일 (hot_cold.html 통일) */
         .ai-section {
             background-color: #FFFFFF;
@@ -371,6 +400,49 @@
 
         .custom-scrollbar::-webkit-scrollbar-thumb:hover {
             background: #a8a8a8;
+        }
+
+        /* 🔹 [Fix] 테이블 sticky 헤더 스크롤 깨짐 방지 */
+        .table-scroll-container {
+            overflow: auto;
+            flex: 1;
+        }
+
+        .table-scroll-container table {
+            border-collapse: collapse;
+            width: 100%;
+        }
+
+        .table-scroll-container thead th {
+            position: sticky;
+            top: 0;
+            z-index: 20;
+            background-color: #1e293b;
+        }
+
+        /* 회차 열 (첫 번째 th) sticky left 처리 */
+        .table-scroll-container thead th:first-child {
+            position: sticky;
+            top: 0;
+            left: 0;
+            z-index: 30;
+            background-color: #1e293b;
+        }
+
+        /* 데이터 행의 회차열 sticky left */
+        .table-scroll-container tbody tr td:first-child {
+            position: sticky;
+            left: 0;
+            z-index: 5;
+            background-color: inherit;
+        }
+
+        .table-scroll-container tbody tr:hover td:first-child {
+            background-color: #f9fafb;
+        }
+
+        .table-scroll-container tbody tr.row-highlight td:first-child {
+            background-color: #F3E8FF;
         }
 
         input[type=number]::-webkit-inner-spin-button,
@@ -757,9 +829,9 @@
                                         class="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-[10px] font-bold rounded transition-colors shadow-md active:scale-95 whitespace-nowrap">
                                         일괄 적용
                                     </button>
-                                    <button onclick="applyBatchRecent10Filters()"
-                                        class="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white text-[10px] font-bold rounded transition-colors shadow-md active:scale-95 whitespace-nowrap">
-                                        최근 10회 일괄 적용
+                                    <button onclick="applyBatchRecent10Filters()" id="batchRecent10Btn"
+                                        class="px-3 py-1 bg-blue-500 hover:bg-blue-600 text-white text-[10px] font-bold rounded transition-colors shadow-md active:scale-95 whitespace-nowrap">
+                                        <span id="batchRecent10BtnText">최근 10회 일괄 적용</span>
                                     </button>
                                 </div>
                                 <div class="flex items-center justify-end">
@@ -826,12 +898,12 @@
                                     </div>
                                 </div>
                             </div>
-                            <div class="overflow-auto custom-scrollbar flex-1 px-0">
-                                <table class="w-full relative border-collapse">
-                                    <thead class="sticky top-0 z-10 shadow-sm">
+                            <div class="table-scroll-container custom-scrollbar px-0">
+                                <table>
+                                    <thead>
                                         <tr class="bg-[#1e293b] border-b border-[#334155]">
                                             <th
-                                                class="h-12 py-0 px-4 text-xs font-semibold text-white text-center w-20 border-r border-[#334155] sticky left-0 z-20 bg-[#1e293b] align-middle">
+                                                class="h-12 py-0 px-4 text-xs font-semibold text-white text-center w-20 border-r border-[#334155] align-middle">
                                                 회차</th>
                                             <th
                                                 class="h-12 py-0 px-4 text-xs font-semibold text-white text-center border-r border-[#334155] align-middle">
@@ -863,12 +935,12 @@
                                     </div>
                                 </div>
                             </div>
-                            <div class="overflow-auto custom-scrollbar flex-1 px-0">
-                                <table class="w-full relative border-collapse">
-                                    <thead class="sticky top-0 z-10 shadow-sm">
+                            <div class="table-scroll-container custom-scrollbar px-0">
+                                <table>
+                                    <thead>
                                         <tr class="bg-[#1e293b] border-b border-[#334155]">
                                             <th
-                                                class="h-12 py-0 px-4 text-xs font-semibold text-white text-center w-20 border-r border-[#334155] sticky left-0 z-20 bg-[#1e293b] align-middle">
+                                                class="h-12 py-0 px-4 text-xs font-semibold text-white text-center w-20 border-r border-[#334155] align-middle">
                                                 회차</th>
                                             <th
                                                 class="h-12 py-0 px-4 text-xs font-semibold text-white text-center border-r border-[#334155] align-middle">
@@ -1015,18 +1087,65 @@
             document.getElementById('chainTitle').textContent = `${regressionStep}회귀`;
             document.getElementById('historyTitle').textContent = `회차별 당첨번호 및 ${regressionStep}회귀 당첨수`;
 
-            renderDashboard(); // [추가] 대시보드 데이터 갱신
+            // [수정됨] 최근 10회차 버튼 상태 초기화 (각 회귀는 독립 상태)
+            const btn = document.getElementById('recent10FilterBtn');
+            const btnText = document.getElementById('recent10BtnText');
+            if (btn && btnText) {
+                btn.classList.remove('from-purple-500', 'to-purple-700');
+                btn.classList.add('from-blue-500', 'to-indigo-600');
+                btnText.textContent = '최근 10회차 필터 적용';
+            }
+
+            renderDashboard();
             renderFilterSection();
 
-            // [수정됨] periodFilters 객체에서 로드 시도, 없으면 기본값 계산
+            // [수정됨] periodFilters 객체에서 로드 시도, 없으면 최근 10회차 필터 자동 적용
             const loaded = loadFilterSettings();
             if (!loaded) {
-                calculateFilterDefaults();
+                _applyRecent10FilterValues();
             }
+
+            // [수정됨] 최근 10회 하이라이트 인덱스를 렌더링 전에 사전 설정
+            chainHighlightIdx = 0;
+            historyHighlightIdx = 0;
 
             renderChainTable();
             updateHistoryTable();
-            refreshAIAnalysis();
+
+            // [수정됨] AI 분석은 약간 지연 실행하여 레이아웃 흔들림 방지
+            setTimeout(() => refreshAIAnalysis(), 50);
+        }
+
+        // [추가] 최근 10회차 필터 값 계산 및 UI 적용 (저장은 별도)
+        function _applyRecent10FilterValues() {
+            if (!allData || allData.length === 0) return false;
+            let curr = targetRound - regressionStep;
+            let values = [];
+            let count = 0;
+            while (curr > 0 && count < 10) {
+                const currData = allData.find(d => d.round === curr);
+                const prevData = allData.find(d => d.round === curr - regressionStep);
+                if (currData && prevData) {
+                    let hits = 0;
+                    prevData.numbers.forEach(n => { if (currData.numbers.includes(n)) hits++; });
+                    values.push(hits);
+                    count++;
+                }
+                curr -= regressionStep;
+            }
+            if (values.length === 0) return false;
+            const minVal = Math.min(...values);
+            const maxVal = Math.max(...values);
+            const minInput = document.getElementById('filterMin');
+            const maxInput = document.getElementById('filterMax');
+            const toggle = document.getElementById('filterToggle');
+            if (minInput) minInput.value = minVal;
+            if (maxInput) maxInput.value = maxVal;
+            if (toggle) toggle.checked = true;
+            // 저장
+            periodFilters[regressionStep] = { min: minVal, max: maxVal, enabled: true };
+            savePeriodFilters();
+            return true;
         }
 
         // [추가] 번호대별 색상 클래스 반환 헬퍼
@@ -1672,7 +1791,7 @@ ${contextData}
                 }
 
                 html += `<tr id="row-${round}" class="border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors ${rowColorClass}" onclick="highlightRows('chainTableBody', ${index})">
-                    <td class="py-3 px-4 text-center text-sm font-semibold text-gray-900 border-r border-gray-100 sticky left-0 bg-inherit z-10">${round}회</td>
+                    <td class="py-3 px-4 text-center text-sm font-semibold text-gray-900 border-r border-gray-100">${round}회</td>
                     <td class="py-3 px-2 text-center border-r border-gray-100"><div class="flex items-center justify-center gap-1">${numberBalls}</div></td>
                     <td class="py-3 px-2 text-center border-r border-gray-200">
                         <span class="ball-hit ${highlightClass}" onclick="event.stopPropagation(); toggleValueHighlight(${hitCount})">${hitCount}</span>
@@ -1769,7 +1888,7 @@ ${contextData}
                 }
 
                 html += `<tr id="row-${curr.round}" class="border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors ${rowColorClass}" onclick="highlightRows('historyTableBody', ${index})">
-                    <td class="py-3 px-4 text-center text-sm font-semibold text-gray-900 border-r border-gray-100 sticky left-0 bg-inherit z-10">${curr.round}회</td>
+                    <td class="py-3 px-4 text-center text-sm font-semibold text-gray-900 border-r border-gray-100">${curr.round}회</td>
                     <td class="py-3 px-2 text-center border-r border-gray-200"><div class="flex items-center justify-center gap-1">${numberBalls}</div></td>
                     <td class="py-3 px-2 text-center border-r border-gray-200">
                         <span class="ball-hit ${highlightClass}" onclick="event.stopPropagation(); toggleValueHighlight(${hitCount})">${hitCount}</span>

@@ -440,7 +440,7 @@
                                                 class="text-xs font-black text-slate-500 uppercase tracking-wider">Min</span>
                                             <input type="number" id="filterMin" min="0" max="6" value="0"
                                                 class="w-16 sm:w-20 h-9 text-center border-none bg-slate-100 rounded-md text-sm font-black text-indigo-600 focus:ring-2 focus:ring-indigo-500"
-                                                onchange="applyFilter()">
+                                                onchange="saveFilterSettings(); applyFilter()">
                                         </div>
                                         <span class="text-sm font-black text-slate-400 px-2">~</span>
                                         <div class="flex items-center gap-2">
@@ -448,7 +448,7 @@
                                                 class="text-xs font-black text-slate-500 uppercase tracking-wider">Max</span>
                                             <input type="number" id="filterMax" min="0" max="6" value="6"
                                                 class="w-16 sm:w-20 h-9 text-center border-none bg-slate-100 rounded-md text-sm font-black text-indigo-600 focus:ring-2 focus:ring-indigo-500"
-                                                onchange="applyFilter()">
+                                                onchange="saveFilterSettings(); applyFilter()">
                                         </div>
                                     </div>
                                 </div>
@@ -460,8 +460,8 @@
                             <div class="flex items-center gap-2.5">
                                 <span class="text-sm font-bold text-gray-700">필터 적용</span>
                                 <label class="relative inline-flex items-center cursor-pointer">
-                                    <input type="checkbox" id="applyFilterCheck" onchange="applyFilter()"
-                                        class="sr-only peer" checked>
+                                    <input type="checkbox" id="applyFilterCheck"
+                                        onchange="saveFilterSettings(); applyFilter()" class="sr-only peer" checked>
                                     <div
                                         class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600">
                                     </div>
@@ -531,7 +531,7 @@
         let filterState = { min: 0, max: 6 };
         let selectedStatCard = null;
 
-        // [수정] 필터 설정 저장 함수 (DB 저장)
+        // [수정] 필터 설정 저장 함수 - Utils.saveFilter로 통일 (DB + localStorage 동시 저장)
         async function saveFilterSettings() {
             const minInput = document.getElementById('filterMin');
             const maxInput = document.getElementById('filterMax');
@@ -543,30 +543,37 @@
             };
             const enabled = toggle ? toggle.checked : true;
 
-            // DB 저장 (FilterService 사용)
-            if (window.filterService && window.filterService.initialized) {
-                await window.filterService.saveSetting('neighbor_number_patterns', data, enabled);
-            } else if (window.Utils && window.Utils.saveFilter) {
-                // Fallback: localStorage
-                window.Utils.saveFilter('neighbor_filter', { ...data, enabled });
+            // [수정] Utils.saveFilter 사용 → DB + localStorage 동시 저장
+            // → 대시보드(filter.html)의 storage 이벤트가 반드시 트리거됨
+            if (window.Utils && window.Utils.saveFilter) {
+                await window.Utils.saveFilter('neighbor_number_patterns', data, enabled);
             }
         }
 
-        // [수정] 필터 설정 불러오기 함수 (DB 로드)
+        // [수정] 필터 설정 불러오기 함수 (DB → localStorage 순서로 로드)
         async function loadFilterSettings() {
             let saved = null;
 
-            // DB에서 로드 (FilterService 사용)
-            if (window.filterService && window.filterService.initialized) {
-                const data = await window.filterService.loadSetting('neighbor_number_patterns');
+            // Utils.loadFilter 사용 (DB 우선, localStorage fallback)
+            if (window.Utils && window.Utils.loadFilter) {
+                const data = await window.Utils.loadFilter('neighbor_number_patterns');
                 if (data) {
-                    saved = { ...data.settings, enabled: data.enabled };
+                    // DB에서 로드된 경우: { settings: {...}, enabled: bool }
+                    if (data.settings) {
+                        saved = { ...data.settings, enabled: data.enabled };
+                    } else {
+                        // localStorage에서 로드된 경우: 바로 사용
+                        saved = data;
+                    }
                 }
             }
 
-            // Fallback: localStorage
-            if (!saved && window.Utils && window.Utils.loadFilter) {
-                saved = window.Utils.loadFilter('neighbor_filter');
+            // 추가 fallback: 구버전 'neighbor_filter' 키
+            if (!saved) {
+                try {
+                    const raw = localStorage.getItem('neighbor_filter') || localStorage.getItem('neighbor_number_patterns');
+                    if (raw) saved = JSON.parse(raw);
+                } catch (e) { }
             }
 
             if (saved) {
@@ -647,6 +654,29 @@
             } catch (err) {
                 console.error('데이터 로드 실패:', err);
                 document.getElementById('drawsList').innerHTML = `<tr><td colspan="6" class="p-10 text-center text-red-500">데이터 로드 실패<br>${err.message}</td></tr>`;
+            }
+        });
+
+        // [수정] 대시보드(filter.html) 또는 다른 탭에서 필터를 변경했을 때 실시간 반영
+        window.addEventListener('storage', (e) => {
+            if (e.key === 'neighbor_number_patterns' || e.key === 'neighbor_filter') {
+                console.log('🔄 이웃수 필터 변경 감지 - UI 갱신');
+                // localStorage에서 직접 읽어 즉시 반영 (DB 재조회 없이)
+                if (e.newValue) {
+                    try {
+                        const newData = JSON.parse(e.newValue);
+                        const minInput = document.getElementById('filterMin');
+                        const maxInput = document.getElementById('filterMax');
+                        const toggle = document.getElementById('applyFilterCheck');
+                        if (minInput && newData.min !== undefined) minInput.value = newData.min;
+                        if (maxInput && newData.max !== undefined) maxInput.value = newData.max;
+                        if (toggle && newData.enabled !== undefined) toggle.checked = newData.enabled;
+                        filterState = { min: newData.min ?? 0, max: newData.max ?? 6 };
+                        applyFilter();
+                        return;
+                    } catch (err) { }
+                }
+                loadFilterSettings().then(() => applyFilter());
             }
         });
 

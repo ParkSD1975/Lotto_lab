@@ -44,6 +44,8 @@
         let chartMode = 'distribution';
         let currentRange = 100;
         let excludedNumbers = new Set();
+        let isRecentTenFilter = false;
+        let isSavingSettings = false;
         // 하이라이트 상태
         let selectedValueHighlight = null;
         let selectedHighlight = { col: null, val: null };
@@ -179,7 +181,27 @@
             if (latestRound > lastKnownRound) {
                 localStorage.setItem('twin_number_last_round', latestRound);
                 if (lastKnownRound > 0) {
-                    console.log(`🆕 새 회차 감지: ${latestRound}회 → 최근 10회차 필터 자동 갱신`);
+                    console.log(`🆕 새 회차 감지: ${latestRound}회 → 최근 10회차 필터 자동 갱신 및 제외수 초기화`);
+
+                    // 수동 제외수 초기화
+                    excludedNumbers.clear();
+                    const input = document.getElementById('excludeNumbersInput');
+                    if (input) input.value = '';
+
+                    const twinNums = [11, 22, 33, 44];
+                    twinNums.forEach(n => {
+                        const chk = document.getElementById(`exclude_${n}`);
+                        if (chk) chk.checked = false;
+                        if (window.Basket && window.Basket.removeExclude) {
+                            window.Basket.removeExclude(n);
+                        }
+                    });
+
+                    if (window.BasketUI && window.BasketUI.refresh) {
+                        window.BasketUI.refresh();
+                    }
+
+                    isRecentTenFilter = true;
                 }
                 autoApplyRecent10OnLoad();
             }
@@ -188,6 +210,8 @@
         // 🆕 페이지 로드 시 최근 10회차 필터 자동 적용
         function autoApplyRecent10OnLoad() {
             if (!allDrawData || allDrawData.length < 10) return;
+
+            isRecentTenFilter = true;
 
             const recent10 = allDrawData.slice(0, 10);
             const counts = new Set(recent10.map(d => d.twinCount));
@@ -237,6 +261,7 @@
                 }
 
                 if (chk) chk.checked = false; // 토글 해제
+                isRecentTenFilter = false;
                 applyFilter();
                 return;
             }
@@ -258,6 +283,7 @@
             highlightStartRound = Number(allDrawData[0].round);
 
             if (chk) chk.checked = true; // 토글 적용
+            isRecentTenFilter = true;
             applyFilter();
         }
 
@@ -357,81 +383,110 @@
         // [수정됨] 필터 설정 저장 함수
         // [수정됨] 필터 설정 저장 함수 (DB 저장)
         async function saveFilterSettings() {
-            const activeFilters = [];
-            for (let i = 0; i <= 4; i++) {
-                const btn = document.getElementById(`filter-btn-${i}`);
-                if (btn && btn.classList.contains('filter-btn-active')) {
-                    activeFilters.push(i);
+            if (window.isLoadingSettings) return; // 무한루프 방지
+            isSavingSettings = true;
+            try {
+                const activeFilters = [];
+                for (let i = 0; i <= 4; i++) {
+                    const btn = document.getElementById(`filter-btn-${i}`);
+                    if (btn && btn.classList.contains('filter-btn-active')) {
+                        activeFilters.push(i);
+                    }
                 }
-            }
 
-            const data = {
-                activeCounts: activeFilters,
-                excludedNumbers: Array.from(excludedNumbers),
-            };
-            const enabled = document.getElementById('applyFilterCheck').checked;
+                const data = {
+                    activeCounts: activeFilters,
+                    excludedNumbers: Array.from(excludedNumbers),
+                    isRecentTenFilter: isRecentTenFilter
+                };
+                const enabled = document.getElementById('applyFilterCheck').checked;
 
-            // DB 저장 (FilterService 사용)
-            if (window.filterService && window.filterService.initialized) {
-                await window.filterService.saveSetting('twin_number_patterns', data, enabled);
-            } else if (window.Utils && window.Utils.saveFilter) {
-                // Fallback: localStorage
-                window.Utils.saveFilter(STORAGE_KEY, { ...data, enabled });
+                // DB 저장 (FilterService 사용)
+                if (window.filterService && window.filterService.initialized) {
+                    await window.filterService.saveSetting('twin_number_patterns', data, enabled);
+                } else if (window.Utils && window.Utils.saveFilter) {
+                    // Fallback: localStorage
+                    window.Utils.saveFilter(STORAGE_KEY, { ...data, enabled });
+                }
+            } finally {
+                isSavingSettings = false;
             }
         }
 
         // [수정됨] 필터 설정 불러오기 함수
         // [수정됨] 필터 설정 불러오기 함수 (DB 로드)
         async function loadFilterSettings() {
+            if (isSavingSettings) return false;
+            window.isLoadingSettings = true;
             let saved = null;
-
-            // DB에서 로드 (FilterService 사용)
-            if (window.filterService && window.filterService.initialized) {
-                const data = await window.filterService.loadSetting('twin_number_patterns');
-                if (data) {
-                    saved = { ...data.settings, enabled: data.enabled };
-                }
-            }
-
-            // Fallback: localStorage
-            if (!saved && window.Utils && window.Utils.loadFilter) {
-                saved = window.Utils.loadFilter(STORAGE_KEY);
-            }
-
-            if (saved) {
-                // 1. 모든 필터 초기화
-                for (let i = 0; i <= 4; i++) {
-                    const btn = document.getElementById(`filter-btn-${i}`);
-                    if (btn) btn.classList.remove('filter-btn-active');
-                    updateCardVisual(i, false);
+            try {
+                // DB에서 로드 (FilterService 사용)
+                if (window.filterService && window.filterService.initialized) {
+                    const data = await window.filterService.loadSetting('twin_number_patterns');
+                    if (data) {
+                        saved = { ...data.settings, enabled: data.enabled };
+                    }
                 }
 
-                // 2. 저장된 개수 필터 적용
-                if (saved.activeCounts && Array.isArray(saved.activeCounts)) {
-                    saved.activeCounts.forEach(num => {
-                        const btn = document.getElementById(`filter-btn-${num}`);
-                        if (btn) btn.classList.add('filter-btn-active');
-                        updateCardVisual(num, true);
+                // Fallback: localStorage
+                if (!saved && window.Utils && window.Utils.loadFilter) {
+                    saved = window.Utils.loadFilter(STORAGE_KEY);
+                }
+
+                if (saved) {
+                    // isRecentTenFilter 상태 복구
+                    if (saved.isRecentTenFilter !== undefined) {
+                        isRecentTenFilter = saved.isRecentTenFilter;
+                    } else {
+                        isRecentTenFilter = false;
+                    }
+
+                    // 1. 모든 필터 초기화
+                    for (let i = 0; i <= 4; i++) {
+                        const btn = document.getElementById(`filter-btn-${i}`);
+                        if (btn) btn.classList.remove('filter-btn-active');
+                        updateCardVisual(i, false);
+                    }
+
+                    // 2. 저장된 개수 필터 적용
+                    if (saved.activeCounts && Array.isArray(saved.activeCounts)) {
+                        saved.activeCounts.forEach(num => {
+                            const btn = document.getElementById(`filter-btn-${num}`);
+                            if (btn) btn.classList.add('filter-btn-active');
+                            updateCardVisual(num, true);
+                        });
+                    }
+
+                    // 3. 저장된 제외수 복구
+                    excludedNumbers = new Set(saved.excludedNumbers || []);
+                    const twinNums = [11, 22, 33, 44];
+                    twinNums.forEach(n => {
+                        const chk = document.getElementById(`exclude_${n}`);
+                        if (chk) chk.checked = excludedNumbers.has(n);
+
+                        // Basket GNB 동기화
+                        if (excludedNumbers.has(n)) {
+                            if (window.Basket && window.Basket.addExclude) window.Basket.addExclude(n);
+                        } else {
+                            if (window.Basket && window.Basket.removeExclude) window.Basket.removeExclude(n);
+                        }
                     });
-                }
+                    const input = document.getElementById('excludeNumbersInput');
+                    if (input) input.value = Array.from(excludedNumbers).join(', ');
+                    if (window.BasketUI && window.BasketUI.refresh) {
+                        window.BasketUI.refresh();
+                    }
 
-                // 3. 저장된 제외수 복구
-                excludedNumbers = new Set(saved.excludedNumbers || []);
-                const twinNums = [11, 22, 33, 44];
-                twinNums.forEach(n => {
-                    const chk = document.getElementById(`exclude_${n}`);
-                    if (chk) chk.checked = excludedNumbers.has(n);
-                });
-                const input = document.getElementById('excludeNumbersInput');
-                if (input) input.value = Array.from(excludedNumbers).join(', ');
-
-                // 4. 필터 사용 여부 체크
-                if (saved.enabled !== undefined) {
-                    document.getElementById('applyFilterCheck').checked = saved.enabled;
+                    // 4. 필터 사용 여부 체크
+                    if (saved.enabled !== undefined) {
+                        document.getElementById('applyFilterCheck').checked = saved.enabled;
+                    }
+                    return true;
                 }
-                return true;
+                return false;
+            } finally {
+                window.isLoadingSettings = false;
             }
-            return false;
         }
 
         function updateCardVisual(num, isActive) {
@@ -1028,12 +1083,24 @@
                 if (chk && chk.checked) {
                     excludedNumbers.add(n);
                     selectedList.push(n);
+                    if (window.Basket && window.Basket.addExclude) {
+                        window.Basket.addExclude(n);
+                    }
+                } else {
+                    if (window.Basket && window.Basket.removeExclude) {
+                        window.Basket.removeExclude(n);
+                    }
                 }
             });
             const input = document.getElementById('excludeNumbersInput');
             if (input) {
                 input.value = selectedList.length > 0 ? selectedList.join(', ') : '';
             }
+
+            if (window.BasketUI && window.BasketUI.refresh) {
+                window.BasketUI.refresh();
+            }
+
             saveFilterSettings(); // [추가됨] 변경 시 저장
             applyFilter(); // [추가됨] 변경 시 적용
         }
@@ -1090,7 +1157,12 @@
                 // 🆕 다른 탭(대시보드)에서의 변경사항 실시간 감지
                 window.addEventListener('storage', (e) => {
                     if (e.key === 'twin_number_patterns' || e.key === 'twin_filter') {
-                        loadFilterSettings().then(() => applyFilter());
+                        if (!isSavingSettings) {
+                            loadFilterSettings().then(() => {
+                                applyFilter();
+                                updateRecentTenButtonState();
+                            });
+                        }
                     }
                 });
 

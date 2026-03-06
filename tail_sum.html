@@ -92,9 +92,10 @@
         // [수정] 필터 설정 저장 함수 (제외 목록 포함)
         // [수정] 필터 설정 저장 함수 (DB 저장)
         async function saveFilterSettings() {
+            if (window.isLoadingSettings) return; // 로딩 중에는 저장 방지
             const minInput = document.getElementById('minFilter');
             const maxInput = document.getElementById('maxFilter');
-            const chk = document.getElementById('applyFilterCheck'); // [수정] ID 일치 (기존 applyFilter 였음)
+            const chk = document.getElementById('applyFilterCheck');
 
             // 자동 제외된 합계를 가져옵니다 (최근 10회차 필터가 켜져 있을 때만)
             const recent10Btn = document.getElementById('recent10FilterBtn');
@@ -110,8 +111,9 @@
             const data = {
                 min: minInput.value ? parseInt(minInput.value) : null,
                 max: maxInput.value ? parseInt(maxInput.value) : null,
-                excluded: excludedSums, // [수정] 제외 목록 저장
-                autoExcluded: autoExcluded // DB에 자동 제외 항목 명시적 저장
+                excluded: excludedSums, // [수정] 수동 제외 목록 저장
+                autoExcluded: autoExcluded, // DB에 자동 제외 항목 명시적 저장
+                restoredAutoSums: restoredAutoSums // [추가] 자동 제외에서 복원된 항목들 저장
             };
             const enabled = chk ? chk.checked : true;
 
@@ -127,43 +129,63 @@
         // [수정] 필터 설정 불러오기 함수 (제외 목록 포함)
         // [수정] 필터 설정 불러오기 함수 (DB 로드)
         async function loadFilterSettings() {
-            let saved = null;
+            window.isLoadingSettings = true;
+            try {
+                let saved = null;
 
-            // DB에서 로드 (FilterService 사용)
-            if (window.filterService && window.filterService.initialized) {
-                const data = await window.filterService.loadSetting('last_digit_sum');
-                if (data) {
-                    saved = { ...data.settings, enabled: data.enabled };
-                }
-            }
-
-            // Fallback: localStorage
-            if (!saved && window.Utils && window.Utils.loadFilter) {
-                saved = window.Utils.loadFilter('tail_sum_filter');
-            }
-
-            if (saved) {
-                const minInput = document.getElementById('minFilter');
-                const maxInput = document.getElementById('maxFilter');
-                const chk = document.getElementById('applyFilter');
-
-                if (minInput && saved.min != null) minInput.value = saved.min;
-                if (maxInput && saved.max != null) maxInput.value = saved.max;
-                if (chk && saved.enabled != null) chk.checked = saved.enabled;
-
-                // [수정] 제외 목록 불러오기
-                if (saved.excluded && Array.isArray(saved.excluded)) {
-                    excludedSums = saved.excluded;
-                } else {
-                    excludedSums = [];
+                // DB에서 로드 (FilterService 사용)
+                if (window.filterService && window.filterService.initialized) {
+                    const data = await window.filterService.loadSetting('last_digit_sum');
+                    if (data) {
+                        saved = { ...data.settings, enabled: data.enabled };
+                    }
                 }
 
-                // 차트 업데이트 (필터 라인 그리기)
-                if (sumChart) sumChart.update();
-                return true;
+                // Fallback: localStorage
+                if (!saved && window.Utils && window.Utils.loadFilter) {
+                    saved = window.Utils.loadFilter('tail_sum_filter');
+                }
+
+                if (saved) {
+                    const minInput = document.getElementById('minFilter');
+                    const maxInput = document.getElementById('maxFilter');
+                    const chk = document.getElementById('applyFilterCheck'); // [수정] ID 수정 (applyFilter -> applyFilterCheck)
+
+                    if (minInput && saved.min != null) minInput.value = saved.min;
+                    if (maxInput && saved.max != null) maxInput.value = saved.max;
+                    if (chk && saved.enabled != null) chk.checked = saved.enabled;
+
+                    // [수정] 제외 목록 불러오기
+                    if (saved.excluded && Array.isArray(saved.excluded)) {
+                        excludedSums = saved.excluded;
+                    } else {
+                        excludedSums = [];
+                    }
+
+                    // [추가] 자동 제외 복원 목록 불러오기
+                    if (saved.restoredAutoSums && Array.isArray(saved.restoredAutoSums)) {
+                        restoredAutoSums = saved.restoredAutoSums;
+                    } else {
+                        restoredAutoSums = [];
+                    }
+
+                    // 리스트 및 차트 갱신 (저장 없이)
+                    applyFilter(true);
+                    return true;
+                }
+                return false;
+            } finally {
+                window.isLoadingSettings = false;
             }
-            return false;
         }
+
+        // [추가] 실시간 동기화를 위한 스토리지 이벤트 리스너
+        window.addEventListener('storage', (e) => {
+            if (e.key === 'last_digit_sum' || e.key === 'tail_sum_filter') {
+                console.log('🔄 대시보드에서 끝수합 필터 변경 감지: UI 갱신');
+                loadFilterSettings();
+            }
+        });
 
         // [추가됨] 로또 번호 색상 반환 함수 (Total Sum 스타일)
         function getBallColor(n) {
@@ -911,11 +933,8 @@
         function autoApplyRecent10OnLoad() {
             if (!allDrawData || allDrawData.length < 2) return;
 
-            const chk = document.getElementById('applyFilterCheck');
             const btn = document.getElementById('recent10FilterBtn');
             const btnText = document.getElementById('recent10BtnText');
-
-            if (chk) chk.checked = true;
 
             // 버튼 UI를 보라색(활성화) 상태로
             if (btn && btnText) {
@@ -930,18 +949,9 @@
             applyFilter();
             // applyRecent10Highlight(); // 자동 하이라이트 제외 (사용자 요청)
 
-            try {
-                const existing = JSON.parse(localStorage.getItem('last_digit_sum') || '{}');
-                const updated = {
-                    ...existing,
-                    enabled: true,
-                    recent10FilterActive: true
-                };
-                localStorage.setItem('last_digit_sum', JSON.stringify(updated));
-                console.log(`✅ 직전 끝수합 필터 자동 적용 + localStorage 저장`);
-            } catch (e) {
-                console.warn('autoApplyRecent10OnLoad localStorage 저장 오류:', e);
-            }
+            // DB/필터 설정 저장
+            saveFilterSettings();
+            console.log(`✅ 직전 끝수합 필터 자동 적용 + 필터 설정 저장 완료`);
 
             // 자동 제외 배지 표시
             setTimeout(() => { if (typeof renderExcludedSumsBadges === 'function') renderExcludedSumsBadges(); }, 50);
@@ -1185,9 +1195,6 @@
                 if (minInput) minInput.value = Math.min(...allSums);
                 if (maxInput) maxInput.value = Math.max(...allSums);
 
-                // 메인 필터 체크박스 해제
-                if (chk) chk.checked = false;
-
                 // 필터 재적용
                 applyFilter();
 
@@ -1214,9 +1221,6 @@
             const maxInput = document.getElementById('maxFilter');
             if (minInput) minInput.value = minSum;
             if (maxInput) maxInput.value = maxSum;
-
-            // 필터 적용 체크박스 자동 활성화
-            if (chk) chk.checked = true;
 
             // 필터 적용 실행
             applyFilter();
@@ -1594,9 +1598,6 @@ ${contextData}
                 if (minInput) minInput.value = '';
                 if (maxInput) maxInput.value = '';
 
-                const chk = document.getElementById('applyFilterCheck');
-                if (chk) chk.checked = false;
-
                 highlightStartRound = null;
                 applyFilter();
                 // 해제 시 설정 저장
@@ -1624,9 +1625,6 @@ ${contextData}
             btn.classList.remove('from-blue-500', 'to-indigo-600');
             btn.classList.add('from-purple-500', 'to-purple-700');
             btnText.textContent = '필터 해제';
-
-            const chk = document.getElementById('applyFilterCheck');
-            if (chk) chk.checked = true;
 
             // 4. 리스트 갱신 및 하이라이트
             highlightStartRound = allDrawData[0].round;
@@ -1776,8 +1774,8 @@ ${contextData}
             });
         }
 
-        function applyFilter() {
-            saveFilterSettings();
+        function applyFilter(skipSave = false) {
+            if (!skipSave) saveFilterSettings();
             const min = parseInt(document.getElementById('minFilter').value) || 0;
             const max = parseInt(document.getElementById('maxFilter').value) || 999;
             const isChecked = document.getElementById('applyFilterCheck').checked;
@@ -1803,7 +1801,7 @@ ${contextData}
             }
 
             if (typeof renderDrawsList === 'function') {
-                renderDrawsList(filteredData);
+                renderDrawsList(allDrawData.slice(0, currentRange));
             }
             if (sumChart) sumChart.update();
             if (typeof renderExcludedSumsBadges === 'function') {

@@ -11,8 +11,8 @@ const DeepLearning = {
         isConnected: false,
         isAnalyzing: false,
         targetRound: 0,
-        currentTab: 'dashboard',
-        analysisData: null
+        analysisData: null,
+        regressionSort: { field: 'id', asc: true }
     },
 
     // ── 초기화 ──
@@ -1422,6 +1422,77 @@ const DeepLearning = {
         });
         html += '</tbody></table></div>';
         container.innerHTML = html;
+    },
+
+    renderRegressionAnalysis(data) {
+        const tbody = document.getElementById('reg-body');
+        if (!tbody || !data) return;
+
+        // 원본 데이터 저장 (정렬을 위해)
+        if (!this._regressionData) this._regressionData = data;
+
+        let displayData = [...data];
+        const sort = this.regressionSort;
+
+        // 정렬 화살표 초기화
+        ['id', 'gap', 'str', 'avg_hit'].forEach(f => {
+            const arrow = document.getElementById('reg-sort-arrow-' + f);
+            if (arrow) arrow.textContent = '';
+        });
+        const currentArrow = document.getElementById('reg-sort-arrow-' + sort.field);
+        if (currentArrow) currentArrow.textContent = sort.asc ? '▲' : '▼';
+
+        // 데이터 정렬
+        displayData.sort((a, b) => {
+            let v1 = a[sort.field];
+            let v2 = b[sort.field];
+            if (sort.field === 'id') {
+                v1 = parseInt(v1);
+                v2 = parseInt(v2);
+            }
+            if (v1 < v2) return sort.asc ? -1 : 1;
+            if (v1 > v2) return sort.asc ? 1 : -1;
+            return 0;
+        });
+
+        tbody.innerHTML = displayData.map(item => {
+            const targetsHtml = (item.targets || []).map(n => {
+                const colorClass = this.getBallColorClass(n);
+                return `<span class="ball-common ${colorClass} w-6 h-6 text-[10px]">${n}</span>`;
+            }).join('');
+
+            // 적중 분포 도트 (0~6)
+            const hits = item.hit_dist || [];
+            const distributionHtml = Array.from({ length: 7 }).map((_, i) => {
+                const count = hits.filter(h => h === i).length;
+                let opacity = count > 0 ? 1 : 0.1;
+                let scale = 1 + (count * 0.2);
+                return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#4F46E5;opacity:${opacity};transform:scale(${scale});margin:0 2px" title="${i}개 적중: ${count}회"></span>`;
+            }).join('');
+
+            return `<tr class="hover:bg-gray-50 transition-colors">
+                <td class="px-3 py-3 font-bold text-gray-800">${item.id}회귀</td>
+                <td class="px-3 py-3"><div class="flex gap-1 justify-center">${targetsHtml}</div></td>
+                <td class="px-3 py-3 font-mono text-gray-600">${item.gap}</td>
+                <td class="px-3 py-3 font-mono text-gray-600">${item.str != null ? item.str : '-'}</td>
+                <td class="px-3 py-3 font-mono text-gray-500">${item.avg_hit != null ? item.avg_hit.toFixed(2) : '-'}</td>
+                <td class="px-3 py-3"><div class="flex items-center justify-center">${distributionHtml}</div></td>
+            </tr>`;
+        }).join('');
+    },
+
+    _regSort(field) {
+        if (this.regressionSort.field === field) {
+            this.regressionSort.asc = !this.regressionSort.asc;
+        } else {
+            this.regressionSort.field = field;
+            this.regressionSort.asc = true;
+        }
+
+        const data = this.state.analysisData ? this.state.analysisData.regression_analysis : this._regressionData;
+        if (data) {
+            this.renderRegressionAnalysis(data);
+        }
     },
 
     async loadHistoryList() {

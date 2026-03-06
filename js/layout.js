@@ -429,10 +429,24 @@ async function renderCustomMenuItems() {
 
     try {
         // 1. DB에서 커스텀 분석 목록 가져오기
-        const { data: analyses, error } = await window.supabaseClient
+        const _menuUser = (await window.supabaseClient.auth.getUser()).data?.user;
+        const _menuUserId = _menuUser?.id;
+
+        // [수정] 내 분석 + 공용(user_id가 null) 분석 모두 가져오기
+        let _menuQuery = window.supabaseClient
             .from('ai_custom_analyses')
-            .select('id, title, type, filter_config')
-            .order('created_at', { ascending: true }); // 생성 순으로 표시
+            .select('id, title, type, filter_config, user_id')
+            .order('created_at', { ascending: true });
+
+        if (_menuUserId) {
+            // 내 데이터이거나 공용 데이터인 경우
+            _menuQuery = _menuQuery.or(`user_id.eq.${_menuUserId},user_id.is.null`);
+        } else {
+            // 로그인 안 된 경우 공용만
+            _menuQuery = _menuQuery.is('user_id', null);
+        }
+
+        const { data: analyses, error } = await _menuQuery;
 
         if (error) throw error;
 
@@ -769,6 +783,8 @@ Return ONLY the JSON. No markdown.
 
         try {
             const userTitle = document.getElementById('newAnalysisTitle')?.value.trim();
+            const _saveUserId = window.filterService?.userId
+                || (await window.supabaseClient.auth.getUser()).data?.user?.id;
             const { data, error } = await window.supabaseClient
                 .from('ai_custom_analyses')
                 .insert([{
@@ -779,7 +795,8 @@ Return ONLY the JSON. No markdown.
                     // [FIX] dynamic 타입일 경우 target_numbers가 null일 수 있으므로 빈 배열 처리
                     target_numbers: tempAnalysisData.target_numbers || [],
                     rules: tempAnalysisData.rules,
-                    filter_config: { min: 1, max: 3, enabled: false }
+                    filter_config: { min: 1, max: 3, enabled: false },
+                    user_id: _saveUserId || null
                 }])
                 .select()
                 .single();

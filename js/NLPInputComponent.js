@@ -557,6 +557,8 @@ window.createAnalysis = window.createAnalysis || async function (params) {
             ...(params.config ? { config: params.config } : {})
         };
 
+        const _nlpUserId = window.filterService?.userId
+            || (await window.supabaseClient.auth.getUser()).data?.user?.id;
         const { data, error } = await window.supabaseClient
             .from('ai_custom_analyses')
             .insert({
@@ -565,7 +567,8 @@ window.createAnalysis = window.createAnalysis || async function (params) {
                 target_numbers: params.target_numbers || [],
                 rules: mergedRules,
                 filter_config: params.filter_config || { min: 1, max: 3, enabled: false },
-                description: ''
+                description: '',
+                user_id: _nlpUserId || null
             })
             .select()
             .single();

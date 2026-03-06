@@ -846,6 +846,14 @@ async function saveFilterConfig() {
 
         if (error) throw error;
 
+        // [수정] localStorage에도 동시 저장하여 대시보드 및 타 탭과 동기화
+        if (window.Utils && window.Utils.saveFilter) {
+            window.Utils.saveFilter(`custom_filter_${currentAnalysis.id}`, currentAnalysis.filter_config);
+        } else {
+            const storageKey = `custom_filter_${currentAnalysis.id}`;
+            localStorage.setItem(storageKey, JSON.stringify(currentAnalysis.filter_config));
+        }
+
         // [New] 사이드바 'ON' 뱃지 갱신을 위해 메뉴 다시 그리기
         if (window.renderCustomMenuItems) {
             await window.renderCustomMenuItems();
@@ -1300,6 +1308,8 @@ window.saveManual = async function () {
     }, { onConflict: 'analysis_id, target_round' });
 
     showToast(`${targetRound}회차 설정이 저장되었습니다.`);
+    // [추가] 대시보드 갱신 알림
+    localStorage.setItem('custom_analysis_refresh', Date.now());
     updateAnalysisDisplay();
 };
 
@@ -1396,6 +1406,8 @@ window.editTitle = async () => {
     if (val) {
         await window.supabaseClient.from('ai_custom_analyses').update({ title: val }).eq('id', currentAnalysis.id);
         currentAnalysis.title = val;
+        // [추가] 대시보드 갱신 알림
+        localStorage.setItem('custom_analysis_refresh', Date.now());
         renderBaseInfo();
         updateAnalysisDisplay(); // [Fix] 제목 변경 즉시 분석 갱신
     }
@@ -1404,6 +1416,8 @@ window.editTitle = async () => {
 window.deleteAnalysis = async () => {
     if (confirm("삭제할까요?")) {
         await window.supabaseClient.from('ai_custom_analyses').delete().eq('id', currentAnalysis.id);
+        // [추가] 삭제 알림 sentinel 설정
+        localStorage.setItem('custom_analysis_refresh', Date.now());
         window.location.href = 'custom_analysis.html';
     }
 };
@@ -1806,3 +1820,22 @@ function formatAIResponse(text) {
         .replace(/\*\*(.*?)\*\*/g, '<strong class="font-black text-gray-900">$1</strong>')
         .replace(/\n/g, '<br>');
 }
+// [New] 실시간 동기화: 다른 탭(대시보드 등)에서 필터 변경 시 즉시 반영
+window.addEventListener('storage', (e) => {
+    if (!e.key || !currentAnalysis) return;
+
+    // 현재 보고 있는 분석의 필터가 변경되었는지 확인
+    if (e.key === `custom_filter_${currentAnalysis.id}`) {
+        try {
+            const newData = JSON.parse(e.newValue);
+            if (newData) {
+                console.log(`🔄 [Sync] 외부 변경 감지: ${e.key}`);
+                currentAnalysis.filter_config = newData;
+                renderFilterUI();
+                updateAnalysisDisplay(true); // UI만 즉시 갱신
+            }
+        } catch (err) {
+            console.error("데이터 동기화 파싱 오류:", err);
+        }
+    }
+});

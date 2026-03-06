@@ -299,97 +299,115 @@
             afterDatasetsDraw: function (chart) { }
         };
 
+        // 전역 로딩 플래그 (무한 루프 방지)
+        window.isLoadingSettings = false;
+
         // [수정] 필터 설정 저장 함수 (DB 저장)
         async function saveFilterSettings() {
+            if (window.isLoadingSettings) return; // 로딩 중 저장 방지 (무한 루프 방지)
             const toggle = document.getElementById('applyFilterCheck');
 
             // 활성화된 개수 필터 수집
             const activeCounts = [];
             for (let i = 0; i <= 6; i++) {
                 const btn = document.getElementById(`filter-btn-${i}`);
-                if (btn && btn.classList.contains('filter-btn-active')) {
+                if (btn && (btn.classList.contains('filter-btn-active') || btn.classList.contains('bg-purple-600'))) {
                     activeCounts.push(i);
                 }
             }
 
             const data = {
                 selectedCounts: activeCounts,
-                excludedPrimes: Array.from(excludedPrimes)
+                excludedPrimes: Array.from(excludedPrimes),
+                recent10FilterActive: isRecentTenFilter
             };
             const enabled = toggle ? toggle.checked : true;
+            const settingsWithEnabled = { ...data, enabled };
 
             // DB 저장 (FilterService 사용)
             if (window.filterService && window.filterService.initialized) {
                 await window.filterService.saveSetting('prime_number_patterns', data, enabled);
             } else if (window.Utils && window.Utils.saveFilter) {
                 // Fallback: localStorage
-                window.Utils.saveFilter('prime_filter', { ...data, enabled });
+                window.Utils.saveFilter('prime_number_patterns', settingsWithEnabled);
             }
+
+            // localStorage 동기화 (filter_dashboard.js 감지용)
+            localStorage.setItem('prime_number_patterns', JSON.stringify(settingsWithEnabled));
+            localStorage.setItem('prime_number_patterns_filter', JSON.stringify(settingsWithEnabled));
         }
 
         // [수정] 필터 설정 불러오기 함수 (DB 로드)
         async function loadFilterSettings() {
-            let saved = null;
+            window.isLoadingSettings = true;
+            try {
+                let saved = null;
 
-            // DB에서 로드 (FilterService 사용)
-            if (window.filterService && window.filterService.initialized) {
-                const data = await window.filterService.loadSetting('prime_number_patterns');
-                if (data) {
-                    saved = { ...data.settings, enabled: data.enabled };
-                }
-            }
-
-            // Fallback: localStorage
-            if (!saved && window.Utils && window.Utils.loadFilter) {
-                saved = window.Utils.loadFilter('prime_filter');
-            }
-
-            if (saved) {
-                // 개수 필터 복구
-                const counts = new Set(saved.selectedCounts || []);
-                for (let i = 0; i <= 6; i++) {
-                    const btn = document.getElementById(`filter-btn-${i}`);
-                    const card = document.getElementById(`card-${i}`);
-                    if (counts.has(i)) {
-                        btn.classList.add('filter-btn-active');
-                        if (card) {
-                            card.classList.remove('bg-white', 'border-gray-200');
-                            card.classList.add('bg-blue-600', 'border-blue-600', 'shadow-md');
-                            const val = document.getElementById(`count_${i}`);
-                            if (val) { val.classList.remove('text-gray-900'); val.classList.add('text-white'); }
-                            const title = card.querySelector('.text-xs');
-                            if (title) { title.classList.remove('text-gray-500'); title.classList.add('text-blue-100'); }
-                        }
-                    } else {
-                        btn.classList.remove('filter-btn-active');
-                        if (card) {
-                            card.classList.add('bg-white', 'border-gray-200');
-                            card.classList.remove('bg-blue-600', 'border-blue-600', 'shadow-md');
-                            const val = document.getElementById(`count_${i}`);
-                            if (val) { val.classList.add('text-gray-900'); val.classList.remove('text-white'); }
-                            const title = card.querySelector('.text-xs');
-                            if (title) { title.classList.add('text-gray-500'); title.classList.remove('text-blue-100'); }
-                        }
+                // DB에서 로드 (FilterService 사용)
+                if (window.filterService && window.filterService.initialized) {
+                    const data = await window.filterService.loadSetting('prime_number_patterns');
+                    if (data) {
+                        saved = { ...data.settings, enabled: data.enabled };
                     }
                 }
 
-                // 제외수 복구
-                excludedPrimes = new Set(saved.excludedPrimes || []);
-                const primeNums = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43];
-                primeNums.forEach(p => {
-                    const chk = document.getElementById(`exclude_${p}`);
-                    if (chk) chk.checked = excludedPrimes.has(p);
-                });
-                const input = document.getElementById('excludeNumbersInput');
-                if (input) input.value = Array.from(excludedPrimes).join(', ');
+                // Fallback: localStorage
+                if (!saved) {
+                    const raw = localStorage.getItem('prime_number_patterns') || localStorage.getItem('prime_number_patterns_filter') || localStorage.getItem('prime_filter');
+                    if (raw) try { saved = JSON.parse(raw); } catch (e) { }
+                }
 
-                // 필터 적용 여부 복구
-                const toggle = document.getElementById('applyFilterCheck');
-                if (toggle) toggle.checked = saved.enabled;
+                if (saved) {
+                    // 개수 필터 복구
+                    const counts = new Set(saved.selectedCounts || []);
+                    for (let i = 0; i <= 6; i++) {
+                        const btn = document.getElementById(`filter-btn-${i}`);
+                        const card = document.getElementById(`card-${i}`);
+                        if (counts.has(i)) {
+                            btn.classList.add('filter-btn-active');
+                            if (card) {
+                                card.classList.remove('bg-white', 'border-gray-200');
+                                card.classList.add('bg-blue-600', 'border-blue-600', 'shadow-md');
+                                const val = document.getElementById(`count_${i}`);
+                                if (val) { val.classList.remove('text-gray-900'); val.classList.add('text-white'); }
+                                const title = card.querySelector('.text-xs');
+                                if (title) { title.classList.remove('text-gray-500'); title.classList.add('text-blue-100'); }
+                            }
+                        } else {
+                            btn.classList.remove('filter-btn-active');
+                            if (card) {
+                                card.classList.add('bg-white', 'border-gray-200');
+                                card.classList.remove('bg-blue-600', 'border-blue-600', 'shadow-md');
+                                const val = document.getElementById(`count_${i}`);
+                                if (val) { val.classList.add('text-gray-900'); val.classList.remove('text-white'); }
+                                const title = card.querySelector('.text-xs');
+                                if (title) { title.classList.add('text-gray-500'); title.classList.remove('text-blue-100'); }
+                            }
+                        }
+                    }
 
-                return true;
+                    // 제외수 복구
+                    excludedPrimes = new Set(saved.excludedPrimes || []);
+                    const primeNums = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43];
+                    primeNums.forEach(p => {
+                        const chk = document.getElementById(`exclude_${p}`);
+                        if (chk) chk.checked = excludedPrimes.has(p);
+                    });
+                    const input = document.getElementById('excludeNumbersInput');
+                    if (input) input.value = Array.from(excludedPrimes).join(', ');
+
+                    // 필터 적용 여부 복구
+                    const toggle = document.getElementById('applyFilterCheck');
+                    if (toggle) toggle.checked = saved.enabled !== undefined ? saved.enabled : true;
+
+                    isRecentTenFilter = saved.recent10FilterActive || false;
+
+                    return true;
+                }
+                return false;
+            } finally {
+                window.isLoadingSettings = false;
             }
-            return false;
         }
     </script>
     <style>
@@ -979,8 +997,13 @@
                 if (chk && chk.checked) {
                     excludedPrimes.add(p);
                     selectedList.push(p);
+                    if (window.Basket) window.Basket.addExclude(p);
+                } else {
+                    if (window.Basket) window.Basket.removeExclude(p);
                 }
             });
+            if (window.BasketUI && window.BasketUI.refresh) window.BasketUI.refresh();
+
             const input = document.getElementById('excludeNumbersInput');
             if (input) {
                 input.value = selectedList.length > 0 ? selectedList.join(', ') : '';
@@ -1113,8 +1136,8 @@
 
         // 🔥 대시보드(filter.html) 혹은 다른 페이지에서의 설정을 실시간 동기화
         window.addEventListener('storage', (e) => {
-            if (e.key === 'prime_number_patterns') {
-                console.log('🔄 Dashboard -> Prime Number Sync Detected');
+            if (e.key === 'prime_number_patterns' || e.key === 'prime_number_patterns_filter' || e.key === 'prime_filter') {
+                console.log(`[prime_number] Storage event detected for: ${e.key}, reloading...`);
                 if (typeof loadFilterSettings === 'function') {
                     loadFilterSettings().then(() => {
                         applyFilter();
@@ -1139,6 +1162,22 @@
 
                 // 새 회차 저장
                 localStorage.setItem(storageKey, String(latestRound));
+
+                // [NEW] 수동 제외수 초기화 (새 회차 갱신 시점)
+                if (savedRound > 0) {
+                    excludedPrimes.clear();
+                    const primeNums = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43];
+                    primeNums.forEach(p => {
+                        const chk = document.getElementById(`exclude_${p}`);
+                        if (chk) chk.checked = false;
+                        if (window.Basket) window.Basket.removeExclude(p);
+                    });
+                    if (window.BasketUI && window.BasketUI.refresh) window.BasketUI.refresh();
+
+                    const input = document.getElementById('excludeNumbersInput');
+                    if (input) input.value = '';
+                    await saveFilterSettings();
+                }
 
                 // 토요일이거나 저장된 회차가 없을 때(최초 실행) 필터 자동 적용
                 if (isNewRoundDay || savedRound === 0) {
@@ -1395,32 +1434,7 @@
             });
         }
 
-        async function saveFilterSettings() {
-            if (!window.filterService || !window.filterService.initialized) return;
 
-            const isEnabled = document.getElementById('applyFilterCheck')?.checked || false;
-            const activeCounts = [];
-            for (let i = 0; i <= 6; i++) {
-                const btn = document.getElementById(`filter-btn-${i}`);
-                if (btn && (btn.classList.contains('filter-btn-active') || btn.classList.contains('bg-purple-600'))) {
-                    activeCounts.push(i);
-                }
-            }
-
-            const settings = {
-                selectedCounts: activeCounts,
-                excludedPrimes: Array.from(excludedPrimes || []),
-                recent10FilterActive: isRecentTenFilter
-            };
-
-            await window.filterService.saveSetting('prime_number_patterns', settings, isEnabled);
-
-            // localStorage fallback (for dashboard sync)
-            localStorage.setItem('prime_number_patterns', JSON.stringify({
-                enabled: isEnabled,
-                ...settings
-            }));
-        }
 
         function generateDistributionData(range) {
             if (!allDrawData.length) return { labels: [], values: [] };
