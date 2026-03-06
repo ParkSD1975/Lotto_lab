@@ -1,5 +1,5 @@
 /**
- * ai_deep_learning.js  v3.4 (Design Fix + Function Restore)
+ * ai_deep_learning.js  v3.5 (Design Synchronization)
  *
  * AI 딥러닝 심층 분석 대시보드 컨트롤러 (3-Tab 버전)
  * aiProxy.js를 통해 Python 백엔드(LangChain RAG)와 통신합니다.
@@ -18,7 +18,7 @@ const DeepLearning = {
     // ── 초기화 ──
     async init() {
         const startTime = Date.now();
-        console.log("🚀 Deep Learning v3.4 Initializing...");
+        console.log("🚀 Deep Learning v3.5 Initializing...");
 
         // 1. 핵심 정보 병렬 로드
         await Promise.all([
@@ -964,6 +964,7 @@ const DeepLearning = {
             const MODEL_LABELS = { lstm: 'LSTM', xgboost: 'XGBoost', cnn: 'CNN', transformer: 'Transformer', markov: 'Markov', autoencoder: 'Autoenc.', gnn: 'GNN' };
             const weights = pipeline.modelWeights;
             const weightValues = Object.values(weights).map(v => v || 0);
+
             const maxW = weightValues.length > 0 ? Math.max(...weightValues) : 0;
             const barsHtml = Object.entries(weights).map(([name, w]) => {
                 const w_val = w || 0;
@@ -1023,27 +1024,27 @@ const DeepLearning = {
     renderTailAnalysis(tailData) {
         const tbody = document.getElementById('tail-body');
         if (!tbody || !tailData) return;
-        
+
         // 딥러닝 모델별 고유 색상 (차분한 톤)
-        const MODEL_COLORS = { 
-            lstm: '#6366F1', xgboost: '#3B82F6', cnn: '#EC4899', 
-            transformer: '#F97316', markov: '#10B981', autoencoder: '#8B5CF6', gnn: '#EF4444' 
+        const MODEL_COLORS = {
+            lstm: '#6366F1', xgboost: '#3B82F6', cnn: '#EC4899',
+            transformer: '#F97316', markov: '#10B981', autoencoder: '#8B5CF6', gnn: '#EF4444'
         };
         const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
-        
+
         tbody.innerHTML = tailData.map(item => {
             const exp = typeof item.exp === 'number' ? item.exp : 0;
             const str = item.str != null ? item.str : '-';
-            
+
             // 1. 앙상블 (메인 지표) - 딥 틸(Deep Teal) 테마 적용
             let barColor = '#CCFBF1'; // 기본: 연한 민트
             let width = '10%';
-            
+
             if (exp >= 2.0) { width = '100%'; barColor = '#134E4A'; } // Hot
             else if (exp >= 1.5) { width = '85%'; barColor = '#0F766E'; }
             else if (exp >= 1.0) { width = '60%'; barColor = '#14B8A6'; }
             else if (exp >= 0.5) { width = '30%'; barColor = '#5EEAD4'; }
-            
+
             const expCell = `
                 <div class="flex flex-col items-center justify-center h-full px-2" title="예상 개수: ${exp.toFixed(2)}">
                     <div class="w-full h-1.5 bg-teal-50 rounded-full overflow-hidden">
@@ -1057,11 +1058,11 @@ const DeepLearning = {
                 const val = item.model_exp && item.model_exp[m] != null ? parseFloat(item.model_exp[m]) : 0;
                 let opacity = 0.15;
                 let height = '4px';
-                
+
                 if (val >= 1.5) { opacity = 1.0; height = '14px'; } // 강함
                 else if (val >= 1.0) { opacity = 0.7; height = '10px'; } // 중간
                 else if (val >= 0.5) { opacity = 0.4; height = '6px'; } // 약함
-                
+
                 return `<td class="px-1 py-3 text-center align-bottom" title="${m.toUpperCase()}: ${val.toFixed(2)}">
                     <div style="display:flex;align-items:flex-end;justify-content:center;height:16px;">
                         <div style="width:12px;height:${height};background-color:${MODEL_COLORS[m]};opacity:${opacity};border-radius:2px;"></div>
@@ -1082,9 +1083,13 @@ const DeepLearning = {
     renderLottoPaperAnalysis(paperData) {
         const container = document.getElementById('lottoPaperContainer');
         if (!container || !paperData) return;
-        const MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7', gnn: '#ef4444' };
+        const MODEL_COLORS = {
+            lstm: '#6366F1', xgboost: '#3B82F6', cnn: '#EC4899',
+            transformer: '#F97316', markov: '#10B981', autoencoder: '#8B5CF6', gnn: '#EF4444'
+        };
         const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
-        
+        const MODEL_ABBR = { lstm: 'L', xgboost: 'X', cnn: 'C', transformer: 'T', markov: 'M', autoencoder: 'A', gnn: 'G' };
+
         const buildTable = (title, items) => {
             let html = `<div class="mb-8">`;
             html += `<div class="flex items-center gap-2 mb-4 px-1"><span class="w-1 h-4 bg-gray-800 rounded-full"></span><span class="text-sm font-bold text-gray-800 uppercase tracking-wide">${title}</span></div>`;
@@ -1094,23 +1099,22 @@ const DeepLearning = {
             html += '<th class="px-5 py-4 text-left font-bold text-gray-600">구분</th>';
             html += '<th class="px-2 py-4 text-center font-bold text-teal-900 w-24">앙상블</th>';
             models.forEach(m => {
-                html += `<th class="px-1 py-4 text-center font-bold text-gray-400 w-8" title="${m.toUpperCase()}">${m.substring(0,1).toUpperCase()}</th>`;
+                html += `<th class="px-1 py-4 text-center font-bold text-gray-400 w-8" title="${m.toUpperCase()}">${MODEL_ABBR[m]}</th>`;
             });
             html += '<th class="px-4 py-4 text-center font-bold text-gray-500">Gap</th>';
             html += '<th class="px-4 py-4 text-center font-bold text-gray-500">STR</th>';
             html += '</tr></thead><tbody>';
-            
+
             items.forEach((item, idx) => {
                 const exp = typeof item.exp === 'number' ? item.exp : 0;
-                
-                // 1. 앙상블 (Deep Teal Bar)
-                let barColor = '#CCFBF1'; // Low
+
+                let barColor = '#CCFBF1';
                 let width = '10%';
-                if (exp >= 2.0) { width = '100%'; barColor = '#134E4A'; } // Hot
+                if (exp >= 2.0) { width = '100%'; barColor = '#134E4A'; }
                 else if (exp >= 1.5) { width = '85%'; barColor = '#0F766E'; }
                 else if (exp >= 1.0) { width = '60%'; barColor = '#14B8A6'; }
                 else if (exp >= 0.5) { width = '30%'; barColor = '#5EEAD4'; }
-                
+
                 const expCell = `
                     <div class="flex flex-col items-center justify-center h-full px-2" title="예상 개수: ${exp.toFixed(2)}">
                         <div class="w-full h-1.5 bg-teal-50 rounded-full overflow-hidden">
@@ -1119,7 +1123,6 @@ const DeepLearning = {
                     </div>
                 `;
 
-                // 2. 모델별 미니 바
                 const modelCells = models.map(m => {
                     const val = item.model_exp && item.model_exp[m] != null ? parseFloat(item.model_exp[m]) : 0;
                     let opacity = 0.15;
@@ -1127,10 +1130,10 @@ const DeepLearning = {
                     if (val >= 1.5) { opacity = 1.0; height = '14px'; }
                     else if (val >= 1.0) { opacity = 0.7; height = '10px'; }
                     else if (val >= 0.5) { opacity = 0.4; height = '6px'; }
-                    
+
                     return `<td class="px-1 py-4 text-center align-bottom" title="${m.toUpperCase()}: ${val.toFixed(2)}">
                         <div style="display:flex;align-items:flex-end;justify-content:center;height:16px;">
-                            <div style="width:6px;height:${height};background-color:${MODEL_COLORS[m]};opacity:${opacity};border-radius:2px;"></div>
+                            <div style="width:12px;height:${height};background-color:${MODEL_COLORS[m]};opacity:${opacity};border-radius:2px;"></div>
                         </div>
                     </td>`;
                 }).join('');
@@ -1146,7 +1149,7 @@ const DeepLearning = {
             html += '</tbody></table></div></div>';
             return html;
         };
-        
+
         let html = '';
         if (paperData.rows) html += buildTable('가로 라인 분포', paperData.rows);
         if (paperData.cols) html += buildTable('세로 라인 분포', paperData.cols);
@@ -1156,31 +1159,35 @@ const DeepLearning = {
     renderNumberBandAnalysis(bandData) {
         const container = document.getElementById('numberBandContainer');
         if (!container || !bandData || !bandData.length) return;
-        const MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7', gnn: '#ef4444' };
+        const MODEL_COLORS = {
+            lstm: '#6366F1', xgboost: '#3B82F6', cnn: '#EC4899',
+            transformer: '#F97316', markov: '#10B981', autoencoder: '#8B5CF6', gnn: '#EF4444'
+        };
         const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
-        
+        const MODEL_ABBR = { lstm: 'L', xgboost: 'X', cnn: 'C', transformer: 'T', markov: 'M', autoencoder: 'A', gnn: 'G' };
+
         let html = '<div class="overflow-x-auto rounded-2xl border border-gray-200 shadow-sm bg-white">';
         html += '<table class="w-full text-xs">';
         html += '<thead><tr class="bg-gray-50/50 border-b border-gray-200">';
         html += '<th class="px-5 py-4 text-left font-bold text-gray-600">번호대</th>';
         html += '<th class="px-2 py-4 text-center font-bold text-teal-900 w-24">앙상블</th>';
         models.forEach(m => {
-            html += `<th class="px-1 py-4 text-center font-bold text-gray-400 w-8" title="${m.toUpperCase()}">${m.substring(0,1).toUpperCase()}</th>`;
+            html += `<th class="px-1 py-4 text-center font-bold text-gray-400 w-8" title="${m.toUpperCase()}">${MODEL_ABBR[m]}</th>`;
         });
         html += '<th class="px-4 py-4 text-center font-bold text-gray-500">Gap</th>';
         html += '<th class="px-4 py-4 text-center font-bold text-gray-500">STR</th>';
         html += '</tr></thead><tbody>';
-        
+
         bandData.forEach((item, idx) => {
             const exp = typeof item.exp === 'number' ? item.exp : 0;
-            
+
             let barColor = '#CCFBF1';
             let width = '10%';
             if (exp >= 2.0) { width = '100%'; barColor = '#134E4A'; }
             else if (exp >= 1.5) { width = '85%'; barColor = '#0F766E'; }
             else if (exp >= 1.0) { width = '60%'; barColor = '#14B8A6'; }
             else if (exp >= 0.5) { width = '30%'; barColor = '#5EEAD4'; }
-            
+
             const expCell = `
                 <div class="flex flex-col items-center justify-center h-full px-2" title="예상 개수: ${exp.toFixed(2)}">
                     <div class="w-full h-1.5 bg-teal-50 rounded-full overflow-hidden">
@@ -1196,10 +1203,10 @@ const DeepLearning = {
                 if (val >= 1.5) { opacity = 1.0; height = '14px'; }
                 else if (val >= 1.0) { opacity = 0.7; height = '10px'; }
                 else if (val >= 0.5) { opacity = 0.4; height = '6px'; }
-                
+
                 return `<td class="px-1 py-4 text-center align-bottom" title="${m.toUpperCase()}: ${val.toFixed(2)}">
                     <div style="display:flex;align-items:flex-end;justify-content:center;height:16px;">
-                        <div style="width:6px;height:${height};background-color:${MODEL_COLORS[m]};opacity:${opacity};border-radius:2px;"></div>
+                        <div style="width:12px;height:${height};background-color:${MODEL_COLORS[m]};opacity:${opacity};border-radius:2px;"></div>
                     </div>
                 </td>`;
             }).join('');
@@ -1219,31 +1226,35 @@ const DeepLearning = {
     renderMagicSquareAnalysis(squareData) {
         const container = document.getElementById('magicSquareContainer');
         if (!container || !squareData || !squareData.length) return;
-        const MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7', gnn: '#ef4444' };
+        const MODEL_COLORS = {
+            lstm: '#6366F1', xgboost: '#3B82F6', cnn: '#EC4899',
+            transformer: '#F97316', markov: '#10B981', autoencoder: '#8B5CF6', gnn: '#EF4444'
+        };
         const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
-        
+        const MODEL_ABBR = { lstm: 'L', xgboost: 'X', cnn: 'C', transformer: 'T', markov: 'M', autoencoder: 'A', gnn: 'G' };
+
         let html = '<div class="overflow-x-auto rounded-2xl border border-gray-200 shadow-sm bg-white">';
         html += '<table class="w-full text-xs">';
         html += '<thead><tr class="bg-gray-50/50 border-b border-gray-200">';
         html += '<th class="px-5 py-4 text-left font-bold text-gray-600">궁</th>';
         html += '<th class="px-2 py-4 text-center font-bold text-teal-900 w-24">앙상블</th>';
         models.forEach(m => {
-            html += `<th class="px-1 py-4 text-center font-bold text-gray-400 w-8" title="${m.toUpperCase()}">${m.substring(0,1).toUpperCase()}</th>`;
+            html += `<th class="px-1 py-4 text-center font-bold text-gray-400 w-8" title="${m.toUpperCase()}">${MODEL_ABBR[m]}</th>`;
         });
         html += '<th class="px-4 py-4 text-center font-bold text-gray-500">Gap</th>';
         html += '<th class="px-4 py-4 text-center font-bold text-gray-500">STR</th>';
         html += '</tr></thead><tbody>';
-        
+
         squareData.forEach((item, idx) => {
             const exp = typeof item.exp === 'number' ? item.exp : 0;
-            
+
             let barColor = '#CCFBF1';
             let width = '10%';
             if (exp >= 2.0) { width = '100%'; barColor = '#134E4A'; }
             else if (exp >= 1.5) { width = '85%'; barColor = '#0F766E'; }
             else if (exp >= 1.0) { width = '60%'; barColor = '#14B8A6'; }
             else if (exp >= 0.5) { width = '30%'; barColor = '#5EEAD4'; }
-            
+
             const expCell = `
                 <div class="flex flex-col items-center justify-center h-full px-2" title="예상 개수: ${exp.toFixed(2)}">
                     <div class="w-full h-1.5 bg-teal-50 rounded-full overflow-hidden">
@@ -1259,10 +1270,10 @@ const DeepLearning = {
                 if (val >= 1.5) { opacity = 1.0; height = '14px'; }
                 else if (val >= 1.0) { opacity = 0.7; height = '10px'; }
                 else if (val >= 0.5) { opacity = 0.4; height = '6px'; }
-                
+
                 return `<td class="px-1 py-4 text-center align-bottom" title="${m.toUpperCase()}: ${val.toFixed(2)}">
                     <div style="display:flex;align-items:flex-end;justify-content:center;height:16px;">
-                        <div style="width:6px;height:${height};background-color:${MODEL_COLORS[m]};opacity:${opacity};border-radius:2px;"></div>
+                        <div style="width:12px;height:${height};background-color:${MODEL_COLORS[m]};opacity:${opacity};border-radius:2px;"></div>
                     </div>
                 </td>`;
             }).join('');
@@ -1279,327 +1290,15 @@ const DeepLearning = {
         container.innerHTML = html;
     },
 
-    renderMissingGroupAnalysis(data) {
-        const container = document.getElementById('missingGroupContainer');
-        if (!container || !data) return;
-        const groups = data.groups || {};
-        const self = this;
-        const GC = {
-            1: { label: '1~5회', sub: '최근', dot: '#1e293b', bar: '#1e293b', dimText: '#475569' },
-            2: { label: '6~10회', sub: '중기', dot: '#475569', bar: '#475569', dimText: '#64748b' },
-            3: { label: '11~15회', sub: '장기', dot: '#94a3b8', bar: '#94a3b8', dimText: '#94a3b8' },
-            4: { label: '16회+', sub: '극장기', dot: '#cbd5e1', bar: '#cbd5e1', dimText: '#cbd5e1' },
-        };
-        const total = Object.values(groups).reduce((s, d) => s + (d.count || 0), 0) || 1;
-        let html = '<div class="grid grid-cols-4 gap-px bg-gray-100 rounded-xl overflow-hidden mb-5 border border-gray-200">'; // bg-slate-200 -> bg-gray-100
-        for (let g = 1; g <= 4; g++) {
-            const d = groups[g] || {}; const c = GC[g];
-            const pct = ((d.count || 0) / total * 100).toFixed(0);
-            html += `<div class="bg-white px-3 py-4 text-center">
-                <div style="font-size:11px;font-weight:700;color:#1F2937;white-space:nowrap">${c.label}</div>
-                <div style="font-size:10px;color:#9CA3AF;margin-bottom:4px;white-space:nowrap">${c.sub}</div>
-                <div style="font-size:24px;font-weight:900;color:${c.dot};line-height:1">${d.count || 0}</div>
-                <div style="font-size:10px;color:#9CA3AF;margin-top:4px;white-space:nowrap">${pct}% · T15 ${d.top_count || 0}</div>
-            </div>`;
-        }
-        html += '</div>';
-        html += '<div class="divide-y divide-gray-100 border border-gray-200 rounded-xl overflow-hidden bg-white">';
-        for (let g = 1; g <= 4; g++) {
-            const d = groups[g] || {}; const c = GC[g];
-            const nums = d.numbers || [];
-            if (!nums.length) continue;
-            const sid = 'mg-' + g;
-            const maxProb = Math.max(...nums.map(n => n.prob), 0.01);
-            html += `<div>
-                <button onclick="document.getElementById('${sid}').classList.toggle('hidden')"
-                    class="w-full flex items-center gap-3 px-5 py-4 bg-white hover:bg-gray-50 transition text-left">
-                    <span style="width:8px;height:8px;border-radius:50%;background:${c.dot};flex-shrink:0;display:inline-block"></span>
-                    <span style="font-weight:700;font-size:14px;color:#1F2937;flex:1;white-space:nowrap">${c.label} <span style="font-weight:500;font-size:12px;color:#9CA3AF;margin-left:4px">${c.sub}</span></span>
-                    <span style="font-size:12px;color:#6B7280;white-space:nowrap">${nums.length}개 · 평균 ${(d.avg_prob || 0).toFixed(2)}%</span>
-                    <span class="material-symbols-outlined" style="font-size:18px;color:#D1D5DB">expand_more</span>
-                </button>
-                <div id="${sid}" class="hidden bg-gray-50/50 px-5 pb-4 pt-2">
-                    <div style="display:grid;gap:8px;grid-template-columns:repeat(auto-fill,minmax(200px,1fr))">`;
-            nums.forEach(item => {
-                const colorClass = self.getBallColorClass(item.num); // [수정]
-                const bw = maxProb > 0 ? (item.prob / maxProb * 100).toFixed(1) : 0;
-                const topBadge = item.is_top15
-                    ? `<span style="font-size:9px;background:#F3F4F6;color:#4B5563;font-weight:800;padding:2px 5px;border-radius:4px;white-space:nowrap;flex-shrink:0">TOP</span>`
-                    : `<span style="width:28px;flex-shrink:0;display:inline-block"></span>`;
-                html += `<div style="display:flex;align-items:center;gap:8px;background:#fff;border-radius:12px;padding:8px 10px;cursor:pointer;border:1px solid #E5E7EB;box-shadow:0 1px 2px rgba(0,0,0,0.02)" onclick="window.DeepLearning.explainNumber(${item.num})">
-                    <span class="ball-common ${colorClass} w-7 h-7 text-xs flex-shrink-0">${item.num}</span>
-                    ${topBadge}
-                    <span style="font-size:11px;color:#6B7280;white-space:nowrap;flex-shrink:0">미출 <b style="color:${c.dot}">${item.missing_count}</b></span>
-                    <div style="flex:1;height:4px;border-radius:9999px;background:#F3F4F6;min-width:30px;overflow:hidden">
-                        <div style="width:${bw}%;height:100%;background:${c.bar};border-radius:9999px"></div>
-                    </div>
-                    <span style="font-size:11px;font-weight:700;color:#374151;white-space:nowrap;flex-shrink:0">${item.prob}%</span>
-                </div>`;
-            });
-            html += '</div></div></div>';
-        }
-        html += '</div>';
-        container.innerHTML = html;
-    },
-
-    renderHotColdAnalysis(hotColdData) {
-        const container = document.getElementById('hotColdContainer');
-        if (!container || !hotColdData) return;
-        const self = this;
-        const SC = {
-            hot: { label: 'Hot', sub: 'Gap ≤ 2', dot: '#0f172a', accent: '#0f172a' },
-            active: { label: 'Active', sub: 'Gap 3~7', dot: '#334155', accent: '#334155' },
-            cooling: { label: 'Cooling', sub: 'Gap 8~15', dot: '#64748b', accent: '#64748b' },
-            cold: { label: 'Cold', sub: 'Gap 16~25', dot: '#94a3b8', accent: '#94a3b8' },
-            deadcold: { label: 'Dead', sub: 'Gap > 25', dot: '#cbd5e1', accent: '#cbd5e1' },
-        };
-        const MC = {
-            lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7', gnn: '#ef4444'
-        };
-        const ML = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV', autoencoder: 'ATC', gnn: 'GNN' };
-        const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
-        const statusOrder = ['hot', 'active', 'cooling', 'cold', 'deadcold'];
-        const sigBadge = (sig) => {
-            if (sig === 'positive') return '<span style="color:#10b981;font-weight:700;font-size:10px;white-space:nowrap">▲선호</span>';
-            if (sig === 'negative') return '<span style="color:#ef4444;font-weight:700;font-size:10px;white-space:nowrap">▼기피</span>';
-            return '<span style="color:#D1D5DB;font-size:10px;white-space:nowrap">-</span>';
-        };
-        let html = '<div class="grid grid-cols-5 gap-px bg-gray-100 rounded-xl overflow-hidden mb-5 border border-gray-200">';
-        statusOrder.forEach(st => {
-            const d = hotColdData[st] || {}; const c = SC[st];
-            html += `<div class="bg-white px-2 py-4 text-center">
-                <div style="font-size:12px;font-weight:700;color:${c.dot};white-space:nowrap">${c.label}</div>
-                <div style="font-size:10px;color:#9CA3AF;margin-bottom:6px;white-space:nowrap">${c.sub}</div>
-                <div style="font-size:24px;font-weight:900;color:${c.dot};line-height:1">${d.count || 0}</div>
-                <div style="font-size:10px;color:#9CA3AF;margin-top:4px;white-space:nowrap">Gap ${d.avg_gap != null ? d.avg_gap : '-'}</div>
-                <div style="font-size:10px;color:#9CA3AF;white-space:nowrap">T15·${d.top_count || 0}</div>
-            </div>`;
-        });
-        html += '</div>';
-        html += '<div class="rounded-xl overflow-hidden border border-gray-200 mb-6 bg-white"><div class="overflow-x-auto">';
-        html += '<table class="w-full text-xs border-collapse">';
-        html += '<thead><tr style="background:#F9FAFB;border-bottom:1px solid #E5E7EB">';
-        html += '<th style="padding:10px 14px;text-align:left;font-weight:700;color:#374151;white-space:nowrap;font-size:11px">모델</th>';
-        statusOrder.forEach(st => {
-            const c = SC[st];
-            html += `<th style="padding:10px;text-align:center;font-weight:700;color:#4B5563;white-space:nowrap;font-size:11px">${c.label}<br><span style="font-size:9px;color:#9CA3AF;font-weight:400">${c.sub}</span></th>`;
-        });
-        html += '</tr></thead><tbody>';
-        models.forEach((m, idx) => {
-            const bg = idx % 2 === 0 ? '#fff' : '#F9FAFB';
-            html += `<tr style="background:${bg};border-bottom:1px solid #F3F4F6">`;
-            html += `<td style="padding:10px 14px;font-weight:700;color:${MC[m]};white-space:nowrap">${ML[m]}</td>`;
-            statusOrder.forEach(st => {
-                const d = hotColdData[st] || {};
-                const ms = (d.model_scores || {})[m] || {};
-                const ar = ms.avg_rank != null ? ms.avg_rank : '-';
-                const tc = ms.top_count != null ? ms.top_count : '-';
-                html += `<td style="padding:8px 10px;text-align:center;background:${bg}">
-                    ${sigBadge(ms.signal || 'neutral')}
-                    <div style="font-size:10px;color:#6B7280;white-space:nowrap">순위 <b style="color:#374151">${ar}</b></div>
-                    <div style="font-size:10px;color:#6B7280;white-space:nowrap">T15 <b style="color:#374151">${tc}</b></div>
-                </td>`;
-            });
-            html += '</tr>';
-        });
-        html += '</tbody></table></div></div>';
-        html += '<div class="divide-y divide-gray-100 border border-gray-200 rounded-xl overflow-hidden bg-white">';
-        statusOrder.forEach(st => {
-            const d = hotColdData[st] || {}; const c = SC[st];
-            const details = d.num_details || [];
-            if (!details.length) return;
-            const sid = 'hc-' + st;
-            html += `<div>
-                <button onclick="document.getElementById('${sid}').classList.toggle('hidden')"
-                    class="w-full flex items-center gap-3 px-5 py-4 bg-white hover:bg-gray-50 transition text-left">
-                    <span style="width:8px;height:8px;border-radius:50%;background:${c.dot};flex-shrink:0;display:inline-block"></span>
-                    <span style="font-weight:700;font-size:14px;color:#1F2937;flex:1;white-space:nowrap">${c.label} <span style="font-weight:500;font-size:12px;color:#9CA3AF;margin-left:4px">${c.sub}</span></span>
-                    <span style="font-size:12px;color:#6B7280;white-space:nowrap">${details.length}개</span>
-                    <span class="material-symbols-outlined" style="font-size:18px;color:#D1D5DB">expand_more</span>
-                </button>
-                <div id="${sid}" class="hidden overflow-x-auto bg-white">
-                    <table class="w-full text-xs" style="border-top:1px solid #F3F4F6">
-                        <thead style="background:#F9FAFB">
-                            <tr>
-                                <th style="padding:8px 14px;text-align:center;font-weight:600;color:#6B7280;white-space:nowrap">번호</th>
-                                <th style="padding:8px 10px;text-align:center;font-weight:600;color:#6B7280;white-space:nowrap">Gap</th>
-                                <th style="padding:8px 10px;text-align:center;font-weight:600;color:#6366f1;white-space:nowrap">앙상블%</th>
-                                <th style="padding:8px 8px;text-align:center;font-weight:600;color:#818cf8;white-space:nowrap">LSTM</th>
-                                <th style="padding:8px 8px;text-align:center;font-weight:600;color:#60a5fa;white-space:nowrap">XGB</th>
-                                <th style="padding:8px 8px;text-align:center;font-weight:600;color:#f472b6;white-space:nowrap">CNN</th>
-                                <th style="padding:8px 8px;text-align:center;font-weight:600;color:#fb923c;white-space:nowrap">TF</th>
-                                <th style="padding:8px 8px;text-align:center;font-weight:600;color:#34d399;white-space:nowrap">MKV</th>
-                                <th style="padding:8px 8px;text-align:center;font-weight:600;color:#a855f7;white-space:nowrap">ATC</th>
-                            </tr>
-                        </thead>
-                        <tbody>`;
-            details.forEach((nd, i) => {
-                const colorClass = self.getBallColorClass(nd.num); // [수정]
-                const bg = i % 2 === 0 ? '#fff' : '#F9FAFB';
-                const topBadge = nd.is_top15
-                    ? `<span style="font-size:9px;background:#F3F4F6;color:#4B5563;font-weight:800;padding:2px 5px;border-radius:4px;white-space:nowrap;vertical-align:middle">TOP</span>`
-                    : `<span style="display:inline-block;width:26px"></span>`;
-                let modelCells = '';
-                models.forEach(m => {
-                    const md = (nd.models || {})[m] || {};
-                    const rank = md.rank != null ? md.rank : '-';
-                    const prob = md.prob != null ? md.prob : '-';
-                    modelCells += `<td style="padding:8px;text-align:center;background:${bg}">
-                        <span style="font-weight:700;color:${MC[m]};white-space:nowrap">${rank}위</span>
-                        <div style="font-size:10px;color:#9CA3AF;white-space:nowrap">${prob}%</div>
-                    </td>`;
-                });
-                html += `<tr style="border-bottom:1px solid #F3F4F6">
-                    <td style="padding:8px 14px;text-align:center;background:${bg};white-space:nowrap">
-                        <span class="ball-common ${colorClass} w-7 h-7 text-xs cursor-pointer vertical-align-middle" onclick="window.DeepLearning.explainNumber(${nd.num})">${nd.num}</span>
-                        ${topBadge}
-                    </td>
-                    <td style="padding:8px 10px;text-align:center;font-weight:700;color:#111827;background:${bg};white-space:nowrap">${nd.gap}</td>
-                    <td style="padding:8px 10px;text-align:center;font-weight:700;color:#6366f1;background:${bg};white-space:nowrap">${nd.ensemble_prob}%</td>
-                    ${modelCells}
-                </tr>`;
-            });
-            html += `</tbody></table></div></div>`;
-        });
-        html += '</div>';
-        container.innerHTML = html;
-    },
-
-    renderRegressionAnalysis(regrData) {
-        const tbody = document.getElementById('reg-body');
-        if (!tbody || !regrData) return;
-        const self = this;
-        this._regrData = regrData;
-        this._regrRender = render;
-        function render(data) {
-            const countEl = document.getElementById('reg-filter-count');
-            if (countEl) countEl.textContent = `${data.length} / ${regrData.length}`;
-            tbody.innerHTML = data.map((item, i) => {
-                const bg = i % 2 === 0 ? '#fff' : '#F9FAFB';
-                const ballsHtml = (item.targets || []).map(n => {
-                    const colorClass = self.getBallColorClass(n); // [수정]
-                    return `<span class="ball-common ${colorClass} w-7 h-7 text-xs mx-0.5">${n}</span>`;
-                }).join('');
-                const avg = parseFloat(item.avg_hit ?? 0).toFixed(1);
-                const avgColor = parseFloat(avg) >= 2 ? '#6366f1' : parseFloat(avg) >= 1 ? '#475569' : '#94a3b8';
-                const dist = item.hit_dist || {};
-                const total = Object.values(dist).reduce((a, b) => a + b, 0) || 1;
-                const distBars = [0, 1, 2, 3, 4, 5, 6].map(k => {
-                    const cnt = dist[k] || 0;
-                    const pct = Math.round(cnt / total * 100);
-                    const barColor = k === 0 ? '#E5E7EB' : k <= 2 ? '#9CA3AF' : k <= 4 ? '#6366f1' : '#4f46e5';
-                    return `<span style="display:inline-flex;flex-direction:column;align-items:center;gap:1px;margin:0 2px">
-                        <span style="font-size:9px;font-weight:700;color:${k === 0 ? '#9CA3AF' : '#1F2937'}">${pct}%</span>
-                        <span style="display:block;width:14px;height:${Math.max(2, Math.round(pct * 0.3))}px;background:${barColor};border-radius:2px"></span>
-                        <span style="font-size:8px;color:#9CA3AF">${k}</span>
-                    </span>`;
-                }).join('');
-                const step = item.id;
-                return `<tr style="background:${bg};border-bottom:1px solid #F3F4F6;cursor:pointer" title="${step}회귀 기초분석 보기" onclick="window.open('regression.html?step=${step}','_blank')">
-                    <td style="padding:8px 14px;text-align:center;font-weight:700;color:#6366f1;white-space:nowrap;background:${bg};text-decoration:underline">${step}회귀</td>
-                    <td style="padding:8px 10px;text-align:center;background:${bg}">${ballsHtml}</td>
-                    <td style="padding:8px 10px;text-align:center;font-weight:700;color:#4B5563;white-space:nowrap;background:${bg}">${item.gap}</td>
-                    <td style="padding:8px 10px;text-align:center;font-weight:700;color:#4B5563;white-space:nowrap;background:${bg}">${item.str ?? 0}</td>
-                    <td style="padding:8px 10px;text-align:center;font-weight:700;white-space:nowrap;background:${bg};color:${avgColor}">${avg}</td>
-                    <td style="padding:8px 10px;text-align:center;background:${bg}">
-                        <div style="display:inline-flex;align-items:flex-end;height:42px">${distBars}</div>
-                    </td>
-                </tr>`;
-            }).join('');
-        }
-        render(regrData);
-        this._regrSortKey = null;
-        this._regrSortAsc = false;
-        this._regSort = (key) => {
-            const cols = ['id', 'gap', 'str', 'avg_hit'];
-            if (this._regrSortKey === key) { this._regrSortAsc = !this._regrSortAsc; }
-            else { this._regrSortKey = key; this._regrSortAsc = false; }
-            cols.forEach(c => { const el = document.getElementById('reg-sort-arrow-' + c); if (el) el.textContent = ''; });
-            const arrow = document.getElementById('reg-sort-arrow-' + key);
-            if (arrow) arrow.textContent = this._regrSortAsc ? ' ▲' : ' ▼';
-            const sorted = [...regrData].sort((a, b) => {
-                const av = parseFloat(a[key] ?? 0), bv = parseFloat(b[key] ?? 0);
-                return this._regrSortAsc ? av - bv : bv - av;
-            });
-            render(sorted);
-        };
-    },
-
-    renderCustomEvaluations(customData) {
-        const container = document.getElementById('custom-container');
-        if (!container || !customData) return;
-        const self = this;
-        const MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7', gnn: '#ef4444' };
-        const MODEL_LABELS = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV', autoencoder: 'ATC', gnn: 'GNN' };
-        const MODEL_ORDER = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
-        if (!customData || customData.length === 0) {
-            container.innerHTML = '<p class="text-sm text-slate-400 col-span-full py-8 text-center">커스텀 분석 데이터가 없습니다.</p>';
-            return;
-        }
-        container.innerHTML = customData.map(grp => {
-            const avgHit = grp.avg_hit != null ? parseFloat(grp.avg_hit).toFixed(1) : '-';
-            const gap = grp.gap ?? '-';
-            const str = grp.str ?? '-';
-            const dist = grp.hit_dist || {};
-            const distTotal = Object.values(dist).reduce((a, b) => a + b, 0) || 1;
-            const gapColor = (typeof gap === 'number' && gap >= 5) ? '#EF4444' : '#64748b';
-            const strColor = (typeof str === 'number' && str >= 2) ? '#6366f1' : '#64748b';
-            const avgColor = parseFloat(avgHit) >= 2 ? '#6366f1' : parseFloat(avgHit) >= 1 ? '#475569' : '#9CA3AF';
-            const typeMap = { static: '고정', dynamic: '동적', manual: '매뉴얼', group: '그룹', regression_overlap: '회귀중첩' };
-            const typeBadge = typeMap[grp.type] || grp.type || '';
-            const ballsHtml = (grp.targets || []).map(n => {
-                const colorClass = self.getBallColorClass(n); // [수정]
-                return `<span class="ball-common ${colorClass} w-7 h-7 text-xs mx-0.5">${n}</span>`;
-            }).join('');
-            const distBars = [0, 1, 2, 3, 4, 5, 6].map(k => {
-                const cnt = dist[k] || 0;
-                const pct = Math.round(cnt / distTotal * 100);
-                const barColor = k === 0 ? '#E5E7EB' : k <= 2 ? '#9CA3AF' : k <= 4 ? '#6366f1' : '#4f46e5';
-                return `<span style="display:inline-flex;flex-direction:column;align-items:center;gap:1px;margin:0 2px">
-                    <span style="font-size:9px;font-weight:700;color:${k === 0 ? '#9CA3AF' : '#1F2937'}">${pct}%</span>
-                    <span style="display:block;width:14px;height:${Math.max(2, Math.round(pct * 0.3))}px;background:${barColor};border-radius:2px"></span>
-                    <span style="font-size:8px;color:#9CA3AF">${k}</span>
-                </span>`;
-            }).join('');
-            const modelBars = MODEL_ORDER.map(m => {
-                const v = (grp.model_scores || {})[m];
-                const s = v ? Math.round(v.score || 0) : 0;
-                const color = MODEL_COLORS[m];
-                return `<div style="display:flex;align-items:center;gap:6px;font-size:10px;margin-bottom:3px">
-                    <span style="width:28px;font-weight:800;color:${color};flex-shrink:0">${MODEL_LABELS[m]}</span>
-                    <div style="flex:1;height:5px;background:#F3F4F6;border-radius:3px;overflow:hidden">
-                        <div style="height:100%;width:${s}%;background:${color};border-radius:3px;transition:width 0.6s ease"></div>
-                    </div>
-                    <span style="width:24px;text-align:right;font-weight:700;color:${color}">${s}</span>
-                </div>`;
-            }).join('');
-            return `<div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.06)">
-                <div style="padding:10px 14px;background:#f8fafc;border-bottom:1px solid #f1f5f9;display:flex;align-items:center;gap:6px;min-width:0">
-                    <span style="font-size:9px;padding:1px 5px;background:#ede9fe;color:#6d28d9;border-radius:4px;font-weight:700;flex-shrink:0">${typeBadge}</span>
-                    <span style="font-weight:700;color:#1e293b;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${grp.title || ''}">${grp.title || '커스텀'}</span>
-                </div>
-                <div style="padding:10px 14px 6px;display:flex;flex-wrap:wrap;gap:0;align-items:center">
-                    ${ballsHtml || '<span style="font-size:11px;color:#94a3b8">대상번호 없음</span>'}
-                </div>
-                <div style="padding:4px 14px 8px;display:flex;gap:14px;font-size:11px;flex-wrap:wrap">
-                    <span>평균적중 <strong style="font-size:13px;color:${avgColor}">${avgHit}</strong></span>
-                    <span>Gap <strong style="color:${gapColor}">${gap}</strong></span>
-                    <span>STR <strong style="color:${strColor}">${str}</strong></span>
-                </div>
-                <div style="padding:4px 14px 8px;border-top:1px solid #f8fafc">
-                    <div style="font-size:9px;color:#94a3b8;margin-bottom:3px">적중 분포 (0~6개)</div>
-                    <div style="display:inline-flex;align-items:flex-end;height:40px">${distBars}</div>
-                </div>
-                <div style="padding:8px 14px;border-top:1px solid #f1f5f9">
-                    ${modelBars}
-                </div>
-            </div>`;
-        }).join('');
-    },
-
     async loadHistoryList() {
         var select = document.getElementById('historySelect');
-        if (!select || !this.state.isConnected) return;
+        if (!select) return;
+
+        if (!this.state.isConnected) {
+            select.style.display = 'inline-block';
+            return;
+        }
+
         var url = this._getBaseUrl();
         try {
             var res = await fetch(url + '/api/deep-analysis/v3/history', {
@@ -1608,7 +1307,10 @@ const DeepLearning = {
             if (!res.ok) return;
             var data = await res.json();
             if (!data.success) return;
+
+            select.style.display = 'inline-block';
             while (select.options.length > 1) select.remove(1);
+
             (data.history || []).forEach(function (h) {
                 var opt = document.createElement('option');
                 opt.value = h.id;
@@ -1617,7 +1319,6 @@ const DeepLearning = {
                 select.appendChild(opt);
             });
 
-            // 이력 선택 이벤트 바인딩
             select.onchange = (e) => {
                 if (e.target.value) {
                     this.loadHistory(e.target.value);
@@ -1701,7 +1402,6 @@ const DeepLearning = {
                     : 'bg-slate-50 text-slate-500 border border-slate-200';
             var statusText = isRecommended ? '강력추천' : isExcluded ? '제외예상' : '일반';
 
-            // [수정] 모달 헤더 디자인 (공 스타일 적용)
             const colorClass = this.getBallColorClass(number);
             localInfo = '<div class="space-y-5 mb-6">' +
                 '<div class="flex items-center gap-4 p-4 bg-gray-50 rounded-2xl border border-gray-100">' +
@@ -1790,30 +1490,6 @@ const DeepLearning = {
 
     _getBaseUrl() {
         return window.AI_SERVER_URL || 'https://lotto-api-server.onrender.com';
-    },
-
-    getBallColor(n) {
-        n = parseInt(n);
-        if (n <= 10) return '#fbc400';
-        if (n <= 20) return '#69c8f2';
-        if (n <= 30) return '#ff7272';
-        if (n <= 40) return '#aaaaaa';
-        return '#b0d840';
-    },
-
-    renderBalls(id, nums) {
-        var el = document.getElementById(id);
-        if (!el) return;
-        if (!nums || nums.length === 0) {
-            el.innerHTML = '<span class="text-slate-400 text-xs">추천 없음</span>';
-            return;
-        }
-        var self = this;
-        el.className = (el.className || '') + ' flex flex-wrap gap-2';
-        el.innerHTML = nums.map(function (n) {
-            var color = self.getBallColor(n);
-            return '<span class="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-black text-white shadow cursor-pointer hover:scale-110 transition-transform" style="background-color: ' + color + '" onclick="window.DeepLearning.explainNumber(' + n + ')" title="' + n + '번 클릭 시 XAI 분석">' + n + '</span>';
-        }).join('');
     },
 
     showLoading(show, text) {
