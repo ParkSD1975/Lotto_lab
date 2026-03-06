@@ -4313,30 +4313,11 @@
             }
         }
 
-        // [공통] 화면 데이터 수집 헬퍼 함수 - AI에게 '눈'을 제공
+        // [공통] 화면 데이터 수집 헬퍼 함수 (정확도 향상을 위해 JS 직접 참조)
         function collectPageContext() {
-            let contextData = "## [속성 매트릭스 현황 - Visual Context]\n";
+            let contextData = "## [속성 매트릭스 현황 (Data Context)]\n";
 
-            // 1. 요약 카드(Summary Stats) 수집
-            const summaryBadge = document.querySelector('.summary-title-badge');
-            if (summaryBadge) contextData += `[분석 타겟]: ${summaryBadge.innerText.trim()}\n\n`;
-
-            const statItems = document.querySelectorAll('#summaryStats .stat-item');
-            if (statItems.length > 0) {
-                contextData += "### 주요 통계 지표 (Summary Stats):\n";
-                // 화면에 보이는 순서대로 수집
-                statItems.forEach(item => {
-                    const label = item.querySelector('.stat-label')?.innerText.trim() || '';
-                    const val = item.querySelector('.stat-value')?.innerText.trim() || '';
-                    if (label && val) {
-                        contextData += `- ${label}: ${val.replace(/\s+/g, ' ')}\n`;
-                    }
-                });
-            } else {
-                contextData += "(요약 통계 데이터 로딩되지 않음)\n";
-            }
-
-            // 2. 최근 5회차 당첨 흐름 (JS 변수 allDraws 활용 - 가장 정확함)
+            // 1. 최근 5회차 당첨 흐름 (JS 변수 allDraws 활용 - 가장 정확함)
             if (typeof allDraws !== 'undefined' && allDraws.length > 0) {
                 contextData += "\n### [최근 5회차 당첨 번호 흐름]\n";
                 allDraws.slice(0, 5).forEach(d => {
@@ -4344,27 +4325,32 @@
                 });
             }
 
-            // 3. 매트릭스 테이블 데이터 수집 (화면에 표시된 속성 정보)
-            const tableRows = document.querySelectorAll('#tableBody tr');
-            if (tableRows.length > 0) {
-                contextData += "\n### [속성 테이블 하이라이트 정보]\n";
-                let collectedCount = 0;
-                tableRows.forEach((row, index) => {
-                    // 헤더나 구분선 제외하고 의미있는 데이터만
-                    const labelCell = row.querySelector('td.property-label, td:first-child');
-                    if (labelCell) {
-                        const label = labelCell.innerText.trim();
-                        // 번호 셀들 중 활성화(색칠)된 것만 찾을 수도 있지만, 텍스트 전체를 가져오되 길이를 제한
-                        const fullText = row.innerText.replace(/\s+/g, ' ').trim();
+            // 2. 통합 매트릭스 통계 데이터 (numberStats 활용) - DOM 스크래핑 제외하여 품질/속도 대폭 향상
+            if (typeof numberStats !== 'undefined' && Object.keys(numberStats).length > 0) {
+                contextData += "\n### [주요 번호 통계 분류]\n";
+                const statsArr = Object.entries(numberStats);
 
-                        // 주요 속성(가변, 회귀 등) 위주로 상단 20개만
-                        if (collectedCount < 30 && (index < 10 || label.includes('회귀') || label.includes('Gap') || label.includes('빈도'))) {
-                            contextData += `- ${fullText.substring(0, 100)}${fullText.length > 100 ? '...' : ''}\n`;
-                            collectedCount++;
-                        }
-                    }
-                });
+                // (1) 강력 회귀 (regCount 상위)
+                const regSorted = [...statsArr].sort((a, b) => b[1].regCount - a[1].regCount).slice(0, 5);
+                contextData += `- 유력 회귀 번호: ${regSorted.filter(x => x[1].regCount > 0).map(x => `${x[0]}번(${x[1].regCount}회)`).join(', ') || '현재 없음'}\n`;
+
+                // (2) 장기 미출현 (gap 상위)
+                const gapSorted = [...statsArr].sort((a, b) => b[1].gap - a[1].gap).slice(0, 5);
+                contextData += `- 미출현 한계 도달 번호: ${gapSorted.map(x => `${x[0]}번(${x[1].gap}회 미출)`).join(', ')}\n`;
+
+                // (3) 핫/콜드 흐름
+                const hotNums = statsArr.filter(x => x[1].hotCold === 'hot').map(x => `${x[0]}번`);
+                const coldNums = statsArr.filter(x => x[1].hotCold === 'cold').map(x => `${x[0]}번`);
+                contextData += `- 핫(Hot) 번호 쏠림 구간: ${hotNums.join(', ') || '없음'}\n`;
+                contextData += `- 콜드(Cold) 장기 침체 구간: ${coldNums.join(', ') || '없음'}\n`;
+
+                // (4) 고정 속성 (해당 회차에 확정된 패턴)이 많은 번호
+                const propSorted = [...statsArr].sort((a, b) => b[1].properties.length - a[1].properties.length).slice(0, 5);
+                contextData += `- 속성 중첩 과다 번호: ${propSorted.map(x => `${x[0]}번(${x[1].properties.length}개 속성)`).join(', ')}\n`;
+            } else {
+                contextData += "\n(상세 통계 데이터 로딩되지 않음)\n";
             }
+
             return contextData;
         }
 

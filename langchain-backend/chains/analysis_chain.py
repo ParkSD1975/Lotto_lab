@@ -238,7 +238,15 @@ async def run_analysis(context: str, analysis_type: str, target_round: int, subj
 
     # 3. RAG 검색 및 정제 (핵심)
     try:
-        rag_raw = retrieve_as_text(query=context, analysis_type=analysis_type, k=5)
+        # [New] 질문만 추출하여 RAG 검색 속도 및 정확도 향상
+        import re
+        rag_query = context
+        q_match = re.search(r'# User Question:\s*"([^"]+)"', context)
+        if q_match:
+            rag_query = q_match.group(1).strip()
+            print(f"[RAG] Extracted Query for Search: {rag_query}")
+
+        rag_raw = retrieve_as_text(query=rag_query, analysis_type=analysis_type, k=5)
         rag_context = clean_rag_context(rag_raw)
         print(f"[RAG] Cleaned Context:\n{rag_context}")
     except Exception as e:
