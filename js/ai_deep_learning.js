@@ -202,7 +202,7 @@ const DeepLearning = {
             try {
                 const cacheKey = `ai_analysis_cache_${this.state.targetRound}`;
                 localStorage.removeItem(cacheKey);
-            } catch (e) {}
+            } catch (e) { }
         }
 
         this.showLoading(true, 'AI 심층 분석 데이터 조회 중...');
@@ -240,7 +240,7 @@ const DeepLearning = {
                 if (summaryEl) {
                     summaryEl.innerHTML = '<span class="text-rose-500 font-bold">⚠️ 분석 데이터가 없습니다. (백엔드 서버 실행 필요)</span>';
                 }
-                document.getElementById('connectionStatus').innerHTML = 
+                document.getElementById('connectionStatus').innerHTML =
                     '<span class="flex items-center gap-1.5 text-[11px] font-bold text-rose-500 bg-rose-50 px-2.5 py-0.5 rounded-full border border-rose-200"><span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span> 연결 끊김</span>';
             }
 
@@ -266,10 +266,10 @@ const DeepLearning = {
                 .order('created_at', { ascending: false })
                 .limit(1)
                 .single();
-            
+
             if (data && data.analysis_data) {
-                return typeof data.analysis_data === 'string' 
-                    ? JSON.parse(data.analysis_data) 
+                return typeof data.analysis_data === 'string'
+                    ? JSON.parse(data.analysis_data)
                     : data.analysis_data;
             }
             return null;
@@ -631,7 +631,7 @@ const DeepLearning = {
             .filter(k => rangeAnalysis[k] !== undefined)
             .map(k => [k, rangeAnalysis[k]])
             .concat(Object.entries(rangeAnalysis).filter(([k]) => !FILTER_ORDER.includes(k)));
-        
+
         const formatRatioRange = (key, rawRange) => {
             const isRatioKey = (key === 'odd' || key === 'high');
             if (!isRatioKey) {
@@ -713,7 +713,7 @@ const DeepLearning = {
             const btn = document.getElementById('sort-btn-' + k);
             if (!btn) return;
             if (k === key) { btn.style.background = colors[k]; btn.style.color = '#fff'; btn.style.borderColor = colors[k]; }
-            else { btn.style.background = '#fff'; btn.style.color = k==='total'?'#374151':colors[k]; btn.style.borderColor = '#E5E7EB'; }
+            else { btn.style.background = '#fff'; btn.style.color = k === 'total' ? '#374151' : colors[k]; btn.style.borderColor = '#E5E7EB'; }
         });
         const MODEL_CONFIG = {
             lstm: { label: 'LSTM', color: '#818cf8' },
@@ -917,7 +917,7 @@ const DeepLearning = {
                     ${isTop ? '<span style="position:absolute;top:-4px;right:-4px;width:8px;height:8px;background:#FBBF24;border-radius:50%;border:2px solid white;"></span>' : ''}
                 </span>`;
             }).join('');
-            
+
             const modelBar = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'].map(m => {
                 const colors = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7', gnn: '#ef4444' };
                 const labels = { lstm: 'L', xgboost: 'X', cnn: 'C', transformer: 'T', markov: 'M', autoencoder: 'A', gnn: 'G' };
@@ -931,29 +931,28 @@ const DeepLearning = {
                 <div class="absolute left-0 top-0 bottom-0 w-1 bg-transparent group-hover:bg-indigo-500 rounded-l-2xl transition-colors"></div>
                 <div class="flex items-center gap-6">
                     <span class="text-2xl font-black text-gray-200 group-hover:text-indigo-500 w-10 text-center transition-colors font-mono">${String(rank).padStart(2, '0')}</span>
-                    
+
                     <div class="flex gap-2">${ballsHtml}</div>
-                    
+
                     <div class="ml-auto flex items-center gap-6">
                         <div class="flex gap-1 items-center" title="모델 동의">${modelBar}</div>
-                        
+
                         <div class="text-right">
                             <div class="text-xs text-gray-400 font-medium mb-0.5">예측점수</div>
                             <div class="text-lg font-black ${scorePct >= 0.8 ? 'text-indigo-600' : 'text-gray-700'}">${(score * 100).toFixed(0)}<span class="text-xs font-normal text-gray-400 ml-0.5">점</span></div>
                         </div>
                     </div>
                 </div>
-                
+
                 <!-- 하단 상세 스탯 (마우스 오버 시 또는 항상 표시) -->
                 <div class="mt-4 pt-3 border-t border-gray-50 flex items-center gap-4 text-xs text-gray-400 font-mono">
                     <span class="${topIncluded.length >= 2 ? 'text-indigo-600 font-bold' : ''}">Top5: ${topIncluded.length}개</span>
                     <span>합: ${sum}</span>
-                    <span>홀짝: ${odd}:${6-odd}</span>
+                    <span>홀짝: ${odd}:${6 - odd}</span>
                     <span>AC: ${ac}</span>
                     ${isVerified ? '<span class="ml-auto text-emerald-600 font-bold flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">check_circle</span>AI검증</span>' : ''}
                 </div>
             </div>`;
-        }).join('');
         }).join('');
     },
 
@@ -1024,39 +1023,58 @@ const DeepLearning = {
     renderTailAnalysis(tailData) {
         const tbody = document.getElementById('tail-body');
         if (!tbody || !tailData) return;
-        const MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7', gnn: '#ef4444' };
+        
+        // 딥러닝 모델별 고유 색상 (차분한 톤)
+        const MODEL_COLORS = { 
+            lstm: '#6366F1', xgboost: '#3B82F6', cnn: '#EC4899', 
+            transformer: '#F97316', markov: '#10B981', autoencoder: '#8B5CF6', gnn: '#EF4444' 
+        };
         const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
         
         tbody.innerHTML = tailData.map(item => {
-            const exp = typeof item.exp === 'number' ? item.exp.toFixed(2) : item.exp;
+            const exp = typeof item.exp === 'number' ? item.exp : 0;
             const str = item.str != null ? item.str : '-';
             
-            // [디자인 수정] 모델별 숫자 대신 히트맵 스타일 바(Bar) 표시
+            // 1. 앙상블 (메인 지표) - 딥 틸(Deep Teal) 테마 적용
+            let barColor = '#CCFBF1'; // 기본: 연한 민트
+            let width = '10%';
+            
+            if (exp >= 2.0) { width = '100%'; barColor = '#134E4A'; } // Hot
+            else if (exp >= 1.5) { width = '85%'; barColor = '#0F766E'; }
+            else if (exp >= 1.0) { width = '60%'; barColor = '#14B8A6'; }
+            else if (exp >= 0.5) { width = '30%'; barColor = '#5EEAD4'; }
+            
+            const expCell = `
+                <div class="flex flex-col items-center justify-center h-full px-2" title="예상 개수: ${exp.toFixed(2)}">
+                    <div class="w-full h-1.5 bg-teal-50 rounded-full overflow-hidden">
+                        <div style="width:${width};height:100%;background-color:${barColor};border-radius:99px;"></div>
+                    </div>
+                </div>
+            `;
+
+            // 2. 모델별 미니 바 (숫자 제거, 투명도 조절)
             const modelCells = models.map(m => {
                 const val = item.model_exp && item.model_exp[m] != null ? parseFloat(item.model_exp[m]) : 0;
-                
-                // 값의 크기에 따라 투명도 및 스타일 결정 (최대 2.0 기준)
-                let opacity = 0.1;
+                let opacity = 0.15;
                 let height = '4px';
-                if (val >= 1.5) { opacity = 1.0; height = '12px'; }
-                else if (val >= 1.0) { opacity = 0.7; height = '10px'; }
-                else if (val >= 0.6) { opacity = 0.4; height = '6px'; }
-                else if (val >= 0.3) { opacity = 0.2; height = '4px'; }
                 
-                // 툴팁에만 정확한 수치 표시
-                return `<td class="px-2 py-3 text-center" title="${m.toUpperCase()}: ${val.toFixed(2)}개 예상">
-                    <div style="width:100%;height:16px;display:flex;align-items:center;justify-content:center">
-                        <div style="width:16px;height:${height};background-color:${MODEL_COLORS[m]};opacity:${opacity};border-radius:2px"></div>
+                if (val >= 1.5) { opacity = 1.0; height = '14px'; } // 강함
+                else if (val >= 1.0) { opacity = 0.7; height = '10px'; } // 중간
+                else if (val >= 0.5) { opacity = 0.4; height = '6px'; } // 약함
+                
+                return `<td class="px-1 py-3 text-center align-bottom" title="${m.toUpperCase()}: ${val.toFixed(2)}">
+                    <div style="display:flex;align-items:flex-end;justify-content:center;height:16px;">
+                        <div style="width:12px;height:${height};background-color:${MODEL_COLORS[m]};opacity:${opacity};border-radius:2px;"></div>
                     </div>
                 </td>`;
             }).join('');
 
             return `<tr class="hover:bg-gray-50 border-b border-gray-100 last:border-0 transition-colors">
-                <td class="px-4 py-3 font-bold text-center text-gray-700">${item.tail}</td>
-                <td class="px-4 py-3 text-center font-mono font-bold text-indigo-600 bg-indigo-50/30 rounded-lg mx-2">${exp}</td>
+                <td class="px-4 py-3 font-bold text-center text-gray-700 text-sm">${item.tail}</td>
+                <td class="px-2 py-3 text-center w-24">${expCell}</td>
                 ${modelCells}
-                <td class="px-4 py-3 text-center font-mono text-gray-600">${item.gap}</td>
-                <td class="px-4 py-3 text-center font-mono text-gray-600">${str}</td>
+                <td class="px-4 py-3 text-center font-mono text-xs text-gray-500">${item.gap}</td>
+                <td class="px-4 py-3 text-center font-mono text-xs text-gray-500">${str}</td>
             </tr>`;
         }).join('');
     },
@@ -1257,7 +1275,7 @@ const DeepLearning = {
         const sigBadge = (sig) => {
             if (sig === 'positive') return '<span style="color:#10b981;font-weight:700;font-size:10px;white-space:nowrap">▲선호</span>';
             if (sig === 'negative') return '<span style="color:#ef4444;font-weight:700;font-size:10px;white-space:nowrap">▼기피</span>';
-            return '<span style="color:#D1D5DB;font-size:10px;white-space:nowrap">—</span>';
+            return '<span style="color:#D1D5DB;font-size:10px;white-space:nowrap">-</span>';
         };
         let html = '<div class="grid grid-cols-5 gap-px bg-gray-100 rounded-xl overflow-hidden mb-5 border border-gray-200">';
         statusOrder.forEach(st => {
@@ -1511,14 +1529,14 @@ const DeepLearning = {
                 opt.textContent = h.target_round + '회 (' + date + ') - ' + h.confidence + '%';
                 select.appendChild(opt);
             });
-            
+
             // 이력 선택 이벤트 바인딩
             select.onchange = (e) => {
                 if (e.target.value) {
                     this.loadHistory(e.target.value);
                 }
             };
-            
+
         } catch (e) {
             console.warn('이력 목록 로드 실패:', e);
         }
@@ -1595,7 +1613,7 @@ const DeepLearning = {
                 : isExcluded ? 'bg-rose-50 text-rose-600 border border-rose-200'
                     : 'bg-slate-50 text-slate-500 border border-slate-200';
             var statusText = isRecommended ? '강력추천' : isExcluded ? '제외예상' : '일반';
-            
+
             // [수정] 모달 헤더 디자인 (공 스타일 적용)
             const colorClass = this.getBallColorClass(number);
             localInfo = '<div class="space-y-5 mb-6">' +
@@ -1608,7 +1626,7 @@ const DeepLearning = {
                 '</div>' +
                 '<p class="text-sm text-gray-500">앙상블 예측 확률: <span class="font-black text-indigo-600 text-base">' + (prob !== null ? (prob * 100).toFixed(2) : '--') + '%</span></p>' +
                 '</div></div>';
-            
+
             if (matrixItem) {
                 var corrInfo = '';
                 if (matrixItem.penalty != null && matrixItem.penalty < 1.0) {
