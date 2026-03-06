@@ -1290,6 +1290,140 @@ const DeepLearning = {
         container.innerHTML = html;
     },
 
+    renderMissingGroupAnalysis(groupData) {
+        const container = document.getElementById('missingGroupContainer');
+        if (!container || !groupData || !groupData.length) return;
+        const MODEL_COLORS = {
+            lstm: '#6366F1', xgboost: '#3B82F6', cnn: '#EC4899',
+            transformer: '#F97316', markov: '#10B981', autoencoder: '#8B5CF6', gnn: '#EF4444'
+        };
+        const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
+        const MODEL_ABBR = { lstm: 'L', xgboost: 'X', cnn: 'C', transformer: 'T', markov: 'M', autoencoder: 'A', gnn: 'G' };
+
+        let html = '<div class="overflow-x-auto rounded-2xl border border-gray-200 shadow-sm bg-white">';
+        html += '<table class="w-full text-xs">';
+        html += '<thead><tr class="bg-gray-50/50 border-b border-gray-200">';
+        html += '<th class="px-5 py-4 text-left font-bold text-gray-600">구분</th>';
+        html += '<th class="px-2 py-4 text-center font-bold text-teal-900 w-24">앙상블</th>';
+        models.forEach(m => {
+            html += `<th class="px-1 py-4 text-center font-bold text-gray-400 w-8" title="${m.toUpperCase()}">${MODEL_ABBR[m]}</th>`;
+        });
+        html += '<th class="px-4 py-4 text-center font-bold text-gray-500">Gap</th>';
+        html += '<th class="px-4 py-4 text-center font-bold text-gray-500">STR</th>';
+        html += '</tr></thead><tbody>';
+
+        groupData.forEach((item, idx) => {
+            const exp = typeof item.exp === 'number' ? item.exp : 0;
+
+            let barColor = '#CCFBF1';
+            let width = '10%';
+            if (exp >= 2.0) { width = '100%'; barColor = '#134E4A'; }
+            else if (exp >= 1.5) { width = '85%'; barColor = '#0F766E'; }
+            else if (exp >= 1.0) { width = '60%'; barColor = '#14B8A6'; }
+            else if (exp >= 0.5) { width = '30%'; barColor = '#5EEAD4'; }
+
+            const expCell = `
+                <div class="flex flex-col items-center justify-center h-full px-2" title="예상 개수: ${exp.toFixed(2)}">
+                    <div class="w-full h-1.5 bg-teal-50 rounded-full overflow-hidden">
+                        <div style="width:${width};height:100%;background-color:${barColor};border-radius:99px;"></div>
+                    </div>
+                </div>
+            `;
+
+            const modelCells = models.map(m => {
+                const val = item.model_exp && item.model_exp[m] != null ? parseFloat(item.model_exp[m]) : 0;
+                let opacity = 0.15;
+                let height = '4px';
+                if (val >= 1.5) { opacity = 1.0; height = '14px'; }
+                else if (val >= 1.0) { opacity = 0.7; height = '10px'; }
+                else if (val >= 0.5) { opacity = 0.4; height = '6px'; }
+
+                return `<td class="px-1 py-4 text-center align-bottom" title="${m.toUpperCase()}: ${val.toFixed(2)}">
+                    <div style="display:flex;align-items:flex-end;justify-content:center;height:16px;">
+                        <div style="width:12px;height:${height};background-color:${MODEL_COLORS[m]};opacity:${opacity};border-radius:2px;"></div>
+                    </div>
+                </td>`;
+            }).join('');
+
+            html += `<tr class="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors">`;
+            html += `<td class="px-5 py-4 font-bold text-gray-700 text-sm">${item.label}</td>`;
+            html += `<td class="px-2 py-4 text-center">${expCell}</td>`;
+            html += modelCells;
+            html += `<td class="px-4 py-4 text-center font-mono text-gray-500">${item.gap != null ? item.gap : '-'}</td>`;
+            html += `<td class="px-4 py-4 text-center font-mono text-gray-500">${item.str != null ? item.str : '-'}</td>`;
+            html += '</tr>';
+        });
+        html += '</tbody></table></div>';
+        container.innerHTML = html;
+    },
+
+    renderHotColdAnalysis(hotColdData) {
+        const container = document.getElementById('hotColdContainer');
+        if (!container || !hotColdData || !hotColdData.length) return;
+        const MODEL_COLORS = {
+            lstm: '#6366F1', xgboost: '#3B82F6', cnn: '#EC4899',
+            transformer: '#F97316', markov: '#10B981', autoencoder: '#8B5CF6', gnn: '#EF4444'
+        };
+        const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
+        const MODEL_ABBR = { lstm: 'L', xgboost: 'X', cnn: 'C', transformer: 'T', markov: 'M', autoencoder: 'A', gnn: 'G' };
+
+        let html = '<div class="overflow-x-auto rounded-2xl border border-gray-200 shadow-sm bg-white">';
+        html += '<table class="w-full text-xs">';
+        html += '<thead><tr class="bg-gray-50/50 border-b border-gray-200">';
+        html += '<th class="px-5 py-4 text-left font-bold text-gray-600">온도</th>';
+        html += '<th class="px-2 py-4 text-center font-bold text-teal-900 w-24">앙상블</th>';
+        models.forEach(m => {
+            html += `<th class="px-1 py-4 text-center font-bold text-gray-400 w-8" title="${m.toUpperCase()}">${MODEL_ABBR[m]}</th>`;
+        });
+        html += '<th class="px-4 py-4 text-center font-bold text-gray-500">Gap</th>';
+        html += '<th class="px-4 py-4 text-center font-bold text-gray-500">STR</th>';
+        html += '</tr></thead><tbody>';
+
+        hotColdData.forEach((item, idx) => {
+            const exp = typeof item.exp === 'number' ? item.exp : 0;
+
+            let barColor = '#CCFBF1';
+            let width = '10%';
+            if (exp >= 2.0) { width = '100%'; barColor = '#134E4A'; }
+            else if (exp >= 1.5) { width = '85%'; barColor = '#0F766E'; }
+            else if (exp >= 1.0) { width = '60%'; barColor = '#14B8A6'; }
+            else if (exp >= 0.5) { width = '30%'; barColor = '#5EEAD4'; }
+
+            const expCell = `
+                <div class="flex flex-col items-center justify-center h-full px-2" title="예상 개수: ${exp.toFixed(2)}">
+                    <div class="w-full h-1.5 bg-teal-50 rounded-full overflow-hidden">
+                        <div style="width:${width};height:100%;background-color:${barColor};border-radius:99px;"></div>
+                    </div>
+                </div>
+            `;
+
+            const modelCells = models.map(m => {
+                const val = item.model_exp && item.model_exp[m] != null ? parseFloat(item.model_exp[m]) : 0;
+                let opacity = 0.15;
+                let height = '4px';
+                if (val >= 1.5) { opacity = 1.0; height = '14px'; }
+                else if (val >= 1.0) { opacity = 0.7; height = '10px'; }
+                else if (val >= 0.5) { opacity = 0.4; height = '6px'; }
+
+                return `<td class="px-1 py-4 text-center align-bottom" title="${m.toUpperCase()}: ${val.toFixed(2)}">
+                    <div style="display:flex;align-items:flex-end;justify-content:center;height:16px;">
+                        <div style="width:12px;height:${height};background-color:${MODEL_COLORS[m]};opacity:${opacity};border-radius:2px;"></div>
+                    </div>
+                </td>`;
+            }).join('');
+
+            html += `<tr class="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors">`;
+            html += `<td class="px-5 py-4 font-bold text-gray-700 text-sm">${item.label}</td>`;
+            html += `<td class="px-2 py-4 text-center">${expCell}</td>`;
+            html += modelCells;
+            html += `<td class="px-4 py-4 text-center font-mono text-gray-500">${item.gap != null ? item.gap : '-'}</td>`;
+            html += `<td class="px-4 py-4 text-center font-mono text-gray-500">${item.str != null ? item.str : '-'}</td>`;
+            html += '</tr>';
+        });
+        html += '</tbody></table></div>';
+        container.innerHTML = html;
+    },
+
     async loadHistoryList() {
         var select = document.getElementById('historySelect');
         if (!select) return;
