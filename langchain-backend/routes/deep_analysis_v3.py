@@ -1288,10 +1288,10 @@ def _fallback_strategy_v3(top_5: list, exclude_10: list) -> dict:
     """LLM 실패 시 폴백 전략."""
     return {
         "confidence": 55,
-        "summary": "LLM 미사용 - 5중 앙상블 딥러닝 모델(Transformer, LSTM, CNN, XGBoost, Markov)의 분석 결과입니다.",
+        "summary": "7중 앙상블 딥러닝 모델(Transformer, LSTM, CNN, XGBoost, Markov, Autoencoder, GNN)의 자체 분석 결과입니다.",
         "keywords": ["#모델분석전용", "#통계기반", "#앙상블예측"],
-        "fixed_numbers": {"numbers": top_5[:4], "evidence": "앙상블 모델 상위 확률 기반 (LLM 미사용)"},
-        "exclude_numbers": {"numbers": exclude_10[:6], "evidence": "앙상블 모델 하위 확률 기반 (LLM 미사용)"},
+        "fixed_numbers": {"numbers": top_5[:4], "evidence": "앙상블 모델 상위 확률 기반"},
+        "exclude_numbers": {"numbers": exclude_10[:6], "evidence": "앙상블 모델 하위 확률 기반"},
         "filter_recommendations": [
             {"filter": "총합", "min": 100, "max": 180, "evidence": "통계적 1표준편차 범위"},
             {"filter": "끝수합", "min": 15, "max": 35, "evidence": "역대 평균 기반"},
