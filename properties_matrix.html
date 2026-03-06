@@ -43,9 +43,12 @@
             --text-primary: #111827;
             --text-secondary: #4B5563;
             --text-muted: #9CA3AF;
-            --accent-blue: #3b82f6;
+            --accent-blue: #6366f1;
+            /* 모던 인디고 */
             --accent-amber: #f59e0b;
+            /* 앰버 */
             --accent-emerald: #10b981;
+            /* 에메랄드 */
             --accent-rose: #f43f5e;
             --accent-purple: #8b5cf6;
         }
@@ -793,29 +796,33 @@
             color: #334155;
         }
 
-        /* 타입별 active 색상 */
+        /* 타입별 active 색상 - 모던 & 프리미엄 */
         .filter-btn[data-filter="fixed"].active {
-            background: #1d4ed8;
-            outline-color: #1d4ed8;
-            color: #bfdbfe;
+            background: #6366f1;
+            outline-color: #6366f1;
+            color: #ffffff;
+            box-shadow: 0 2px 8px rgba(99, 102, 241, 0.25);
         }
 
         .filter-btn[data-filter="var"].active {
-            background: #b45309;
-            outline-color: #b45309;
-            color: #fde68a;
+            background: #f59e0b;
+            outline-color: #f59e0b;
+            color: #ffffff;
+            box-shadow: 0 2px 8px rgba(245, 158, 11, 0.25);
         }
 
         .filter-btn[data-filter="reg"].active {
-            background: #065f46;
-            outline-color: #065f46;
-            color: #a7f3d0;
+            background: #10b981;
+            outline-color: #10b981;
+            color: #ffffff;
+            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25);
         }
 
         .filter-btn[data-filter="winner-only"].active {
-            background: #be123c;
-            outline-color: #be123c;
-            color: #fecdd3;
+            background: #f43f5e;
+            outline-color: #f43f5e;
+            color: #ffffff;
+            box-shadow: 0 2px 8px rgba(244, 63, 94, 0.25);
         }
 
         .filter-btn .dot {
@@ -1189,34 +1196,34 @@
             filter: brightness(1.1);
         }
 
-        /* 고정 속성 구분행 - 파란 계열 */
+        /* 고정 속성 구분행 - 세련된 파스텔 인디고 */
         .matrix-table .section-header.section-fixed {
-            background: #1d4ed8 !important;
-            color: #bfdbfe !important;
-            border-left: 4px solid #60a5fa !important;
-            border-top: none !important;
+            background: #eef2ff !important;
+            color: #3730a3 !important;
+            border-left: 4px solid #6366f1 !important;
+            border-top: 1px solid #e0e7ff !important;
+            border-bottom: 1px solid #e0e7ff !important;
             border-right: none !important;
-            border-bottom: none !important;
         }
 
-        /* 가변 속성 구분행 - 황색 계열 */
+        /* 가변 속성 구분행 - 모던한 파스텔 앰버 */
         .matrix-table .section-header.section-var {
-            background: #b45309 !important;
-            color: #fde68a !important;
-            border-left: 4px solid #fbbf24 !important;
-            border-top: none !important;
+            background: #fffbeb !important;
+            color: #92400e !important;
+            border-left: 4px solid #f59e0b !important;
+            border-top: 1px solid #fef3c7 !important;
+            border-bottom: 1px solid #fef3c7 !important;
             border-right: none !important;
-            border-bottom: none !important;
         }
 
-        /* 회귀 속성 구분행 - 초록 계열 */
+        /* 회귀 속성 구분행 - 깨끗한 파스텔 에메랄드 */
         .matrix-table .section-header.section-reg {
-            background: #065f46 !important;
-            color: #a7f3d0 !important;
-            border-left: 4px solid #34d399 !important;
-            border-top: none !important;
+            background: #ecfdf5 !important;
+            color: #065f46 !important;
+            border-left: 4px solid #10b981 !important;
+            border-top: 1px solid #d1fae5 !important;
+            border-bottom: 1px solid #d1fae5 !important;
             border-right: none !important;
-            border-bottom: none !important;
         }
 
         /* 섹션 헤더 행(tr) 전체도 border 제거 */
