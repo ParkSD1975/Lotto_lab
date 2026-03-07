@@ -1769,6 +1769,21 @@ const DeepLearning = {
         return window.AI_SERVER_URL || 'https://lotto-api-server.onrender.com';
     },
 
+    renderBalls(id, nums) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        if (!nums || nums.length === 0) {
+            el.innerHTML = '<span class="text-slate-400 text-xs">추천 없음</span>';
+            return;
+        }
+        var self = this;
+        el.className = (el.className || '') + ' flex flex-wrap gap-2';
+        el.innerHTML = nums.map(function (n) {
+            var color = self.getBallColor(n);
+            return '<span class="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-black text-white shadow cursor-pointer hover:scale-110 transition-transform" style="background-color: ' + color + '" onclick="window.DeepLearning.explainNumber(' + n + ')" title="' + n + '번 클릭 시 XAI 분석">' + n + '</span>';
+        }).join('');
+    },
+
     showLoading(show, text) {
         var overlay = document.getElementById('loadingOverlay');
         if (!overlay) return;
