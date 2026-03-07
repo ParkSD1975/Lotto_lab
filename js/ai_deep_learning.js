@@ -1495,6 +1495,78 @@ const DeepLearning = {
         }
     },
 
+    renderCustomEvaluations(customData) {
+        const container = document.getElementById('custom-container');
+        if (!container || !customData) return;
+        const self = this;
+        const MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7', gnn: '#ef4444' };
+        const MODEL_LABELS = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV', autoencoder: 'ATC', gnn: 'GNN' };
+        const MODEL_ORDER = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
+        if (!customData || customData.length === 0) {
+            container.innerHTML = '<p class="text-sm text-slate-400 col-span-full py-8 text-center">커스텀 분석 데이터가 없습니다.</p>';
+            return;
+        }
+        container.innerHTML = customData.map(grp => {
+            const avgHit = grp.avg_hit != null ? parseFloat(grp.avg_hit).toFixed(1) : '-';
+            const gap = grp.gap ?? '-';
+            const str = grp.str ?? '-';
+            const dist = grp.hit_dist || {};
+            const distTotal = Object.values(dist).reduce((a, b) => a + b, 0) || 1;
+            const gapColor = (typeof gap === 'number' && gap >= 5) ? '#EF4444' : '#64748b';
+            const strColor = (typeof str === 'number' && str >= 2) ? '#6366f1' : '#64748b';
+            const avgColor = parseFloat(avgHit) >= 2 ? '#6366f1' : parseFloat(avgHit) >= 1 ? '#475569' : '#9CA3AF';
+            const typeMap = { static: '고정', dynamic: '동적', manual: '매뉴얼', group: '그룹', regression_overlap: '회귀중첩' };
+            const typeBadge = typeMap[grp.type] || grp.type || '';
+            const ballsHtml = (grp.targets || []).map(n => {
+                const colorClass = self.getBallColorClass(n);
+                return `<span class="ball-common ${colorClass} w-7 h-7 text-xs mx-0.5">${n}</span>`;
+            }).join('');
+            const distBars = [0, 1, 2, 3, 4, 5, 6].map(k => {
+                const cnt = dist[k] || 0;
+                const pct = Math.round(cnt / distTotal * 100);
+                const barColor = k === 0 ? '#E5E7EB' : k <= 2 ? '#9CA3AF' : k <= 4 ? '#6366f1' : '#4f46e5';
+                return `<span style="display:inline-flex;flex-direction:column;align-items:center;gap:1px;margin:0 2px">
+                    <span style="font-size:9px;font-weight:700;color:${k === 0 ? '#9CA3AF' : '#1F2937'}">${pct}%</span>
+                    <span style="display:block;width:14px;height:${Math.max(2, Math.round(pct * 0.3))}px;background:${barColor};border-radius:2px"></span>
+                    <span style="font-size:8px;color:#9CA3AF">${k}</span>
+                </span>`;
+            }).join('');
+            const modelBars = MODEL_ORDER.map(m => {
+                const v = (grp.model_scores || {})[m];
+                const s = v ? Math.round(v.score || 0) : 0;
+                const color = MODEL_COLORS[m];
+                return `<div style="display:flex;align-items:center;gap:6px;font-size:10px;margin-bottom:3px">
+                    <span style="width:28px;font-weight:800;color:${color};flex-shrink:0">${MODEL_LABELS[m]}</span>
+                    <div style="flex:1;height:5px;background:#F3F4F6;border-radius:3px;overflow:hidden">
+                        <div style="height:100%;width:${s}%;background:${color};border-radius:3px;transition:width 0.6s ease"></div>
+                    </div>
+                    <span style="width:24px;text-align:right;font-weight:700;color:${color}">${s}</span>
+                </div>`;
+            }).join('');
+            return `<div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.06)">
+                <div style="padding:10px 14px;background:#f8fafc;border-bottom:1px solid #f1f5f9;display:flex;align-items:center;gap:6px;min-width:0">
+                    <span style="font-size:9px;padding:1px 5px;background:#ede9fe;color:#6d28d9;border-radius:4px;font-weight:700;flex-shrink:0">${typeBadge}</span>
+                    <span style="font-weight:700;color:#1e293b;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${grp.title || ''}">${grp.title || '커스텀'}</span>
+                </div>
+                <div style="padding:10px 14px 6px;display:flex;flex-wrap:wrap;gap:0;align-items:center">
+                    ${ballsHtml || '<span style="font-size:11px;color:#94a3b8">대상번호 없음</span>'}
+                </div>
+                <div style="padding:4px 14px 8px;display:flex;gap:14px;font-size:11px;flex-wrap:wrap">
+                    <span>평균적중 <strong style="font-size:13px;color:${avgColor}">${avgHit}</strong></span>
+                    <span>Gap <strong style="color:${gapColor}">${gap}</strong></span>
+                    <span>STR <strong style="color:${strColor}">${str}</strong></span>
+                </div>
+                <div style="padding:4px 14px 8px;border-top:1px solid #f8fafc">
+                    <div style="font-size:9px;color:#94a3b8;margin-bottom:3px">적중 분포 (0~6개)</div>
+                    <div style="display:inline-flex;align-items:flex-end;height:40px">${distBars}</div>
+                </div>
+                <div style="padding:8px 14px;border-top:1px solid #f1f5f9">
+                    ${modelBars}
+                </div>
+            </div>`;
+        }).join('');
+    },
+
     async loadHistoryList() {
         var select = document.getElementById('historySelect');
         if (!select) return;
