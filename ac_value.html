@@ -575,19 +575,19 @@
                         <div
                             class="max-h-[600px] overflow-y-auto custom-scrollbar border border-gray-200 rounded-xl bg-white">
                             <table class="w-full text-sm">
-                                <thead class="sticky top-0 bg-[#1e293b] border-b border-[#334155] z-10">
-                                    <tr class="text-xs text-[#f8fafc] font-semibold">
-                                        <th class="py-3 px-4 text-center w-20 whitespace-nowrap">회차</th>
-                                        <th class="py-3 px-4 text-center">당첨번호</th>
-                                        <th class="py-3 px-4 text-center w-20">AC값</th>
-                                        <th class="py-3 px-2 text-center w-16">10회</th>
-                                        <th class="py-3 px-2 text-center w-16">15회</th>
-                                        <th class="py-3 px-2 text-center w-16">20회</th>
-                                        <th class="py-3 px-2 text-center w-16">25회</th>
-                                        <th class="py-3 px-2 text-center w-16">30회</th>
+                                <thead class="sticky top-0 bg-[#1e293b] text-white font-semibold border-b border-[#334155] z-30">
+                                    <tr class="text-sm font-semibold uppercase">
+                                        <th class="py-3 px-4 text-center w-20 sticky left-0 bg-[#1e293b] z-40">회차</th>
+                                        <th class="py-3 px-4 text-center w-[270px]">당첨번호</th>
+                                        <th class="py-3 px-2 text-center text-sm w-20">AC값</th>
+                                        <th class="py-3 px-2 text-center text-sm w-20">10회</th>
+                                        <th class="py-3 px-2 text-center text-sm w-20">15회</th>
+                                        <th class="py-3 px-2 text-center text-sm w-20">20회</th>
+                                        <th class="py-3 px-2 text-center text-sm w-20">25회</th>
+                                        <th class="py-3 px-2 text-center text-sm w-20">30회</th>
                                     </tr>
                                 </thead>
-                                <tbody id="drawsList">
+                                <tbody id="drawsList" class="divide-y divide-gray-100">
                                     <tr>
                                         <td colspan="8" class="p-10 text-center text-gray-500">
                                             <span
@@ -1266,43 +1266,43 @@ ${recent10}
                 };
 
                 tr.innerHTML = `
-                    <td class="py-3 px-4 text-center font-bold text-gray-600">${draw.round}회</td>
-                    <td class="py-3 px-4">
-                        <div class="flex gap-1.5 justify-center">
+                    <td class="py-4 px-4 text-sm font-bold text-gray-900 w-20 sticky left-0 bg-inherit z-10 whitespace-nowrap">${draw.round}회</td>
+                    <td class="py-4 px-4">
+                        <div class="flex gap-1 justify-center items-center w-[250px] mx-auto">
                             ${draw.numbers.map(num => `<span class="ball ${getBallColor(num)}">${String(num).padStart(2, '0')}</span>`).join('')}
                         </div>
                     </td>
-                    <td class="py-3 px-4 text-center">
+                    <td class="py-4 px-2 text-center">
                         <span onclick="event.stopPropagation(); toggleCellHighlight('ac', ${draw.acValue})"
                               class="inline-flex items-center justify-center w-8 h-8 font-bold transition-all cursor-pointer ${getAcTextColor(draw.acValue)} ${getHighlightClass('ac', draw.acValue)}">
                             ${draw.acValue}
                         </span>
                     </td>
-                    <td class="py-3 px-2 text-center">
+                    <td class="py-4 px-2 text-center">
                         <span onclick="event.stopPropagation(); toggleCellHighlight('count', ${count10}, 10)"
                               class="inline-flex items-center justify-center w-8 h-8 transition-all cursor-pointer ${getCountTextColor('count', count10, 10)} ${getHighlightClass('count', count10, 10)}">
                             ${count10}
                         </span>
                     </td>
-                    <td class="py-3 px-2 text-center">
+                    <td class="py-4 px-2 text-center">
                         <span onclick="event.stopPropagation(); toggleCellHighlight('count', ${count15}, 15)"
                               class="inline-flex items-center justify-center w-8 h-8 transition-all cursor-pointer ${getCountTextColor('count', count15, 15)} ${getHighlightClass('count', count15, 15)}">
                             ${count15}
                         </span>
                     </td>
-                    <td class="py-3 px-2 text-center">
+                    <td class="py-4 px-2 text-center">
                         <span onclick="event.stopPropagation(); toggleCellHighlight('count', ${count20}, 20)"
                               class="inline-flex items-center justify-center w-8 h-8 transition-all cursor-pointer ${getCountTextColor('count', count20, 20)} ${getHighlightClass('count', count20, 20)}">
                             ${count20}
                         </span>
                     </td>
-                    <td class="py-3 px-2 text-center">
+                    <td class="py-4 px-2 text-center">
                         <span onclick="event.stopPropagation(); toggleCellHighlight('count', ${count25}, 25)"
                               class="inline-flex items-center justify-center w-8 h-8 transition-all cursor-pointer ${getCountTextColor('count', count25, 25)} ${getHighlightClass('count', count25, 25)}">
                             ${count25}
                         </span>
                     </td>
-                    <td class="py-3 px-2 text-center">
+                    <td class="py-4 px-2 text-center">
                         <span onclick="event.stopPropagation(); toggleCellHighlight('count', ${count30}, 30)"
                               class="inline-flex items-center justify-center w-8 h-8 transition-all cursor-pointer ${getCountTextColor('count', count30, 30)} ${getHighlightClass('count', count30, 30)}">
                             ${count30}
