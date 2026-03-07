@@ -193,6 +193,56 @@
                 console.warn("AI Interpretation failed:", e);
                 return null;
             }
+        },
+
+        /**
+         * [v5 스마트 쿼리] 분석타입별 Supabase 통계 계산 후 LLM Q&A
+         * 기존 invoke()는 JS가 미리 계산한 텍스트를 보냄 (기본통계만).
+         * smartQuery()는 Python에서 전이행렬·조건부확률·streak·gap 등 심층 통계를
+         * 직접 계산하여 LLM에 전달 → 수치 기반 정확한 답변 생성.
+         *
+         * @param {object} opts
+         * @param {string}  opts.question      - 사용자 질문
+         * @param {string}  opts.analysisType  - 분석 타입 (예: 'ac_value', 'total_sum')
+         * @param {number}  [opts.targetRound] - 기준 회차 (선택)
+         * @param {number}  [opts.subjectRound]- 주제 회차 (선택)
+         * @returns {Promise<{response: string, highlights: Array}>}
+         */
+        async smartQuery({ question, analysisType, targetRound, subjectRound }) {
+            try {
+                const isAlive = await this.checkHealth();
+                if (isAlive) {
+                    console.log(`🧠 [AIProxy] smartQuery 요청 - type:${analysisType}`, question);
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT);
+                    const res = await fetch(`${CURRENT_BASE_URL}/api/smart-query`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            question,
+                            analysis_type: analysisType || 'general',
+                            target_round: targetRound || 0,
+                            subject_round: subjectRound || 0
+                        }),
+                        signal: controller.signal
+                    });
+                    clearTimeout(timeoutId);
+
+                    if (res.ok) {
+                        const data = await res.json();
+                        console.log("✅ [AIProxy] smartQuery 완료:", data);
+                        return data;
+                    }
+                    console.warn("⚠️ [AIProxy] smartQuery 서버 오류, invoke() 폴백 시도...");
+                } else {
+                    console.warn("⚠️ [AIProxy] Python 서버 미응답, invoke() 폴백 시도...");
+                }
+            } catch (e) {
+                console.warn("⚠️ [AIProxy] smartQuery 실패, invoke() 폴백:", e.message);
+            }
+
+            // 폴백: 기존 invoke() 사용 (JS 계산 텍스트 전달 방식)
+            return await this.invokeEdgeFunction({ prompt: question, analysisType });
         }
     };
 
