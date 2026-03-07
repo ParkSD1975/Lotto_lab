@@ -851,8 +851,8 @@
                 // 로딩 오버레이 숨김
                 if (overlay) overlay.style.display = 'none';
 
-                // AI 분석 실행
-                await refreshAIAnalysis();
+                // AI 분석 실행 (논블로킹 - UI 렌더 후 백그라운드 실행)
+                refreshAIAnalysis();
 
                 setTimeout(() => {
                     const statsSlider = document.getElementById('statsRangeSlider');
@@ -926,12 +926,18 @@
             window.handleNavigation = handleNavigation;
             window.handleNLPHighlight = handleNLPHighlight;
             window.handleNLPFilter = handleNLPFilter;
+
+            // 퀵버튼/프롬프트 라이브러리에서 window.submitCustomAIAnalysis 호출 보장
+            window.submitCustomAIAnalysis = submitCustomAIAnalysis;
+            window.refreshAIAnalysis = refreshAIAnalysis;
         });
 
         // 🔥 [Modified] 사용자 AI 질문 + NLP 처리 통합 함수
-        async function submitCustomAIAnalysis() {
+        async function submitCustomAIAnalysis(directPrompt) {
             const inputEl = document.getElementById('aiUserPrompt');
-            const userPrompt = inputEl.value.trim();
+            const userPrompt = (typeof directPrompt === 'string' && directPrompt.trim())
+                ? directPrompt.trim()
+                : inputEl.value.trim();
 
             if (!userPrompt) {
                 alert("질문을 입력하거나 퀵 버튼을 선택해주세요.");
@@ -1045,6 +1051,15 @@
             const subjectRound = subjectData.round;
             const targetRound = subjectRound + 1;
 
+            // ── sessionStorage 캐싱: 같은 회차 결과는 재사용 ──
+            const cacheKey = `ac_insight_${targetRound}`;
+            const cached = sessionStorage.getItem(cacheKey);
+            if (cached) {
+                const container = document.getElementById('aiDefaultReport');
+                if (container) container.innerHTML = cached;
+                return;
+            }
+
             const data = allDrawData.slice(0, currentRange);
             const allValues = data.map(d => d.acValue);
 
@@ -1061,71 +1076,67 @@
             allValues.forEach(v => { if (dist[v] !== undefined) dist[v]++; });
             const distText = Object.entries(dist).map(([k, v]) => `AC${k}:${v}회(${(v / allValues.length * 100).toFixed(1)}%)`).join(', ');
 
-            // ── 3. 최근 30회차 상세 데이터 ──
-            const recent30 = data.slice(0, 30).map(d =>
-                `${d.round}회: AC=${d.acValue} 당첨번호[${d.numbers ? d.numbers.join(',') : ''}]`
-            ).join('\n');
+            // ── 3. 최근 10회 AC값만 전송 (컨텍스트 축소) ──
+            const recent10 = data.slice(0, 10).map(d => `${d.round}회:AC${d.acValue}`).join(', ');
 
-            // ── 4. 추세 분석 (최근 5회, 10회 이동평균) ──
+            // ── 4. 추세 분석 ──
             const recent5Avg = data.slice(0, 5).reduce((s, d) => s + d.acValue, 0) / Math.min(5, data.length);
             const recent10Avg = data.slice(0, 10).reduce((s, d) => s + d.acValue, 0) / Math.min(10, data.length);
             const recent20Avg = data.slice(0, 20).reduce((s, d) => s + d.acValue, 0) / Math.min(20, data.length);
             const trendDirection = recent5Avg > recent10Avg ? '상승세' : recent5Avg < recent10Avg ? '하락세' : '보합';
 
-            // ── 5. 연속 동일값 / 연속 상승·하락 패턴 ──
+            // ── 5. 연속 패턴 ──
             let maxConsecSame = 1, curConsecSame = 1;
             let maxConsecUp = 0, curConsecUp = 0;
             let maxConsecDown = 0, curConsecDown = 0;
-            for (let i = 1; i < Math.min(30, allValues.length); i++) {
+            for (let i = 1; i < Math.min(20, allValues.length); i++) {
                 if (allValues[i - 1] === allValues[i]) { curConsecSame++; maxConsecSame = Math.max(maxConsecSame, curConsecSame); } else { curConsecSame = 1; }
                 if (allValues[i - 1] > allValues[i]) { curConsecUp++; maxConsecUp = Math.max(maxConsecUp, curConsecUp); curConsecDown = 0; }
                 else if (allValues[i - 1] < allValues[i]) { curConsecDown++; maxConsecDown = Math.max(maxConsecDown, curConsecDown); curConsecUp = 0; }
                 else { curConsecUp = 0; curConsecDown = 0; }
             }
 
-            // ── 6. 구간별 빈도 (저/중/고) ──
+            // ── 6. 구간별 빈도 ──
             const lowCount = allValues.filter(v => v <= 4).length;
             const midCount = allValues.filter(v => v >= 5 && v <= 8).length;
             const highCount = allValues.filter(v => v >= 9).length;
 
-            // ── 7. 직전 회차 AC값과 동일했던 비율 ──
+            // ── 7. 직전 동일 비율 ──
             let sameAsLastCount = 0;
-            for (let i = 1; i < allValues.length; i++) {
+            for (let i = 1; i < Math.min(allValues.length, 100); i++) {
                 if (allValues[i] === allValues[i - 1]) sameAsLastCount++;
             }
-            const sameAsLastRate = ((sameAsLastCount / (allValues.length - 1)) * 100).toFixed(1);
+            const sameAsLastRate = ((sameAsLastCount / Math.min(allValues.length - 1, 99)) * 100).toFixed(1);
 
-            // ── 8. 심화 데이터 (Gap/Streak) ──
-            let lowGap = 0; // AC 0~6 출현한 지 얼마나 됐는가? (즉, AC >= 7이 얼마나 연속되었는가)
+            // ── 8. Gap/Streak ──
+            let lowGap = 0;
             for (let i = 0; i < allDrawData.length; i++) {
                 if (allDrawData[i].acValue <= 6) break;
                 lowGap++;
             }
-            let highStreak = 0; // AC 7~10 연속 출현
+            let highStreak = 0;
             for (let i = 0; i < allDrawData.length; i++) {
                 if (allDrawData[i].acValue < 7) break;
                 highStreak++;
             }
 
             const contextData = `
-## AC값 기초 통계 (최근 ${currentRange}회차 기준)
-- 평균: ${avg.toFixed(2)} | 표준편차: ${stdDev.toFixed(2)} | 최소: ${min} | 최대: ${max}
-- 최근 5회 평균: ${recent5Avg.toFixed(2)} | 최근 10회 평균: ${recent10Avg.toFixed(2)} | 최근 20회 평균: ${recent20Avg.toFixed(2)}
-- 추세: ${trendDirection} (5회평균 ${recent5Avg > recent10Avg ? '>' : '<'} 10회평균)
+## AC값 통계 (최근 ${currentRange}회)
+평균:${avg.toFixed(2)} | 표준편차:${stdDev.toFixed(2)} | 최소:${min} | 최대:${max}
+5회평균:${recent5Avg.toFixed(2)} | 10회평균:${recent10Avg.toFixed(2)} | 20회평균:${recent20Avg.toFixed(2)} | 추세:${trendDirection}
 
-## AC값 분포 (0~10)
+## 분포
 ${distText}
 
-## 구간별 빈도
-- 저(0~4): ${lowCount}회(${(lowCount / allValues.length * 100).toFixed(1)}%) | 중(5~8): ${midCount}회(${(midCount / allValues.length * 100).toFixed(1)}%) | 고(9~10): ${highCount}회(${(highCount / allValues.length * 100).toFixed(1)}%)
+## 구간
+저(0~4):${lowCount}회(${(lowCount/allValues.length*100).toFixed(1)}%) | 중(5~8):${midCount}회(${(midCount/allValues.length*100).toFixed(1)}%) | 고(9~10):${highCount}회(${(highCount/allValues.length*100).toFixed(1)}%)
 
-## 패턴 분석
-- 직전 회차와 동일 AC값 반복 비율: ${sameAsLastRate}%
-- 최근 30회 최대 연속 상승: ${maxConsecUp}회 | 최대 연속 하락: ${maxConsecDown}회 | 최대 연속 동일값: ${maxConsecSame}회
-- 저수치(0~6) 미출현(Gap): 현재 ${lowGap}회차째 (즉, AC 7이상 ${highStreak}회 연속)
+## 패턴
+동일반복:${sameAsLastRate}% | 최대연속상승:${maxConsecUp} | 최대연속하락:${maxConsecDown} | 최대동일연속:${maxConsecSame}
+저수치(≤6) Gap:${lowGap}회 | 고수치(≥7) Streak:${highStreak}회
 
-## 최근 30회차 상세 데이터
-${recent30}
+## 최근 10회
+${recent10}
 `;
 
             const analysisConfig = {
@@ -1138,11 +1149,19 @@ ${recent30}
                 topic: 'AC값(Arithmetic Complexity)'
             };
 
-            if (window.AIAnalysis && window.AIAnalysis.executeAnalysis) {
-                await window.AIAnalysis.executeAnalysis(analysisConfig);
-            } else {
-                await executeLocalAIAnalysis(analysisConfig);
-            }
+            // AI 실행 후 결과를 sessionStorage에 캐싱
+            const origExecute = async (config) => {
+                if (window.AIAnalysis && window.AIAnalysis.executeAnalysis) {
+                    await window.AIAnalysis.executeAnalysis(config);
+                } else {
+                    await executeLocalAIAnalysis(config);
+                }
+                const container = document.getElementById('aiDefaultReport');
+                if (container && container.innerHTML && !container.innerHTML.includes('animate-spin')) {
+                    try { sessionStorage.setItem(cacheKey, container.innerHTML); } catch(e) {}
+                }
+            };
+            await origExecute(analysisConfig);
         }
 
         function updateStatistics(range) {
