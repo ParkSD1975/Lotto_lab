@@ -1462,9 +1462,9 @@ const DeepLearning = {
             }).join('');
 
             // 적중 분포 도트 (0~6)
-            const hits = item.hit_dist || [];
+            const hits = item.hit_dist || {};
             const distributionHtml = Array.from({ length: 7 }).map((_, i) => {
-                const count = hits.filter(h => h === i).length;
+                const count = hits[i] || 0;
                 let opacity = count > 0 ? 1 : 0.1;
                 let scale = 1 + (count * 0.2);
                 return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#4F46E5;opacity:${opacity};transform:scale(${scale});margin:0 2px" title="${i}개 적중: ${count}회"></span>`;
