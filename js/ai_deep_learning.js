@@ -423,6 +423,15 @@ const DeepLearning = {
         return 'ball-green';
     },
 
+    getBallColor(n) {
+        n = parseInt(n);
+        if (n <= 10) return '#fbc400';
+        if (n <= 20) return '#69c8f2';
+        if (n <= 30) return '#ff7272';
+        if (n <= 40) return '#aaaaaa';
+        return '#b0d840';
+    },
+
     renderStrategy(strategy, elapsed) {
         if (!strategy) return;
         const conf = strategy.confidence || 0;
