@@ -496,7 +496,7 @@
                                     <h3 class="text-2xl font-extrabold text-gray-900 tracking-tight">AI Insight</h3>
                                     <span id="aiTargetInfo" class="text-sm text-gray-500 font-medium"></span>
                                 </div>
-                                <button onclick="window.AIAnalysis.openPromptLibraryModal('composite', event)"
+                                <button onclick="window.AIAnalysis.openPromptLibraryModal('composite_number', event)"
                                     class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors">
                                     <span class="material-symbols-outlined text-lg">library_books</span>
                                     프롬프트 라이브러리
@@ -1009,7 +1009,7 @@ ${distText}
             const analysisConfig = {
                 containerId: 'aiDefaultReport',
                 topic: '합성수',
-                analysisType: 'composite',
+                analysisType: 'composite_number',
                 subjectRound: allDrawData[0].round,
                 targetRound: allDrawData[0].round + 1,
                 userPrompt: "다음 회차 합성수 개수 범위와 핵심 전략을 3줄 요약해줘.",
@@ -1595,7 +1595,7 @@ ${distText}
             const analysisConfig = {
                 containerId: uniqueId,
                 topic: '합성수',
-                analysisType: 'composite',
+                analysisType: 'composite_number',
                 subjectRound: allDrawData[0]?.round || 0,
                 targetRound: (allDrawData[0]?.round || 0) + 1,
                 userPrompt: userPrompt,
@@ -1657,7 +1657,7 @@ ${distText}
 
                 await window.AIAnalysis.executeAnalysis({
                     containerId: uniqueId,
-                    analysisType: 'composite', // Added analysisType
+                    analysisType: 'composite_number', // Added analysisType
                     subjectRound: allDrawData[0]?.round || 0,
                     targetRound: (allDrawData[0]?.round || 0) + 1,
                     userPrompt: val,

@@ -1636,7 +1636,7 @@
                     await window.AIAnalysis.executeAnalysis({
                         containerId: uniqueId,
                         userPrompt: userPrompt,
-                        analysisType: '동형수 분석 챗봇',
+                        analysisType: 'twin_number',
                         subjectRound: subjectRound,
                         targetRound: targetRound,
                         responseStyle: 'chat',
@@ -1691,7 +1691,7 @@
                     await window.AIAnalysis.executeAnalysis({
                         containerId: 'aiAnalysisContent',
                         containerClass: 'prose prose-base max-w-none text-gray-800 leading-relaxed',
-                        analysisType: '동형수 패턴 정밀 분석',
+                        analysisType: 'twin_number',
                         subjectRound: subjectRound,
                         targetRound: targetRound,
                         customData: prepareTwinAIContext(stats),

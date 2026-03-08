@@ -2139,7 +2139,7 @@ ${contextData}
                 if (window.AIAnalysis) {
                     await window.AIAnalysis.executeAnalysis({
                         containerId: 'aiAnalysisContent',
-                        analysisType: '끝수합 패턴 정밀 분석',
+                        analysisType: 'tail_sum',
                         subjectRound: subjectRound,
                         targetRound: targetRound,
                         customData: `
@@ -2240,7 +2240,7 @@ ${contextData}
                     await window.AIAnalysis.executeAnalysis({
                         containerId: uniqueId,
                         userPrompt: prompt,
-                        analysisType: '끝수합 분석 챗봇',
+                        analysisType: 'tail_sum',
                         subjectRound: subjectRound,
                         targetRound: targetRound,
                         responseStyle: 'chat',

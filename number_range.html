@@ -1615,7 +1615,7 @@ ${Object.entries(rangeStats).map(([r, s]) => `  * ${r}: 평균 ${s.avg} / 편차
             if (window.AIAnalysis) {
                 await window.AIAnalysis.executeAnalysis({
                     containerId: 'aiAnalysisResult',
-                    analysisType: '번호대(Number Range)',
+                    analysisType: 'number_range',
                     subjectRound: subjectRound,
                     targetRound: targetRound,
                     customData: contextStr,
