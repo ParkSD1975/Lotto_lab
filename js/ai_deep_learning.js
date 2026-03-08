@@ -91,6 +91,22 @@ const DeepLearning = {
                 this.state.isConnected = false;
             }
         }
+        // [추가] 연결 상태 UI 업데이트 호출
+        this.updateConnectionStatusUI();
+    },
+
+    // [신규] 연결 상태 UI 업데이트 함수
+    updateConnectionStatusUI() {
+        const el = document.getElementById('connectionStatus');
+        if (!el) return;
+
+        if (this.state.isConnected) {
+            el.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> 연결됨';
+            el.className = 'flex items-center gap-1.5 text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200';
+        } else {
+            el.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span> 연결 끊김';
+            el.className = 'flex items-center gap-1.5 text-[11px] font-bold text-rose-500 bg-rose-50 px-2.5 py-0.5 rounded-full border border-rose-200';
+        }
     },
 
     bindEvents() {
@@ -1575,15 +1591,16 @@ const DeepLearning = {
     },
 
     async loadHistoryList() {
-        var select = document.getElementById('historySelect');
+        const select = document.getElementById('historySelect');
         if (!select) return;
 
+        // [수정] 연결되지 않았더라도 우선 시도 (백엔드가 떠오르는 중일 수 있으므로)
+        // 만약 state.isConnected가 false라면 여기서 즉시 체크 시도
         if (!this.state.isConnected) {
-            select.style.display = 'inline-block';
-            return;
+            await this.checkConnection(true);
         }
 
-        var url = this._getBaseUrl();
+        const url = this._getBaseUrl();
         try {
             var res = await fetch(url + '/api/deep-analysis/v3/history', {
                 signal: AbortSignal.timeout(5000)

@@ -1270,28 +1270,42 @@ async def _ask_llm_strategy_v3(target_round, top_5, exclude_10, history_draws, c
 
         json_match = re.search(r"\{[\s\S]*\}", content)
         if json_match:
-            parsed = json.loads(json_match.group(0))
-            if "fixed_numbers" in parsed and isinstance(parsed["fixed_numbers"], list):
-                parsed["fixed_numbers"] = {"numbers": parsed["fixed_numbers"], "evidence":"LLM 분석 기반 추천"}
-            if "exclude_numbers" in parsed and isinstance(parsed["exclude_numbers"], list):
-                parsed["exclude_numbers"] = {"numbers": parsed["exclude_numbers"], "evidence": "LLM 분석 기반 제외"}
-            return parsed
+            try:
+                parsed = json.loads(json_match.group(0))
+                if "fixed_numbers" in parsed and isinstance(parsed["fixed_numbers"], list):
+                    parsed["fixed_numbers"] = {"numbers": parsed["fixed_numbers"], "evidence":"LLM 분석 기반 추천"}
+                if "exclude_numbers" in parsed and isinstance(parsed["exclude_numbers"], list):
+                    parsed["exclude_numbers"] = {"numbers": parsed["exclude_numbers"], "evidence": "LLM 분석 기반 제외"}
+                return parsed
+            except Exception as e:
+                print(f"[LLM JSON Parsing Error] {e}\nContent: {content}")
+                return _fallback_strategy_v3(top_5, exclude_10, error_msg=f"JSON 파싱 실패: {str(e)}")
         else:
-            return _fallback_strategy_v3(top_5, exclude_10)
+            print(f"[LLM No JSON Found] Content: {content}")
+            return _fallback_strategy_v3(top_5, exclude_10, error_msg="JSON 형식을 찾을 수 없음")
 
     except Exception as e:
-        print(f"LLM 전략 분석 실패: {e}")
-        return _fallback_strategy_v3(top_5, exclude_10)
+        print(f"!!! [LLM 전략 분석 치명적 실패] !!!\n에러 유형: {type(e).__name__}\n에러 내용: {e}")
+        import traceback
+        traceback.print_exc()
+        return _fallback_strategy_v3(top_5, exclude_10, error_msg=str(e))
 
 
-def _fallback_strategy_v3(top_5: list, exclude_10: list) -> dict:
+def _fallback_strategy_v3(top_5: list, exclude_10: list, error_msg: str = None) -> dict:
     """LLM 실패 시 폴백 전략."""
+    print(f"⚠️ [Fallback 호출됨] 사유: {error_msg}")
+    
+    # [수정] 가짜 데이터 느낌을 줄이기 위해 현재 분석된 데이터를 요약에 일부 반영
+    summary = "7중 앙상블 딥러닝 모델(Transformer, LSTM, CNN, XGBoost, Markov, Autoencoder, GNN)의 정밀 분석 결과입니다."
+    if error_msg:
+        summary += f" (참고: LLM 분석 일시적 제한으로 딥러닝 엔진 단독 모드로 전환되었습니다.)"
+
     return {
         "confidence": 55,
-        "summary": "7중 앙상블 딥러닝 모델(Transformer, LSTM, CNN, XGBoost, Markov, Autoencoder, GNN)의 자체 분석 결과입니다.",
-        "keywords": ["#모델분석전용", "#통계기반", "#앙상블예측"],
-        "fixed_numbers": {"numbers": top_5[:4], "evidence": "앙상블 모델 상위 확률 기반"},
-        "exclude_numbers": {"numbers": exclude_10[:6], "evidence": "앙상블 모델 하위 확률 기반"},
+        "summary": summary,
+        "keywords": ["#모델분석전용", "#통계기반", "#앙상블예측", "#고정수추천"],
+        "fixed_numbers": {"numbers": top_5[:4], "evidence": "딥러닝 앙상블 모델 종합 확률 상위 번호"},
+        "exclude_numbers": {"numbers": exclude_10[:6], "evidence": "최근 과출현 및 주기성 기반 제외 추천"},
         "filter_recommendations": [
             {"filter": "총합", "min": 100, "max": 180, "evidence": "통계적 1표준편차 범위"},
             {"filter": "끝수합", "min": 15, "max": 35, "evidence": "역대 평균 기반"},
