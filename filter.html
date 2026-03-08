@@ -98,8 +98,8 @@
 
         .sticky-sub-header {
             position: sticky;
-            top: 139px; /* GNB(64) + Header(40) + Basket(35) = 139px */
-            z-index: 40;
+            top: 172px; /* GNB(64) + Header(58) + Basket(50) = 172px */
+            z-index: 45;
             background: #ffffff;
             border-bottom: 1px solid rgba(226, 232, 240, 0.8);
             margin-top: 0 !important;
@@ -150,12 +150,19 @@
             background: #1e293b;
             color: #ffffff;
             transition: all 0.2s ease;
+            border: none;
         }
 
         .btn-primary-dark:hover {
             background: #0f172a;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
             transform: translateY(-1px);
+        }
+
+        /* Fixed Width for Header Buttons */
+        .header-action-btn {
+            width: 140px;
+            justify-content: center;
         }
 
         @keyframes fadeInRow {
@@ -177,12 +184,12 @@
 
     <div class="min-h-screen pb-24 font-sans text-slate-800">
         <!-- 🔝 Main Header (Sticky) -->
-        <div class="sticky-main-header border-b border-slate-200">
+        <div class="sticky-main-header border-b border-slate-200 shadow-sm">
             <!-- Counter Row -->
-            <div class="max-w-7xl mx-auto px-6 py-2 flex items-center justify-between">
+            <div class="max-w-7xl mx-auto px-6 py-2.5 flex items-center justify-between">
                 <div class="flex items-center gap-4">
                     <div class="text-left">
-                        <span class="text-[9px] font-bold text-slate-400 uppercase tracking-widest block">Combinations</span>
+                        <span class="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-0.5">Combinations</span>
                         <div class="flex items-end gap-2">
                             <div class="text-3xl font-black font-mono text-slate-900 leading-none tracking-tighter" id="neonCounter">8,145,060</div>
                             <div class="text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
@@ -192,51 +199,62 @@
                     </div>
                 </div>
                 
-                <div class="flex items-center gap-1.5">
+                <div class="flex items-center gap-2">
+                    <!-- Refresh Button (No Border) -->
                     <button onclick="window.location.reload()"
-                        class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-50 border border-slate-200 transition-all active:scale-95">
-                        <span class="material-symbols-outlined" style="font-size:16px;">refresh</span>
+                        class="w-10 h-10 flex items-center justify-center rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-all active:scale-95"
+                        title="새로고침">
+                        <span class="material-symbols-outlined" style="font-size:22px;">refresh</span>
                     </button>
+
+                    <!-- 단계별 분석 -->
                     <button id="btnStepCount" onclick="window.stepCountCombinations()"
-                        class="btn-minimal group flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-bold text-slate-600 bg-white border border-slate-200">
-                        <span class="material-symbols-outlined text-slate-400" style="font-size:16px;">analytics</span>단계별 분석
+                        class="btn-primary-dark header-action-btn group flex items-center gap-2 px-4 py-2 rounded-xl text-[13px] font-bold">
+                        <span class="material-symbols-outlined text-indigo-400 group-hover:scale-110 transition-transform" style="font-size:18px;">analytics</span>
+                        단계별 분석
                     </button>
+
+                    <!-- 필터 진단 -->
                     <button id="btnDiagnose" onclick="window.diagnoseCombinations()"
-                        class="btn-minimal group flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-bold text-slate-600 bg-white border border-slate-200">
-                        <span class="material-symbols-outlined text-slate-400" style="font-size:16px;">troubleshoot</span>필터 진단
+                        class="btn-primary-dark header-action-btn group flex items-center gap-2 px-4 py-2 rounded-xl text-[13px] font-bold">
+                        <span class="material-symbols-outlined text-rose-400 group-hover:scale-110 transition-transform" style="font-size:18px;">troubleshoot</span>
+                        필터 진단
                     </button>
+
+                    <!-- 조합 생성 -->
                     <button id="btnGenerateCombos" onclick="window.generateFinalCombinations()"
-                        class="btn-primary-dark group flex items-center gap-2 px-4 py-1.5 rounded-lg text-[13px] font-black tracking-tight ml-1">
-                        <span class="material-symbols-outlined text-amber-400" style="font-size:18px;">rocket_launch</span>조합 생성
+                        class="btn-primary-dark header-action-btn group flex items-center gap-2 px-4 py-2 rounded-xl text-[13px] font-black tracking-tight">
+                        <span class="material-symbols-outlined text-amber-400 group-hover:scale-110 transition-transform" style="font-size:20px;">rocket_launch</span>
+                        조합 생성
                     </button>
                 </div>
             </div>
 
-            <!-- Basket display (No margin bottom, No gap) -->
-            <div class="bg-slate-50 border-t border-slate-100 py-1.5">
-                <div class="max-w-7xl mx-auto px-6 flex gap-1.5">
-                    <div class="flex-1 bg-white rounded border border-slate-200 p-1 flex items-center gap-2">
-                        <span class="text-[8px] font-black text-slate-400 px-1 py-0.5 rounded border border-slate-100">FIXED</span>
-                        <div id="topFixedBalls" class="flex flex-wrap gap-1 min-h-[20px] items-center"></div>
+            <!-- Basket display -->
+            <div class="bg-slate-50 border-t border-slate-100 py-2">
+                <div class="max-w-7xl mx-auto px-6 flex gap-2">
+                    <div class="flex-1 bg-white rounded border border-slate-200 p-1.5 flex items-center gap-2.5">
+                        <span class="text-[8px] font-black text-slate-400 px-1.5 py-0.5 rounded border border-slate-100">FIXED</span>
+                        <div id="topFixedBalls" class="flex flex-wrap gap-1 min-h-[22px] items-center"></div>
                     </div>
-                    <div class="flex-1 bg-white rounded border border-slate-200 p-1 flex items-center gap-2">
-                        <span class="text-[8px] font-black text-slate-400 px-1 py-0.5 rounded border border-slate-100">EXCLUDED</span>
-                        <div id="topExcludeBalls" class="flex flex-wrap gap-1 min-h-[20px] items-center"></div>
+                    <div class="flex-1 bg-white rounded border border-slate-200 p-1.5 flex items-center gap-2.5">
+                        <span class="text-[8px] font-black text-slate-400 px-1.5 py-0.5 rounded border border-slate-100">EXCLUDED</span>
+                        <div id="topExcludeBalls" class="flex flex-wrap gap-1 min-h-[22px] items-center"></div>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- 📑 Tabs Navigation (Zero Gap with above) -->
+        <!-- 📑 Tabs Navigation (Sticky sub-header) -->
         <div class="sticky-sub-header">
-            <div class="max-w-7xl mx-auto px-6 py-1.5 flex justify-center">
-                <div class="flex items-center gap-12">
+            <div class="max-w-7xl mx-auto px-6 py-2.5 flex justify-center">
+                <div class="flex items-center gap-14">
                     <button onclick="FilterDashboard.switchTab('foundation')" data-tab="foundation"
-                        class="tab-btn py-0.5 text-[14px] font-bold active">기초분석</button>
+                        class="tab-btn py-1 text-[15px] font-bold active">기초분석</button>
                     <button onclick="FilterDashboard.switchTab('regression')" data-tab="regression"
-                        class="tab-btn py-0.5 text-[14px] font-bold">회귀분석</button>
+                        class="tab-btn py-1 text-[15px] font-bold">회귀분석</button>
                     <button onclick="FilterDashboard.switchTab('custom')" data-tab="custom"
-                        class="tab-btn py-0.5 text-[14px] font-bold">커스텀분석</button>
+                        class="tab-btn py-1 text-[15px] font-bold">커스텀분석</button>
                 </div>
             </div>
         </div>

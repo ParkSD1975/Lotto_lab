@@ -21,7 +21,9 @@
     <script src="js/layout.js"></script>
 
     <style>
-        body { font-family: 'Pretendard', sans-serif; }
+        body {
+            font-family: 'Pretendard', sans-serif;
+        }
 
         /* LCD 디지털 디스플레이 */
         .lcd-display {
@@ -30,25 +32,25 @@
             border-radius: 16px;
             padding: 24px 36px;
             box-shadow:
-                inset 0 2px 8px rgba(0,0,0,0.8),
-                0 0 30px rgba(0,255,100,0.08),
-                0 4px 20px rgba(0,0,0,0.5);
+                inset 0 2px 8px rgba(0, 0, 0, 0.8),
+                0 0 30px rgba(0, 255, 100, 0.08),
+                0 4px 20px rgba(0, 0, 0, 0.5);
             position: relative;
             overflow: hidden;
         }
+
         .lcd-display::before {
             content: '';
             position: absolute;
             inset: 0;
-            background: repeating-linear-gradient(
-                0deg,
-                transparent,
-                transparent 2px,
-                rgba(0,0,0,0.15) 2px,
-                rgba(0,0,0,0.15) 4px
-            );
+            background: repeating-linear-gradient(0deg,
+                    transparent,
+                    transparent 2px,
+                    rgba(0, 0, 0, 0.15) 2px,
+                    rgba(0, 0, 0, 0.15) 4px);
             pointer-events: none;
         }
+
         .lcd-number {
             font-family: 'Courier New', 'Lucida Console', monospace;
             font-size: 56px;
@@ -61,6 +63,7 @@
                 0 0 40px #009940;
             line-height: 1;
         }
+
         .lcd-label {
             font-size: 11px;
             font-weight: 700;
@@ -68,12 +71,14 @@
             color: #2a5a3a;
             text-transform: uppercase;
         }
+
         .lcd-unit {
             font-size: 14px;
             font-weight: 700;
             color: #00aa44;
             letter-spacing: 2px;
         }
+
         .lcd-dim {
             color: #0d2a1a;
             text-shadow: none;
@@ -92,16 +97,37 @@
             color: white;
             flex-shrink: 0;
         }
+
         .ball-sm {
             width: 26px;
             height: 26px;
             font-size: 11px;
         }
-        .ball-1-9   { background: linear-gradient(135deg, #f59e0b, #d97706); box-shadow: 0 2px 6px rgba(245,158,11,0.4); }
-        .ball-10-19 { background: linear-gradient(135deg, #3b82f6, #2563eb); box-shadow: 0 2px 6px rgba(59,130,246,0.4); }
-        .ball-20-29 { background: linear-gradient(135deg, #ef4444, #dc2626); box-shadow: 0 2px 6px rgba(239,68,68,0.4); }
-        .ball-30-39 { background: linear-gradient(135deg, #64748b, #475569); box-shadow: 0 2px 6px rgba(100,116,139,0.4); }
-        .ball-40-45 { background: linear-gradient(135deg, #10b981, #059669); box-shadow: 0 2px 6px rgba(16,185,129,0.4); }
+
+        .ball-1-9 {
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+            box-shadow: 0 2px 6px rgba(245, 158, 11, 0.4);
+        }
+
+        .ball-10-19 {
+            background: linear-gradient(135deg, #3b82f6, #2563eb);
+            box-shadow: 0 2px 6px rgba(59, 130, 246, 0.4);
+        }
+
+        .ball-20-29 {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            box-shadow: 0 2px 6px rgba(239, 68, 68, 0.4);
+        }
+
+        .ball-30-39 {
+            background: linear-gradient(135deg, #64748b, #475569);
+            box-shadow: 0 2px 6px rgba(100, 116, 139, 0.4);
+        }
+
+        .ball-40-45 {
+            background: linear-gradient(135deg, #10b981, #059669);
+            box-shadow: 0 2px 6px rgba(16, 185, 129, 0.4);
+        }
 
         /* 진행바 */
         .progress-bar-inner {
@@ -112,9 +138,15 @@
             border-radius: 4px;
             transition: width 0.3s ease;
         }
+
         @keyframes shimmer {
-            0% { background-position: 200% 0; }
-            100% { background-position: -200% 0; }
+            0% {
+                background-position: 200% 0;
+            }
+
+            100% {
+                background-position: -200% 0;
+            }
         }
 
         /* 필터 카드 */
@@ -125,13 +157,16 @@
             padding: 14px 16px;
             transition: all 0.2s;
         }
+
         .filter-card:hover {
             border-color: #c7d2fe;
-            box-shadow: 0 2px 8px rgba(99,102,241,0.1);
+            box-shadow: 0 2px 8px rgba(99, 102, 241, 0.1);
         }
+
         .filter-card.disabled-card {
             opacity: 0.5;
         }
+
         .filter-card.skip-card {
             border-left: 3px solid #f59e0b;
             background: #fffbeb;
@@ -148,14 +183,24 @@
             gap: 12px;
             transition: all 0.2s;
         }
+
         .result-card:hover {
             border-color: #a5b4fc;
-            box-shadow: 0 2px 12px rgba(99,102,241,0.12);
+            box-shadow: 0 2px 12px rgba(99, 102, 241, 0.12);
         }
 
-        .custom-scrollbar::-webkit-scrollbar { width: 5px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 5px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 10px;
+        }
     </style>
 </head>
 
@@ -174,7 +219,8 @@
                     <div class="flex items-center justify-between">
                         <div>
                             <div class="flex items-center gap-2 mb-1">
-                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-800">
+                                <span
+                                    class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-800">
                                     🎯 Filter Combination
                                 </span>
                             </div>
@@ -200,7 +246,8 @@
                         </div>
                         <div class="flex flex-col items-end gap-2">
                             <div class="text-right">
-                                <div class="text-[10px] font-bold text-[#1a4a2a] uppercase tracking-widest mb-1">전체 탐색 범위</div>
+                                <div class="text-[10px] font-bold text-[#1a4a2a] uppercase tracking-widest mb-1">전체 탐색
+                                    범위</div>
                                 <div class="text-[#005525] font-mono text-sm font-bold">C(45, 6) = 8,145,060</div>
                             </div>
                             <div id="activeFilterCount"
@@ -299,7 +346,8 @@
                         <div class="flex items-center justify-between mb-3">
                             <div class="flex items-center gap-2">
                                 <div class="w-8 h-8 bg-green-600 rounded-lg flex items-center justify-center">
-                                    <span class="material-symbols-outlined text-white text-[16px]">format_list_numbered</span>
+                                    <span
+                                        class="material-symbols-outlined text-white text-[16px]">format_list_numbered</span>
                                 </div>
                                 <div>
                                     <h3 class="text-sm font-bold text-gray-900">생성된 조합</h3>
@@ -331,7 +379,8 @@
                         <p class="text-sm text-gray-500 mb-4">저장된 필터를 불러오려면 구글 계정으로 로그인하세요.</p>
                         <button onclick="signInWithGoogle()"
                             class="px-5 py-2.5 bg-white border border-gray-300 hover:border-gray-400 rounded-xl text-sm font-bold text-gray-700 transition-all flex items-center gap-2 mx-auto">
-                            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" class="w-4 h-4" alt="Google">
+                            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg"
+                                class="w-4 h-4" alt="Google">
                             구글로 로그인
                         </button>
                     </div>
@@ -342,157 +391,157 @@
     </div>
 
     <script>
-    // ============================================================
-    // 상수 정의
-    // ============================================================
+        // ============================================================
+        // 상수 정의
+        // ============================================================
 
-    const FILTER_PAGE_MAP = {
-        'ac_value':                   'ac_value.html',
-        'total_sum_patterns':         'total_sum.html',
-        'tail_sum_patterns':          'tail_sum.html',
-        'carryover_count':            'carryover.html',
-        'odd_even_patterns':          'odd_even.html',
-        'low_high_ratio':             'low_high.html',
-        'prime_number_patterns':      'prime_number.html',
-        'composite_count':            'composite_number.html',
-        'square_number_patterns':     'square_number.html',
-        'twin_number_patterns':       'twin_number.html',
-        'consecutive_count':          'consecutive_number.html',
-        'hot_cold_v2':                'hot_cold.html',
-        'missing_period':             'missing.html',
-        'multiple_patterns':          'multiple.html',
-        'neighbor_number_patterns':   'neighbor_number.html',
-        'number_range_patterns':      'number_range.html',
-        'tail_digit_patterns':        'tail_digit.html',
-        'triangular_number_patterns': 'triangular_number.html',
-        'magic_square_patterns':      'magic_square.html',
-        'lotto_paper_patterns':       'lotto_paper.html',
-    };
+        const FILTER_PAGE_MAP = {
+            'ac_value': 'ac_value.html',
+            'total_sum_patterns': 'total_sum.html',
+            'tail_sum_patterns': 'tail_sum.html',
+            'carryover_count': 'carryover.html',
+            'odd_even_patterns': 'odd_even.html',
+            'low_high_ratio': 'low_high.html',
+            'prime_number_patterns': 'prime_number.html',
+            'composite_count': 'composite_number.html',
+            'square_number_patterns': 'square_number.html',
+            'twin_number_patterns': 'twin_number.html',
+            'consecutive_count': 'consecutive_number.html',
+            'hot_cold_v2': 'hot_cold.html',
+            'missing_period': 'missing.html',
+            'multiple_patterns': 'multiple.html',
+            'neighbor_number_patterns': 'neighbor_number.html',
+            'number_range_patterns': 'number_range.html',
+            'tail_digit_patterns': 'tail_digit.html',
+            'triangular_number_patterns': 'triangular_number.html',
+            'magic_square_pattern': 'magic_square.html',
+            'lotto_paper_patterns': 'lotto_paper.html',
+        };
 
-    // 조합 생성에 적용 불가한 필터 (실시간 데이터 필요)
-    const SKIP_FILTER_KEYS = new Set(['carryover_count', 'hot_cold_v2', 'missing_period']);
+        // 조합 생성에 적용 불가한 필터 (실시간 데이터 필요)
+        const SKIP_FILTER_KEYS = new Set(['carryover_count', 'hot_cold_v2', 'missing_period']);
 
-    // 소수 목록 (1~45)
-    const PRIMES = new Set([2,3,5,7,11,13,17,19,23,29,31,37,41,43]);
-    // 합성수 (1과 소수 제외)
-    const COMPOSITES = new Set([4,6,8,9,10,12,14,15,16,18,20,21,22,24,25,26,27,28,30,32,33,34,35,36,38,39,40,42,44,45]);
-    // 제곱수
-    const SQUARES = new Set([1,4,9,16,25,36]);
-    // 쌍수
-    const TWINS = new Set([11,22,33,44]);
-    // 삼각수
-    const TRIANGULARS = new Set([1,3,6,10,15,21,28,36,45]);
+        // 소수 목록 (1~45)
+        const PRIMES = new Set([2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43]);
+        // 합성수 (1과 소수 제외)
+        const COMPOSITES = new Set([4, 6, 8, 9, 10, 12, 14, 15, 16, 18, 20, 21, 22, 24, 25, 26, 27, 28, 30, 32, 33, 34, 35, 36, 38, 39, 40, 42, 44, 45]);
+        // 제곱수
+        const SQUARES = new Set([1, 4, 9, 16, 25, 36]);
+        // 쌍수
+        const TWINS = new Set([11, 22, 33, 44]);
+        // 삼각수
+        const TRIANGULARS = new Set([1, 3, 6, 10, 15, 21, 28, 36, 45]);
 
-    // ============================================================
-    // 상태
-    // ============================================================
-    let activeBasicFilters = {};   // { filterKey: { settings, enabled, filter_name, filter_type } }
-    let activeCustomFilters = [];  // FilterService.getCustomAnalysisFilters() 결과
-    let tempDisabledBasic = new Set();   // 조합 페이지에서 임시 비활성화한 기초필터 키
-    let tempDisabledCustom = new Set();  // 임시 비활성화한 커스텀필터 id
+        // ============================================================
+        // 상태
+        // ============================================================
+        let activeBasicFilters = {};   // { filterKey: { settings, enabled, filter_name, filter_type } }
+        let activeCustomFilters = [];  // FilterService.getCustomAnalysisFilters() 결과
+        let tempDisabledBasic = new Set();   // 조합 페이지에서 임시 비활성화한 기초필터 키
+        let tempDisabledCustom = new Set();  // 임시 비활성화한 커스텀필터 id
 
-    let isGenerating = false;
-    let stopRequested = false;
-    let allResults = [];
-    let displayedCount = 0;
-    const PAGE_SIZE = 100;
+        let isGenerating = false;
+        let stopRequested = false;
+        let allResults = [];
+        let displayedCount = 0;
+        const PAGE_SIZE = 100;
 
-    // ============================================================
-    // 초기화
-    // ============================================================
-    document.addEventListener('DOMContentLoaded', () => {
-        // 로그인 상태 확인 후 필터 로드
-        setTimeout(checkLoginAndLoad, 800);
-    });
-
-    document.addEventListener('gnbLoaded', () => {
-        setTimeout(checkLoginAndLoad, 300);
-    });
-
-    async function checkLoginAndLoad() {
-        if (!window.supabaseClient) return;
-        const { data: { user } } = await window.supabaseClient.auth.getUser();
-        if (!user) {
-            document.getElementById('loginRequired').classList.remove('hidden');
-            document.getElementById('basicFilterList').innerHTML = '';
-            document.getElementById('customFilterList').innerHTML = '';
-            return;
-        }
-        document.getElementById('loginRequired').classList.add('hidden');
-        await loadAllFilters();
-    }
-
-    async function refreshFilters() {
-        tempDisabledBasic.clear();
-        tempDisabledCustom.clear();
-        await loadAllFilters();
-    }
-
-    async function loadAllFilters() {
-        if (!window.filterService) return;
-
-        // 기초 분석 필터
-        const activeSettings = await window.filterService.getActiveFilters();
-        const definitions = await window.filterService.loadDefinitions();
-
-        // filter_key → definition 매핑
-        const defMap = {};
-        definitions.forEach(d => { defMap[d.filter_key] = d; });
-
-        activeBasicFilters = {};
-        Object.entries(activeSettings).forEach(([key, val]) => {
-            const def = defMap[key];
-            activeBasicFilters[key] = {
-                ...val,
-                filter_name: def?.filter_name || key,
-                filter_type: def?.filter_type || 'range',
-                display_order: def?.display_order || 999
-            };
+        // ============================================================
+        // 초기화
+        // ============================================================
+        document.addEventListener('DOMContentLoaded', () => {
+            // 로그인 상태 확인 후 필터 로드
+            setTimeout(checkLoginAndLoad, 800);
         });
 
-        // 커스텀분석 필터 (매번 새로 로드)
-        activeCustomFilters = await window.filterService.getCustomAnalysisFilters();
+        document.addEventListener('gnbLoaded', () => {
+            setTimeout(checkLoginAndLoad, 300);
+        });
 
-        renderBasicFilters();
-        renderCustomFilters();
-        updateLcdStatus();
-    }
+        async function checkLoginAndLoad() {
+            if (!window.supabaseClient) return;
+            const { data: { user } } = await window.supabaseClient.auth.getUser();
+            if (!user) {
+                document.getElementById('loginRequired').classList.remove('hidden');
+                document.getElementById('basicFilterList').innerHTML = '';
+                document.getElementById('customFilterList').innerHTML = '';
+                return;
+            }
+            document.getElementById('loginRequired').classList.add('hidden');
+            await loadAllFilters();
+        }
 
-    // ============================================================
-    // 필터 카드 렌더링
-    // ============================================================
+        async function refreshFilters() {
+            tempDisabledBasic.clear();
+            tempDisabledCustom.clear();
+            await loadAllFilters();
+        }
 
-    function renderBasicFilters() {
-        const container = document.getElementById('basicFilterList');
-        const badge = document.getElementById('basicFilterBadge');
-        const keys = Object.keys(activeBasicFilters);
+        async function loadAllFilters() {
+            if (!window.filterService) return;
 
-        if (keys.length === 0) {
-            container.innerHTML = `
+            // 기초 분석 필터
+            const activeSettings = await window.filterService.getActiveFilters();
+            const definitions = await window.filterService.loadDefinitions();
+
+            // filter_key → definition 매핑
+            const defMap = {};
+            definitions.forEach(d => { defMap[d.filter_key] = d; });
+
+            activeBasicFilters = {};
+            Object.entries(activeSettings).forEach(([key, val]) => {
+                const def = defMap[key];
+                activeBasicFilters[key] = {
+                    ...val,
+                    filter_name: def?.filter_name || key,
+                    filter_type: def?.filter_type || 'range',
+                    display_order: def?.display_order || 999
+                };
+            });
+
+            // 커스텀분석 필터 (매번 새로 로드)
+            activeCustomFilters = await window.filterService.getCustomAnalysisFilters();
+
+            renderBasicFilters();
+            renderCustomFilters();
+            updateLcdStatus();
+        }
+
+        // ============================================================
+        // 필터 카드 렌더링
+        // ============================================================
+
+        function renderBasicFilters() {
+            const container = document.getElementById('basicFilterList');
+            const badge = document.getElementById('basicFilterBadge');
+            const keys = Object.keys(activeBasicFilters);
+
+            if (keys.length === 0) {
+                container.innerHTML = `
                 <div class="col-span-full text-center py-10 text-gray-400">
                     <span class="material-symbols-outlined text-4xl mb-2 block">tune</span>
                     <p class="text-sm font-medium">활성화된 기초 분석 필터가 없습니다.</p>
                     <p class="text-xs mt-1">각 분석 페이지에서 필터를 설정하고 활성화해주세요.</p>
                 </div>`;
-            badge.textContent = '0개 활성';
-            return;
-        }
+                badge.textContent = '0개 활성';
+                return;
+            }
 
-        // display_order 순으로 정렬
-        const sortedKeys = keys.sort((a, b) =>
-            (activeBasicFilters[a].display_order || 999) - (activeBasicFilters[b].display_order || 999)
-        );
+            // display_order 순으로 정렬
+            const sortedKeys = keys.sort((a, b) =>
+                (activeBasicFilters[a].display_order || 999) - (activeBasicFilters[b].display_order || 999)
+            );
 
-        const isSkip = (key) => SKIP_FILTER_KEYS.has(key);
+            const isSkip = (key) => SKIP_FILTER_KEYS.has(key);
 
-        container.innerHTML = sortedKeys.map(key => {
-            const f = activeBasicFilters[key];
-            const disabled = tempDisabledBasic.has(key);
-            const skip = isSkip(key);
-            const pageUrl = FILTER_PAGE_MAP[key] || '#';
-            const settingText = formatSettingText(f.settings, f.filter_type);
+            container.innerHTML = sortedKeys.map(key => {
+                const f = activeBasicFilters[key];
+                const disabled = tempDisabledBasic.has(key);
+                const skip = isSkip(key);
+                const pageUrl = FILTER_PAGE_MAP[key] || '#';
+                const settingText = formatSettingText(f.settings, f.filter_type);
 
-            return `
+                return `
             <div class="filter-card ${disabled ? 'disabled-card' : ''} ${skip ? 'skip-card' : ''}" id="bcard-${key}">
                 <div class="flex items-start justify-between gap-2">
                     <a href="${pageUrl}" class="flex-1 min-w-0">
@@ -511,18 +560,18 @@
                     </div>
                 </div>
             </div>`;
-        }).join('');
+            }).join('');
 
-        const activeCount = sortedKeys.filter(k => !tempDisabledBasic.has(k)).length;
-        badge.textContent = `${activeCount}개 활성`;
-    }
+            const activeCount = sortedKeys.filter(k => !tempDisabledBasic.has(k)).length;
+            badge.textContent = `${activeCount}개 활성`;
+        }
 
-    function renderCustomFilters() {
-        const container = document.getElementById('customFilterList');
-        const badge = document.getElementById('customFilterBadge');
+        function renderCustomFilters() {
+            const container = document.getElementById('customFilterList');
+            const badge = document.getElementById('customFilterBadge');
 
-        if (activeCustomFilters.length === 0) {
-            container.innerHTML = `
+            if (activeCustomFilters.length === 0) {
+                container.innerHTML = `
                 <div class="col-span-full text-center py-10 text-gray-400">
                     <span class="material-symbols-outlined text-4xl mb-2 block">auto_awesome</span>
                     <p class="text-sm font-medium">활성화된 커스텀분석 필터가 없습니다.</p>
@@ -531,17 +580,17 @@
                         페이지에서 필터 토글을 켜주세요.
                     </p>
                 </div>`;
-            badge.textContent = '0개 활성';
-            return;
-        }
+                badge.textContent = '0개 활성';
+                return;
+            }
 
-        container.innerHTML = activeCustomFilters.map(f => {
-            const disabled = tempDisabledCustom.has(f.id);
-            const { min, max } = f.filter_config;
-            const preview = (f.target_numbers || []).slice(0, 5).join(', ');
-            const more = (f.target_numbers || []).length > 5 ? ` 외 ${f.target_numbers.length - 5}개` : '';
+            container.innerHTML = activeCustomFilters.map(f => {
+                const disabled = tempDisabledCustom.has(f.id);
+                const { min, max } = f.filter_config;
+                const preview = (f.target_numbers || []).slice(0, 5).join(', ');
+                const more = (f.target_numbers || []).length > 5 ? ` 외 ${f.target_numbers.length - 5}개` : '';
 
-            return `
+                return `
             <div class="filter-card ${disabled ? 'disabled-card' : ''}" id="ccard-${f.id}">
                 <div class="flex items-start justify-between gap-2">
                     <a href="custom_analysis.html?id=${f.id}" class="flex-1 min-w-0">
@@ -560,218 +609,218 @@
                     </label>
                 </div>
             </div>`;
-        }).join('');
+            }).join('');
 
-        const activeCount = activeCustomFilters.filter(f => !tempDisabledCustom.has(f.id)).length;
-        badge.textContent = `${activeCount}개 활성`;
-    }
-
-    function formatSettingText(settings, filterType) {
-        if (!settings) return '설정 없음';
-        if (settings.min !== undefined && settings.max !== undefined) {
-            let text = `${settings.min} ~ ${settings.max}`;
-            if (settings.excluded?.length > 0) text += ` (제외 ${settings.excluded.length}개)`;
-            return text;
+            const activeCount = activeCustomFilters.filter(f => !tempDisabledCustom.has(f.id)).length;
+            badge.textContent = `${activeCount}개 활성`;
         }
-        if (settings.selectedRatios?.length > 0) return settings.selectedRatios.join(', ');
-        if (settings.selectedCounts?.length > 0) return settings.selectedCounts.join(', ') + '개';
-        if (settings.activeCounts?.length > 0) return settings.activeCounts.join(', ') + '개';
-        if (settings.activeFilters?.length > 0) return settings.activeFilters.join(', ') + '개';
-        if (settings.filters) return '다중 범위 설정';
-        if (settings.ranges) return '다중 범위 설정';
-        if (settings.groups) return '그룹별 설정';
-        return 'ON';
-    }
 
-    // ============================================================
-    // 임시 토글
-    // ============================================================
-
-    function toggleBasicFilter(key, checked) {
-        if (checked) tempDisabledBasic.delete(key);
-        else tempDisabledBasic.add(key);
-        updateLcdStatus();
-        // 배지 업데이트
-        const activeCount = Object.keys(activeBasicFilters).filter(k => !tempDisabledBasic.has(k)).length;
-        document.getElementById('basicFilterBadge').textContent = `${activeCount}개 활성`;
-    }
-
-    function toggleCustomFilter(id, checked) {
-        if (checked) tempDisabledCustom.delete(id);
-        else tempDisabledCustom.add(id);
-        updateLcdStatus();
-        const activeCount = activeCustomFilters.filter(f => !tempDisabledCustom.has(f.id)).length;
-        document.getElementById('customFilterBadge').textContent = `${activeCount}개 활성`;
-    }
-
-    function updateLcdStatus() {
-        const basicCount = Object.keys(activeBasicFilters).filter(k => !tempDisabledBasic.has(k) && !SKIP_FILTER_KEYS.has(k)).length;
-        const customCount = activeCustomFilters.filter(f => !tempDisabledCustom.has(f.id)).length;
-        const total = basicCount + customCount;
-        document.getElementById('activeFilterCount').textContent = `적용 필터: ${total}개`;
-    }
-
-    // ============================================================
-    // LCD 숫자 표시
-    // ============================================================
-
-    function setLcdNumber(num) {
-        const el = document.getElementById('lcdNumber');
-        if (num === null || num === undefined) {
-            el.textContent = '--------';
-            return;
-        }
-        el.textContent = num.toLocaleString('ko-KR');
-    }
-
-    function setLcdStatus(text) {
-        document.getElementById('lcdStatus').textContent = text;
-    }
-
-    // ============================================================
-    // 조합 생성
-    // ============================================================
-
-    function startGeneration() {
-        if (isGenerating) return;
-
-        // 적용할 필터 수집
-        const effectiveBasic = {};
-        Object.entries(activeBasicFilters).forEach(([key, val]) => {
-            if (!tempDisabledBasic.has(key) && !SKIP_FILTER_KEYS.has(key)) {
-                effectiveBasic[key] = val;
+        function formatSettingText(settings, filterType) {
+            if (!settings) return '설정 없음';
+            if (settings.min !== undefined && settings.max !== undefined) {
+                let text = `${settings.min} ~ ${settings.max}`;
+                if (settings.excluded?.length > 0) text += ` (제외 ${settings.excluded.length}개)`;
+                return text;
             }
-        });
-        const effectiveCustom = activeCustomFilters.filter(f => !tempDisabledCustom.has(f.id));
-
-        const totalFilters = Object.keys(effectiveBasic).length + effectiveCustom.length;
-        if (totalFilters === 0) {
-            alert('적용할 필터가 없습니다. 필터를 설정하고 활성화해주세요.');
-            return;
+            if (settings.selectedRatios?.length > 0) return settings.selectedRatios.join(', ');
+            if (settings.selectedCounts?.length > 0) return settings.selectedCounts.join(', ') + '개';
+            if (settings.activeCounts?.length > 0) return settings.activeCounts.join(', ') + '개';
+            if (settings.activeFilters?.length > 0) return settings.activeFilters.join(', ') + '개';
+            if (settings.filters) return '다중 범위 설정';
+            if (settings.ranges) return '다중 범위 설정';
+            if (settings.groups) return '그룹별 설정';
+            return 'ON';
         }
 
-        isGenerating = true;
-        stopRequested = false;
-        allResults = [];
-        displayedCount = 0;
+        // ============================================================
+        // 임시 토글
+        // ============================================================
 
-        // UI 상태
-        document.getElementById('generateBtn').disabled = true;
-        document.getElementById('generateBtn').classList.add('opacity-50');
-        document.getElementById('stopBtn').classList.remove('hidden');
-        document.getElementById('progressContainer').classList.remove('hidden');
-        document.getElementById('progressIdle').classList.add('hidden');
-        document.getElementById('resultSection').classList.add('hidden');
-        document.getElementById('resultList').innerHTML = '';
+        function toggleBasicFilter(key, checked) {
+            if (checked) tempDisabledBasic.delete(key);
+            else tempDisabledBasic.add(key);
+            updateLcdStatus();
+            // 배지 업데이트
+            const activeCount = Object.keys(activeBasicFilters).filter(k => !tempDisabledBasic.has(k)).length;
+            document.getElementById('basicFilterBadge').textContent = `${activeCount}개 활성`;
+        }
 
-        setLcdNumber(0);
-        setLcdStatus('생성 중...');
+        function toggleCustomFilter(id, checked) {
+            if (checked) tempDisabledCustom.delete(id);
+            else tempDisabledCustom.add(id);
+            updateLcdStatus();
+            const activeCount = activeCustomFilters.filter(f => !tempDisabledCustom.has(f.id)).length;
+            document.getElementById('customFilterBadge').textContent = `${activeCount}개 활성`;
+        }
 
-        const TOTAL = 8145060;
-        let processed = 0;
-        let found = 0;
+        function updateLcdStatus() {
+            const basicCount = Object.keys(activeBasicFilters).filter(k => !tempDisabledBasic.has(k) && !SKIP_FILTER_KEYS.has(k)).length;
+            const customCount = activeCustomFilters.filter(f => !tempDisabledCustom.has(f.id)).length;
+            const total = basicCount + customCount;
+            document.getElementById('activeFilterCount').textContent = `적용 필터: ${total}개`;
+        }
 
-        // 청크 방식 생성
-        let n1 = 1;
+        // ============================================================
+        // LCD 숫자 표시
+        // ============================================================
 
-        function processChunk() {
-            if (stopRequested) {
-                finishGeneration(found, true);
+        function setLcdNumber(num) {
+            const el = document.getElementById('lcdNumber');
+            if (num === null || num === undefined) {
+                el.textContent = '--------';
+                return;
+            }
+            el.textContent = num.toLocaleString('ko-KR');
+        }
+
+        function setLcdStatus(text) {
+            document.getElementById('lcdStatus').textContent = text;
+        }
+
+        // ============================================================
+        // 조합 생성
+        // ============================================================
+
+        function startGeneration() {
+            if (isGenerating) return;
+
+            // 적용할 필터 수집
+            const effectiveBasic = {};
+            Object.entries(activeBasicFilters).forEach(([key, val]) => {
+                if (!tempDisabledBasic.has(key) && !SKIP_FILTER_KEYS.has(key)) {
+                    effectiveBasic[key] = val;
+                }
+            });
+            const effectiveCustom = activeCustomFilters.filter(f => !tempDisabledCustom.has(f.id));
+
+            const totalFilters = Object.keys(effectiveBasic).length + effectiveCustom.length;
+            if (totalFilters === 0) {
+                alert('적용할 필터가 없습니다. 필터를 설정하고 활성화해주세요.');
                 return;
             }
 
-            const CHUNK = 15000;
-            let count = 0;
+            isGenerating = true;
+            stopRequested = false;
+            allResults = [];
+            displayedCount = 0;
 
-            outer:
-            for (; n1 <= 40; n1++) {
-                for (let n2 = n1 + 1; n2 <= 41; n2++) {
-                    for (let n3 = n2 + 1; n3 <= 42; n3++) {
-                        for (let n4 = n3 + 1; n4 <= 43; n4++) {
-                            for (let n5 = n4 + 1; n5 <= 44; n5++) {
-                                for (let n6 = n5 + 1; n6 <= 45; n6++) {
-                                    processed++;
-                                    count++;
+            // UI 상태
+            document.getElementById('generateBtn').disabled = true;
+            document.getElementById('generateBtn').classList.add('opacity-50');
+            document.getElementById('stopBtn').classList.remove('hidden');
+            document.getElementById('progressContainer').classList.remove('hidden');
+            document.getElementById('progressIdle').classList.add('hidden');
+            document.getElementById('resultSection').classList.add('hidden');
+            document.getElementById('resultList').innerHTML = '';
 
-                                    const combo = [n1, n2, n3, n4, n5, n6];
+            setLcdNumber(0);
+            setLcdStatus('생성 중...');
 
-                                    if (checkCombo(combo, effectiveBasic, effectiveCustom)) {
-                                        found++;
-                                        allResults.push(combo);
-                                        setLcdNumber(found);
-                                    }
+            const TOTAL = 8145060;
+            let processed = 0;
+            let found = 0;
 
-                                    if (count >= CHUNK) {
-                                        // 진행률 업데이트
-                                        const pct = Math.round((processed / TOTAL) * 100);
-                                        document.getElementById('progressBar').style.width = pct + '%';
-                                        document.getElementById('progressPercent').textContent = pct + '%';
-                                        document.getElementById('progressLabel').textContent =
-                                            `탐색 중... (${processed.toLocaleString()} / ${TOTAL.toLocaleString()})`;
+            // 청크 방식 생성
+            let n1 = 1;
 
-                                        // 다음 n6부터 재개 (n6를 다음 루프에서 자동으로 증가)
-                                        // 현재 n1~n5 저장 필요 - 클로저로 처리
-                                        n1 = n1; // 이미 outer로 break 안 함
-                                        setTimeout(processChunk, 0);
-                                        return;
+            function processChunk() {
+                if (stopRequested) {
+                    finishGeneration(found, true);
+                    return;
+                }
+
+                const CHUNK = 15000;
+                let count = 0;
+
+                outer:
+                for (; n1 <= 40; n1++) {
+                    for (let n2 = n1 + 1; n2 <= 41; n2++) {
+                        for (let n3 = n2 + 1; n3 <= 42; n3++) {
+                            for (let n4 = n3 + 1; n4 <= 43; n4++) {
+                                for (let n5 = n4 + 1; n5 <= 44; n5++) {
+                                    for (let n6 = n5 + 1; n6 <= 45; n6++) {
+                                        processed++;
+                                        count++;
+
+                                        const combo = [n1, n2, n3, n4, n5, n6];
+
+                                        if (checkCombo(combo, effectiveBasic, effectiveCustom)) {
+                                            found++;
+                                            allResults.push(combo);
+                                            setLcdNumber(found);
+                                        }
+
+                                        if (count >= CHUNK) {
+                                            // 진행률 업데이트
+                                            const pct = Math.round((processed / TOTAL) * 100);
+                                            document.getElementById('progressBar').style.width = pct + '%';
+                                            document.getElementById('progressPercent').textContent = pct + '%';
+                                            document.getElementById('progressLabel').textContent =
+                                                `탐색 중... (${processed.toLocaleString()} / ${TOTAL.toLocaleString()})`;
+
+                                            // 다음 n6부터 재개 (n6를 다음 루프에서 자동으로 증가)
+                                            // 현재 n1~n5 저장 필요 - 클로저로 처리
+                                            n1 = n1; // 이미 outer로 break 안 함
+                                            setTimeout(processChunk, 0);
+                                            return;
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                 }
+
+                finishGeneration(found, false);
             }
 
-            finishGeneration(found, false);
+            setTimeout(processChunk, 0);
         }
 
-        setTimeout(processChunk, 0);
-    }
+        function stopGeneration() {
+            stopRequested = true;
+            setLcdStatus('중단됨');
+        }
 
-    function stopGeneration() {
-        stopRequested = true;
-        setLcdStatus('중단됨');
-    }
+        function finishGeneration(found, stopped) {
+            isGenerating = false;
+            document.getElementById('generateBtn').disabled = false;
+            document.getElementById('generateBtn').classList.remove('opacity-50');
+            document.getElementById('stopBtn').classList.add('hidden');
+            document.getElementById('progressContainer').classList.add('hidden');
+            document.getElementById('progressIdle').classList.remove('hidden');
 
-    function finishGeneration(found, stopped) {
-        isGenerating = false;
-        document.getElementById('generateBtn').disabled = false;
-        document.getElementById('generateBtn').classList.remove('opacity-50');
-        document.getElementById('stopBtn').classList.add('hidden');
-        document.getElementById('progressContainer').classList.add('hidden');
-        document.getElementById('progressIdle').classList.remove('hidden');
+            document.getElementById('progressBar').style.width = '0%';
 
-        document.getElementById('progressBar').style.width = '0%';
+            setLcdNumber(found);
+            setLcdStatus(stopped ? '중단됨' : '완료');
 
-        setLcdNumber(found);
-        setLcdStatus(stopped ? '중단됨' : '완료');
-
-        if (found > 0) {
-            document.getElementById('resultSection').classList.remove('hidden');
-            document.getElementById('resultCount').textContent = `총 ${found.toLocaleString()}개`;
-            renderResults(0, PAGE_SIZE);
-        } else {
-            document.getElementById('resultSection').classList.remove('hidden');
-            document.getElementById('resultList').innerHTML = `
+            if (found > 0) {
+                document.getElementById('resultSection').classList.remove('hidden');
+                document.getElementById('resultCount').textContent = `총 ${found.toLocaleString()}개`;
+                renderResults(0, PAGE_SIZE);
+            } else {
+                document.getElementById('resultSection').classList.remove('hidden');
+                document.getElementById('resultList').innerHTML = `
                 <div class="text-center py-10 text-gray-400">
                     <span class="material-symbols-outlined text-4xl mb-2 block">search_off</span>
                     <p class="text-sm font-medium">조건을 만족하는 조합이 없습니다.</p>
                     <p class="text-xs mt-1">필터 조건을 완화해보세요.</p>
                 </div>`;
-            document.getElementById('resultCount').textContent = '0개';
+                document.getElementById('resultCount').textContent = '0개';
+            }
         }
-    }
 
-    function renderResults(from, count) {
-        const list = document.getElementById('resultList');
-        const end = Math.min(from + count, allResults.length);
+        function renderResults(from, count) {
+            const list = document.getElementById('resultList');
+            const end = Math.min(from + count, allResults.length);
 
-        for (let i = from; i < end; i++) {
-            const combo = allResults[i];
-            const meta = calcMeta(combo);
-            const card = document.createElement('div');
-            card.className = 'result-card';
-            card.innerHTML = `
+            for (let i = from; i < end; i++) {
+                const combo = allResults[i];
+                const meta = calcMeta(combo);
+                const card = document.createElement('div');
+                card.className = 'result-card';
+                card.innerHTML = `
                 <span class="text-xs font-bold text-gray-400 w-8 flex-shrink-0">#${i + 1}</span>
                 <div class="flex items-center gap-1 flex-1">
                     ${combo.map(n => `<span class="ball ${getBallClass(n)}">${n}</span>`).join('')}
@@ -781,222 +830,222 @@
                     <span title="홀:짝">${meta.odd}:${6 - meta.odd}</span>
                     <span title="AC값">AC <b class="text-gray-800">${meta.ac}</b></span>
                 </div>`;
-            list.appendChild(card);
+                list.appendChild(card);
+            }
+
+            displayedCount = end;
+            document.getElementById('displayCount').textContent = `${end.toLocaleString()} / ${allResults.length.toLocaleString()}`;
+
+            if (end < allResults.length) {
+                document.getElementById('loadMoreBtn').classList.remove('hidden');
+            } else {
+                document.getElementById('loadMoreBtn').classList.add('hidden');
+            }
         }
 
-        displayedCount = end;
-        document.getElementById('displayCount').textContent = `${end.toLocaleString()} / ${allResults.length.toLocaleString()}`;
-
-        if (end < allResults.length) {
-            document.getElementById('loadMoreBtn').classList.remove('hidden');
-        } else {
-            document.getElementById('loadMoreBtn').classList.add('hidden');
+        function loadMoreResults() {
+            renderResults(displayedCount, PAGE_SIZE);
         }
-    }
 
-    function loadMoreResults() {
-        renderResults(displayedCount, PAGE_SIZE);
-    }
+        // ============================================================
+        // 조합 검증
+        // ============================================================
 
-    // ============================================================
-    // 조합 검증
-    // ============================================================
-
-    function checkCombo(combo, basicFilters, customFilters) {
-        // 기초 분석 필터 검증
-        for (const [key, f] of Object.entries(basicFilters)) {
-            if (!checkBasicFilter(key, combo, f.settings)) return false;
+        function checkCombo(combo, basicFilters, customFilters) {
+            // 기초 분석 필터 검증
+            for (const [key, f] of Object.entries(basicFilters)) {
+                if (!checkBasicFilter(key, combo, f.settings)) return false;
+            }
+            // 커스텀분석 필터 검증
+            if (window.filterService) {
+                const result = window.filterService.validateCombinationWithCustomFilters(combo, customFilters);
+                if (!result.valid) return false;
+            }
+            return true;
         }
-        // 커스텀분석 필터 검증
-        if (window.filterService) {
-            const result = window.filterService.validateCombinationWithCustomFilters(combo, customFilters);
-            if (!result.valid) return false;
-        }
-        return true;
-    }
 
-    function checkBasicFilter(key, combo, s) {
-        if (!s) return true;
-        try {
-            switch (key) {
-                case 'ac_value': {
-                    const ac = calcAC(combo);
-                    return ac >= s.min && ac <= s.max;
-                }
-                case 'total_sum_patterns': {
-                    const sum = combo.reduce((a, b) => a + b, 0);
-                    if (sum < (s.min ?? 21) || sum > (s.max ?? 255)) return false;
-                    if (s.excluded?.length > 0 && s.excluded.includes(sum)) return false;
-                    return true;
-                }
-                case 'tail_sum_patterns': {
-                    const ts = combo.reduce((a, b) => a + (b % 10), 0);
-                    if (ts < (s.min ?? 0) || ts > (s.max ?? 45)) return false;
-                    if (s.excluded?.length > 0 && s.excluded.includes(ts)) return false;
-                    return true;
-                }
-                case 'odd_even_patterns': {
-                    const odd = combo.filter(n => n % 2 !== 0).length;
-                    const ratio = `${odd}:${6 - odd}`;
-                    return s.selectedRatios?.includes(ratio) ?? true;
-                }
-                case 'low_high_ratio': {
-                    const low = combo.filter(n => n <= 22).length;
-                    const ratio = `${low}:${6 - low}`;
-                    return s.selectedRatios?.includes(ratio) ?? true;
-                }
-                case 'prime_number_patterns': {
-                    const cnt = combo.filter(n => PRIMES.has(n)).length;
-                    if (s.activeCounts?.length > 0 && !s.activeCounts.includes(cnt)) return false;
-                    if (s.excludedPrimes?.length > 0 && combo.some(n => s.excludedPrimes.includes(n))) return false;
-                    return true;
-                }
-                case 'composite_count': {
-                    const cnt = combo.filter(n => COMPOSITES.has(n)).length;
-                    if (s.activeFilters?.length > 0 && !s.activeFilters.includes(cnt)) return false;
-                    if (s.excludedComposites?.length > 0 && combo.some(n => s.excludedComposites.includes(n))) return false;
-                    return true;
-                }
-                case 'square_number_patterns': {
-                    const cnt = combo.filter(n => SQUARES.has(n)).length;
-                    if (s.activeCounts?.length > 0 && !s.activeCounts.includes(cnt)) return false;
-                    if (s.excludedNumbers?.length > 0 && combo.some(n => s.excludedNumbers.includes(n))) return false;
-                    return true;
-                }
-                case 'twin_number_patterns': {
-                    const cnt = combo.filter(n => TWINS.has(n)).length;
-                    if (s.activeFilters?.length > 0 && !s.activeFilters.includes(cnt)) return false;
-                    if (s.excludedTwins?.length > 0 && combo.some(n => s.excludedTwins.includes(n))) return false;
-                    return true;
-                }
-                case 'consecutive_count': {
-                    let cnt = 0;
-                    for (let i = 0; i < combo.length - 1; i++) {
-                        if (combo[i + 1] - combo[i] === 1) cnt++;
+        function checkBasicFilter(key, combo, s) {
+            if (!s) return true;
+            try {
+                switch (key) {
+                    case 'ac_value': {
+                        const ac = calcAC(combo);
+                        return ac >= s.min && ac <= s.max;
                     }
-                    if (s.selectedCounts?.length > 0 && !s.selectedCounts.includes(cnt)) return false;
-                    // runFilters 체크 (3연속 이상)
-                    if (s.runFilters) {
-                        if (s.runFilters.run3 === false) {
-                            // 3연속 있으면 제외
-                            for (let i = 0; i < combo.length - 2; i++) {
-                                if (combo[i+1]-combo[i]===1 && combo[i+2]-combo[i+1]===1) return false;
+                    case 'total_sum_patterns': {
+                        const sum = combo.reduce((a, b) => a + b, 0);
+                        if (sum < (s.min ?? 21) || sum > (s.max ?? 255)) return false;
+                        if (s.excluded?.length > 0 && s.excluded.includes(sum)) return false;
+                        return true;
+                    }
+                    case 'tail_sum_patterns': {
+                        const ts = combo.reduce((a, b) => a + (b % 10), 0);
+                        if (ts < (s.min ?? 0) || ts > (s.max ?? 45)) return false;
+                        if (s.excluded?.length > 0 && s.excluded.includes(ts)) return false;
+                        return true;
+                    }
+                    case 'odd_even_patterns': {
+                        const odd = combo.filter(n => n % 2 !== 0).length;
+                        const ratio = `${odd}:${6 - odd}`;
+                        return s.selectedRatios?.includes(ratio) ?? true;
+                    }
+                    case 'low_high_ratio': {
+                        const low = combo.filter(n => n <= 22).length;
+                        const ratio = `${low}:${6 - low}`;
+                        return s.selectedRatios?.includes(ratio) ?? true;
+                    }
+                    case 'prime_number_patterns': {
+                        const cnt = combo.filter(n => PRIMES.has(n)).length;
+                        if (s.activeCounts?.length > 0 && !s.activeCounts.includes(cnt)) return false;
+                        if (s.excludedPrimes?.length > 0 && combo.some(n => s.excludedPrimes.includes(n))) return false;
+                        return true;
+                    }
+                    case 'composite_count': {
+                        const cnt = combo.filter(n => COMPOSITES.has(n)).length;
+                        if (s.activeFilters?.length > 0 && !s.activeFilters.includes(cnt)) return false;
+                        if (s.excludedComposites?.length > 0 && combo.some(n => s.excludedComposites.includes(n))) return false;
+                        return true;
+                    }
+                    case 'square_number_patterns': {
+                        const cnt = combo.filter(n => SQUARES.has(n)).length;
+                        if (s.activeCounts?.length > 0 && !s.activeCounts.includes(cnt)) return false;
+                        if (s.excludedNumbers?.length > 0 && combo.some(n => s.excludedNumbers.includes(n))) return false;
+                        return true;
+                    }
+                    case 'twin_number_patterns': {
+                        const cnt = combo.filter(n => TWINS.has(n)).length;
+                        if (s.activeFilters?.length > 0 && !s.activeFilters.includes(cnt)) return false;
+                        if (s.excludedTwins?.length > 0 && combo.some(n => s.excludedTwins.includes(n))) return false;
+                        return true;
+                    }
+                    case 'consecutive_count': {
+                        let cnt = 0;
+                        for (let i = 0; i < combo.length - 1; i++) {
+                            if (combo[i + 1] - combo[i] === 1) cnt++;
+                        }
+                        if (s.selectedCounts?.length > 0 && !s.selectedCounts.includes(cnt)) return false;
+                        // runFilters 체크 (3연속 이상)
+                        if (s.runFilters) {
+                            if (s.runFilters.run3 === false) {
+                                // 3연속 있으면 제외
+                                for (let i = 0; i < combo.length - 2; i++) {
+                                    if (combo[i + 1] - combo[i] === 1 && combo[i + 2] - combo[i + 1] === 1) return false;
+                                }
                             }
                         }
+                        return true;
                     }
-                    return true;
-                }
-                case 'multiple_patterns': {
-                    if (!s.filters) return true;
-                    for (const [type, range] of Object.entries(s.filters)) {
-                        const divisor = parseInt(type.replace('multiple', '')) || parseInt(type);
-                        if (!divisor) continue;
-                        const cnt = combo.filter(n => n % divisor === 0).length;
-                        if (cnt < (range.min ?? 0) || cnt > (range.max ?? 6)) return false;
+                    case 'multiple_patterns': {
+                        if (!s.filters) return true;
+                        for (const [type, range] of Object.entries(s.filters)) {
+                            const divisor = parseInt(type.replace('multiple', '')) || parseInt(type);
+                            if (!divisor) continue;
+                            const cnt = combo.filter(n => n % divisor === 0).length;
+                            if (cnt < (range.min ?? 0) || cnt > (range.max ?? 6)) return false;
+                        }
+                        return true;
                     }
-                    return true;
-                }
-                case 'neighbor_number_patterns': {
-                    // 이웃수: 연속하지 않지만 +2 이내 거리
-                    let cnt = 0;
-                    for (let i = 0; i < combo.length - 1; i++) {
-                        if (combo[i+1] - combo[i] === 2) cnt++;
+                    case 'neighbor_number_patterns': {
+                        // 이웃수: 연속하지 않지만 +2 이내 거리
+                        let cnt = 0;
+                        for (let i = 0; i < combo.length - 1; i++) {
+                            if (combo[i + 1] - combo[i] === 2) cnt++;
+                        }
+                        return cnt >= (s.min ?? 0) && cnt <= (s.max ?? 6);
                     }
-                    return cnt >= (s.min ?? 0) && cnt <= (s.max ?? 6);
-                }
-                case 'number_range_patterns': {
-                    if (!s.ranges) return true;
-                    // 구간별 번호 개수
-                    const BANDS = {
-                        band1: [1,9], band2: [10,19], band3: [20,29], band4: [30,39], band5: [40,45]
-                    };
-                    for (const [type, range] of Object.entries(s.ranges)) {
-                        const band = BANDS[type];
-                        if (!band) continue;
-                        const cnt = combo.filter(n => n >= band[0] && n <= band[1]).length;
-                        if (cnt < (range.min ?? 0) || cnt > (range.max ?? 6)) return false;
+                    case 'number_range_patterns': {
+                        if (!s.ranges) return true;
+                        // 구간별 번호 개수
+                        const BANDS = {
+                            band1: [1, 9], band2: [10, 19], band3: [20, 29], band4: [30, 39], band5: [40, 45]
+                        };
+                        for (const [type, range] of Object.entries(s.ranges)) {
+                            const band = BANDS[type];
+                            if (!band) continue;
+                            const cnt = combo.filter(n => n >= band[0] && n <= band[1]).length;
+                            if (cnt < (range.min ?? 0) || cnt > (range.max ?? 6)) return false;
+                        }
+                        return true;
                     }
-                    return true;
-                }
-                case 'tail_digit_patterns': {
-                    if (!s.filters) return true;
-                    for (const [digit, range] of Object.entries(s.filters)) {
-                        const d = parseInt(digit);
-                        const cnt = combo.filter(n => n % 10 === d).length;
-                        if (cnt < (range.min ?? 0) || cnt > (range.max ?? 6)) return false;
+                    case 'tail_digit_patterns': {
+                        if (!s.filters) return true;
+                        for (const [digit, range] of Object.entries(s.filters)) {
+                            const d = parseInt(digit);
+                            const cnt = combo.filter(n => n % 10 === d).length;
+                            if (cnt < (range.min ?? 0) || cnt > (range.max ?? 6)) return false;
+                        }
+                        return true;
                     }
-                    return true;
-                }
-                case 'triangular_number_patterns': {
-                    const cnt = combo.filter(n => TRIANGULARS.has(n)).length;
-                    if (s.activeCounts?.length > 0 && !s.activeCounts.includes(cnt)) return false;
-                    if (s.excludedTriangular?.length > 0 && combo.some(n => s.excludedTriangular.includes(n))) return false;
-                    return true;
-                }
-                case 'magic_square_patterns': {
-                    if (!s.filters) return true;
-                    // 마방진 구역 (3x3: 각 구역 번호 범위)
-                    const ZONES = {
-                        zone1:[1,2,3,4,5], zone2:[6,7,8,9,10], zone3:[11,12,13,14,15],
-                        zone4:[16,17,18,19,20], zone5:[21,22,23,24,25], zone6:[26,27,28,29,30],
-                        zone7:[31,32,33,34,35], zone8:[36,37,38,39,40], zone9:[41,42,43,44,45]
-                    };
-                    for (const [type, range] of Object.entries(s.filters)) {
-                        const zone = ZONES[type];
-                        if (!zone) continue;
-                        const cnt = combo.filter(n => zone.includes(n)).length;
-                        if (cnt < (range.min ?? 0) || cnt > (range.max ?? 6)) return false;
+                    case 'triangular_number_patterns': {
+                        const cnt = combo.filter(n => TRIANGULARS.has(n)).length;
+                        if (s.activeCounts?.length > 0 && !s.activeCounts.includes(cnt)) return false;
+                        if (s.excludedTriangular?.length > 0 && combo.some(n => s.excludedTriangular.includes(n))) return false;
+                        return true;
                     }
-                    return true;
-                }
-                case 'lotto_paper_patterns': {
-                    if (!s.groups) return true;
-                    // 로또 용지 행별 (1~9, 10~18, 19~27, 28~36, 37~45)
-                    const ROWS = {
-                        row1:[1,9], row2:[10,18], row3:[19,27], row4:[28,36], row5:[37,45]
-                    };
-                    for (const [type, range] of Object.entries(s.groups)) {
-                        const row = ROWS[type];
-                        if (!row) continue;
-                        const cnt = combo.filter(n => n >= row[0] && n <= row[1]).length;
-                        if (cnt < (range.min ?? 0) || cnt > (range.max ?? 6)) return false;
+                    case 'magic_square_pattern': {
+                        if (!s.filters) return true;
+                        // 마방진 구역 (5개씩 끊음: 1궁, 2궁, ..., 9궁)
+                        const GUNGS = {
+                            '1궁': [1, 2, 3, 4, 5], '2궁': [6, 7, 8, 9, 10], '3궁': [11, 12, 13, 14, 15],
+                            '4궁': [16, 17, 18, 19, 20], '5궁': [21, 22, 23, 24, 25], '6궁': [26, 27, 28, 29, 30],
+                            '7궁': [31, 32, 33, 34, 35], '8궁': [36, 37, 38, 39, 40], '9궁': [41, 42, 43, 44, 45]
+                        };
+                        for (const [type, range] of Object.entries(s.filters)) {
+                            const nums = GUNGS[type];
+                            if (!nums) continue;
+                            const cnt = combo.filter(n => nums.includes(n)).length;
+                            if (cnt < (range.min ?? 0) || cnt > (range.max ?? 6)) return false;
+                        }
+                        return true;
                     }
-                    return true;
+                    case 'lotto_paper_patterns': {
+                        if (!s.groups) return true;
+                        // 로또 용지 행별 (1~9, 10~18, 19~27, 28~36, 37~45)
+                        const ROWS = {
+                            row1: [1, 9], row2: [10, 18], row3: [19, 27], row4: [28, 36], row5: [37, 45]
+                        };
+                        for (const [type, range] of Object.entries(s.groups)) {
+                            const row = ROWS[type];
+                            if (!row) continue;
+                            const cnt = combo.filter(n => n >= row[0] && n <= row[1]).length;
+                            if (cnt < (range.min ?? 0) || cnt > (range.max ?? 6)) return false;
+                        }
+                        return true;
+                    }
+                    default:
+                        return true;
                 }
-                default:
-                    return true;
+            } catch (e) {
+                return true; // 오류 시 통과
             }
-        } catch(e) {
-            return true; // 오류 시 통과
         }
-    }
 
-    // ============================================================
-    // 계산 유틸
-    // ============================================================
+        // ============================================================
+        // 계산 유틸
+        // ============================================================
 
-    function calcAC(combo) {
-        const diffs = new Set();
-        for (let i = 0; i < combo.length; i++)
-            for (let j = i + 1; j < combo.length; j++)
-                diffs.add(Math.abs(combo[i] - combo[j]));
-        return diffs.size - (combo.length - 1);
-    }
+        function calcAC(combo) {
+            const diffs = new Set();
+            for (let i = 0; i < combo.length; i++)
+                for (let j = i + 1; j < combo.length; j++)
+                    diffs.add(Math.abs(combo[i] - combo[j]));
+            return diffs.size - (combo.length - 1);
+        }
 
-    function calcMeta(combo) {
-        const sum = combo.reduce((a, b) => a + b, 0);
-        const odd = combo.filter(n => n % 2 !== 0).length;
-        const ac = calcAC(combo);
-        return { sum, odd, ac };
-    }
+        function calcMeta(combo) {
+            const sum = combo.reduce((a, b) => a + b, 0);
+            const odd = combo.filter(n => n % 2 !== 0).length;
+            const ac = calcAC(combo);
+            return { sum, odd, ac };
+        }
 
-    function getBallClass(n) {
-        if (n <= 9)  return 'ball-1-9';
-        if (n <= 19) return 'ball-10-19';
-        if (n <= 29) return 'ball-20-29';
-        if (n <= 39) return 'ball-30-39';
-        return 'ball-40-45';
-    }
+        function getBallClass(n) {
+            if (n <= 9) return 'ball-1-9';
+            if (n <= 19) return 'ball-10-19';
+            if (n <= 29) return 'ball-20-29';
+            if (n <= 39) return 'ball-30-39';
+            return 'ball-40-45';
+        }
     </script>
 </body>
 

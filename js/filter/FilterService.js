@@ -799,30 +799,55 @@ if (window.Utils) {
     const originalSaveFilter = window.Utils.saveFilter;
     const originalLoadFilter = window.Utils.loadFilter;
 
-    window.Utils.saveFilter = async function (pageKey, filterData, enabledArg) {
-        // [수정] 3개 인자 호출 방식 지원: (key, data, enabled) 또는 (key, {enabled, ...data})
-        // missing.html, neighbor_number.html 등은 3번째 인자로 enabled를 별도로 전달함
-        let settings = filterData || {};
-        let enabled;
-        if (enabledArg !== undefined) {
-            // 3개 인자 방식: saveFilter('missing_period', data, true)
-            enabled = enabledArg;
-        } else {
-            // 2개 인자 방식: saveFilter('missing_period', { enabled, ...settings })
-            const { enabled: _e, ...rest } = filterData || {};
-            enabled = _e;
-            settings = rest;
+    window.Utils.saveFilter = async function (pageKey, settings, enabled = true, extra = {}) {
+        if (!settings) return;
+        // [수정] 3개 인자 호출 방식 지원: (key, data, enabled) 또는 (key, {enabled, ...data, settings})
+        // 기존 filterData, enabledArg 처리 로직은 새로운 시그니처에 맞춰 제거됨.
+        // 이제 settings, enabled, extra가 직접 전달됨.
+
+        // 1. [표준화] 매핑 테이블
+        const keyMap = {
+            'high_low_pattern': 'low_high_filter',
+            'odd_even_pattern': 'odd_even_filter',
+            'composite_count': 'composite_filter',
+            'prime_number_patterns': 'prime_filter',
+            'triangular_number_patterns': 'triangular_filter',
+            'neighbor_number_patterns': 'neighbor_number_filter',
+            'multiple_3_count': 'multiple_filter',
+            'ac_value': 'ac_value_filter',
+            'regression_patterns': 'regression_analysis',
+            'regression_analysis': 'regression_patterns'
+        };
+
+        const standardKey = keyMap[pageKey];
+        // [중요] 대시보드 state 구조와 동일하게 nested 형태로 저장 ({settings, enabled})
+        const envelope = {
+            settings: settings,
+            enabled: enabled,
+            _ts: Date.now(),
+            ...extra
+        };
+        const jsonStr = JSON.stringify(envelope);
+
+        // 2. DB 저장 시도
+        if (window.filterService?.initialized) {
+            await window.filterService.saveSetting(pageKey, settings, enabled, extra);
         }
 
-        // DB 저장 시도
-        if (window.filterService?.initialized) {
-            await window.filterService.saveSetting(pageKey, settings, enabled !== false);
-        }
-        // [핵심] localStorage에도 항상 기록 → 다른 탭의 storage 이벤트 트리거
+        // 3. [저장 & 브로드캐스트] localStorage 기록 및 이벤트 트리거
         try {
-            localStorage.setItem(pageKey, JSON.stringify({ ...settings, enabled, _ts: Date.now() }));
+            const keysToSync = new Set([pageKey, pageKey + '_filter', standardKey, 'lotto_period_filters'].filter(Boolean));
+            keysToSync.forEach(k => {
+                localStorage.setItem(k, jsonStr);
+                window.dispatchEvent(new StorageEvent('storage', {
+                    key: k,
+                    newValue: jsonStr,
+                    storageArea: localStorage
+                }));
+            });
+            console.log(`[FilterService] Broadcasted (${pageKey}):`, Array.from(keysToSync));
         } catch (e) {
-            // localStorage 용량 초과 등 예외는 무시
+            console.error('필터 로컬 저장 실패:', e);
         }
     };
 

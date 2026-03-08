@@ -1465,22 +1465,25 @@ function showAIFeedback(message) {
     // setTimeout(() => container.classList.add('opacity-0'), 4000);
 }
 
-// [Refactored] AI 분석 리포트 갱신 - 실제 데이터 기반 분석
+// [Refactored] AI 분석 리포트 갱신 - ac_value.html과 동일한 AIAnalysis.executeAnalysis 패턴
 window.refreshAIAnalysis = async function () {
     const section = document.getElementById('aiAnalysisSection');
     const content = document.getElementById('aiAnalysisContent');
     if (!section || !content) return;
 
     section.classList.remove('hidden');
-    content.innerHTML = `
-        <div class="flex flex-col items-center justify-center gap-4 py-8 min-h-[250px] bg-slate-50/50 rounded-2xl border border-dashed border-indigo-200">
-            <div class="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
-            <div class="text-center">
-                <span class="block text-indigo-600 font-bold text-sm tracking-wide animate-pulse mb-1.5">AI 분석 에이전트가 데이터를 검토하고 있습니다...</span>
-                <span class="block text-slate-400 text-[11px]">최초 실행 시 분석 서버 준비(Cold Start)로 인해 약 45초 가량 소요될 수 있습니다.</span>
-            </div>
-        </div>
-    `;
+
+    const subjectRound = allDrawData[0]?.round || 0;
+    const targetRound = subjectRound + 1;
+    const analysisId = currentAnalysis?.id || 'default';
+
+    // ── sessionStorage 캐싱: 같은 회차+분석 결과는 재사용 ──
+    const cacheKey = `custom_insight_${targetRound}_${analysisId}`;
+    const cached = sessionStorage.getItem(cacheKey);
+    if (cached) {
+        content.innerHTML = cached;
+        return;
+    }
 
     try {
         const stats = calculateStats(currentAnalysis, allDrawData);
@@ -1548,84 +1551,51 @@ window.refreshAIAnalysis = async function () {
             typeContext = `고정번호 분석: [${targetNumbers.join(', ')}]`;
         }
 
-        // ── 7. 최종 프롬프트 조립 (데이터 중심) ──
-        const prompt = `[분석 대상]
+        // ── 7. contextData 조립 (ac_value 방식) ──
+        const contextData = `## 분석 대상
 제목: ${currentAnalysis.title || '커스텀 분석'}
 유형: ${currentAnalysis.type}
 ${typeContext}
 다음회차 타겟번호: [${targetNumbers.join(', ')}] (총 ${targetNumbers.length}개)
 
-[핵심 통계]
-- 현재 미출현(Gap): ${stats.currentGap}회 연속
-- 현재 연속출현(Straight): ${stats.currentStraight}회
-- 역대 최장 미출현: ${stats.maxGap}회
-- 역대 최장 연속출현: ${stats.maxStraight}회
-- 한 회차 최다 적중: ${stats.maxHits}개
-- 전체 적중률: ${stats.hitRate.toFixed(1)}% (${historyRows.length}회 중 ${historyRows.filter(r => r.isHit).length}회 적중)
-- 평균 적중 개수: ${stats.avgHits.toFixed(2)}개
+## 핵심 통계
+현재Gap: ${stats.currentGap}회 | 현재Straight: ${stats.currentStraight}회
+최장Gap: ${stats.maxGap}회 | 최장Straight: ${stats.maxStraight}회
+최다적중: ${stats.maxHits}개 | 적중률: ${stats.hitRate.toFixed(1)}% (${historyRows.filter(r => r.isHit).length}/${historyRows.length}회)
+평균적중: ${stats.avgHits.toFixed(2)}개
 
-[적중 분포]
+## 적중 분포
 ${hitDistText}
 
-[GAP 패턴]
+## GAP 패턴
 ${gapText}
 
-[최근 30회차 상세 히스토리]
+## 최근 30회차 히스토리
 ${hitHistory}
 
-[최근 20회 실제 당첨번호]
-${recent20}
-`;
+## 최근 20회 실제 당첨번호
+${recent20}`;
 
-        let response;
-        if (window.AIProxy) {
-            try {
-                response = await window.AIProxy.invoke({
-                    prompt: prompt,
-                    analysisType: 'custom',
-                    topic: '커스텀 분석',
-                    targetRound: (allDrawData[0]?.round || 0) + 1,
-                    subjectRound: allDrawData[0]?.round || 0,
-                    responseStyle: 'json',
-                    historyData: historyRows.slice(0, 20).map(r => ({
-                        round: r.round, targets: r.targets, matched: r.matched,
-                        hitCount: r.hitCount, gap: r.gap, straight: r.straight
-                    }))
-                });
-            } catch (proxyErr) {
-                console.warn('AIProxy failed, falling back to Edge Function:', proxyErr);
-                const result = await window.supabaseClient.functions.invoke('analyze-lotto', { body: { context: prompt } });
-                if (result.error) throw result.error;
-                const data = result.data;
-                response = typeof data === 'string' ? JSON.parse(data) : data;
-            }
+        const analysisConfig = {
+            containerId: 'aiAnalysisContent',
+            subjectRound: subjectRound,
+            targetRound: targetRound,
+            userPrompt: "커스텀 분석 패턴 평가 및 다음 회차 전략 요약",
+            contextData: contextData,
+            analysisType: 'custom',
+            topic: currentAnalysis.title || '커스텀 분석'
+        };
+
+        if (window.AIAnalysis && window.AIAnalysis.executeAnalysis) {
+            await window.AIAnalysis.executeAnalysis(analysisConfig);
         } else {
-            const result = await window.supabaseClient.functions.invoke('analyze-lotto', { body: { context: prompt } });
-            if (result.error) throw result.error;
-            const data = result.data;
-            response = typeof data === 'string' ? JSON.parse(data) : data;
+            content.innerHTML = `<div class="p-4 bg-yellow-50 rounded-xl border border-yellow-100"><p class="text-yellow-700 text-sm">AI 분석 모듈을 불러오는 중입니다. 잠시 후 다시 시도해주세요.</p></div>`;
+            return;
         }
 
-        if (response) {
-            content.innerHTML = `
-                <div class="animate-in fade-in slide-in-from-top-1 duration-500">
-                    <p class="mb-6 text-slate-700 leading-relaxed text-lg font-medium">${formatAIResponse(response.trend || "데이터 분석 완료")}</p>
-                    <div class="flex flex-col gap-6 text-base">
-                        <div class="p-5 bg-indigo-50 rounded-2xl border border-indigo-100 shadow-sm">
-                            <span class="font-black text-indigo-700 block mb-2 text-lg">✨ AI 패턴 통찰</span>
-                            <div class="leading-relaxed text-slate-700">
-                                ${formatAIResponse(response.pattern || "-")}
-                            </div>
-                        </div>
-                        <div class="p-5 bg-emerald-50 rounded-2xl border border-emerald-100 shadow-sm">
-                            <span class="font-black text-emerald-700 block mb-2 text-lg">🚀 데이터 기반 추천 전략</span>
-                            <div class="leading-relaxed text-slate-700">
-                                ${formatAIResponse(response.recommendation || "-")}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
+        // AI 실행 후 결과를 sessionStorage에 캐싱
+        if (content && content.innerHTML && !content.innerHTML.includes('animate-spin')) {
+            try { sessionStorage.setItem(cacheKey, content.innerHTML); } catch (e) { }
         }
     } catch (err) {
         console.error("AI 분석 실패:", err);
