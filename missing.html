@@ -2096,6 +2096,12 @@
                         if (useRangeFilter) renderDrawsList();
                     });
                 }
+                if (e.key === 'missing_custom_filter') {
+                    console.log('🔄 커스텀 미출현 필터 변경 감지 - UI 갱신');
+                    loadSavedFilters().then(() => {
+                        if (useCustomFilter) renderDrawsList();
+                    });
+                }
             });
 
             // [New] NLP Initialize
@@ -2109,7 +2115,29 @@
                     }
                 });
             }
+
+            // [추가] 새 회차 감합 시 자동 필터 적용
+            checkAndResetOnNewDraw();
         });
+
+        // [추가] 새 회차 감합 시 자동 필터 갱신 로직
+        function checkAndResetOnNewDraw() {
+            if (!allData || allData.length === 0) return;
+            const latestRound = allData[0].round;
+            const lastProcessed = localStorage.getItem('missing_last_processed_round');
+
+            // 신규 회차 감지 시
+            if (!lastProcessed || parseInt(lastProcessed) < latestRound) {
+                console.log(`✨ 신규 회차 감지: ${latestRound}회 - 최근 10회차 필터 자동 적용`);
+
+                // 최근 10회차 필터 적용 함수 호출
+                applyRecent10Filters();
+
+                localStorage.setItem('missing_last_processed_round', latestRound.toString());
+                saveFilters(); // 필터 상태 저장
+                saveFilterSettings(); // 기준 필터 설정 저장
+            }
+        }
     </script>
     <!-- AI Q&A Sidebar (Floating Right) -->
     <div id="aiQnaModal"

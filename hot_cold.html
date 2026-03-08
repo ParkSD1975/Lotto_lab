@@ -907,6 +907,9 @@
                 updateDisplayRange(displayLimit);
                 renderFilterZones();
 
+                // [추가] 새 회차 감지 시 자동 필터 갱신
+                await checkAndResetOnNewDraw();
+
                 document.getElementById('loadingOverlay').style.display = 'none';
 
                 // AI 분석 실행
@@ -917,6 +920,31 @@
                 document.getElementById('loadingOverlay').innerHTML = `<p class="text-red-500 font-bold">데이터 로드 실패: ${err.message}</p>`;
             }
         });
+
+        // [추가] 새 회차 감지 및 필터 자동 갱신
+        async function checkAndResetOnNewDraw() {
+            if (!allData || allData.length === 0) return;
+            const latestRound = allData[0].round;
+            const lastProcessed = localStorage.getItem('hot_cold_last_processed_round');
+
+            // 신규 회차 감지 시
+            if (!lastProcessed || parseInt(lastProcessed) < latestRound) {
+                console.log(`✨ 신규 회차 감지: ${latestRound}회 - 모든 기준 회차 필터 자동 재계산`);
+
+                // 모든 기준 회차(5, 10, 15, 20)에 대해 필터 자동 계산 및 저장
+                const periods = [5, 10, 15, 20];
+                for (const p of periods) {
+                    calculateAndSetMinMax(p);
+                }
+
+                localStorage.setItem('hot_cold_last_processed_round', latestRound.toString());
+
+                // 변경 사항 즉시 반영을 위해 업데이트 호출
+                updateAnalysis();
+                renderCountTable();
+                renderFilterZones();
+            }
+        }
 
         // [New] GNB 바스켓 실시간 동기화 (같은 탭 내 바스켓 변경 감지)
         window.addEventListener('basketChanged', (e) => {

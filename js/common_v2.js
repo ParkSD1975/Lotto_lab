@@ -1230,19 +1230,17 @@ Format: JSON
             const modal = document.getElementById('expertMemoModal');
             const roundInput = document.getElementById('memoTargetRound');
 
-            // 타겟 회차 자동 세팅: DeepLearning.state.targetRound -> 최신회차+1 -> 빈값
-            if (!roundInput.value) {
-                if (window.DeepLearning && window.DeepLearning.state && window.DeepLearning.state.targetRound) {
-                    roundInput.value = window.DeepLearning.state.targetRound;
-                } else if (window.supabaseClient) {
-                    try {
-                        const { data } = await window.supabaseClient.from('lotto_draws').select('round').order('round', { ascending: false }).limit(1);
-                        if (data && data.length > 0) {
-                            roundInput.value = data[0].round + 1;
-                        }
-                    } catch (e) {
-                        console.error("최신 회차 조회 실패:", e);
+            // 타겟 회차 자동 세팅: 모달 열 때 항상 최신회차+1로 갱신 (사용자가 과거 회차를 보다가 닫았어도 다시 열면 최신 회차 포커스)
+            if (window.DeepLearning && window.DeepLearning.state && window.DeepLearning.state.targetRound) {
+                roundInput.value = window.DeepLearning.state.targetRound;
+            } else if (window.supabaseClient) {
+                try {
+                    const { data } = await window.supabaseClient.from('lotto_draws').select('round').order('round', { ascending: false }).limit(1);
+                    if (data && data.length > 0) {
+                        roundInput.value = data[0].round + 1;
                     }
+                } catch (e) {
+                    console.error("최신 회차 조회 실패:", e);
                 }
             }
 

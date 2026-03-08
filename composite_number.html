@@ -245,7 +245,7 @@
             console.log('최근 10회차 합성수 필터 적용 완료');
         }
 
-        async function autoApplyFilterOnSaturdayUpdate() {
+        async function checkAndResetOnNewDraw() {
             if (!allDrawData || allDrawData.length === 0) return;
 
             const latestRound = allDrawData[0].round;
@@ -254,9 +254,6 @@
 
             // 새 회차 감지
             if (latestRound !== savedRound) {
-                const today = new Date();
-                const isNewRoundDay = (today.getDay() === 6); // 토요일
-
                 localStorage.setItem(storageKey, String(latestRound));
 
                 // [NEW] 수동 제외수 초기화 (새 회차 갱신 시점)
@@ -279,13 +276,11 @@
                     await saveFilterSettings();
                 }
 
-                // 토요일이거나 저장된 회차가 없을 때(최초 실행) 자동 적용
-                if (isNewRoundDay || savedRound === 0) {
-                    console.log(`🎯 [자동 필터] 새 회차 감지: ${latestRound}회 → 최근 10회차 필터 자동 적용`);
-                    const btn = document.getElementById('recent10FilterBtn');
-                    if (btn && !btn.classList.contains('from-purple-500')) {
-                        applyRecent10Filters();
-                    }
+                // 새 회차가 감지되었을 때(또는 최초 실행 시) 최근 10회차 필터를 자동 적용
+                console.log(`🎯 [자동 필터] 새 회차 감지: ${latestRound}회 → 최근 10회차 필터 자동 적용`);
+                const btn = document.getElementById('recent10FilterBtn');
+                if (btn && !btn.classList.contains('from-purple-500')) {
+                    applyRecent10Filters();
                 }
             }
         }
@@ -770,8 +765,8 @@
     <script>
         document.addEventListener('DOMContentLoaded', async () => {
             await fetchLottoData();
-            // 🔥 토요일 새 회차 자동 최근 10회차 필터 적용
-            await autoApplyFilterOnSaturdayUpdate();
+            // 🔥 새 회차 업데이트 감지 후 필터 자동 적용
+            await checkAndResetOnNewDraw();
         });
 
         // 🔥 대시보드(filter.html) 혹은 다른 페이지에서의 설정을 실시간 동기화

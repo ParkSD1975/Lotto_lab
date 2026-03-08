@@ -2048,6 +2048,22 @@ ${contextData}
             }
         });
 
+        // 🆕 토요일 새 회차 감지 시 필터 자동 리셋
+        function checkAndResetOnNewDraw() {
+            if (!allDrawData || allDrawData.length === 0) return;
+            const latestRound = allDrawData[0].round;
+            const lastKnownRound = parseInt(localStorage.getItem('tail_sum_last_round') || '0');
+
+            if (latestRound > lastKnownRound) {
+                localStorage.setItem('tail_sum_last_round', latestRound);
+                if (lastKnownRound > 0) {
+                    console.log(`🆕 새 회차 감지: ${latestRound}회 → 최근 10회차 필터 자동 갱신`);
+                }
+                // 최근 10회차 기준으로 필터 자동 설정
+                applyRecent10Filters();
+            }
+        }
+
         /**
          * 끝수합 분석을 위한 핵심 데이터 산출 공통함수
          */

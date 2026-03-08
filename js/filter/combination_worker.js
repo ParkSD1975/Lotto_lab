@@ -496,16 +496,27 @@ function checkFilters(a, b, c, d, e, f, F) {
         const eMin = parseFloat(F.entropyRange.min);
         const eMax = parseFloat(F.entropyRange.max);
         if (!isNaN(eMin) || !isNaN(eMax)) {
-            // Shannon entropy of digit distribution (끝수 분포 기준)
-            const td = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-            td[a % 10]++; td[b % 10]++; td[c % 10]++; td[d % 10]++; td[e % 10]++; td[f % 10]++;
+            // Shannon entropy of number ranges (번호대 분포 기준)
+            let c1 = 0, c2 = 0, c3 = 0, c4 = 0, c5 = 0;
+            const cnt = (n) => {
+                if (n <= 10) c1++;
+                else if (n <= 20) c2++;
+                else if (n <= 30) c3++;
+                else if (n <= 40) c4++;
+                else c5++;
+            };
+            cnt(a); cnt(b); cnt(c); cnt(d); cnt(e); cnt(f);
+
+            const ranges = [c1, c2, c3, c4, c5];
             let ent = 0;
-            for (let i = 0; i < 10; i++) {
-                if (td[i] > 0) {
-                    const p = td[i] / 6;
+            for (let i = 0; i < 5; i++) {
+                if (ranges[i] > 0) {
+                    const p = ranges[i] / 6;
                     ent -= p * Math.log2(p);
                 }
             }
+            ent = Math.round(ent * 100) / 100;
+
             if (!isNaN(eMin) && ent < eMin) return false;
             if (!isNaN(eMax) && ent > eMax) return false;
         }
@@ -820,14 +831,31 @@ function checkFiltersGetStage(a, b, c, d, e, f, F) {
         const r45 = F.numRanges['41_45']; if (r45 && r45.min !== undefined && (c5 < r45.min || c5 > r45.max)) return '번호대 41~45';
     }
     if (F.entropyRange) {
-        const eMin = parseFloat(F.entropyRange.min), eMax = parseFloat(F.entropyRange.max);
+        const eMin = parseFloat(F.entropyRange.min);
+        const eMax = parseFloat(F.entropyRange.max);
         if (!isNaN(eMin) || !isNaN(eMax)) {
-            const td = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-            td[a % 10]++; td[b % 10]++; td[c % 10]++; td[d % 10]++; td[e % 10]++; td[f % 10]++;
+            let c1 = 0, c2 = 0, c3 = 0, c4 = 0, c5 = 0;
+            const cnt = (n) => {
+                if (n <= 10) c1++;
+                else if (n <= 20) c2++;
+                else if (n <= 30) c3++;
+                else if (n <= 40) c4++;
+                else c5++;
+            };
+            cnt(a); cnt(b); cnt(c); cnt(d); cnt(e); cnt(f);
+
+            const ranges = [c1, c2, c3, c4, c5];
             let ent = 0;
-            for (let i = 0; i < 10; i++) { if (td[i] > 0) { const p = td[i] / 6; ent -= p * Math.log2(p); } }
-            if (!isNaN(eMin) && ent < eMin) return '엔트로피';
-            if (!isNaN(eMax) && ent > eMax) return '엔트로피';
+            for (let i = 0; i < 5; i++) {
+                if (ranges[i] > 0) {
+                    const p = ranges[i] / 6;
+                    ent -= p * Math.log2(p);
+                }
+            }
+            ent = Math.round(ent * 100) / 100;
+
+            if (!isNaN(eMin) && ent < eMin) return '엔트로피_최소';
+            if (!isNaN(eMax) && ent > eMax) return '엔트로피_최대';
         }
     }
     if (F.palaceRanges) {

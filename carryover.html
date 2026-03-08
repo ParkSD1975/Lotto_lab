@@ -63,7 +63,7 @@
                 await window.filterService.saveSetting('carryover_count', data, enabled);
             } else if (window.Utils && window.Utils.saveFilter) {
                 // Fallback: localStorage
-                window.Utils.saveFilter('carryover_filter', { ...data, enabled });
+                window.Utils.saveFilter('carryover_count', { ...data, enabled });
             }
         }
 
@@ -81,7 +81,7 @@
 
             // Fallback: localStorage
             if (!saved && window.Utils && window.Utils.loadFilter) {
-                saved = window.Utils.loadFilter('carryover_filter');
+                saved = window.Utils.loadFilter('carryover_count');
             }
 
             if (saved) {
@@ -1102,6 +1102,29 @@
         }
 
         // 🔹 [New] AI 분석 전용 로직 (단일 단락 응답 강제)
+
+        // 🆕 신규 회차 데이터 감지 시 필터 자동 리셋
+        function checkAndResetOnNewDraw() {
+            if (!allDrawData || allDrawData.length === 0) return;
+            const latestRound = allDrawData[0].round;
+            const lastProcessedRound = parseInt(localStorage.getItem('carryover_last_round') || '0');
+
+            if (latestRound > lastProcessedRound) {
+                console.log(`🆕 신규 회차 감지 (${lastProcessedRound} -> ${latestRound}): 최근 10회차 필터 자동 적용`);
+
+                // 최근 10회차 필터 강제 적용
+                const btn = document.getElementById('recent10FilterBtn');
+                if (btn && btn.classList.contains('from-purple-500')) {
+                    // 이미 적용된 상태라면 해제 후 재적용
+                    btn.classList.remove('from-purple-500', 'to-purple-700');
+                    btn.classList.add('from-blue-500', 'to-indigo-600');
+                }
+                applyRecent10Filters();
+
+                // 마지막 처리 회차 업데이트
+                localStorage.setItem('carryover_last_round', latestRound.toString());
+            }
+        }
 
         async function submitCustomAIAnalysis() {
             const inputEl = document.getElementById('aiUserPrompt');

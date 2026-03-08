@@ -423,6 +423,8 @@ class FilterService {
             'consecutive_filter': 'consecutive_count',
             'hot_cold_filter': 'hot_cold_10',
             'missing_filter': 'long_term_miss',
+            'missing_period': 'long_term_miss', // [추가] 분석 페이지 키 추가
+            'missGroupFilters': 'missing_custom_filter', // [추가] 커스텀 미출현 그룹 마이그레이션
             'multiple_filter': 'multiple_3_count',  // 배수는 별도 처리 필요
             'neighbor_filter': 'neighbor_count',
             'number_range_filter': 'number_range_patterns', // Changed from zone_3_pattern

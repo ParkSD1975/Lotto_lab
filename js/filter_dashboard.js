@@ -1210,6 +1210,30 @@ window.FilterDashboard = {
             <div class="mt-2 text-center">
                 <a href="missing.html" class="text-xs font-black text-indigo-500 hover:underline">미출현 페이지에서 편집 →</a>
             </div>`;
+        } else if (key === 'magic_square_pattern') {
+            const filters = vals.filters || {};
+            html += `<div class="grid grid-cols-2 gap-2 text-[10px]">`;
+            for (let i = 1; i <= 9; i++) {
+                const gung = `${i}궁`;
+                const f = filters[gung] || { min: 0, max: 6 };
+                html += `
+                    <div class="flex items-center justify-between p-1.5 bg-slate-50 border border-slate-100 rounded-lg gap-1.5">
+                        <span class="font-bold text-slate-600 shrink-0 w-6">${gung}</span>
+                        <div class="flex items-center gap-1 shrink-0">
+                            <input type="number" value="${f.min}" 
+                                class="w-8 h-6 p-1 text-center border border-slate-200 rounded text-[10px]" 
+                                onchange="FilterDashboard.updateGungFilter('${def.id}', '${gung}', 'min', this.value)">
+                            <span class="text-slate-300">~</span>
+                            <input type="number" value="${f.max}" 
+                                class="w-8 h-6 p-1 text-center border border-slate-200 rounded text-[10px]" 
+                                onchange="FilterDashboard.updateGungFilter('${def.id}', '${gung}', 'max', this.value)">
+                        </div>
+                    </div>`;
+            }
+            html += `</div>
+            <div class="mt-2 text-center">
+                <a href="magic_square.html" class="text-xs font-black text-indigo-500 hover:underline">9궁 페이지에서 편집 →</a>
+            </div>`;
 
         } else if (key === 'tail_digit_patterns') {
 
@@ -2171,5 +2195,28 @@ window.FilterDashboard = {
         }
 
         console.log(`✅ [Dashboard] missing_custom_filter 저장: filterId=${filterId}, ${type}=${value}`);
+    },
+
+    async updateGungFilter(defId, gungType, type, value) {
+        const userSet = this.state.userSettings[defId];
+        if (!userSet) return;
+        if (!userSet.settings.filters) userSet.settings.filters = {};
+        if (!userSet.settings.filters[gungType]) userSet.settings.filters[gungType] = { min: 0, max: 6 };
+
+        const val = parseInt(value);
+        if (isNaN(val)) return;
+        userSet.settings.filters[gungType][type] = val;
+
+        if (this._saveTimer) clearTimeout(this._saveTimer);
+        this._saveTimer = setTimeout(async () => {
+            // [핵심] Utils.saveFilter 를 통해 DB + localStorage 동시 저장 → magic_square.html의 storage 이벤트 트리거
+            const def = this.state.foundationFilters.find(d => d.id === defId);
+            if (def) {
+                if (window.Utils && window.Utils.saveFilter) {
+                    await window.Utils.saveFilter(def.filter_key, userSet.settings, userSet.enabled !== false);
+                }
+            }
+            // filter_counter_patch.js의 triggerCount는 'change' 이벤트로 자동 호출됨
+        }, 500);
     }
 };

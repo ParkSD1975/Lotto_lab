@@ -1218,13 +1218,30 @@
             }
         }
 
+        // [추가] 새 회차 감합 시 자동 필터 갱신 로직
+        function checkAndResetOnNewDraw() {
+            if (!allDrawData || allDrawData.length === 0) return;
+            const latestRound = allDrawData[0].round;
+            const lastProcessed = localStorage.getItem('number_range_last_processed_round');
+
+            // 신규 회차 감지 시
+            if (!lastProcessed || parseInt(lastProcessed) < latestRound) {
+                console.log(`✨ 신규 회차 감지: ${latestRound}회 - 최근 10회차 필터 자동 적용`);
+
+                // 최근 10회차 필터 적용 함수 호출
+                applyRecent10Filters();
+
+                localStorage.setItem('number_range_last_processed_round', latestRound.toString());
+                saveFilterSettings(); // 필터 상태 저장
+            }
+        }
+
         function updateRange(value) {
             currentRange = parseInt(value);
             document.getElementById('rangeDisplay').textContent = value + '회';
             updateSliderBackground(currentRange);
             updatePresetButtons(currentRange);
             applyFilter();
-            refreshAIAnalysis();
         }
 
         function setRange(value) {

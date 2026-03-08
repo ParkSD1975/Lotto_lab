@@ -415,7 +415,7 @@
                     <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm" id="filter-page">
                         <div class="flex items-center justify-between mb-6">
                             <h3 class="text-xl font-bold text-gray-900 border-l-4 border-indigo-500 pl-3">조합 필터</h3>
-                            <a href="filter.html?id=neighbor_number_patterns"
+                            <a href="filter.html#filter-neighbor_number_patterns"
                                 class="text-sm font-medium text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
                                 <span class="material-symbols-outlined text-[18px]">tune</span>
                                 필터 페이지 가기
@@ -651,34 +651,47 @@
 
                 updateRange(currentRange);
 
+                // [추가] 새 회차 감합 시 자동 필터 적용
+                checkAndResetOnNewDraw();
+
             } catch (err) {
                 console.error('데이터 로드 실패:', err);
                 document.getElementById('drawsList').innerHTML = `<tr><td colspan="6" class="p-10 text-center text-red-500">데이터 로드 실패<br>${err.message}</td></tr>`;
             }
         });
 
-        // [수정] 대시보드(filter.html) 또는 다른 탭에서 필터를 변경했을 때 실시간 반영
-        window.addEventListener('storage', (e) => {
+        // [추가] 대시보드 연동을 위한 Storage 이벤트 리스너
+        window.addEventListener('storage', async function (e) {
             if (e.key === 'neighbor_number_patterns' || e.key === 'neighbor_filter') {
-                console.log('🔄 이웃수 필터 변경 감지 - UI 갱신');
-                // localStorage에서 직접 읽어 즉시 반영 (DB 재조회 없이)
-                if (e.newValue) {
-                    try {
-                        const newData = JSON.parse(e.newValue);
-                        const minInput = document.getElementById('filterMin');
-                        const maxInput = document.getElementById('filterMax');
-                        const toggle = document.getElementById('applyFilterCheck');
-                        if (minInput && newData.min !== undefined) minInput.value = newData.min;
-                        if (maxInput && newData.max !== undefined) maxInput.value = newData.max;
-                        if (toggle && newData.enabled !== undefined) toggle.checked = newData.enabled;
-                        filterState = { min: newData.min ?? 0, max: newData.max ?? 6 };
-                        applyFilter();
-                        return;
-                    } catch (err) { }
+                const reloaded = await loadFilterSettings();
+                if (reloaded) {
+                    applyFilter();
                 }
-                loadFilterSettings().then(() => applyFilter());
             }
         });
+
+        // [추가] 새 회차 감합 시 자동 필터 갱신 로직
+        function checkAndResetOnNewDraw() {
+            if (!allDrawData || allDrawData.length === 0) return;
+            const latestRound = allDrawData[0].round;
+            const lsKey = 'neighbor_number_last_processed_round';
+            const lastProcessed = localStorage.getItem(lsKey);
+
+            // 신규 회차 감지 시
+            if (!lastProcessed || parseInt(lastProcessed) !== latestRound) {
+                console.log(`✨ 신규 회차 감지: ${latestRound}회 - 최근 10회차 필터 자동 적용`);
+
+                const savedEnabled = localStorage.getItem('neighbor_number_patterns');
+                const hasUserSavedState = savedEnabled !== null; // 사용자가 명시적으로 저장한 상태가 있는지
+
+                if (!hasUserSavedState) {
+                    // 사용자가 저장한 상태가 없으면 기본적으로 10회차 필터 자동 적용
+                    applyRecent10Filters(false); // UI 하이라이트 없이 범위만 적용
+                }
+
+                localStorage.setItem(lsKey, latestRound.toString());
+            }
+        }
 
         function calculateNeighborNumbers(numbers) {
             const neighbors = new Set();
@@ -829,11 +842,11 @@
             draws.forEach((draw, index) => {
                 const tr = document.createElement('tr');
                 // 행 하이라이트 조건
-                const isSelected = highlightStartRound !== null &&
+                const isSelectedHighlight = highlightStartRound !== null &&
                     draw.round <= highlightStartRound &&
                     draw.round > highlightStartRound - 10;
 
-                tr.className = isSelected ? 'row-highlight' : 'border-b border-gray-100 hover:bg-gray-50 cursor-pointer';
+                tr.className = isSelectedHighlight ? 'row-highlight' : 'border-b border-gray-100 hover:bg-gray-50 cursor-pointer';
                 tr.onclick = () => highlightRows(draw.round);
 
                 // 당첨번호 (보너스 포함) 렌더링 로직 (파랑/빨강/핑크)
@@ -919,13 +932,13 @@
 
         let filtersEnabled = false;
         // [표준화] 최근 10회차 필터 자동 적용 (missing.html 기준)
-        function applyRecent10Filters() {
+        function applyRecent10Filters(isUserClick = true) {
             const btn = document.getElementById('recent10FilterBtn');
             const btnText = document.getElementById('recent10BtnText');
             const chk = document.getElementById('applyFilterCheck'); // 메인 체크박스 (ID 확인: applyFilterCheck)
 
             // 토글: 이미 켜져있으면 끄기 (보라색 클래스 존재 여부로 판단)
-            if (btn.classList.contains('from-purple-500')) {
+            if (isUserClick && btn.classList.contains('from-purple-500')) {
                 btn.classList.remove('from-purple-500', 'to-purple-700');
                 btn.classList.add('from-blue-500', 'to-indigo-600');
                 btnText.textContent = '최근 10회차 필터 적용';
@@ -965,15 +978,21 @@
             }
 
             // 3. UI 업데이트 (보라색 토글)
-            btn.classList.remove('from-blue-500', 'to-indigo-600');
-            btn.classList.add('from-purple-500', 'to-purple-700');
-            btnText.textContent = '필터 해제';
+            if (isUserClick) {
+                btn.classList.remove('from-blue-500', 'to-indigo-600');
+                btn.classList.add('from-purple-500', 'to-purple-700');
+                btnText.textContent = '필터 해제';
+            }
 
             // 메인 필터 체크박스 자동 활성화
             if (chk) chk.checked = true;
 
             // 4. 하이라이트 및 리스트 갱신
-            highlightStartRound = allDrawData[0].round;
+            if (isUserClick) {
+                highlightStartRound = allDrawData[0].round;
+            } else {
+                highlightStartRound = null;
+            }
             applyFilter();
 
             console.log('최근 10회차 이웃수 필터 적용 완료');

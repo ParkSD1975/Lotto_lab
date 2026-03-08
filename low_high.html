@@ -540,32 +540,21 @@
         let rangeDebounceTimer = null;
 
         // [New] 신규 회차 당첨번호 업데이트 시 자동 필터 및 초기화 로직
-        // 토요일 당첨번호 발표 후 첫 접속 시 "최근 10회차" 자동 적용
-        // 월요일 또는 토요일 이후 첫 접속 시 수동 제외 내역 초기화 (새 분석 시작)
         async function checkAndResetOnNewDraw() {
             if (!allDrawData || allDrawData.length === 0) return;
             const latestRound = allDrawData[0].round;
-            const lastProcessed = localStorage.getItem('low_high_last_processed_round');
+            const storageKey = 'low_high_lastKnownRound';
+            const savedRound = parseInt(localStorage.getItem(storageKey) || '0');
 
-            const now = new Date();
-            const day = now.getDay(); // 0:일, 1:월, ..., 6:토
-            const hour = now.getHours();
+            // 신규 회차 감지 시 필터 자동 적용
+            if (latestRound !== savedRound) {
+                console.log(`✨ 신규 회차 감지: ${latestRound}회 - 최근 10회차 필터 자동 적용`);
+                localStorage.setItem(storageKey, String(latestRound));
 
-            // 신규 회차 감지 (토요일 20:45 이후 데이터 업데이트 시)
-            if (!lastProcessed || parseInt(lastProcessed) < latestRound) {
-                // 토요일 밤~일요일 사이면 "최근 10회차" 자동 활성화
-                if ((day === 6 && hour >= 20) || day === 0) {
-                    console.log('✨ 신규 회차 감지: 최근 10회차 필터 자동 적용');
-                    applyRecent10Filters(true); // 수동 제외 초기화 포함
-                } else if (day === 1) {
-                    // 월요일이면 수동 제외 내역 초기화 (새로운 주 시작)
-                    console.log('📅 월요일 감지: 제외 내역 초기화');
-                    excludedHighLows = [];
-                    restoredAutoHighLows = [];
-                    saveFilterSettings();
-                }
-                localStorage.setItem('low_high_last_processed_round', latestRound.toString());
-                saveFilterSettings();
+                // 새 회차가 감지되면 수동 제외 초기화 포함하여 필터 적용
+                applyRecent10Filters(true);
+
+                await saveFilterSettings();
             }
         }
 

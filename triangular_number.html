@@ -691,7 +691,7 @@
             applyFilter();
         }
 
-        // 🆕 토요일 새 회차 감지 시 필터 자동 리셋
+        // 🆕 신규 회차 데이터 감지 시 필터 자동 리셋
         async function checkAndResetOnNewDraw() {
             if (!allDrawData || allDrawData.length === 0) return;
             const latestRound = allDrawData[0].round;

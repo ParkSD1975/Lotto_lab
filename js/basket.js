@@ -50,7 +50,8 @@
                 // 병합 (로컬 데이터와 DB 데이터 비교하여 합집합 또는 DB 우선 선택 - 여기선 DB 우선)
                 const merged = {
                     fixed: [...new Set([...newFixed])].sort((a, b) => a - b),
-                    exclude: [...new Set([...newExclude])].sort((a, b) => a - b)
+                    exclude: [...new Set([...newExclude])].sort((a, b) => a - b),
+                    current_round: current.current_round
                 };
 
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
@@ -323,21 +324,25 @@
 
         // FilterService가 나중에 초기화될 수 있으므로 대기 후 동기화 및 새 회차 검사 시도
         setTimeout(async () => {
-            await checkAndClearIfNewRound();
+            // Wait for filterService initialization first
+            if (!window.filterService?.initialized) {
+                await new Promise(resolve => {
+                    let retry = 0;
+                    const timer = setInterval(() => {
+                        if (window.filterService?.initialized || ++retry > 20) {
+                            clearInterval(timer);
+                            resolve();
+                        }
+                    }, 500);
+                });
+            }
 
             if (window.filterService?.initialized) {
                 await syncFromDB();
-            } else {
-                // filterService가 아직 안 켜졌다면 초기화 완료 이벤트를 기다리거나 반복 확인
-                let retry = 0;
-                const timer = setInterval(async () => {
-                    if (window.filterService?.initialized) {
-                        clearInterval(timer);
-                        await syncFromDB();
-                    }
-                    if (++retry > 20) clearInterval(timer);
-                }, 500);
             }
+
+            // Sync from DB first, THEN check and clear if new round
+            await checkAndClearIfNewRound();
         }, 1000);
     });
 

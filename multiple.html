@@ -96,20 +96,26 @@
         }
 
         // [수정] 필터 설정 불러오기 함수 (DB 로드)
-        async function loadFilterSettings() {
-            let saved = null;
+        async function loadFilterSettings(passedData = null) {
+            // [추가] FilterService가 아직 초기화되지 않았다면 대기
+            if (!passedData && window.initFilterService && (!window.filterService || !window.filterService.initialized)) {
+                await window.initFilterService();
+            }
 
-            // DB에서 로드 (FilterService 사용)
-            if (window.filterService && window.filterService.initialized) {
+            let saved = passedData;
+
+            // 1. 전달된 데이터가 없으면 DB에서 로드 (FilterService 사용)
+            if (!saved && window.filterService && window.filterService.initialized) {
                 const data = await window.filterService.loadSetting('multiple_3_count');
                 if (data) {
                     saved = { ...data.settings, enabled: data.enabled };
                 }
             }
 
-            // Fallback: localStorage
+            // 2. Fallback: localStorage (ID 일관성을 위해 'multiple_3_count' 우선 조회)
             if (!saved && window.Utils && window.Utils.loadFilter) {
-                saved = window.Utils.loadFilter('multiple_filter');
+                // [Fix] loadFilter는 async이므로 await 필요, 키도 배수 표준키 사용
+                saved = await window.Utils.loadFilter('multiple_3_count') || await window.Utils.loadFilter('multiple_filter');
             }
 
             if (saved) {
@@ -120,11 +126,17 @@
                         if (minInput && maxInput && saved.filters[type]) {
                             minInput.value = saved.filters[type].min;
                             maxInput.value = saved.filters[type].max;
+                            // internal state 업데이트
+                            if (window.filterState) window.filterState[type] = {
+                                min: parseInt(minInput.value),
+                                max: parseInt(maxInput.value)
+                            };
                         }
                     });
                 }
                 if (saved.enabled !== undefined) {
-                    document.getElementById('applyFilterCheck').checked = saved.enabled;
+                    const toggle = document.getElementById('applyFilterCheck');
+                    if (toggle) toggle.checked = saved.enabled;
                 }
                 return true;
             }
@@ -488,10 +500,13 @@
                         </div>
                     </div>
 
-                    <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm" id="filter-page">
+                    <!-- [New] NLP Input Section -->
+                    <div id="nlp-main-input-container" class="mb-6"></div>
+
+                    <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm" id="filter-multiple_3_count">
                         <div class="flex items-center justify-between mb-6">
                             <h3 class="text-xl font-bold text-gray-900">조합 필터</h3>
-                            <a href="filter.html"
+                            <a href="filter.html#filter-multiple_3_count"
                                 class="text-sm font-medium text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
                                 <span class="material-symbols-outlined text-[18px]">tune</span>
                                 필터 페이지 가기
@@ -607,18 +622,77 @@
                 await loadFilterSettings(); // [수정됨] 저장된 필터 불러오기 (비동기)
                 initStatCards();
 
-                // [추가] 필터 적용 기본 활성화 (updateRange 이전에 수행하여 첫 로드 시 반영)
-                const applyCheck = document.getElementById('applyFilterCheck');
-                if (applyCheck) applyCheck.checked = true;
-
+                // [수정] 필터 적용 상태는 loadFilterSettings에서 로드된 값을 따름
+                // (기존의 강제 true 설정을 제거하여 저장된 상태 유지)
                 updateRange(currentRange);
 
                 // [추가] 토요일인 경우 최근 10회차 필터 자동 적용
-                const today = new Date();
-                if (today.getDay() === 6) { // 6은 토요일
-                    console.log('📅 오늘은 토요일입니다. 자동 필터를 적용합니다.');
+                // [수정] 토요일 여부와 상관없이 새로운 회차가 업데이트되었을 때만 자동 필터 적용
+                const lastSeenRound = localStorage.getItem('last_seen_round_multiple');
+                const currentRound = allDrawData[0].round;
+
+                if (lastSeenRound !== String(currentRound)) {
+                    console.log(`🆕 새로운 회차(${currentRound}회) 감지 - 최근 10회차 필터를 자동 적용합니다.`);
                     applyRecent10Filters();
+                    localStorage.setItem('last_seen_round_multiple', currentRound);
                 }
+
+                // [추가] 대시보드나 다른 탭에서 필터 변경 시 실시간 반영
+                window.addEventListener('storage', async (e) => {
+                    if (e.key === 'multiple_3_count' || e.key === 'multiple_filter') {
+                        console.log('🔄 배수 필터 변경 감지 - UI 갱신');
+                        let newData = null;
+                        try {
+                            if (e.newValue) newData = JSON.parse(e.newValue);
+                        } catch (err) {
+                            console.warn('Failed to parse storage data:', err);
+                        }
+
+                        // loadFilterSettings를 호출하여 UI와 내부 상태(filterState)를 모두 동기화
+                        await loadFilterSettings(newData);
+
+                        // [수정] 필터링된 데이터로 리스트 및 통계 재렌더링
+                        const displayData = getFilteredDraws();
+                        renderDrawsList(displayData);
+                        updateStats(displayData);
+                    }
+                });
+
+                // [추가] NLP 모듈 초기화
+                if (window.BasicAnalysisNLP) {
+                    new BasicAnalysisNLP('#nlp-main-input-container', {
+                        onNavigate: (round) => {
+                            const targetIdx = allDrawData.findIndex(d => Number(d.round) === Number(round));
+                            if (targetIdx !== -1) {
+                                // 해당 회차가 리스트 범위를 벗어나면 범위 확장
+                                if (targetIdx >= currentRange) {
+                                    currentRange = Math.min(allDrawData.length, targetIdx + 20);
+                                }
+                                renderDrawsList(allDrawData.slice(0, currentRange));
+
+                                // 해당 위치로 스크롤
+                                setTimeout(() => {
+                                    const el = document.querySelector(`tr[data-round="${round}"]`);
+                                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                }, 100);
+                            }
+                        },
+                        onHighlight: (params) => {
+                            console.log('NLP Highlight requested:', params);
+                            if (params.round) {
+                                highlightRows(params.round);
+                                // 해당 위치로 스크롤
+                                setTimeout(() => {
+                                    const el = document.querySelector(`tr[data-round="${params.round}"]`);
+                                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                }, 100);
+                            }
+                        }
+                    });
+                }
+
+                // [추가] 새 회차 업데이트 감지 후 필터 자동 적용
+                checkAndResetOnNewDraw();
 
             } catch (err) {
                 console.error('데이터 로드 실패:', err);
@@ -775,7 +849,7 @@
             // 디바운스 적용: 0.3초 후 무거운 작업 실행
             if (rangeUpdateTimer) clearTimeout(rangeUpdateTimer);
             rangeUpdateTimer = setTimeout(() => {
-                const displayData = allDrawData.slice(0, currentRange);
+                const displayData = getFilteredDraws(); // [수정] 필터링된 데이터 사용
                 updateStats(displayData);
                 renderDrawsList(displayData);
                 updateCharts(displayData);
@@ -917,8 +991,32 @@
             } else {
                 highlightStartRound = round;
                 isRecentTenFilter = false;
+                // [추가] 하이라이트 시 해당 10회차 범위의 통계를 필터에 자동 적용
+                applyHighlightStats(round);
             }
             applyFilter();
+        }
+
+        // [추가] 하이라이트된 10회차 범위의 통계를 필터 입력창에 적용하는 함수
+        function applyHighlightStats(round) {
+            if (!allDrawData || allDrawData.length === 0) return;
+            const startRound = Number(round);
+            const startIndex = allDrawData.findIndex(d => Number(d.round) === startRound);
+            if (startIndex === -1) return;
+
+            // startIndex부터 과거 방향으로 10개 (데어터가 회차 역순이므로 index 증가 방향이 과거)
+            const range = allDrawData.slice(startIndex, startIndex + 10);
+
+            Object.keys(multipleDefinitions).forEach(type => {
+                const values = range.map(d => d.counts[type]);
+                const min = Math.min(...values);
+                const max = Math.max(...values);
+
+                const minInput = document.getElementById(`min_${type}`);
+                const maxInput = document.getElementById(`max_${type}`);
+                if (minInput) minInput.value = min;
+                if (maxInput) maxInput.value = max;
+            });
         }
 
         // --- 차트 ---
@@ -1066,6 +1164,26 @@
             }
         }
 
+
+        // [추가] 필터링된 데이터 가져오기 (범위 + 배수 조건)
+        function getFilteredDraws() {
+            const isEnabled = document.getElementById('applyFilterCheck').checked;
+            const slicedData = allDrawData.slice(0, currentRange);
+
+            if (!isEnabled) return slicedData;
+
+            // 배수별 Min/Max 조건 적용
+            return slicedData.filter(draw => {
+                for (const type of Object.keys(multipleDefinitions)) {
+                    const min = parseInt(document.getElementById(`min_${type}`)?.value || 0);
+                    const max = parseInt(document.getElementById(`max_${type}`)?.value || 6);
+                    const count = draw.counts[type];
+                    if (count < min || count > max) return false;
+                }
+                return true;
+            });
+        }
+
         function updatePresetButtons(value) {
             const maxVal = allDrawData.length;
             const buttons = { 50: 'preset50', 100: 'preset100', 500: 'preset500', 1203: 'preset1203' };
@@ -1079,10 +1197,11 @@
 
         // [수정] 필터 적용 함수
         function applyFilter() {
-            saveFilterSettings(); // 상태 저장
+            saveFilterSettings(); // DB/Local 저장
 
-            const displayData = allDrawData.slice(0, currentRange);
+            const displayData = getFilteredDraws();
             renderDrawsList(displayData);
+            updateStats(displayData); // 필터링 결과에 따른 통계 갱신
         }
 
         // ==========================================================
@@ -1091,64 +1210,7 @@
         // [New] Global Chat Memory
         let chatHistory = [];
 
-        // [표준화] 최근 10회차 필터 자동 적용 (missing.html 기준)
-        async function applyRecent10Filters() {
-            const btn = document.getElementById('recent10FilterBtn');
-            const btnText = document.getElementById('recent10BtnText');
 
-            // 토글: 이미 켜져있으면 끄기
-            if (btn.classList.contains('from-purple-500')) {
-                btn.classList.remove('from-purple-500', 'to-purple-700');
-                btn.classList.add('from-blue-500', 'to-indigo-600');
-                btnText.textContent = '최근 10회차 필터 적용';
-
-                // 필터 초기화 (기본값)
-                Object.keys(multipleDefinitions).forEach(type => {
-                    const minInput = document.getElementById(`min_${type}`);
-                    const maxInput = document.getElementById(`max_${type}`);
-                    if (minInput) minInput.value = 0;
-                    if (maxInput) maxInput.value = 6;
-                });
-
-                document.getElementById('applyFilterCheck').checked = false;
-                highlightStartRound = null;
-                isRecentTenFilter = false;
-                renderDrawsList(allDrawData.slice(0, currentRange));
-                return;
-            }
-
-            if (!allDrawData || allDrawData.length < 10) return;
-
-            // 1. 최근 10회차 데이터 수집
-            const recent10 = allDrawData.slice(0, 10);
-
-            // 2. 각 배수별 출현 개수 Min/Max 계산
-            Object.keys(multipleDefinitions).forEach(type => {
-                const values = recent10.map(d => d.counts[type]);
-                const min = Math.min(...values);
-                const max = Math.max(...values);
-
-                const minInput = document.getElementById(`min_${type}`);
-                const maxInput = document.getElementById(`max_${type}`);
-                if (minInput) minInput.value = min;
-                if (maxInput) maxInput.value = max;
-            });
-
-            // 3. UI 및 필터 활성화
-            btn.classList.remove('from-blue-500', 'to-indigo-600');
-            btn.classList.add('from-purple-500', 'to-purple-700');
-            btnText.textContent = '필터 해제';
-
-            document.getElementById('applyFilterCheck').checked = true;
-            highlightStartRound = recent10[0].round;
-            isRecentTenFilter = true;
-
-            // 4. 리스트 갱신
-            applyFilter();
-            renderDrawsList(allDrawData.slice(0, currentRange));
-
-            console.log('최근 10회차 배수 필터 적용 완료');
-        }
 
         // [New] 사용자 AI 질문 처리 (사이드바 연동)
         async function submitCustomAIAnalysis() {
@@ -1572,6 +1634,27 @@ ${contextData}
             applyFilter();
 
             console.log('최근 10회차 배수 필터 적용 완료');
+        }
+
+        // [추가] 새 회차 업데이트 감지 후 필터 자동 적용
+        function checkAndResetOnNewDraw() {
+            if (!allDrawData || allDrawData.length === 0) return;
+
+            const latestRound = allDrawData[0].round;
+            const storageKey = 'multiple_lastKnownRound';
+            const savedRound = parseInt(localStorage.getItem(storageKey) || '0');
+
+            if (latestRound !== savedRound) {
+                localStorage.setItem(storageKey, String(latestRound));
+
+                // 새 회차가 감지되었을 때(또는 최초 실행 시) 최근 10회차 필터를 자동 적용
+                console.log(`🎯 [자동 필터] 새 회차 감지: ${latestRound}회 → 최근 10회차 필터 자동 적용`);
+
+                const btn = document.getElementById('recent10FilterBtn');
+                if (btn && !btn.classList.contains('from-purple-500')) {
+                    applyRecent10Filters();
+                }
+            }
         }
     </script>
     <!-- AI QnA Sidebar -->

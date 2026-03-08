@@ -1125,8 +1125,8 @@
                 updateSliderBackground(currentRange);
                 await initializeRecentTenFilter();
 
-                // 🔥 [New] 토요일 새 회차 자동 최근 10회차 필터 적용
-                await autoApplyFilterOnSaturdayUpdate();
+                // 🔥 [New] 새 회차 업데이트 감지 후 필터 자동 적용
+                await checkAndResetOnNewDraw();
                 refreshAIAnalysis();
             } catch (err) {
                 console.error('데이터 로드 실패:', err);
@@ -1146,8 +1146,8 @@
             }
         });
 
-        // [New] 토요일 새 회차 업데이트 감지 후 최근 10회차 필터 자동 적용
-        async function autoApplyFilterOnSaturdayUpdate() {
+        // [New] 새 회차 업데이트 감지 후 최근 10회차 필터 자동 적용
+        async function checkAndResetOnNewDraw() {
             if (!allDrawData || allDrawData.length === 0) return;
 
             const latestRound = allDrawData[0].round;
@@ -1156,10 +1156,6 @@
 
             // 새 회차가 감지된 경우 (저장 값과 다를 때)
             if (latestRound !== savedRound) {
-                // 오늘이 토요일인지 확인 (0=일, 6=토)
-                const today = new Date();
-                const isNewRoundDay = (today.getDay() === 6); // 토요일
-
                 // 새 회차 저장
                 localStorage.setItem(storageKey, String(latestRound));
 
@@ -1179,15 +1175,13 @@
                     await saveFilterSettings();
                 }
 
-                // 토요일이거나 저장된 회차가 없을 때(최초 실행) 필터 자동 적용
-                if (isNewRoundDay || savedRound === 0) {
-                    console.log(`🎯 [자동 필터] 새 회차 감지: ${latestRound}회 → 최근 10회차 필터 자동 적용`);
+                // 새 회차가 감지되었을 때(또는 최초 실행 시) 필터 자동 적용
+                console.log(`🎯 [자동 필터] 새 회차 감지: ${latestRound}회 → 최근 10회차 필터 자동 적용`);
 
-                    // 이미 필터가 켜져있지 않은 경우만 자동 적용
-                    const btn = document.getElementById('recent10FilterBtn');
-                    if (btn && !btn.classList.contains('from-purple-500')) {
-                        applyRecent10Filters();
-                    }
+                // 이미 필터가 켜져있지 않은 경우만 자동 적용
+                const btn = document.getElementById('recent10FilterBtn');
+                if (btn && !btn.classList.contains('from-purple-500')) {
+                    applyRecent10Filters();
                 }
             }
         }

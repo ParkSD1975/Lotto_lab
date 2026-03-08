@@ -330,20 +330,16 @@
 
         // ── 이월수 ────────────────────────────────────────
         const carryoverSet = getSetting('carryover_count');
-        const carryoverBonusSet = getSetting('carryover_with_bonus');   // ← 이전에 무시되던 필터
 
-        if (carryoverSet || carryoverBonusSet) {
+        if (carryoverSet) {
             const prevNums = (S.dynamicTargets && S.dynamicTargets['carryover_count']) || [];
             const prevBonusNums = (S.dynamicTargets && S.dynamicTargets['carryover_bonus_count']) || [];
             filters.carryoverFilter = {
                 // 이월수(보너스 제외): carryover_count 필터 설정
                 selectedCounts: (carryoverSet && carryoverSet.selectedCounts) || [],
                 carryoverNums: prevNums,
-                // 이월수(보너스 포함): carryover_with_bonus 필터의 selectedCounts 우선 사용
-                //   없으면 carryover_count의 selectedBonusIncludedCounts 로 폴백
-                selectedBonusCounts: (carryoverBonusSet && carryoverBonusSet.selectedCounts)
-                    || (carryoverSet && carryoverSet.selectedBonusIncludedCounts)
-                    || [],
+                // 이월수(보너스 포함): carryover_count의 selectedBonusIncludedCounts 사용
+                selectedBonusCounts: (carryoverSet && carryoverSet.selectedBonusIncludedCounts) || [],
                 carryoverBonusNums: prevBonusNums
             };
         }
@@ -416,12 +412,12 @@
         const missingPeriodSet = getSetting('missing_period');
         if (missingPeriodSet && S.allDraws && S.allDraws.length > 0) {
             const ranges = missingPeriodSet.ranges || {};
-            // 그룹 정의 (r1~r4): missing_period.html과 동일 범위 기준
+            // [수정] 그룹 정의 (r1~r4): missing.html의 고정 통계 범위와 일치시킴
             const GROUP_DEFS = [
-                { key: 'r1', minM: parseInt(ranges.r1Min ?? 1), maxM: parseInt(ranges.r1Max ?? 10), settingMinKey: 'r1Min', settingMaxKey: 'r1Max' },
-                { key: 'r2', minM: parseInt(ranges.r2Min ?? 11), maxM: parseInt(ranges.r2Max ?? 20), settingMinKey: 'r2Min', settingMaxKey: 'r2Max' },
-                { key: 'r3', minM: parseInt(ranges.r3Min ?? 21), maxM: parseInt(ranges.r3Max ?? 50), settingMinKey: 'r3Min', settingMaxKey: 'r3Max' },
-                { key: 'r4', minM: parseInt(ranges.r4Min ?? 51), maxM: parseInt(ranges.r4Max ?? 999), settingMinKey: 'r4Min', settingMaxKey: 'r4Max' }
+                { key: 'r1', minM: 1, maxM: 5 },
+                { key: 'r2', minM: 6, maxM: 10 },
+                { key: 'r3', minM: 11, maxM: 15 },
+                { key: 'r4', minM: 16, maxM: 999 }
             ];
 
             // 각 번호의 현재 미출현 횟수 계산
@@ -443,8 +439,10 @@
                     if (missCnt[n] >= gd.minM && missCnt[n] <= gd.maxM) nums.push(n);
                 }
                 if (nums.length === 0) return;
-                const minCount = ranges[`${gd.key}CountMin`] !== undefined ? parseInt(ranges[`${gd.key}CountMin`]) : 0;
-                const maxCount = ranges[`${gd.key}CountMax`] !== undefined ? parseInt(ranges[`${gd.key}CountMax`]) : 6;
+
+                // [수정] r1Min/Max 등은 해당 기간 그룹에 포함된 '번호 개수'의 최소/최대값임
+                const minCount = ranges[`${gd.key}Min`] !== undefined ? parseInt(ranges[`${gd.key}Min`]) : 0;
+                const maxCount = ranges[`${gd.key}Max`] !== undefined ? parseInt(ranges[`${gd.key}Max`]) : 6;
                 mpGroups.push({ nums, min: minCount, max: maxCount });
             });
             if (mpGroups.length > 0) filters.missingPeriodFilter = mpGroups;

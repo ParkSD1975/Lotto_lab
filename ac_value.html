@@ -575,7 +575,8 @@
                         <div
                             class="max-h-[600px] overflow-y-auto custom-scrollbar border border-gray-200 rounded-xl bg-white">
                             <table class="w-full text-sm">
-                                <thead class="sticky top-0 bg-[#1e293b] text-white font-semibold border-b border-[#334155] z-30">
+                                <thead
+                                    class="sticky top-0 bg-[#1e293b] text-white font-semibold border-b border-[#334155] z-30">
                                     <tr class="text-sm font-semibold uppercase">
                                         <th class="py-3 px-4 text-center w-20 sticky left-0 bg-[#1e293b] z-40">회차</th>
                                         <th class="py-3 px-4 text-center w-[270px]">당첨번호</th>
@@ -932,6 +933,34 @@
             window.refreshAIAnalysis = refreshAIAnalysis;
         });
 
+        // 🆕 신규 회차 데이터 감지 시 필터 자동 리셋
+        function checkAndResetOnNewDraw() {
+            if (!allDrawData || allDrawData.length === 0) return;
+            const latestRound = allDrawData[0].round;
+            const lastProcessedRound = parseInt(localStorage.getItem('ac_value_last_round') || '0');
+
+            if (latestRound > lastProcessedRound) {
+                console.log(`🆕 신규 회차 감지 (${lastProcessedRound} -> ${latestRound}): 최근 10회차 필터 자동 적용`);
+
+                // 수동 필터 초기화
+                excludedAcValues = [];
+                restoredAutoAcValues = [];
+                if (typeof renderExcludedAcBadges === 'function') renderExcludedAcBadges();
+
+                // 최근 10회차 필터 강제 적용
+                const btn = document.getElementById('recent10FilterBtn');
+                if (btn && btn.classList.contains('from-purple-500')) {
+                    // 이미 적용된 상태라면 해제 후 재적용 (하이라이트 갱신을 위해)
+                    btn.classList.remove('from-purple-500', 'to-purple-700');
+                    btn.classList.add('from-blue-500', 'to-indigo-600');
+                }
+                applyRecent10Filters();
+
+                // 마지막 처리 회차 업데이트
+                localStorage.setItem('ac_value_last_round', latestRound.toString());
+            }
+        }
+
         // 🔥 [Modified] 사용자 AI 질문 + NLP 처리 통합 함수
         async function submitCustomAIAnalysis(directPrompt) {
             const inputEl = document.getElementById('aiUserPrompt');
@@ -1029,7 +1058,7 @@
                 // 평균 회귀 중심: 이탈도의 50%가 복귀한다고 가정 (보수적)
                 const revertCenter = recent5Avg - (deviation * 0.5);
                 // 예상 구간: 중심 ± 0.5σ (68% 신뢰구간의 절반)
-                const revertLow  = Math.max(0, revertCenter - stdDev * 0.5);
+                const revertLow = Math.max(0, revertCenter - stdDev * 0.5);
                 const revertHigh = Math.min(10, revertCenter + stdDev * 0.5);
                 // 최빈값 (mode)
                 const modeVal = Object.entries(dist).reduce((a, b) => (b[1] > a[1] ? b : a))[0];
@@ -1043,7 +1072,7 @@
 - 평균 이탈도: ${deviation > 0 ? '+' : ''}${deviation.toFixed(2)} (현재 평균 대비 ${deviation > 0 ? '고점' : '저점'} 위치)
 - 평균회귀 예상 구간(다음 회차): AC ${revertLow.toFixed(1)} ~ ${revertHigh.toFixed(1)} (중심값 AC ${revertCenter.toFixed(1)})
 - AC값 분포(${currentRange}회): ${distText}
-- 구간별: 저(0~4) ${lowCount}회(${(lowCount/allValues.length*100).toFixed(1)}%), 중(5~8) ${midCount}회(${(midCount/allValues.length*100).toFixed(1)}%), 고(9~10) ${highCount}회(${(highCount/allValues.length*100).toFixed(1)}%)
+- 구간별: 저(0~4) ${lowCount}회(${(lowCount / allValues.length * 100).toFixed(1)}%), 중(5~8) ${midCount}회(${(midCount / allValues.length * 100).toFixed(1)}%), 고(9~10) ${highCount}회(${(highCount / allValues.length * 100).toFixed(1)}%)
 `;
 
                 await executeLocalAIAnalysis({
@@ -1138,7 +1167,7 @@
             // ── 9. 평균 회귀 예상 구간 계산 ──
             const deviation = recent5Avg - avg;
             const revertCenter = recent5Avg - (deviation * 0.5);
-            const revertLow  = Math.max(0, revertCenter - stdDev * 0.5).toFixed(1);
+            const revertLow = Math.max(0, revertCenter - stdDev * 0.5).toFixed(1);
             const revertHigh = Math.min(10, revertCenter + stdDev * 0.5).toFixed(1);
             const modeVal = Object.entries(
                 allValues.reduce((acc, v) => { acc[v] = (acc[v] || 0) + 1; return acc; }, {})
@@ -1159,7 +1188,7 @@
 ${distText}
 
 ## 구간
-저(0~4):${lowCount}회(${(lowCount/allValues.length*100).toFixed(1)}%) | 중(5~8):${midCount}회(${(midCount/allValues.length*100).toFixed(1)}%) | 고(9~10):${highCount}회(${(highCount/allValues.length*100).toFixed(1)}%)
+저(0~4):${lowCount}회(${(lowCount / allValues.length * 100).toFixed(1)}%) | 중(5~8):${midCount}회(${(midCount / allValues.length * 100).toFixed(1)}%) | 고(9~10):${highCount}회(${(highCount / allValues.length * 100).toFixed(1)}%)
 
 ## 패턴
 동일반복:${sameAsLastRate}% | 최대연속상승:${maxConsecUp} | 최대연속하락:${maxConsecDown} | 최대동일연속:${maxConsecSame}
@@ -1188,7 +1217,7 @@ ${recent10}
                 }
                 const container = document.getElementById('aiDefaultReport');
                 if (container && container.innerHTML && !container.innerHTML.includes('animate-spin')) {
-                    try { sessionStorage.setItem(cacheKey, container.innerHTML); } catch(e) {}
+                    try { sessionStorage.setItem(cacheKey, container.innerHTML); } catch (e) { }
                 }
             };
             await origExecute(analysisConfig);

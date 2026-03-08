@@ -592,7 +592,7 @@
                                     <span class="text-base font-bold text-gray-700">필터 적용</span>
                                 </div>
 
-                                <button onclick="applyRecent10Filters()" id="recent10FilterBtn"
+                                <button onclick="applyRecent10Filters(true)" id="recent10FilterBtn"
                                     class="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 transition-all text-sm font-black min-w-[240px] justify-center whitespace-nowrap">
                                     <span class="material-symbols-outlined text-[18px]">auto_fix_high</span>
                                     <span id="recent10BtnText">최근 10회차 필터 적용</span>
@@ -698,18 +698,21 @@
                     initFilterDefaults();
                 }
 
-                // [New] 토요일 자동 필터링 (최초 접속 시 & 필터 없을 때)
-                const today = new Date();
-                const isSaturday = today.getDay() === 6;
-                // 명시적으로 토요일이고, 저장된 설정이 없거나 기본값이면 자동 적용
-                if (isSaturday && (!selectedCounts || selectedCounts.size === 0)) {
-                    console.log("📅 토요일 감지: 최근 10회차 필터를 자동으로 적용합니다.");
-                    applyRecent10Filters();
-                }
+                // [New] 새 회차 업데이트 감지 후 필터 자동 적용
+                checkAndResetOnNewDraw();
+
+                // [추가] 대시보드 연동을 위한 Storage 이벤트 리스너
+                window.addEventListener('storage', async function (e) {
+                    if (e.key === 'consecutive_filter' || e.key === 'consecutive_count') {
+                        const reloaded = await loadFilterSettings();
+                        if (reloaded) {
+                            applyFilter();
+                        }
+                    }
+                });
 
                 updateRange(currentRange);
 
-                // AI 분석 자동 실행 (common_v2 엔진 사용)
                 // AI 분석 자동 실행 (common_v2 엔진 사용)
                 // refreshAIAnalysis();
 
@@ -718,6 +721,27 @@
                 document.getElementById('drawsList').innerHTML = `<tr><td colspan="13" class="p-10 text-center text-red-500">데이터 로드 실패<br>${err.message}</td></tr>`;
             }
         });
+
+        // [추가] 새 회차 업데이트 감지 후 필터 자동 적용
+        function checkAndResetOnNewDraw() {
+            if (!allDrawData || allDrawData.length === 0) return;
+
+            const latestRound = allDrawData[0].round;
+            const storageKey = 'consecutive_number_lastKnownRound';
+            const savedRound = parseInt(localStorage.getItem(storageKey) || '0');
+
+            if (latestRound !== savedRound) {
+                localStorage.setItem(storageKey, String(latestRound));
+
+                // 새 회차가 감지되었을 때(또는 최초 실행 시) 필터 자동 적용
+                console.log(`🎯 [자동 필터] 새 회차 감지: ${latestRound}회 → 최근 10회차 필터 자동 적용`);
+
+                // 설정이 없거나 기본값인 경우만 자동 적용 (사용자 설정 존중)
+                if (!selectedCounts || selectedCounts.size === 0 || savedRound === 0) {
+                    applyRecent10Filters();
+                }
+            }
+        }
 
         function countNeighbors(numbers) {
             let count = 0;
@@ -997,9 +1021,13 @@
         // 🔹 행 하이라이트 (클릭 회차 포함 10회) - Refined
         function highlightRows(round) {
             const r = Number(round);
-            if (highlightStartRound === r) {
+            const start = highlightStartRound !== null ? Number(highlightStartRound) : null;
+
+            // 만약 하이라이트된 영역 안쪽의 행을 클릭했다면 하이라이트를 완전히 해제
+            if (start !== null && r <= start && r > start - 10) {
                 highlightStartRound = null;
             } else {
+                // 새로운 영역 선택
                 highlightStartRound = r;
             }
             applyFilter();
@@ -1099,9 +1127,7 @@
                     currentRound <= startRound &&
                     currentRound > startRound - 10;
 
-                const isTop10Highlight = isRecentTenFilter && index < 10;
-
-                if (isSelectedHighlight || isTop10Highlight) {
+                if (isSelectedHighlight) {
                     tr.classList.add('row-highlight');
                 }
 
@@ -1292,13 +1318,13 @@
         }
 
         // [표준화] 최근 10회차 필터 자동 적용
-        function applyRecent10Filters() {
+        function applyRecent10Filters(isUserClick = false) {
             const btn = document.getElementById('recent10FilterBtn');
             const btnText = document.getElementById('recent10BtnText');
             const chk = document.getElementById('applyFilterCheck');
 
-            if (isRecentTenFilter) {
-                // 비활성화
+            if (isRecentTenFilter && isUserClick) {
+                // 클릭으로 비활성화 시
                 isRecentTenFilter = false;
                 selectedCounts.clear();
                 document.getElementById('chkRun3').checked = false;
@@ -1317,7 +1343,7 @@
                 // 메인 필터 체크박스 해제
                 if (chk) chk.checked = false;
             } else {
-                // 활성화
+                // 활성화 (클릭이든 자동 로드이든)
                 if (!allDrawData || allDrawData.length < 10) return;
                 isRecentTenFilter = true;
 
@@ -1350,16 +1376,20 @@
                 // 메인 필터 체크박스 자동 활성화
                 if (chk) chk.checked = true;
 
-                // 4. 하이라이트 범위 설정
-                highlightStartRound = allDrawData[0].round;
+                // 4. 하이라이트 범위 설정 - (클릭 시에만 작동하도록 분기)
+                if (isUserClick) {
+                    highlightStartRound = allDrawData[0].round;
+                } else {
+                    highlightStartRound = null; // 자동 필터 시에는 하이라이트 배제
+                }
             }
 
             syncFilters();
             applyFilter();
             console.log('최근 10회차 연번 필터 ' + (isRecentTenFilter ? '적용' : '해제') + ' 완료');
 
-            // 하이라이트 행으로 자동 스크롤 (선택 사항)
-            if (isRecentTenFilter) {
+            // 하이라이트 행으로 자동 스크롤 (클릭 시에만)
+            if (isRecentTenFilter && isUserClick) {
                 setTimeout(() => {
                     const firstHighlight = document.querySelector('.row-highlight');
                     if (firstHighlight) firstHighlight.scrollIntoView({ behavior: 'smooth', block: 'center' });
