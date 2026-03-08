@@ -406,10 +406,9 @@
                 }
                 return false;
             } finally {
-                window.isLoadingSettings = false;
             }
         }
-    </script>
+
     <style>
         /* 페이지 전용 스타일 */
         .ball-prime {
@@ -940,443 +939,443 @@
     </div>
 
     <script>
-        // [수정됨] onclick 이벤트 핸들러가 제거되었으므로 함수는 존재하되 호출되지 않음 (참조 에러 방지용)
-        function toggleStatCard(count) {
-            const card = document.getElementById(`card-${count}`);
-            const valueText = document.getElementById(`count_${count}`);
-            const titleText = card.querySelector('.text-xs');
+            // [수정됨] onclick 이벤트 핸들러가 제거되었으므로 함수는 존재하되 호출되지 않음 (참조 에러 방지용)
+            function toggleStatCard(count) {
+                const card = document.getElementById(`card-${count}`);
+                const valueText = document.getElementById(`count_${count}`);
+                const titleText = card.querySelector('.text-xs');
 
-            const isActive = card.classList.contains('bg-blue-600');
-            const filterBtn = document.getElementById(`filter-btn-${count}`);
-
-            if (isActive) {
-                card.classList.remove('bg-blue-600', 'border-blue-600', 'shadow-md');
-                card.classList.add('bg-white', 'border-gray-200');
-                valueText.classList.remove('text-white'); valueText.classList.add('text-gray-900');
-                titleText.classList.remove('text-blue-100'); titleText.classList.add('text-gray-500');
-                if (filterBtn) filterBtn.classList.remove('filter-btn-active');
-            } else {
-                card.classList.remove('bg-white', 'border-gray-200');
-                card.classList.add('bg-blue-600', 'border-blue-600', 'shadow-md');
-                valueText.classList.remove('text-gray-900'); valueText.classList.add('text-white');
-                titleText.classList.remove('text-gray-500'); titleText.classList.add('text-blue-100');
-                if (filterBtn) filterBtn.classList.add('filter-btn-active');
-            }
-            applyFilter();
-        }
-
-        function toggleFilterButton(num) {
-            const btn = document.getElementById(`filter-btn-${num}`);
-            btn.classList.toggle('filter-btn-active');
-
-            const card = document.getElementById(`card-${num}`);
-            const valueText = document.getElementById(`count_${num}`);
-            const titleText = card.querySelector('.text-xs');
-            const isBtnActive = btn.classList.contains('filter-btn-active');
-
-            if (isBtnActive) {
-                card.classList.remove('bg-white', 'border-gray-200');
-                card.classList.add('bg-blue-600', 'border-blue-600');
-                valueText.classList.remove('text-gray-900'); valueText.classList.add('text-white');
-                titleText.classList.remove('text-gray-500'); titleText.classList.add('text-blue-100');
-            } else {
-                card.classList.remove('bg-blue-600', 'border-blue-600');
-                card.classList.add('bg-white', 'border-gray-200');
-                valueText.classList.remove('text-white'); valueText.classList.add('text-gray-900');
-                titleText.classList.remove('text-blue-100'); titleText.classList.add('text-gray-500');
-            }
-            applyFilter();
-        }
-
-        function syncExcludeFilter() {
-            const primeNums = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43];
-            excludedPrimes.clear();
-            const selectedList = [];
-            primeNums.forEach(p => {
-                const chk = document.getElementById(`exclude_${p}`);
-                if (chk && chk.checked) {
-                    excludedPrimes.add(p);
-                    selectedList.push(p);
-                    if (window.Basket) window.Basket.addExclude(p);
-                } else {
-                    if (window.Basket) window.Basket.removeExclude(p);
-                }
-            });
-            if (window.BasketUI && window.BasketUI.refresh) window.BasketUI.refresh();
-
-            const input = document.getElementById('excludeNumbersInput');
-            if (input) {
-                input.value = selectedList.length > 0 ? selectedList.join(', ') : '';
-            }
-            saveFilterSettings();
-            applyFilter();
-        }
-
-        // [수정됨] applyFilter 함수: 제외수 필터링 로직 추가
-        function applyFilter() {
-            saveFilterSettings();
-            const isFilterEnabled = document.getElementById('applyFilterCheck').checked;
-
-            // [표준화] 리스트 렌더링은 필터링하지 않음 (Range 동기화만 유지)
-            const displayData = allDrawData.slice(0, currentRange);
-            renderDrawsList(displayData);
-
-            // [표준화] AI 정보와 기타 요소들은 필터링된 데이터 사용 가능
-            let filteredData = displayData;
-            if (isFilterEnabled) {
-                // 1. 소수 개수 필터
-                const activeCounts = [];
-                for (let i = 0; i <= 6; i++) {
-                    const btn = document.getElementById(`filter-btn-${i}`);
-                    if (btn && btn.classList.contains('filter-btn-active')) {
-                        activeCounts.push(i);
-                    }
-                }
-                if (activeCounts.length > 0) {
-                    filteredData = filteredData.filter(d => activeCounts.includes(d.primeCount));
-                }
-
-                // 2. 제외수 필터
-                if (excludedPrimes.size > 0) {
-                    filteredData = filteredData.filter(d => {
-                        return !d.numbers.some(num => excludedPrimes.has(num));
-                    });
-                }
-            }
-
-            updateRecentTenFilterFlag();
-            highlightRecentTenRows();
-
-            // 필터링된 데이터로 AI/차트 등 업데이트 로직이 필요한 경우 여기서 수행
-            // refreshAIAnalysis(filteredData); 
-        }
-
-        document.addEventListener('DOMContentLoaded', async function () {
-            try {
-                // 🔥 데이터 로딩 최적화: draws와 features를 병렬로 호출 (Promise.all)
-                const client = window.supabaseClient || supabaseClient;
-
-                const [drawsResult, featuresResult] = await Promise.all([
-                    client.from('lotto_draws').select('*').order('round', { ascending: false }).range(0, 5000),
-                    client.from('lotto_features').select('*').range(0, 5000)
-                ]);
-
-                // FilterService 초기화 (DB 필터 저장용)
-                if (window.initFilterService) {
-                    await window.initFilterService();
-                }
-
-                if (drawsResult.error) throw drawsResult.error;
-
-                const data = drawsResult.data;
-                const featureData = featuresResult.data || [];
-
-                if (!data || data.length === 0) {
-                    document.getElementById('drawsList').innerHTML = '<tr><td colspan="5" class="p-10 text-center">데이터가 없습니다.</td></tr>';
-                    return;
-                }
-                console.log(`✅ 소수 DB 데이터 로드: ${data.length}개`);
-
-                // 🔥 DB 분석 데이터 메모리 맵핑
-                featuresMap = new Map();
-                featureData.forEach(row => {
-                    featuresMap.set(row.round, row);
-                });
-
-                allDrawData = data.map(item => {
-                    const numbers = item.numbers || [];
-
-                    // 기본 계산
-                    let primeCount = numbers.filter(n => isPrime(n)).length;
-                    // [수정됨] 합성수 계산 시 DB값 덮어쓰기 로직 제거 (1을 제외한 정확한 계산을 위해)
-                    // let compositeCount = numbers.filter(n => isComposite(n)).length;
-
-                    let compositeCount = numbers.filter(n => isComposite(n)).length;
-
-                    // DB prime_count는 사용해도 무방 (소수는 1 이슈 없음)
-                    if (featuresMap.has(item.round)) {
-                        const feat = featuresMap.get(item.round);
-                        if (feat.prime_count !== undefined) primeCount = feat.prime_count;
-                        // composite_count 덮어쓰기는 주석 처리됨
-                    }
-
-                    return { ...item, numbers: numbers, primeCount: primeCount, compositeCount: compositeCount };
-                });
-
-                await preprocessPrimeData();
-
-                const totalCount = allDrawData.length;
-
-                const rangeSlider = document.getElementById('rangeSlider');
-                const statsRangeSlider = document.getElementById('statsRangeSlider');
-                rangeSlider.max = totalCount;
-                statsRangeSlider.max = totalCount;
-
-                document.getElementById('totalRangeDisplay').textContent = `최대 ${totalCount.toLocaleString()}회`;
-                document.getElementById('preset1203').setAttribute('onclick', `setRange(${totalCount})`);
-                document.getElementById('preset1203').innerText = "전체";
-
-                initChart();
-                updateStatistics(currentRange);
-
-                const initialDraws = allDrawData.slice(0, currentRange);
-                renderDrawsList(initialDraws);
-
-                updateSliderBackground(currentRange);
-                await initializeRecentTenFilter();
-
-                // 🔥 [New] 새 회차 업데이트 감지 후 필터 자동 적용
-                await checkAndResetOnNewDraw();
-                refreshAIAnalysis();
-            } catch (err) {
-                console.error('데이터 로드 실패:', err);
-                document.getElementById('drawsList').innerHTML = `<tr><td colspan="5" class="p-10 text-center text-red-500">데이터 로드 실패<br>${err.message}</td></tr>`;
-            }
-        });
-
-        // 🔥 대시보드(filter.html) 혹은 다른 페이지에서의 설정을 실시간 동기화
-        window.addEventListener('storage', (e) => {
-            if (e.key === 'prime_number_patterns' || e.key === 'prime_number_patterns_filter' || e.key === 'prime_filter') {
-                console.log(`[prime_number] Storage event detected for: ${e.key}, reloading...`);
-                if (typeof loadFilterSettings === 'function') {
-                    loadFilterSettings().then(() => {
-                        applyFilter();
-                    });
-                }
-            }
-        });
-
-        // [New] 새 회차 업데이트 감지 후 최근 10회차 필터 자동 적용
-        async function checkAndResetOnNewDraw() {
-            if (!allDrawData || allDrawData.length === 0) return;
-
-            const latestRound = allDrawData[0].round;
-            const storageKey = 'prime_number_lastKnownRound';
-            const savedRound = parseInt(localStorage.getItem(storageKey) || '0');
-
-            // 새 회차가 감지된 경우 (저장 값과 다를 때)
-            if (latestRound !== savedRound) {
-                // 새 회차 저장
-                localStorage.setItem(storageKey, String(latestRound));
-
-                // [NEW] 수동 제외수 초기화 (새 회차 갱신 시점)
-                if (savedRound > 0) {
-                    excludedPrimes.clear();
-                    const primeNums = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43];
-                    primeNums.forEach(p => {
-                        const chk = document.getElementById(`exclude_${p}`);
-                        if (chk) chk.checked = false;
-                        if (window.Basket) window.Basket.removeExclude(p);
-                    });
-                    if (window.BasketUI && window.BasketUI.refresh) window.BasketUI.refresh();
-
-                    const input = document.getElementById('excludeNumbersInput');
-                    if (input) input.value = '';
-                    await saveFilterSettings();
-                }
-
-                // 새 회차가 감지되었을 때(또는 최초 실행 시) 필터 자동 적용
-                console.log(`🎯 [자동 필터] 새 회차 감지: ${latestRound}회 → 최근 10회차 필터 자동 적용`);
-
-                // 이미 필터가 켜져있지 않은 경우만 자동 적용
-                const btn = document.getElementById('recent10FilterBtn');
-                if (btn && !btn.classList.contains('from-purple-500')) {
-                    applyRecent10Filters();
-                }
-            }
-        }
-
-        // [표준화] 최근 10회차 필터 자동 적용 (missing.html 기준)
-        function applyRecent10Filters() {
-            const btn = document.getElementById('recent10FilterBtn');
-            const btnText = document.getElementById('recent10BtnText');
-            const chk = document.getElementById('applyFilterCheck');
-
-            // 토글: 이미 켜져있으면 끄기 (보라색 클래스 존재 여부로 판단)
-            if (btn.classList.contains('from-purple-500')) {
-                btn.classList.remove('from-purple-500', 'to-purple-700');
-                btn.classList.add('from-indigo-500', 'to-indigo-600');
-                btnText.textContent = '최근 10회차 필터 적용';
-
-                // 필터 초기화
-                for (let i = 0; i <= 6; i++) {
-                    const filterBtn = document.getElementById(`filter-btn-${i}`);
-                    if (filterBtn) filterBtn.classList.remove('filter-btn-active');
-                    const card = document.getElementById(`card-${i}`);
-                    if (card) {
-                        card.classList.remove('bg-purple-600', 'border-purple-600', 'bg-blue-600', 'border-blue-600');
-                        card.classList.add('bg-white', 'border-gray-200');
-                        const valText = document.getElementById(`count_${i}`);
-                        if (valText) { valText.classList.remove('text-white'); valText.classList.add('text-gray-900'); }
-                        const title = card.querySelector('.text-xs');
-                        if (title) { title.classList.remove('text-purple-100', 'text-blue-100'); title.classList.add('text-gray-500'); }
-                    }
-                }
-
-                // 토글 자동 해제
-                if (chk) chk.checked = false;
-                isRecentTenFilter = false;
-                highlightStartRound = null;
-                applyFilter();
-                return;
-            }
-
-            if (!allDrawData || allDrawData.length < 10) return;
-
-            // 1. 최근 10회차 데이터 수집
-            const recent10 = allDrawData.slice(0, 10);
-            const primeCounts = new Set(recent10.map(d => d.primeCount || calculatePrimeCount(d.numbers)));
-
-            // 2. 필터 값 적용
-            for (let i = 0; i <= 6; i++) {
-                const filterBtn = document.getElementById(`filter-btn-${i}`);
-                const card = document.getElementById(`card-${i}`);
-                const valText = document.getElementById(`count_${i}`);
-                const titleText = card ? card.querySelector('.text-xs') : null;
-                const isActive = primeCounts.has(i);
+                const isActive = card.classList.contains('bg-blue-600');
+                const filterBtn = document.getElementById(`filter-btn-${count}`);
 
                 if (isActive) {
-                    if (filterBtn) filterBtn.classList.add('filter-btn-active');
-                    if (card) {
-                        card.classList.remove('bg-white', 'border-gray-200');
-                        card.classList.add('bg-purple-600', 'border-purple-600');
-                        if (valText) { valText.classList.remove('text-gray-900'); valText.classList.add('text-white'); }
-                        if (titleText) { titleText.classList.remove('text-gray-500'); titleText.classList.add('text-purple-100'); }
-                    }
-                } else {
+                    card.classList.remove('bg-blue-600', 'border-blue-600', 'shadow-md');
+                    card.classList.add('bg-white', 'border-gray-200');
+                    valueText.classList.remove('text-white'); valueText.classList.add('text-gray-900');
+                    titleText.classList.remove('text-blue-100'); titleText.classList.add('text-gray-500');
                     if (filterBtn) filterBtn.classList.remove('filter-btn-active');
-                    if (card) {
-                        card.classList.add('bg-white', 'border-gray-200');
-                        card.classList.remove('bg-purple-600', 'border-purple-600');
-                        if (valText) { valText.classList.add('text-gray-900'); valText.classList.remove('text-white'); }
-                        if (titleText) { titleText.classList.add('text-gray-500'); titleText.classList.remove('text-purple-100'); }
+                } else {
+                    card.classList.remove('bg-white', 'border-gray-200');
+                    card.classList.add('bg-blue-600', 'border-blue-600', 'shadow-md');
+                    valueText.classList.remove('text-gray-900'); valueText.classList.add('text-white');
+                    titleText.classList.remove('text-gray-500'); titleText.classList.add('text-blue-100');
+                    if (filterBtn) filterBtn.classList.add('filter-btn-active');
+                }
+                applyFilter();
+            }
+
+            function toggleFilterButton(num) {
+                const btn = document.getElementById(`filter-btn-${num}`);
+                btn.classList.toggle('filter-btn-active');
+
+                const card = document.getElementById(`card-${num}`);
+                const valueText = document.getElementById(`count_${num}`);
+                const titleText = card.querySelector('.text-xs');
+                const isBtnActive = btn.classList.contains('filter-btn-active');
+
+                if (isBtnActive) {
+                    card.classList.remove('bg-white', 'border-gray-200');
+                    card.classList.add('bg-blue-600', 'border-blue-600');
+                    valueText.classList.remove('text-gray-900'); valueText.classList.add('text-white');
+                    titleText.classList.remove('text-gray-500'); titleText.classList.add('text-blue-100');
+                } else {
+                    card.classList.remove('bg-blue-600', 'border-blue-600');
+                    card.classList.add('bg-white', 'border-gray-200');
+                    valueText.classList.remove('text-white'); valueText.classList.add('text-gray-900');
+                    titleText.classList.remove('text-blue-100'); titleText.classList.add('text-gray-500');
+                }
+                applyFilter();
+            }
+
+            function syncExcludeFilter() {
+                const primeNums = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43];
+                excludedPrimes.clear();
+                const selectedList = [];
+                primeNums.forEach(p => {
+                    const chk = document.getElementById(`exclude_${p}`);
+                    if (chk && chk.checked) {
+                        excludedPrimes.add(p);
+                        selectedList.push(p);
+                        if (window.Basket) window.Basket.addExclude(p);
+                    } else {
+                        if (window.Basket) window.Basket.removeExclude(p);
+                    }
+                });
+                if (window.BasketUI && window.BasketUI.refresh) window.BasketUI.refresh();
+
+                const input = document.getElementById('excludeNumbersInput');
+                if (input) {
+                    input.value = selectedList.length > 0 ? selectedList.join(', ') : '';
+                }
+                saveFilterSettings();
+                applyFilter();
+            }
+
+            // [수정됨] applyFilter 함수: 제외수 필터링 로직 추가
+            function applyFilter() {
+                saveFilterSettings();
+                const isFilterEnabled = document.getElementById('applyFilterCheck').checked;
+
+                // [표준화] 리스트 렌더링은 필터링하지 않음 (Range 동기화만 유지)
+                const displayData = allDrawData.slice(0, currentRange);
+                renderDrawsList(displayData);
+
+                // [표준화] AI 정보와 기타 요소들은 필터링된 데이터 사용 가능
+                let filteredData = displayData;
+                if (isFilterEnabled) {
+                    // 1. 소수 개수 필터
+                    const activeCounts = [];
+                    for (let i = 0; i <= 6; i++) {
+                        const btn = document.getElementById(`filter-btn-${i}`);
+                        if (btn && btn.classList.contains('filter-btn-active')) {
+                            activeCounts.push(i);
+                        }
+                    }
+                    if (activeCounts.length > 0) {
+                        filteredData = filteredData.filter(d => activeCounts.includes(d.primeCount));
+                    }
+
+                    // 2. 제외수 필터
+                    if (excludedPrimes.size > 0) {
+                        filteredData = filteredData.filter(d => {
+                            return !d.numbers.some(num => excludedPrimes.has(num));
+                        });
                     }
                 }
+
+                updateRecentTenFilterFlag();
+                highlightRecentTenRows();
+
+                // 필터링된 데이터로 AI/차트 등 업데이트 로직이 필요한 경우 여기서 수행
+                // refreshAIAnalysis(filteredData); 
             }
 
-            // 3. UI 업데이트 (보라색 토글)
-            btn.classList.remove('from-indigo-500', 'to-indigo-600');
-            btn.classList.add('from-purple-500', 'to-purple-700');
-            btnText.textContent = '필터 해제';
+            document.addEventListener('DOMContentLoaded', async function () {
+                try {
+                    // 🔥 데이터 로딩 최적화: draws와 features를 병렬로 호출 (Promise.all)
+                    const client = window.supabaseClient || supabaseClient;
 
-            if (chk) chk.checked = true;
-            isRecentTenFilter = true;
+                    const [drawsResult, featuresResult] = await Promise.all([
+                        client.from('lotto_draws').select('*').order('round', { ascending: false }).range(0, 5000),
+                        client.from('lotto_features').select('*').range(0, 5000)
+                    ]);
 
-            // 4. 하이라이트 및 리스트 갱신
-            highlightStartRound = allDrawData[0].round;
-            applyFilter();
+                    // FilterService 초기화 (DB 필터 저장용)
+                    if (window.initFilterService) {
+                        await window.initFilterService();
+                    }
 
-            console.log('최근 10회차 소수 필터 적용 완료');
-        }
+                    if (drawsResult.error) throw drawsResult.error;
 
-        // [New] 필터 플래그 업데이트
-        function updateRecentTenFilterFlag() {
-            // applyRecent10Filters에서 버튼 상태로 직접 관리함
-        }
+                    const data = drawsResult.data;
+                    const featureData = featuresResult.data || [];
 
-        // [New] 행 하이라이트 실행
-        function highlightRecentTenRows() {
-            if (highlightStartRound) {
-                const index = allDrawData.findIndex(d => d.round === highlightStartRound);
-                if (index !== -1) highlightRows(index);
-            } else {
-                document.querySelectorAll('.row-highlight').forEach(el => el.classList.remove('row-highlight'));
-            }
-        }
+                    if (!data || data.length === 0) {
+                        document.getElementById('drawsList').innerHTML = '<tr><td colspan="5" class="p-10 text-center">데이터가 없습니다.</td></tr>';
+                        return;
+                    }
+                    console.log(`✅ 소수 DB 데이터 로드: ${data.length}개`);
 
-        function initFilterDefaults() {
-            // applyRecent10Filters가 이 역할을 겸함
-        }
+                    // 🔥 DB 분석 데이터 메모리 맵핑
+                    featuresMap = new Map();
+                    featureData.forEach(row => {
+                        featuresMap.set(row.round, row);
+                    });
 
-        function updateStatistics(range) {
-            if (!allDrawData.length) return;
-            const data = allDrawData.slice(0, range);
+                    allDrawData = data.map(item => {
+                        const numbers = item.numbers || [];
 
-            const countMap = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
-            data.forEach(d => {
-                if (countMap[d.primeCount] !== undefined) countMap[d.primeCount]++;
+                        // 기본 계산
+                        let primeCount = numbers.filter(n => isPrime(n)).length;
+                        // [수정됨] 합성수 계산 시 DB값 덮어쓰기 로직 제거 (1을 제외한 정확한 계산을 위해)
+                        // let compositeCount = numbers.filter(n => isComposite(n)).length;
+
+                        let compositeCount = numbers.filter(n => isComposite(n)).length;
+
+                        // DB prime_count는 사용해도 무방 (소수는 1 이슈 없음)
+                        if (featuresMap.has(item.round)) {
+                            const feat = featuresMap.get(item.round);
+                            if (feat.prime_count !== undefined) primeCount = feat.prime_count;
+                            // composite_count 덮어쓰기는 주석 처리됨
+                        }
+
+                        return { ...item, numbers: numbers, primeCount: primeCount, compositeCount: compositeCount };
+                    });
+
+                    await preprocessPrimeData();
+
+                    const totalCount = allDrawData.length;
+
+                    const rangeSlider = document.getElementById('rangeSlider');
+                    const statsRangeSlider = document.getElementById('statsRangeSlider');
+                    rangeSlider.max = totalCount;
+                    statsRangeSlider.max = totalCount;
+
+                    document.getElementById('totalRangeDisplay').textContent = `최대 ${totalCount.toLocaleString()}회`;
+                    document.getElementById('preset1203').setAttribute('onclick', `setRange(${totalCount})`);
+                    document.getElementById('preset1203').innerText = "전체";
+
+                    initChart();
+                    updateStatistics(currentRange);
+
+                    const initialDraws = allDrawData.slice(0, currentRange);
+                    renderDrawsList(initialDraws);
+
+                    updateSliderBackground(currentRange);
+                    await initializeRecentTenFilter();
+
+                    // 🔥 [New] 새 회차 업데이트 감지 후 필터 자동 적용
+                    await checkAndResetOnNewDraw();
+                    refreshAIAnalysis();
+                } catch (err) {
+                    console.error('데이터 로드 실패:', err);
+                    document.getElementById('drawsList').innerHTML = `<tr><td colspan="5" class="p-10 text-center text-red-500">데이터 로드 실패<br>${err.message}</td></tr>`;
+                }
             });
 
-            for (let i = 0; i <= 6; i++) {
-                const percent = data.length > 0 ? (countMap[i] / data.length * 100).toFixed(1) : 0;
-                document.getElementById(`count_${i}`).textContent = percent + '%';
-            }
-        }
+            // 🔥 대시보드(filter.html) 혹은 다른 페이지에서의 설정을 실시간 동기화
+            window.addEventListener('storage', (e) => {
+                if (e.key === 'prime_number_patterns' || e.key === 'prime_number_patterns_filter' || e.key === 'prime_filter') {
+                    console.log(`[prime_number] Storage event detected for: ${e.key}, reloading...`);
+                    if (typeof loadFilterSettings === 'function') {
+                        loadFilterSettings().then(() => {
+                            applyFilter();
+                        });
+                    }
+                }
+            });
 
-        function toggleCellHighlight(col, val) {
-            if (selectedHighlight.col === col && String(selectedHighlight.val) === String(val)) {
-                selectedHighlight = { col: null, val: null };
-            } else {
-                selectedHighlight = { col: col, val: val };
-            }
-            applyFilter();
-        }
+            // [New] 새 회차 업데이트 감지 후 최근 10회차 필터 자동 적용
+            async function checkAndResetOnNewDraw() {
+                if (!allDrawData || allDrawData.length === 0) return;
 
-        function highlightRows(startIndex) {
-            const rows = document.querySelectorAll('#drawsList > tr');
-            if (!rows[startIndex]) return;
+                const latestRound = allDrawData[0].round;
+                const storageKey = 'prime_number_lastKnownRound';
+                const savedRound = parseInt(localStorage.getItem(storageKey) || '0');
 
-            const isAlreadyHighlighted = rows[startIndex].classList.contains('row-highlight');
+                // 새 회차가 감지된 경우 (저장 값과 다를 때)
+                if (latestRound !== savedRound) {
+                    // 새 회차 저장
+                    localStorage.setItem(storageKey, String(latestRound));
 
-            // 기존 하이라이트 모두 제거
-            document.querySelectorAll('.row-highlight').forEach(el => el.classList.remove('row-highlight'));
+                    // [NEW] 수동 제외수 초기화 (새 회차 갱신 시점)
+                    if (savedRound > 0) {
+                        excludedPrimes.clear();
+                        const primeNums = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43];
+                        primeNums.forEach(p => {
+                            const chk = document.getElementById(`exclude_${p}`);
+                            if (chk) chk.checked = false;
+                            if (window.Basket) window.Basket.removeExclude(p);
+                        });
+                        if (window.BasketUI && window.BasketUI.refresh) window.BasketUI.refresh();
 
-            // 이미 하이라이트된 상태면 종료 (토글), 아니면 새로 적용
-            if (!isAlreadyHighlighted) {
-                for (let i = 0; i < 10; i++) {
-                    if (startIndex + i < rows.length) {
-                        rows[startIndex + i].classList.add('row-highlight');
+                        const input = document.getElementById('excludeNumbersInput');
+                        if (input) input.value = '';
+                        await saveFilterSettings();
+                    }
+
+                    // 새 회차가 감지되었을 때(또는 최초 실행 시) 필터 자동 적용
+                    console.log(`🎯 [자동 필터] 새 회차 감지: ${latestRound}회 → 최근 10회차 필터 자동 적용`);
+
+                    // 이미 필터가 켜져있지 않은 경우만 자동 적용
+                    const btn = document.getElementById('recent10FilterBtn');
+                    if (btn && !btn.classList.contains('from-purple-500')) {
+                        applyRecent10Filters();
                     }
                 }
             }
-        }
 
-        function renderDrawsList(draws) {
-            const container = document.getElementById('drawsList');
-            container.innerHTML = '';
+            // [표준화] 최근 10회차 필터 자동 적용 (missing.html 기준)
+            function applyRecent10Filters() {
+                const btn = document.getElementById('recent10FilterBtn');
+                const btnText = document.getElementById('recent10BtnText');
+                const chk = document.getElementById('applyFilterCheck');
 
-            if (draws.length === 0) {
-                container.innerHTML = '<tr><td colspan="5" class="p-4 text-center text-gray-500">표시할 데이터가 없습니다.</td></tr>';
-                return;
+                // 토글: 이미 켜져있으면 끄기 (보라색 클래스 존재 여부로 판단)
+                if (btn.classList.contains('from-purple-500')) {
+                    btn.classList.remove('from-purple-500', 'to-purple-700');
+                    btn.classList.add('from-indigo-500', 'to-indigo-600');
+                    btnText.textContent = '최근 10회차 필터 적용';
+
+                    // 필터 초기화
+                    for (let i = 0; i <= 6; i++) {
+                        const filterBtn = document.getElementById(`filter-btn-${i}`);
+                        if (filterBtn) filterBtn.classList.remove('filter-btn-active');
+                        const card = document.getElementById(`card-${i}`);
+                        if (card) {
+                            card.classList.remove('bg-purple-600', 'border-purple-600', 'bg-blue-600', 'border-blue-600');
+                            card.classList.add('bg-white', 'border-gray-200');
+                            const valText = document.getElementById(`count_${i}`);
+                            if (valText) { valText.classList.remove('text-white'); valText.classList.add('text-gray-900'); }
+                            const title = card.querySelector('.text-xs');
+                            if (title) { title.classList.remove('text-purple-100', 'text-blue-100'); title.classList.add('text-gray-500'); }
+                        }
+                    }
+
+                    // 토글 자동 해제
+                    if (chk) chk.checked = false;
+                    isRecentTenFilter = false;
+                    highlightStartRound = null;
+                    applyFilter();
+                    return;
+                }
+
+                if (!allDrawData || allDrawData.length < 10) return;
+
+                // 1. 최근 10회차 데이터 수집
+                const recent10 = allDrawData.slice(0, 10);
+                const primeCounts = new Set(recent10.map(d => d.primeCount || calculatePrimeCount(d.numbers)));
+
+                // 2. 필터 값 적용
+                for (let i = 0; i <= 6; i++) {
+                    const filterBtn = document.getElementById(`filter-btn-${i}`);
+                    const card = document.getElementById(`card-${i}`);
+                    const valText = document.getElementById(`count_${i}`);
+                    const titleText = card ? card.querySelector('.text-xs') : null;
+                    const isActive = primeCounts.has(i);
+
+                    if (isActive) {
+                        if (filterBtn) filterBtn.classList.add('filter-btn-active');
+                        if (card) {
+                            card.classList.remove('bg-white', 'border-gray-200');
+                            card.classList.add('bg-purple-600', 'border-purple-600');
+                            if (valText) { valText.classList.remove('text-gray-900'); valText.classList.add('text-white'); }
+                            if (titleText) { titleText.classList.remove('text-gray-500'); titleText.classList.add('text-purple-100'); }
+                        }
+                    } else {
+                        if (filterBtn) filterBtn.classList.remove('filter-btn-active');
+                        if (card) {
+                            card.classList.add('bg-white', 'border-gray-200');
+                            card.classList.remove('bg-purple-600', 'border-purple-600');
+                            if (valText) { valText.classList.add('text-gray-900'); valText.classList.remove('text-white'); }
+                            if (titleText) { titleText.classList.add('text-gray-500'); titleText.classList.remove('text-purple-100'); }
+                        }
+                    }
+                }
+
+                // 3. UI 업데이트 (보라색 토글)
+                btn.classList.remove('from-indigo-500', 'to-indigo-600');
+                btn.classList.add('from-purple-500', 'to-purple-700');
+                btnText.textContent = '필터 해제';
+
+                if (chk) chk.checked = true;
+                isRecentTenFilter = true;
+
+                // 4. 하이라이트 및 리스트 갱신
+                highlightStartRound = allDrawData[0].round;
+                applyFilter();
+
+                console.log('최근 10회차 소수 필터 적용 완료');
             }
 
-            document.getElementById('displayedCount').textContent = draws.length;
+            // [New] 필터 플래그 업데이트
+            function updateRecentTenFilterFlag() {
+                // applyRecent10Filters에서 버튼 상태로 직접 관리함
+            }
 
-            draws.forEach((draw, index) => {
-                const tr = document.createElement('tr');
-                tr.onclick = () => highlightRows(index);
-                tr.className = 'border-b border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer';
+            // [New] 행 하이라이트 실행
+            function highlightRecentTenRows() {
+                if (highlightStartRound) {
+                    const index = allDrawData.findIndex(d => d.round === highlightStartRound);
+                    if (index !== -1) highlightRows(index);
+                } else {
+                    document.querySelectorAll('.row-highlight').forEach(el => el.classList.remove('row-highlight'));
+                }
+            }
 
-                const winningNumbers = new Set(draw.numbers);
-                const primeArray = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43];
+            function initFilterDefaults() {
+                // applyRecent10Filters가 이 역할을 겸함
+            }
 
-                const getHighlightClass = (col, val) => {
-                    if (selectedHighlight.col === col && String(selectedHighlight.val) === String(val)) {
-                        return 'val-highlight';
+            function updateStatistics(range) {
+                if (!allDrawData.length) return;
+                const data = allDrawData.slice(0, range);
+
+                const countMap = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
+                data.forEach(d => {
+                    if (countMap[d.primeCount] !== undefined) countMap[d.primeCount]++;
+                });
+
+                for (let i = 0; i <= 6; i++) {
+                    const percent = data.length > 0 ? (countMap[i] / data.length * 100).toFixed(1) : 0;
+                    document.getElementById(`count_${i}`).textContent = percent + '%';
+                }
+            }
+
+            function toggleCellHighlight(col, val) {
+                if (selectedHighlight.col === col && String(selectedHighlight.val) === String(val)) {
+                    selectedHighlight = { col: null, val: null };
+                } else {
+                    selectedHighlight = { col: col, val: val };
+                }
+                applyFilter();
+            }
+
+            function highlightRows(startIndex) {
+                const rows = document.querySelectorAll('#drawsList > tr');
+                if (!rows[startIndex]) return;
+
+                const isAlreadyHighlighted = rows[startIndex].classList.contains('row-highlight');
+
+                // 기존 하이라이트 모두 제거
+                document.querySelectorAll('.row-highlight').forEach(el => el.classList.remove('row-highlight'));
+
+                // 이미 하이라이트된 상태면 종료 (토글), 아니면 새로 적용
+                if (!isAlreadyHighlighted) {
+                    for (let i = 0; i < 10; i++) {
+                        if (startIndex + i < rows.length) {
+                            rows[startIndex + i].classList.add('row-highlight');
+                        }
                     }
-                    return '';
-                };
+                }
+            }
 
-                tr.innerHTML = `
+            function renderDrawsList(draws) {
+                const container = document.getElementById('drawsList');
+                container.innerHTML = '';
+
+                if (draws.length === 0) {
+                    container.innerHTML = '<tr><td colspan="5" class="p-4 text-center text-gray-500">표시할 데이터가 없습니다.</td></tr>';
+                    return;
+                }
+
+                document.getElementById('displayedCount').textContent = draws.length;
+
+                draws.forEach((draw, index) => {
+                    const tr = document.createElement('tr');
+                    tr.onclick = () => highlightRows(index);
+                    tr.className = 'border-b border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer';
+
+                    const winningNumbers = new Set(draw.numbers);
+                    const primeArray = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43];
+
+                    const getHighlightClass = (col, val) => {
+                        if (selectedHighlight.col === col && String(selectedHighlight.val) === String(val)) {
+                            return 'val-highlight';
+                        }
+                        return '';
+                    };
+
+                    tr.innerHTML = `
                     <td class="py-3 px-4 text-sm font-bold text-gray-900 w-20 text-center sticky left-0 bg-inherit z-10 whitespace-nowrap">${draw.round}회</td>
                     <td class="py-3 px-4">
                         <div class="flex gap-1.5 justify-center items-center w-[260px] mx-auto">
                             ${draw.numbers.map(num => {
-                    const className = isPrime(num) ? 'ball-prime' : 'ball-normal';
-                    return `<span class="w-8 h-8 flex items-center justify-center rounded-full ${className} text-xs font-bold shadow-sm">${String(num).padStart(2, '0')}</span>`;
-                }).join('')}
+                        const className = isPrime(num) ? 'ball-prime' : 'ball-normal';
+                        return `<span class="w-8 h-8 flex items-center justify-center rounded-full ${className} text-xs font-bold shadow-sm">${String(num).padStart(2, '0')}</span>`;
+                    }).join('')}
                         </div>
                     </td>
                     <td class="py-3 px-4 w-[600px]">
                         <div class="flex gap-1.5 justify-center flex-nowrap min-h-[32px]">
                             ${primeArray.map(num => {
-                    const isWin = winningNumbers.has(num);
-                    if (isWin) {
-                        return `<span class="w-8 h-8 flex items-center justify-center rounded-full ball-prime shadow-sm ring-1 ring-purple-100 text-xs font-bold transition-all flex-shrink-0">${String(num).padStart(2, '0')}</span>`;
-                    } else {
-                        return `<span class="w-8 h-8 flex items-center justify-center rounded-full text-xs font-bold transition-all flex-shrink-0 shadow-sm ring-1 ring-gray-100" style="background: #F3F4F6; color: #9CA3AF;">${String(num).padStart(2, '0')}</span>`;
-                    }
-                }).join('')}
+                        const isWin = winningNumbers.has(num);
+                        if (isWin) {
+                            return `<span class="w-8 h-8 flex items-center justify-center rounded-full ball-prime shadow-sm ring-1 ring-purple-100 text-xs font-bold transition-all flex-shrink-0">${String(num).padStart(2, '0')}</span>`;
+                        } else {
+                            return `<span class="w-8 h-8 flex items-center justify-center rounded-full text-xs font-bold transition-all flex-shrink-0 shadow-sm ring-1 ring-gray-100" style="background: #F3F4F6; color: #9CA3AF;">${String(num).padStart(2, '0')}</span>`;
+                        }
+                    }).join('')}
                         </div>
                     </td>
                     <td class="py-3 px-4 text-center w-20">
@@ -1388,296 +1387,296 @@
                         </div>
                     </td>
                 `;
-                container.appendChild(tr);
-            });
-        }
+                    container.appendChild(tr);
+                });
+            }
 
-        function initChart() {
-            const canvas = document.getElementById('primeChart');
-            const ctx = canvas.getContext('2d');
-            const data = generateDistributionData(currentRange);
+            function initChart() {
+                const canvas = document.getElementById('primeChart');
+                const ctx = canvas.getContext('2d');
+                const data = generateDistributionData(currentRange);
 
-            primeChart = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: data.labels,
-                    datasets: [{
-                        label: '당첨율',
+                primeChart = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: data.labels,
+                        datasets: [{
+                            label: '당첨율',
+                            data: data.values,
+                            backgroundColor: 'rgba(59, 130, 246, 0.85)',
+                            borderColor: 'rgba(37, 99, 235, 1)',
+                            borderWidth: 2,
+                            borderRadius: 0,
+                            barThickness: 40,
+                            datalabels: { display: false }
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: { backgroundColor: 'rgba(37, 99, 235, 0.95)', padding: 12, titleFont: { size: 14, weight: 'bold' }, cornerRadius: 8 },
+                        },
+                        scales: {
+                            y: { beginAtZero: true, grid: { display: false }, title: { display: true, text: '횟수', align: 'end' } },
+                            x: { grid: { display: false }, title: { display: true, text: '소수 개수', align: 'end' } }
+                        }
+                    },
+                    plugins: [minMaxLabelsPlugin]
+                });
+            }
+
+
+
+            function generateDistributionData(range) {
+                if (!allDrawData.length) return { labels: [], values: [] };
+                const data = allDrawData.slice(0, range);
+                const counts = [0, 0, 0, 0, 0, 0, 0];
+                data.forEach(d => {
+                    if (counts[d.primeCount] !== undefined) counts[d.primeCount]++;
+                });
+                return {
+                    labels: ['0개', '1개', '2개', '3개', '4개', '5개', '6개'],
+                    values: counts
+                };
+            }
+
+            function generateRoundData(range) {
+                if (!allDrawData.length) return { labels: [], values: [] };
+                const data = allDrawData.slice(0, range);
+                const labels = data.map(d => d.round).reverse();
+                const values = data.map(d => d.primeCount).reverse();
+                return { labels, values };
+            }
+
+            function changeChartMode(mode) {
+                if (!primeChart) return;
+                chartMode = mode;
+                const distBtn = document.getElementById('chartTypeDistribution');
+                const roundBtn = document.getElementById('chartTypeRound');
+
+                if (mode === 'distribution') {
+                    distBtn.className = 'px-4 py-2 text-sm font-medium bg-blue-500 text-white rounded-lg transition-colors';
+                    roundBtn.className = 'px-4 py-2 text-sm font-medium bg-gray-200 text-gray-700 rounded-lg transition-colors';
+
+                    const data = generateDistributionData(currentRange);
+                    primeChart.config.type = 'bar';
+                    primeChart.data.labels = data.labels;
+                    primeChart.data.datasets = [{
+                        label: '횟수',
                         data: data.values,
                         backgroundColor: 'rgba(59, 130, 246, 0.85)',
                         borderColor: 'rgba(37, 99, 235, 1)',
                         borderWidth: 2,
                         borderRadius: 0,
-                        barThickness: 40,
-                        datalabels: { display: false }
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: false },
-                        tooltip: { backgroundColor: 'rgba(37, 99, 235, 0.95)', padding: 12, titleFont: { size: 14, weight: 'bold' }, cornerRadius: 8 },
-                    },
-                    scales: {
-                        y: { beginAtZero: true, grid: { display: false }, title: { display: true, text: '횟수', align: 'end' } },
-                        x: { grid: { display: false }, title: { display: true, text: '소수 개수', align: 'end' } }
-                    }
-                },
-                plugins: [minMaxLabelsPlugin]
-            });
-        }
+                        barThickness: 40
+                    }];
+                    primeChart.options.scales.x.ticks.display = true;
+                } else {
+                    distBtn.className = 'px-4 py-2 text-sm font-medium bg-gray-200 text-gray-700 rounded-lg transition-colors';
+                    roundBtn.className = 'px-4 py-2 text-sm font-medium bg-blue-500 text-white rounded-lg transition-colors';
 
+                    primeChart.config.type = 'line';
+                    const data = generateRoundData(currentRange);
+                    const avgValue = data.values.length > 0 ? data.values.reduce((a, b) => a + b, 0) / data.values.length : 0;
 
-
-        function generateDistributionData(range) {
-            if (!allDrawData.length) return { labels: [], values: [] };
-            const data = allDrawData.slice(0, range);
-            const counts = [0, 0, 0, 0, 0, 0, 0];
-            data.forEach(d => {
-                if (counts[d.primeCount] !== undefined) counts[d.primeCount]++;
-            });
-            return {
-                labels: ['0개', '1개', '2개', '3개', '4개', '5개', '6개'],
-                values: counts
-            };
-        }
-
-        function generateRoundData(range) {
-            if (!allDrawData.length) return { labels: [], values: [] };
-            const data = allDrawData.slice(0, range);
-            const labels = data.map(d => d.round).reverse();
-            const values = data.map(d => d.primeCount).reverse();
-            return { labels, values };
-        }
-
-        function changeChartMode(mode) {
-            if (!primeChart) return;
-            chartMode = mode;
-            const distBtn = document.getElementById('chartTypeDistribution');
-            const roundBtn = document.getElementById('chartTypeRound');
-
-            if (mode === 'distribution') {
-                distBtn.className = 'px-4 py-2 text-sm font-medium bg-blue-500 text-white rounded-lg transition-colors';
-                roundBtn.className = 'px-4 py-2 text-sm font-medium bg-gray-200 text-gray-700 rounded-lg transition-colors';
-
-                const data = generateDistributionData(currentRange);
-                primeChart.config.type = 'bar';
-                primeChart.data.labels = data.labels;
-                primeChart.data.datasets = [{
-                    label: '횟수',
-                    data: data.values,
-                    backgroundColor: 'rgba(59, 130, 246, 0.85)',
-                    borderColor: 'rgba(37, 99, 235, 1)',
-                    borderWidth: 2,
-                    borderRadius: 0,
-                    barThickness: 40
-                }];
-                primeChart.options.scales.x.ticks.display = true;
-            } else {
-                distBtn.className = 'px-4 py-2 text-sm font-medium bg-gray-200 text-gray-700 rounded-lg transition-colors';
-                roundBtn.className = 'px-4 py-2 text-sm font-medium bg-blue-500 text-white rounded-lg transition-colors';
-
-                primeChart.config.type = 'line';
-                const data = generateRoundData(currentRange);
-                const avgValue = data.values.length > 0 ? data.values.reduce((a, b) => a + b, 0) / data.values.length : 0;
-
-                primeChart.data.labels = data.labels;
-                primeChart.data.datasets = [
-                    { label: '소수 개수', data: data.values, backgroundColor: 'rgba(59, 130, 246, 0.1)', borderColor: 'rgba(59, 130, 246, 1)', borderWidth: 2, fill: true, tension: 0.4, pointRadius: 2 },
-                    { label: `평균: ${avgValue.toFixed(1)}`, data: Array(data.values.length).fill(avgValue), borderColor: 'rgba(107, 114, 128, 0.6)', borderWidth: 1, borderDash: [8, 4], fill: false, pointRadius: 0 }
-                ];
-                primeChart.options.scales.x.ticks.display = currentRange < 50;
-            }
-            primeChart.update();
-        }
-
-        function updateSliderBackground(value) {
-            const total = allDrawData.length || 1203;
-            const slider = document.getElementById('rangeSlider');
-            if (slider) {
-                const percent = ((value - 10) / (total - 10)) * 100;
-                slider.style.setProperty('--value-percent', percent + '%');
-            }
-        }
-
-        function updateRange(value) {
-            currentRange = parseInt(value);
-            document.getElementById('rangeDisplay').textContent = value + '회';
-            updateSliderBackground(currentRange);
-            updatePresetButtons(currentRange);
-            updateStatistics(currentRange);
-            changeChartMode(chartMode);
-            applyFilter();
-            refreshAIAnalysis();
-        }
-
-        function updatePresetButtons(value) {
-            const maxVal = allDrawData.length || 1203;
-            const buttons = { 50: 'preset50', 100: 'preset100', 500: 'preset500', 1203: 'preset1203' };
-            Object.keys(buttons).forEach(key => {
-                const btn = document.getElementById(buttons[key]);
-                const targetValue = key === '1203' ? maxVal : parseInt(key);
-                if (targetValue === value) btn.className = 'px-3 py-1.5 text-sm font-medium bg-blue-500 text-white rounded-lg transition-colors';
-                else btn.className = 'px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors';
-            });
-        }
-
-        function setRange(value) {
-            const maxVal = allDrawData.length || 1203;
-            const safeValue = Math.min(value, maxVal);
-            document.getElementById('rangeSlider').value = safeValue;
-            updateRange(safeValue);
-        }
-
-        function openStatsModal() {
-            document.getElementById('statsModal').classList.remove('hidden');
-            const statsSlider = document.getElementById('statsRangeSlider');
-            if (statsSlider) {
-                statsSlider.value = currentRange;
-                updateStatsRange(currentRange);
-            }
-        }
-        function closeStatsModal() { document.getElementById('statsModal').classList.add('hidden'); }
-
-        function loadStatsData(statsRange) {
-            if (!allDrawData.length) return;
-            const tbody = document.getElementById('statsTableBody');
-            tbody.innerHTML = '';
-
-            const primeNums = Array.from(primes).sort((a, b) => a - b);
-            const data = allDrawData.slice(0, statsRange);
-
-            const missedCounts = {};
-            primeNums.forEach(p => {
-                missedCounts[p] = [];
-                let c = 0;
-                for (let i = data.length - 1; i >= 0; i--) {
-                    if (data[i].numbers.includes(p)) {
-                        c = 0;
-                        missedCounts[p][i] = 0;
-                    } else {
-                        c++;
-                        missedCounts[p][i] = c;
-                    }
+                    primeChart.data.labels = data.labels;
+                    primeChart.data.datasets = [
+                        { label: '소수 개수', data: data.values, backgroundColor: 'rgba(59, 130, 246, 0.1)', borderColor: 'rgba(59, 130, 246, 1)', borderWidth: 2, fill: true, tension: 0.4, pointRadius: 2 },
+                        { label: `평균: ${avgValue.toFixed(1)}`, data: Array(data.values.length).fill(avgValue), borderColor: 'rgba(107, 114, 128, 0.6)', borderWidth: 1, borderDash: [8, 4], fill: false, pointRadius: 0 }
+                    ];
+                    primeChart.options.scales.x.ticks.display = currentRange < 50;
                 }
-            });
+                primeChart.update();
+            }
 
-            const html = data.map((draw, idx) => {
-                return `<tr>
+            function updateSliderBackground(value) {
+                const total = allDrawData.length || 1203;
+                const slider = document.getElementById('rangeSlider');
+                if (slider) {
+                    const percent = ((value - 10) / (total - 10)) * 100;
+                    slider.style.setProperty('--value-percent', percent + '%');
+                }
+            }
+
+            function updateRange(value) {
+                currentRange = parseInt(value);
+                document.getElementById('rangeDisplay').textContent = value + '회';
+                updateSliderBackground(currentRange);
+                updatePresetButtons(currentRange);
+                updateStatistics(currentRange);
+                changeChartMode(chartMode);
+                applyFilter();
+                refreshAIAnalysis();
+            }
+
+            function updatePresetButtons(value) {
+                const maxVal = allDrawData.length || 1203;
+                const buttons = { 50: 'preset50', 100: 'preset100', 500: 'preset500', 1203: 'preset1203' };
+                Object.keys(buttons).forEach(key => {
+                    const btn = document.getElementById(buttons[key]);
+                    const targetValue = key === '1203' ? maxVal : parseInt(key);
+                    if (targetValue === value) btn.className = 'px-3 py-1.5 text-sm font-medium bg-blue-500 text-white rounded-lg transition-colors';
+                    else btn.className = 'px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors';
+                });
+            }
+
+            function setRange(value) {
+                const maxVal = allDrawData.length || 1203;
+                const safeValue = Math.min(value, maxVal);
+                document.getElementById('rangeSlider').value = safeValue;
+                updateRange(safeValue);
+            }
+
+            function openStatsModal() {
+                document.getElementById('statsModal').classList.remove('hidden');
+                const statsSlider = document.getElementById('statsRangeSlider');
+                if (statsSlider) {
+                    statsSlider.value = currentRange;
+                    updateStatsRange(currentRange);
+                }
+            }
+            function closeStatsModal() { document.getElementById('statsModal').classList.add('hidden'); }
+
+            function loadStatsData(statsRange) {
+                if (!allDrawData.length) return;
+                const tbody = document.getElementById('statsTableBody');
+                tbody.innerHTML = '';
+
+                const primeNums = Array.from(primes).sort((a, b) => a - b);
+                const data = allDrawData.slice(0, statsRange);
+
+                const missedCounts = {};
+                primeNums.forEach(p => {
+                    missedCounts[p] = [];
+                    let c = 0;
+                    for (let i = data.length - 1; i >= 0; i--) {
+                        if (data[i].numbers.includes(p)) {
+                            c = 0;
+                            missedCounts[p][i] = 0;
+                        } else {
+                            c++;
+                            missedCounts[p][i] = c;
+                        }
+                    }
+                });
+
+                const html = data.map((draw, idx) => {
+                    return `<tr>
                     <td class="sticky left-0 z-20 bg-white border-r border-b border-gray-200 px-3 py-2 text-center text-sm font-semibold text-gray-700 w-16">${draw.round}</td>
                     <td class="sticky left-16 z-10 bg-white border-r border-b border-gray-200 px-3 py-2 text-center text-sm font-bold w-20 text-blue-600">${draw.primeCount}</td>
                     ${primeNums.map(p => {
-                    const has = draw.numbers.includes(p);
-                    let cellContent = '';
-                    let cellClass = '';
+                        const has = draw.numbers.includes(p);
+                        let cellContent = '';
+                        let cellClass = '';
 
-                    if (has) {
-                        cellClass = 'bg-white';
+                        if (has) {
+                            cellClass = 'bg-white';
 
-                        // Calculate consecutive hits
-                        let consecutive = 1;
-                        for (let k = idx + 1; k < allDrawData.length; k++) {
-                            if (allDrawData[k].numbers.includes(p)) {
-                                consecutive++;
-                            } else {
-                                break;
+                            // Calculate consecutive hits
+                            let consecutive = 1;
+                            for (let k = idx + 1; k < allDrawData.length; k++) {
+                                if (allDrawData[k].numbers.includes(p)) {
+                                    consecutive++;
+                                } else {
+                                    break;
+                                }
                             }
+
+                            let badgeText = '당';
+                            let badgeColor = 'bg-gray-600'; // Default 1 hit
+
+                            if (consecutive === 2) {
+                                badgeText = '연';
+                                badgeColor = 'bg-blue-500';
+                            } else if (consecutive >= 3) {
+                                badgeText = '삼';
+                                badgeColor = 'bg-red-500';
+                            }
+
+                            cellContent = `<div class="w-5 h-5 rounded-full ${badgeColor} text-white text-[10px] flex items-center justify-center mx-auto">${badgeText}</div>`;
+                        } else {
+                            cellClass = 'bg-white';
+                            cellContent = `<span class="text-[10px] text-gray-400">${missedCounts[p][idx] || ''}</span>`;
                         }
 
-                        let badgeText = '당';
-                        let badgeColor = 'bg-gray-600'; // Default 1 hit
-
-                        if (consecutive === 2) {
-                            badgeText = '연';
-                            badgeColor = 'bg-blue-500';
-                        } else if (consecutive >= 3) {
-                            badgeText = '삼';
-                            badgeColor = 'bg-red-500';
-                        }
-
-                        cellContent = `<div class="w-5 h-5 rounded-full ${badgeColor} text-white text-[10px] flex items-center justify-center mx-auto">${badgeText}</div>`;
-                    } else {
-                        cellClass = 'bg-white';
-                        cellContent = `<span class="text-[10px] text-gray-400">${missedCounts[p][idx] || ''}</span>`;
-                    }
-
-                    return `<td class="${cellClass} border-r border-b border-gray-200 text-center">${cellContent}</td>`;
-                }).join('')}
+                        return `<td class="${cellClass} border-r border-b border-gray-200 text-center">${cellContent}</td>`;
+                    }).join('')}
                 </tr>`;
-            }).join('');
-            tbody.innerHTML = html;
-        }
-
-        function updateStatsRange(value) {
-            const maxVal = allDrawData.length || 1203;
-            const display = value >= maxVal ? `전체(${maxVal})` : value;
-            document.getElementById('statsRangeDisplay').textContent = display;
-            const slider = document.getElementById('statsRangeSlider');
-            if (slider) {
-                const percent = ((value - 10) / (maxVal - 10)) * 100;
-                slider.style.setProperty('--value-percent', percent + '%');
-            }
-            loadStatsData(parseInt(value));
-        }
-
-        function setStatsRange(value) {
-            const maxVal = allDrawData.length || 1203;
-            const safeValue = value > maxVal ? maxVal : value;
-            document.getElementById('statsRangeSlider').value = safeValue;
-            updateStatsRange(safeValue);
-        }
-
-        // ==========================================================
-        // [AI 분석 엔진] common_v2.js + 로컬 AI (소수 전용)
-        // ==========================================================
-        async function submitCustomAIAnalysis() {
-            const inputEl = document.getElementById('aiUserPrompt');
-            const userPrompt = inputEl.value.trim();
-            if (!userPrompt) {
-                alert("질문을 입력하거나 퀵 버튼을 선택해주세요.");
-                return;
+                }).join('');
+                tbody.innerHTML = html;
             }
 
-            if (window.nlpProcessor) {
-                const result = window.nlpProcessor.process(userPrompt);
-                if (result.intent === 'navigate') {
-                    highlightRecentTenRows(); // Simple highlight logic
+            function updateStatsRange(value) {
+                const maxVal = allDrawData.length || 1203;
+                const display = value >= maxVal ? `전체(${maxVal})` : value;
+                document.getElementById('statsRangeDisplay').textContent = display;
+                const slider = document.getElementById('statsRangeSlider');
+                if (slider) {
+                    const percent = ((value - 10) / (maxVal - 10)) * 100;
+                    slider.style.setProperty('--value-percent', percent + '%');
                 }
+                loadStatsData(parseInt(value));
             }
 
-            openQnaModal();
-            const qnaContent = document.getElementById('aiQnaContent');
-            if (!qnaContent) return;
-
-            // Add to Memory
-            chatHistory.push({ role: 'user', text: userPrompt });
-
-            qnaContent.innerHTML += `<div class="flex justify-end mb-4"><div class="bg-blue-600 text-white px-4 py-2 rounded-2xl shadow-sm text-base">${userPrompt}</div></div>`;
-            const uniqueId = 'ai-res-' + Date.now();
-            qnaContent.innerHTML += `<div class="flex mb-4"><div class="w-7 h-7 rounded-full bg-blue-500 flex items-center justify-center text-white text-[10px] mr-2 flex-shrink-0">AI</div><div id="${uniqueId}" class="bg-white border text-gray-800 px-4 py-2 rounded-2xl shadow-sm text-base min-h-[40px] flex-1"></div></div>`;
-
-            // [Modified] Rich Data Context for Custom Analysis
-            const subjectRound = allDrawData[0]?.round || 0;
-            const targetRound = subjectRound + 1;
-            const data = allDrawData.slice(0, currentRange);
-
-            // 1. Statistics
-            const counts = countPrimeDistribution(data);
-            const total = data.length;
-            const distribution = Object.entries(counts).map(([r, c]) => `${r}개(${(c / total * 100).toFixed(1)}%)`).join(', ');
-
-            // 2. Recent Trends (Last 10)
-            const recent10 = allDrawData.slice(0, 10).map(d => `${d.round}회:${d.primeCount}개`).join(', ');
-
-            // 3. Current State Specifics (Gaps)
-            let lowGap = 0;
-            for (let i = 0; i < allDrawData.length; i++) {
-                if (allDrawData[i].primeCount <= 1) break;
-                lowGap++;
+            function setStatsRange(value) {
+                const maxVal = allDrawData.length || 1203;
+                const safeValue = value > maxVal ? maxVal : value;
+                document.getElementById('statsRangeSlider').value = safeValue;
+                updateStatsRange(safeValue);
             }
 
-            const richContext = `
+            // ==========================================================
+            // [AI 분석 엔진] common_v2.js + 로컬 AI (소수 전용)
+            // ==========================================================
+            async function submitCustomAIAnalysis() {
+                const inputEl = document.getElementById('aiUserPrompt');
+                const userPrompt = inputEl.value.trim();
+                if (!userPrompt) {
+                    alert("질문을 입력하거나 퀵 버튼을 선택해주세요.");
+                    return;
+                }
+
+                if (window.nlpProcessor) {
+                    const result = window.nlpProcessor.process(userPrompt);
+                    if (result.intent === 'navigate') {
+                        highlightRecentTenRows(); // Simple highlight logic
+                    }
+                }
+
+                openQnaModal();
+                const qnaContent = document.getElementById('aiQnaContent');
+                if (!qnaContent) return;
+
+                // Add to Memory
+                chatHistory.push({ role: 'user', text: userPrompt });
+
+                qnaContent.innerHTML += `<div class="flex justify-end mb-4"><div class="bg-blue-600 text-white px-4 py-2 rounded-2xl shadow-sm text-base">${userPrompt}</div></div>`;
+                const uniqueId = 'ai-res-' + Date.now();
+                qnaContent.innerHTML += `<div class="flex mb-4"><div class="w-7 h-7 rounded-full bg-blue-500 flex items-center justify-center text-white text-[10px] mr-2 flex-shrink-0">AI</div><div id="${uniqueId}" class="bg-white border text-gray-800 px-4 py-2 rounded-2xl shadow-sm text-base min-h-[40px] flex-1"></div></div>`;
+
+                // [Modified] Rich Data Context for Custom Analysis
+                const subjectRound = allDrawData[0]?.round || 0;
+                const targetRound = subjectRound + 1;
+                const data = allDrawData.slice(0, currentRange);
+
+                // 1. Statistics
+                const counts = countPrimeDistribution(data);
+                const total = data.length;
+                const distribution = Object.entries(counts).map(([r, c]) => `${r}개(${(c / total * 100).toFixed(1)}%)`).join(', ');
+
+                // 2. Recent Trends (Last 10)
+                const recent10 = allDrawData.slice(0, 10).map(d => `${d.round}회:${d.primeCount}개`).join(', ');
+
+                // 3. Current State Specifics (Gaps)
+                let lowGap = 0;
+                for (let i = 0; i < allDrawData.length; i++) {
+                    if (allDrawData[i].primeCount <= 1) break;
+                    lowGap++;
+                }
+
+                const richContext = `
 # [소수 출현 성문화 데이터]
 - 분석 기준: ${currentRange}회차 범위
 - 분포 비율: ${distribution}
@@ -1686,63 +1685,63 @@
 - 이론적 기대치 대비 편차 분석 필요
             `;
 
-            const memoryStr = chatHistory.slice(-6).map(m => `${m.role.toUpperCase()}: ${m.text || m.content}`).join('\n');
+                const memoryStr = chatHistory.slice(-6).map(m => `${m.role.toUpperCase()}: ${m.text || m.content}`).join('\n');
 
-            await executeLocalAIAnalysis({
-                containerId: uniqueId,
-                subjectRound: subjectRound,
-                targetRound: targetRound,
-                userPrompt: userPrompt,
-                contextData: richContext + `\n\n[Chat History]\n${memoryStr}`
-            });
+                await executeLocalAIAnalysis({
+                    containerId: uniqueId,
+                    subjectRound: subjectRound,
+                    targetRound: targetRound,
+                    userPrompt: userPrompt,
+                    contextData: richContext + `\n\n[Chat History]\n${memoryStr}`
+                });
 
-            qnaContent.scrollTop = qnaContent.scrollHeight;
-            inputEl.value = '';
-        }
+                qnaContent.scrollTop = qnaContent.scrollHeight;
+                inputEl.value = '';
+            }
 
-        async function submitModalFollowUp() {
-            const input = document.getElementById('aiModalInput');
-            if (!input) return;
-            const val = input.value.trim();
-            if (!val) return;
+            async function submitModalFollowUp() {
+                const input = document.getElementById('aiModalInput');
+                if (!input) return;
+                const val = input.value.trim();
+                if (!val) return;
 
-            const qnaContent = document.getElementById('aiQnaContent');
-            if (!qnaContent) return;
+                const qnaContent = document.getElementById('aiQnaContent');
+                if (!qnaContent) return;
 
-            chatHistory.push({ role: 'user', content: val });
+                chatHistory.push({ role: 'user', content: val });
 
-            qnaContent.innerHTML += `
+                qnaContent.innerHTML += `
                 <div class="flex justify-end mb-4">
                     <div class="bg-blue-600 text-white px-4 py-2 rounded-2xl shadow-sm text-base max-w-xs break-words">${val}</div>
                 </div>
             `;
-            const uniqueId = 'ai-res-' + Date.now();
-            qnaContent.innerHTML += `
+                const uniqueId = 'ai-res-' + Date.now();
+                qnaContent.innerHTML += `
                 <div class="flex mb-4">
                     <div class="w-7 h-7 rounded-full bg-blue-500 flex items-center justify-center text-white text-[10px] mr-2 flex-shrink-0">AI</div>
                     <div id="${uniqueId}" class="bg-white border text-gray-800 px-4 py-2 rounded-2xl shadow-sm text-base min-h-[40px] flex-1"></div>
                 </div>
             `;
 
-            input.value = '';
+                input.value = '';
 
-            const subjectRound = allDrawData[0]?.round || 0;
-            const targetRound = subjectRound + 1;
+                const subjectRound = allDrawData[0]?.round || 0;
+                const targetRound = subjectRound + 1;
 
-            const recentData = allDrawData.slice(0, 30);
-            const recentContext = buildRecentPrimeContext(recentData);
+                const recentData = allDrawData.slice(0, 30);
+                const recentContext = buildRecentPrimeContext(recentData);
 
-            const olderData = allDrawData.slice(30);
-            const olderSummary = buildOlderPrimeSummary(olderData);
+                const olderData = allDrawData.slice(30);
+                const olderSummary = buildOlderPrimeSummary(olderData);
 
-            const statusContext = buildPrimeStatusContext();
-            const metricsContext = buildPrimeMetrics();
+                const statusContext = buildPrimeStatusContext();
+                const metricsContext = buildPrimeMetrics();
 
-            const memoryStr = chatHistory.slice(-6).map(m =>
-                `${m.role.toUpperCase()}: ${m.content}`
-            ).join('\n');
+                const memoryStr = chatHistory.slice(-6).map(m =>
+                    `${m.role.toUpperCase()}: ${m.content}`
+                ).join('\n');
 
-            const fullContext = `
+                const fullContext = `
 [최근 30회 소수 출현]
 ${recentContext}
 
@@ -1762,30 +1761,30 @@ ${memoryStr}
 ${val}
             `;
 
-            await executeLocalAIAnalysis({
-                containerId: uniqueId,
-                subjectRound,
-                targetRound,
-                userPrompt: val,
-                contextData: fullContext
-            });
+                await executeLocalAIAnalysis({
+                    containerId: uniqueId,
+                    subjectRound,
+                    targetRound,
+                    userPrompt: val,
+                    contextData: fullContext
+                });
 
-            qnaContent.scrollTop = qnaContent.scrollHeight;
-        }
+                qnaContent.scrollTop = qnaContent.scrollHeight;
+            }
 
-        async function executeLocalAIAnalysis(params) {
-            const { containerId, subjectRound, targetRound, userPrompt, contextData } = params;
-            const container = document.getElementById(containerId);
-            if (container) {
-                container.innerHTML = `
+            async function executeLocalAIAnalysis(params) {
+                const { containerId, subjectRound, targetRound, userPrompt, contextData } = params;
+                const container = document.getElementById(containerId);
+                if (container) {
+                    container.innerHTML = `
                     <div class="flex items-center gap-3 p-2 text-gray-500">
                         <div class="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
                         <span class="text-xs">AI 소수 분석 중...</span>
                     </div>`;
-            }
+                }
 
-            try {
-                const prompt = `
+                try {
+                    const prompt = `
 # Role: 로또 소수 분석 전문가
 # Target: ${targetRound}회차 전략
 # Context: ${contextData}
@@ -1795,108 +1794,108 @@ ${val}
 2. 중요 키워드는 {{trend:내용}}, {{pattern:내용}}, {{recommendation:내용}} 태그로 감싸시오. (한글 태그)
 3. 오직 순수 JSON 포맷 {"response": "질문에 대한 전체 답변 내용"} 으로만 응답하시오.`;
 
-                let data, error;
-                if (window.AIProxy) {
-                    try {
-                        data = await window.AIProxy.invoke({
-                            prompt,
-                            analysisType: 'prime_number',
-                            targetRound,
-                            subjectRound,
-                            responseStyle: 'chat'
-                        });
-                    } catch (proxyErr) {
+                    let data, error;
+                    if (window.AIProxy) {
+                        try {
+                            data = await window.AIProxy.invoke({
+                                prompt,
+                                analysisType: 'prime_number',
+                                targetRound,
+                                subjectRound,
+                                responseStyle: 'chat'
+                            });
+                        } catch (proxyErr) {
+                            console.log("📡 [Fallback] 기존 Edge Function으로 요청 (AIProxy 미감지)");
+                            const result = await window.supabaseClient.functions.invoke('analyze-lotto', { body: { context: prompt } });
+                            data = result.data;
+                            error = result.error;
+                        }
+                    } else {
                         console.log("📡 [Fallback] 기존 Edge Function으로 요청 (AIProxy 미감지)");
                         const result = await window.supabaseClient.functions.invoke('analyze-lotto', { body: { context: prompt } });
                         data = result.data;
                         error = result.error;
                     }
-                } else {
-                    console.log("📡 [Fallback] 기존 Edge Function으로 요청 (AIProxy 미감지)");
-                    const result = await window.supabaseClient.functions.invoke('analyze-lotto', { body: { context: prompt } });
-                    data = result.data;
-                    error = result.error;
-                }
 
-                if (error) throw error;
+                    if (error) throw error;
 
-                let content = '';
-                if (typeof data === 'string') {
-                    try {
-                        const parsed = JSON.parse(data);
-                        content = parsed.response || parsed.recommendation || parsed.trend || data;
-                    } catch (e) {
-                        content = data;
+                    let content = '';
+                    if (typeof data === 'string') {
+                        try {
+                            const parsed = JSON.parse(data);
+                            content = parsed.response || parsed.recommendation || parsed.trend || data;
+                        } catch (e) {
+                            content = data;
+                        }
+                    } else {
+                        content = data.response || data.recommendation || data.trend || JSON.stringify(data);
                     }
-                } else {
-                    content = data.response || data.recommendation || data.trend || JSON.stringify(data);
+
+                    if (container) {
+                        container.innerHTML = `<div class="prose prose-base text-gray-900 leading-relaxed text-lg">${window.AIAnalysis ? window.AIAnalysis.formatText(content) : content}</div>`;
+                        chatHistory.push({ role: 'assistant', text: content });
+                    }
+                } catch (err) {
+                    console.error('AI Analysis Error:', err);
+                    if (container) container.innerHTML = `<div class="text-red-500 text-xs">오류 발생: ${err.message}</div>`;
+                }
+            }
+
+            async function refreshAIAnalysis() {
+                if (!allDrawData || allDrawData.length === 0) return;
+
+                // [UI 준비] 로딩 표시 시작
+                const loader = document.getElementById('aiLoadingIndicator');
+                const content = document.getElementById('aiAnalysisContent');
+                if (loader) {
+                    loader.style.display = 'flex';
+                    loader.classList.remove('opacity-0');
+                }
+                if (content) {
+                    content.classList.add('hidden');
+                    content.classList.remove('opacity-100');
                 }
 
-                if (container) {
-                    container.innerHTML = `<div class="prose prose-base text-gray-900 leading-relaxed text-lg">${window.AIAnalysis ? window.AIAnalysis.formatText(content) : content}</div>`;
-                    chatHistory.push({ role: 'assistant', text: content });
+                const subjectRound = allDrawData[0].round;
+                const targetRound = subjectRound + 1;
+
+                // [심화 데이터 추출]
+                const getAvgPrime = (range) => allDrawData.slice(0, range).reduce((a, b) => a + (b.primeCount || 0), 0) / range;
+                const avg5 = getAvgPrime(5);
+                const avg10 = getAvgPrime(10);
+                const avg20 = getAvgPrime(20);
+
+                // 표준 편차 (최근 20회)
+                const recent20 = allDrawData.slice(0, 20);
+                const mean20 = avg20;
+                const variance = recent20.reduce((s, d) => s + Math.pow((d.primeCount || 0) - mean20, 2), 0) / 20;
+                const stdDev = Math.sqrt(variance);
+
+                let lowGap = 0; // 0~1개 출현한 지 얼마나 됐는가?
+                let highStreak = 0; // 4개 이상 고출현이 얼마나 이어지고 있는가?
+
+                for (let i = 0; i < allDrawData.length; i++) {
+                    if (allDrawData[i].primeCount <= 1) break;
+                    lowGap++;
                 }
-            } catch (err) {
-                console.error('AI Analysis Error:', err);
-                if (container) container.innerHTML = `<div class="text-red-500 text-xs">오류 발생: ${err.message}</div>`;
-            }
-        }
+                for (let i = 0; i < allDrawData.length; i++) {
+                    if (allDrawData[i].primeCount < 4) break;
+                    highStreak++;
+                }
 
-        async function refreshAIAnalysis() {
-            if (!allDrawData || allDrawData.length === 0) return;
+                const targetEl = document.getElementById('aiTargetInfo');
+                if (targetEl) targetEl.textContent = `Target ${targetRound}회차 (based on ${subjectRound}회)`;
 
-            // [UI 준비] 로딩 표시 시작
-            const loader = document.getElementById('aiLoadingIndicator');
-            const content = document.getElementById('aiAnalysisContent');
-            if (loader) {
-                loader.style.display = 'flex';
-                loader.classList.remove('opacity-0');
-            }
-            if (content) {
-                content.classList.add('hidden');
-                content.classList.remove('opacity-100');
-            }
+                const recent10 = allDrawData.slice(0, 10);
+                const activeCounts = recent10.map(d => `[${d.round}회:${d.primeCount}개]`).join(', ');
 
-            const subjectRound = allDrawData[0].round;
-            const targetRound = subjectRound + 1;
-
-            // [심화 데이터 추출]
-            const getAvgPrime = (range) => allDrawData.slice(0, range).reduce((a, b) => a + (b.primeCount || 0), 0) / range;
-            const avg5 = getAvgPrime(5);
-            const avg10 = getAvgPrime(10);
-            const avg20 = getAvgPrime(20);
-
-            // 표준 편차 (최근 20회)
-            const recent20 = allDrawData.slice(0, 20);
-            const mean20 = avg20;
-            const variance = recent20.reduce((s, d) => s + Math.pow((d.primeCount || 0) - mean20, 2), 0) / 20;
-            const stdDev = Math.sqrt(variance);
-
-            let lowGap = 0; // 0~1개 출현한 지 얼마나 됐는가?
-            let highStreak = 0; // 4개 이상 고출현이 얼마나 이어지고 있는가?
-
-            for (let i = 0; i < allDrawData.length; i++) {
-                if (allDrawData[i].primeCount <= 1) break;
-                lowGap++;
-            }
-            for (let i = 0; i < allDrawData.length; i++) {
-                if (allDrawData[i].primeCount < 4) break;
-                highStreak++;
-            }
-
-            const targetEl = document.getElementById('aiTargetInfo');
-            if (targetEl) targetEl.textContent = `Target ${targetRound}회차 (based on ${subjectRound}회)`;
-
-            const recent10 = allDrawData.slice(0, 10);
-            const activeCounts = recent10.map(d => `[${d.round}회:${d.primeCount}개]`).join(', ');
-
-            if (window.AIAnalysis) {
-                await window.AIAnalysis.executeAnalysis({
-                    containerId: 'aiAnalysisContent',
-                    analysisType: '소수 패턴 정밀 분석',
-                    subjectRound: subjectRound,
-                    targetRound: targetRound,
-                    customData: `
+                if (window.AIAnalysis) {
+                    await window.AIAnalysis.executeAnalysis({
+                        containerId: 'aiAnalysisContent',
+                        analysisType: '소수 패턴 정밀 분석',
+                        subjectRound: subjectRound,
+                        targetRound: targetRound,
+                        customData: `
 # [소수 정밀 데이터]
 - 최근 10회차 흐름: ${activeCounts}
 - 이동평균(5/10/20회): ${avg5.toFixed(2)} / ${avg10.toFixed(2)} / ${avg20.toFixed(2)}
@@ -1905,7 +1904,7 @@ ${val}
 - 고출현(4개 이상) Streak: ${highStreak}회차 연속
 - 분석 범위: ${currentRange}회차
                     `,
-                    customRules: `
+                        customRules: `
 # [분석 특명: 데이터 논리(Why)]
 1. 도덕책 같은 뻔한 소리, "운에 맡기라", "확률은 변한다" 등의 의미 없는 조언은 금지하며 즉각 폐기하시오.
 2. 반드시 "왜(Why)" 그런 결론이 나왔는지 이동평균 추세(${avg5 < avg10 ? '하락세' : '상승세'})와 표준편차(${stdDev.toFixed(2)}) 데이터를 기반으로 논리적으로 설명하시오.
@@ -1913,19 +1912,19 @@ ${val}
 4. [구체적 전략]: ${targetRound}회차에서 추천하는 소수 개수 필터 범위(Min~Max)를 단호하게 지시하시오.
 5. 수치는 {{trend:내용}}, 결론은 {{recommendation:내용}} 태그를 사용하시오.
                     `
-                });
-            }
+                    });
+                }
 
-            // [UI 갱신] 로딩 완료 후 결과 표시
-            if (loader) {
-                loader.style.display = 'none';
-                loader.classList.add('opacity-0');
+                // [UI 갱신] 로딩 완료 후 결과 표시
+                if (loader) {
+                    loader.style.display = 'none';
+                    loader.classList.add('opacity-0');
+                }
+                if (content) {
+                    content.classList.remove('hidden');
+                    setTimeout(() => content.classList.add('opacity-100'), 50);
+                }
             }
-            if (content) {
-                content.classList.remove('hidden');
-                setTimeout(() => content.classList.add('opacity-100'), 50);
-            }
-        }
     </script>
 
     <!-- AI Q&A Sidebar (Floating Right) -->

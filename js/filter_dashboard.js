@@ -74,26 +74,42 @@ window.FilterDashboard = {
                 } catch (err) { }
             }
 
+            // [추가] 회귀 분석 실시간 동기화 (regression_analysis, regression_patterns 또는 lotto_period_filters)
+            if ((e.key === 'regression_analysis' || e.key === 'regression_patterns' || e.key === 'lotto_period_filters') && e.newValue) {
+                try {
+                    const newData = JSON.parse(e.newValue);
+                    // settings 또는 periodFilters 객체가 있으면 우선 사용
+                    this.state.regressionSettings = newData.settings || (newData.periodFilters ? newData.periodFilters : newData);
+                    this.state.regressionEnabled = newData.enabled !== undefined ? newData.enabled : true;
+                    this.renderUI();
+                    return;
+                } catch (err) { }
+            }
+
             // [핵심] localStorage 변경값을 state에 즉시 병합 후 UI 갱신
-            // DB 재조회보다 빠르고, DB 저장 타이밍 차이도 해소됨
             if (e.newValue && e.key !== 'lotto_basket') {
                 try {
                     const newData = JSON.parse(e.newValue);
-                    // foundationFilters에서 해당 key의 def를 찾아 userSettings 업데이트
                     const def = this.state.foundationFilters.find(d => d.filter_key === e.key);
                     if (def && this.state.userSettings[def.id]) {
-                        const { enabled, _ts, ...settings } = newData;
-                        if (enabled !== undefined) this.state.userSettings[def.id].enabled = enabled;
-                        if (Object.keys(settings).length > 0) {
-                            this.state.userSettings[def.id].settings = {
-                                ...this.state.userSettings[def.id].settings,
-                                ...settings
-                            };
+                        // 중첩 구조 {settings, enabled} 또는 평탄 구조 {enabled, ...settings} 대응
+                        if (newData.settings !== undefined) {
+                            this.state.userSettings[def.id].settings = newData.settings;
+                            this.state.userSettings[def.id].enabled = newData.enabled !== false;
+                        } else {
+                            const { enabled, _ts, ...settings } = newData;
+                            if (enabled !== undefined) this.state.userSettings[def.id].enabled = enabled;
+                            if (Object.keys(settings).length > 0) {
+                                this.state.userSettings[def.id].settings = {
+                                    ...this.state.userSettings[def.id].settings,
+                                    ...settings
+                                };
+                            }
                         }
                         this.renderUI();
-                        return; // DB 재조회 없이 완료
+                        return;
                     }
-                } catch (err) { /* JSON 파싱 실패 시 DB 재조회로 폴백 */ }
+                } catch (err) { }
             }
 
             // 폴백: DB에서 전체 재조회
@@ -1157,12 +1173,12 @@ window.FilterDashboard = {
                             <div class="flex items-center gap-1.5 shrink-0">
                                 <span class="text-[10px] text-slate-400 font-bold uppercase">Min</span>
                                 <input type="number" min="0" max="6" value="${minVal}"
-                                    onchange="FilterDashboard.updateMissingPeriodFilter('${def.id}', '${g.minKey}', this.value)"
+                                    oninput="FilterDashboard.updateMissingPeriodFilter('${def.id}', '${g.minKey}', this.value)"
                                     class="w-10 h-7 text-center text-xs font-black text-slate-700 bg-white border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 p-0 shadow-sm">
                                 <span class="text-slate-300 font-bold">~</span>
                                 <span class="text-[10px] text-slate-400 font-bold uppercase">Max</span>
                                 <input type="number" min="0" max="6" value="${maxVal}"
-                                    onchange="FilterDashboard.updateMissingPeriodFilter('${def.id}', '${g.maxKey}', this.value)"
+                                    oninput="FilterDashboard.updateMissingPeriodFilter('${def.id}', '${g.maxKey}', this.value)"
                                     class="w-10 h-7 text-center text-xs font-black text-slate-700 bg-white border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 p-0 shadow-sm">
                             </div>
                         </div>
@@ -1458,7 +1474,7 @@ window.FilterDashboard = {
                         </button>
                         <label class="relative inline-flex items-center cursor-pointer">
                             <input type="checkbox" class="sr-only peer" ${userSet.enabled ? 'checked' : ''} onchange="FilterDashboard.toggleSetting('${def.id}', this.checked)">
-                            <div class="w-10 h-5 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-4 after:w-4 transition-all ${toggleColor}"></div>
+                            <div class="w-10 h-5 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-4 after:w-4 transition-all peer-checked:bg-indigo-600"></div>
                         </label>
                     </div>
                 </div>
@@ -1501,11 +1517,11 @@ window.FilterDashboard = {
                 <div class="flex items-center justify-end">
                     <div class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-1.5 shadow-sm focus-within:ring-2 focus-within:ring-emerald-500">
                         <input type="number" value="${rData.min}" 
-                            onchange="FilterDashboard.updateRegressionRange(${i}, 'min', this.value)"
+                            oninput="FilterDashboard.updateRegressionRange(${i}, 'min', this.value)"
                             class="w-12 text-center font-black text-emerald-600 bg-transparent border-none p-0 focus:ring-0 text-base">
                         <span class="text-slate-300 font-bold">~</span>
                         <input type="number" value="${rData.max}" 
-                            onchange="FilterDashboard.updateRegressionRange(${i}, 'max', this.value)"
+                            oninput="FilterDashboard.updateRegressionRange(${i}, 'max', this.value)"
                             class="w-12 text-center font-black text-emerald-600 bg-transparent border-none p-0 focus:ring-0 text-base">
                     </div>
                 </div>
@@ -1616,7 +1632,7 @@ window.FilterDashboard = {
         if (this._mcSaveTimer) clearTimeout(this._mcSaveTimer);
         this._mcSaveTimer = setTimeout(async () => {
             const def = this.state.foundationFilters.find(d => d.id === defId);
-            if (def && window.filterService?.initialized) {
+            if (def && window.Utils && window.Utils.saveFilter) {
                 await window.Utils.saveFilter(def.filter_key, userSet.settings, userSet.enabled);
             }
             this.updateNeonCounter();
@@ -1755,8 +1771,12 @@ window.FilterDashboard = {
         userSet.settings.targetRound = this.state.allDraws && this.state.allDraws.length > 0 ? this.state.allDraws[0].round : null;
 
         const def = this.state.foundationFilters.find(f => f.id === id);
-        if (def && window.filterService?.initialized) {
-            await window.Utils.saveFilter(def.filter_key, userSet.settings, userSet.enabled);
+        if (def) {
+            if (window.Utils && window.Utils.saveFilter) {
+                await window.Utils.saveFilter(def.filter_key, userSet.settings, userSet.enabled);
+            } else if (window.filterService?.initialized) {
+                await window.filterService.saveSetting(def.filter_key, userSet.settings, userSet.enabled);
+            }
         }
         this.renderFoundationFilters();
         this.updateNeonCounter();
@@ -1771,14 +1791,13 @@ window.FilterDashboard = {
         userSet.settings.filters[digit][type] = parseInt(value);
         userSet.settings.recent10FilterActive = false;
 
-        // ✅ localStorage 즉시 백업 (DB 저장 실패/지연 시에도 새로고침 후 복구)
-        try {
-            localStorage.setItem('tail_digit_patterns', JSON.stringify(userSet.settings));
-        } catch (e) { }
-
         const def = this.state.foundationFilters.find(f => f.id === id);
-        if (def && window.filterService?.initialized) {
-            await window.Utils.saveFilter(def.filter_key, userSet.settings, userSet.enabled);
+        if (def) {
+            if (window.Utils && window.Utils.saveFilter) {
+                await window.Utils.saveFilter(def.filter_key, userSet.settings, userSet.enabled);
+            } else if (window.filterService?.initialized) {
+                await window.filterService.saveSetting(def.filter_key, userSet.settings, userSet.enabled);
+            }
         }
         this.renderFoundationFilters();
         this.updateNeonCounter();
@@ -1788,10 +1807,12 @@ window.FilterDashboard = {
         const userSet = this.state.userSettings[id];
         if (!userSet) return;
 
-        // \ubc30\uc5f4 \ud3ec\ub9f7 \uc5c5\ub370\uc774\ud2b8 (\ub300\uc2dc\ubcf4\ub4dc \uc800\uc7a5\ud615)\n        if (!userSet.settings[field]) userSet.settings[field] = [0, 6];
+        // 배열 포맷 업데이트 (대시보드 저장형)
+        if (!userSet.settings[field]) userSet.settings[field] = [0, 6];
         userSet.settings[field][index] = parseInt(value);
 
-        // periodFilter flat \ud3ec\ub9f7\ub3c4 \ud568\uaed8 \uc800\uc7a5 (hot_cold.html \ud638\ud658\uc131)\n        const hr = userSet.settings.hotRange  || [0, 6];
+        // periodFilter flat 포맷도 함께 저장 (hot_cold.html 호환성)
+        const hr = userSet.settings.hotRange || [0, 6];
         const wr = userSet.settings.warmRange || [0, 6];
         const cr = userSet.settings.coldRange || [0, 6];
         userSet.settings.periodFilter = {
@@ -1801,8 +1822,12 @@ window.FilterDashboard = {
         };
 
         const def = this.state.foundationFilters.find(f => f.id === id);
-        if (def && window.filterService?.initialized) {
-            await window.Utils.saveFilter(def.filter_key, userSet.settings, userSet.enabled);
+        if (def) {
+            if (window.Utils && window.Utils.saveFilter) {
+                await window.Utils.saveFilter(def.filter_key, userSet.settings, userSet.enabled);
+            } else if (window.filterService?.initialized) {
+                await window.filterService.saveSetting(def.filter_key, userSet.settings, userSet.enabled);
+            }
         }
         this.renderFoundationFilters();
         this.updateNeonCounter();
@@ -1841,8 +1866,12 @@ window.FilterDashboard = {
         }
 
         const def = this.state.foundationFilters.find(f => f.id === id);
-        if (def && window.filterService?.initialized) {
-            await window.Utils.saveFilter(def.filter_key, userSet.settings, userSet.enabled);
+        if (def) {
+            if (window.Utils && window.Utils.saveFilter) {
+                await window.Utils.saveFilter(def.filter_key, userSet.settings, userSet.enabled);
+            } else if (window.filterService?.initialized) {
+                await window.filterService.saveSetting(def.filter_key, userSet.settings, userSet.enabled);
+            }
         }
         this.renderFoundationFilters();
         this.updateNeonCounter();
@@ -1855,8 +1884,12 @@ window.FilterDashboard = {
         userSet.settings.ranges[rangeKey] = parseInt(value);
 
         const def = this.state.foundationFilters.find(f => f.id === id);
-        if (def && window.filterService?.initialized) {
-            await window.Utils.saveFilter(def.filter_key, userSet.settings, userSet.enabled);
+        if (def) {
+            if (window.Utils && window.Utils.saveFilter) {
+                await window.Utils.saveFilter(def.filter_key, userSet.settings, userSet.enabled);
+            } else if (window.filterService?.initialized) {
+                await window.filterService.saveSetting(def.filter_key, userSet.settings, userSet.enabled);
+            }
         }
         this.renderFoundationFilters();
         this.updateNeonCounter();
@@ -1869,7 +1902,9 @@ window.FilterDashboard = {
         this.state.regressionSettings[step].enabled = !current;
         this.state.regressionEnabled = true;
 
-        if (window.filterService?.initialized) {
+        if (window.Utils && window.Utils.saveFilter) {
+            await window.Utils.saveFilter('regression_analysis', this.state.regressionSettings, true);
+        } else if (window.filterService?.initialized) {
             await window.filterService.saveSetting('regression_analysis', this.state.regressionSettings, true);
         }
         this.renderRegressionFilters();
@@ -1883,9 +1918,12 @@ window.FilterDashboard = {
 
         if (this._regSaveTimer) clearTimeout(this._regSaveTimer);
         this._regSaveTimer = setTimeout(async () => {
-            if (window.filterService?.initialized) {
-                // 회귀분석 덩어리 전체를 저장
-                await window.filterService.saveSetting('regression_analysis', this.state.regressionSettings, this.state.regressionEnabled !== false);
+            const isOn = this.state.regressionEnabled !== false;
+            // [수정] Utils.saveFilter를 사용하여 실시간 동기화(storage 이벤트) 트리거
+            if (window.Utils && window.Utils.saveFilter) {
+                await window.Utils.saveFilter('regression_analysis', this.state.regressionSettings, isOn);
+            } else if (window.filterService?.initialized) {
+                await window.filterService.saveSetting('regression_analysis', this.state.regressionSettings, isOn);
             }
             this.updateNeonCounter();
         }, 500);
@@ -1900,11 +1938,9 @@ window.FilterDashboard = {
             if (window.supabaseClient) {
                 await window.supabaseClient.from('ai_custom_analyses').update({ filter_config: conf, updated_at: new Date().toISOString() }).eq('id', id);
             }
-            // [추가] 실시간 동기화를 위한 localStorage 저장
+            // [수정] 실시간 동기화를 위한 Utils.saveFilter 사용 (표준화)
             if (window.Utils && window.Utils.saveFilter) {
-                window.Utils.saveFilter(`custom_filter_${id}`, conf);
-            } else {
-                localStorage.setItem(`custom_filter_${id}`, JSON.stringify(conf));
+                await window.Utils.saveFilter(`custom_filter_${id}`, conf);
             }
             this.renderCustomFilters();
             this.updateNeonCounter();
@@ -1927,9 +1963,7 @@ window.FilterDashboard = {
 
         // localStorage 저장 (실시간 동기화용)
         if (window.Utils && window.Utils.saveFilter) {
-            window.Utils.saveFilter(`custom_filter_${id}`, conf);
-        } else {
-            localStorage.setItem(`custom_filter_${id}`, JSON.stringify(conf));
+            await window.Utils.saveFilter(`custom_filter_${id}`, conf);
         }
 
         this.updateNeonCounter();
@@ -1941,7 +1975,9 @@ window.FilterDashboard = {
             if (!this.state.regressionSettings[i]) this.state.regressionSettings[i] = { enabled: isOn, min: 0, max: 2 };
             else this.state.regressionSettings[i].enabled = isOn;
         }
-        if (window.filterService?.initialized) {
+        if (window.Utils && window.Utils.saveFilter) {
+            await window.Utils.saveFilter('regression_analysis', this.state.regressionSettings, isOn);
+        } else if (window.filterService?.initialized) {
             await window.filterService.saveSetting('regression_analysis', this.state.regressionSettings, isOn);
         }
         this.renderRegressionFilters();

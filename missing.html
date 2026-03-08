@@ -40,14 +40,14 @@
                 useCustomFilter: document.getElementById('customFilterToggle').checked,
                 targetRound: targetRound,
                 ranges: {
-                    r1Min: document.getElementById('range1Min').value,
-                    r1Max: document.getElementById('range1Max').value,
-                    r2Min: document.getElementById('range2Min').value,
-                    r2Max: document.getElementById('range2Max').value,
-                    r3Min: document.getElementById('range3Min').value,
-                    r3Max: document.getElementById('range3Max').value,
-                    r4Min: document.getElementById('range4Min').value,
-                    r4Max: document.getElementById('range4Max').value
+                    r1Min: parseInt(document.getElementById('range1Min').value) || 0,
+                    r1Max: parseInt(document.getElementById('range1Max').value) || 6,
+                    r2Min: parseInt(document.getElementById('range2Min').value) || 0,
+                    r2Max: parseInt(document.getElementById('range2Max').value) || 6,
+                    r3Min: parseInt(document.getElementById('range3Min').value) || 0,
+                    r3Max: parseInt(document.getElementById('range3Max').value) || 6,
+                    r4Min: parseInt(document.getElementById('range4Min').value) || 0,
+                    r4Max: parseInt(document.getElementById('range4Max').value) || 6
                 }
             };
             const enabled = data.useRangeFilter;
@@ -61,6 +61,7 @@
         // [수정] 필터 설정 불러오기 함수 - 새 회차 시 자동 최근 10회차 기본값 적용
         async function loadFilterSettings() {
             let saved = null;
+            let enabled = true;
             const currentRound = (allData && allData.length > 0) ? allData[0].round : null;
 
             // 공통 Utils를 통해 DB 및/또는 localStorage에서 로드
@@ -73,37 +74,42 @@
                         return false;
                     }
                     saved = data.settings;
+                    enabled = data.enabled !== false;
                 } else if (data) {
-                    // DB 설정 없이 localStorage에서만 로드된 경우 (기존 호환성)
                     if (data.targetRound && currentRound && data.targetRound !== currentRound) {
                         return false;
                     }
                     saved = data;
+                    enabled = data.enabled !== false;
                 }
             }
 
             if (saved) {
                 const rangeToggle = document.getElementById('rangeFilterToggle');
                 if (rangeToggle) {
-                    rangeToggle.checked = saved.useRangeFilter;
-                    if (typeof useRangeFilter !== 'undefined') useRangeFilter = saved.useRangeFilter;
+                    rangeToggle.checked = enabled;
+                    useRangeFilter = enabled;
                 }
 
                 const customToggle = document.getElementById('customFilterToggle');
                 if (customToggle) {
-                    customToggle.checked = saved.useCustomFilter;
-                    if (typeof useCustomFilter !== 'undefined') useCustomFilter = saved.useCustomFilter;
+                    // 커스텀 필터는 별도로 관리되나, 여기서는 동기화 상태만 반영
+                    if (saved.useCustomFilter !== undefined) {
+                        customToggle.checked = saved.useCustomFilter;
+                        useCustomFilter = saved.useCustomFilter;
+                    }
                 }
 
                 if (saved.ranges) {
-                    if (document.getElementById('range1Min')) document.getElementById('range1Min').value = saved.ranges.r1Min;
-                    if (document.getElementById('range1Max')) document.getElementById('range1Max').value = saved.ranges.r1Max;
-                    if (document.getElementById('range2Min')) document.getElementById('range2Min').value = saved.ranges.r2Min;
-                    if (document.getElementById('range2Max')) document.getElementById('range2Max').value = saved.ranges.r2Max;
-                    if (document.getElementById('range3Min')) document.getElementById('range3Min').value = saved.ranges.r3Min;
-                    if (document.getElementById('range3Max')) document.getElementById('range3Max').value = saved.ranges.r3Max;
-                    if (document.getElementById('range4Min')) document.getElementById('range4Min').value = saved.ranges.r4Min;
-                    if (document.getElementById('range4Max')) document.getElementById('range4Max').value = saved.ranges.r4Max;
+                    const r = saved.ranges;
+                    if (document.getElementById('range1Min')) document.getElementById('range1Min').value = r.r1Min ?? 0;
+                    if (document.getElementById('range1Max')) document.getElementById('range1Max').value = r.r1Max ?? 6;
+                    if (document.getElementById('range2Min')) document.getElementById('range2Min').value = r.r2Min ?? 0;
+                    if (document.getElementById('range2Max')) document.getElementById('range2Max').value = r.r2Max ?? 6;
+                    if (document.getElementById('range3Min')) document.getElementById('range3Min').value = r.r3Min ?? 0;
+                    if (document.getElementById('range3Max')) document.getElementById('range3Max').value = r.r3Max ?? 6;
+                    if (document.getElementById('range4Min')) document.getElementById('range4Min').value = r.r4Min ?? 0;
+                    if (document.getElementById('range4Max')) document.getElementById('range4Max').value = r.r4Max ?? 6;
                 }
                 return true;
             }
@@ -321,7 +327,16 @@
             font-weight: 600;
             color: #475569;
             min-width: 80px;
-            /* Width increased */
+        }
+
+        /* [추가] 헤더 행의 회차 셀은 위와 왼쪽 모두 고정되어야 함 */
+        .pretty-table thead th.sticky-col {
+            top: 0;
+            z-index: 50;
+            background-color: #1e293b;
+            /* Slate-800 */
+            color: white;
+            border-right-color: #334155;
         }
 
         /* 뱃지 스타일 */
@@ -1798,6 +1813,26 @@
                     // 10회차 하이라이트 상태 복구
                     if (highlightStartIndex !== null && index >= highlightStartIndex && index < highlightStartIndex + 10) {
                         tr.classList.add('row-highlight');
+                    }
+
+                    // [추가] 실시간 필터링 적용 (조건을 만족하지 않으면 숨김)
+                    if (useRangeFilter) {
+                        const r1 = parseInt(document.getElementById('range1Min').value) || 0;
+                        const r1m = parseInt(document.getElementById('range1Max').value) || 6;
+                        const r2 = parseInt(document.getElementById('range2Min').value) || 0;
+                        const r2m = parseInt(document.getElementById('range2Max').value) || 6;
+                        const r3 = parseInt(document.getElementById('range3Min').value) || 0;
+                        const r3m = parseInt(document.getElementById('range3Max').value) || 6;
+                        const r4 = parseInt(document.getElementById('range4Min').value) || 0;
+                        const r4m = parseInt(document.getElementById('range4Max').value) || 6;
+
+                        const isMatch = (
+                            hitCounts[1] >= r1 && hitCounts[1] <= r1m &&
+                            hitCounts[2] >= r2 && hitCounts[2] <= r2m &&
+                            hitCounts[3] >= r3 && hitCounts[3] <= r3m &&
+                            hitCounts[4] >= r4 && hitCounts[4] <= r4m
+                        );
+                        if (!isMatch) return; // 필터 조건을 만족하지 않으면 건너뜀
                     }
 
                     const numberBalls = draw.numbers.map(num => {

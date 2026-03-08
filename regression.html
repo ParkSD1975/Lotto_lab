@@ -52,12 +52,17 @@
             // DB에서 로드 (FilterService 사용)
             if (window.filterService && window.filterService.initialized) {
                 const data = await window.filterService.loadSetting('regression_analysis');
-                if (data && data.settings) {
-                    periodFilters = data.settings;
-                    return data.savedRound || 0;
-                } else if (data && Object.keys(data).length > 0) { // 호환성
-                    periodFilters = data;
-                    return 0;
+                if (data) {
+                    // FilterService returns the whole payload {settings, enabled, savedRound, ...}
+                    periodFilters = data.settings || (data.periodFilters ? data.periodFilters : {});
+                    if (data.settings === undefined && !data.periodFilters) periodFilters = data;
+
+                    const masterEnabled = data.enabled !== undefined ? data.enabled : true;
+                    const toggle = document.getElementById('filterToggle');
+                    if (toggle) toggle.checked = masterEnabled;
+
+                    // savedRound가 settings 바깥에 있는지 확인
+                    return data.savedRound || (data.settings && data.settings.savedRound) || 0;
                 }
             }
 
@@ -66,10 +71,11 @@
             if (dashSaved) {
                 try {
                     const parsed = JSON.parse(dashSaved);
-                    if (parsed.settings) {
-                        periodFilters = parsed.settings;
-                        return parsed.savedRound || 0;
-                    }
+                    periodFilters = parsed.settings || (parsed.periodFilters ? parsed.periodFilters : parsed);
+                    const masterEnabled = parsed.enabled !== undefined ? parsed.enabled : true;
+                    const toggle = document.getElementById('filterToggle');
+                    if (toggle) toggle.checked = masterEnabled;
+                    return parsed.savedRound || 0;
                 } catch (e) { }
             }
 
@@ -88,22 +94,37 @@
 
         // [수정] 전체 필터 데이터 저장 (DB 연동 및 회차 저장 추가)
         async function savePeriodFilters() {
-            const enabled = document.getElementById('filterToggle')?.checked ?? true;
+            // 마스터 토글 상태와 개별 필터 설정은 별개로 관리되어야 하지만,
+            // Utils.saveFilter('regression_analysis', ...) 호출 시 세 번째 인자가
+            // 대시보드의 '카테고리 전체 ON/OFF'를 결정하므로, 여기서는 무조건 true 혹은 
+            // 현재 대시보드의 마스터 상태를 유지해야 합니다.
+            // 분석 페이지 상단의 '필터 적용' 체크박스가 마스터 역할을 한다고 가정합니다.
+            const isMasterEnabled = document.getElementById('filterToggle')?.checked ?? true;
+
+            // [핵심] 개별 회귀 단계의 enabled 상태는 periodFilters[step].enabled에 저장되어 있음
+            // 이 함수는 '카테고리 마스터 상태'를 포함하여 전체 설정을 저장하는 용도입니다.
+
             // DB 저장 (FilterService 사용)
             if (window.filterService && window.filterService.initialized) {
-                // [키값 통일] regression_analysis로 저장
                 console.log('💾 Supabase 저장: regression_analysis', periodFilters);
-                await window.filterService.saveSetting('regression_analysis', periodFilters, enabled);
+                await window.filterService.saveSetting('regression_analysis', periodFilters, isMasterEnabled);
             }
 
-            // [수정] 공통 Utils를 통해 DB 및 localStorage 동시 저장 (실시간 동기화 'storage' 이벤트 트리거)
+            // [수정] 공통 Utils를 통해 DB 및 localStorage 동시 저장 (savedRound 포함)
             if (window.Utils && window.Utils.saveFilter) {
-                await window.Utils.saveFilter('regression_analysis', periodFilters, enabled);
+                await window.Utils.saveFilter('regression_analysis', periodFilters, isMasterEnabled, { savedRound: targetRound });
             } else {
                 // Fallback: localStorage
                 localStorage.setItem('lotto_period_filters', JSON.stringify(periodFilters));
-                // 대시보드 호환성 및 회차 관리 위해 추가 저장
-                localStorage.setItem('regression_analysis', JSON.stringify({ settings: periodFilters, savedRound: targetRound, enabled: enabled }));
+                localStorage.setItem('regression_analysis', JSON.stringify({
+                    settings: periodFilters,
+                    savedRound: targetRound,
+                    enabled: isMasterEnabled
+                }));
+                localStorage.setItem('regression_patterns', JSON.stringify({
+                    settings: periodFilters,
+                    enabled: isMasterEnabled
+                }));
             }
         }
 
@@ -114,8 +135,8 @@
             const toggle = document.getElementById('filterToggle');
 
             const data = {
-                min: minInput ? parseInt(minInput.value) : 1,
-                max: maxInput ? parseInt(maxInput.value) : 6,
+                min: minInput ? parseInt(minInput.value || 0) : 1,
+                max: maxInput ? parseInt(maxInput.value || 6) : 6,
                 enabled: toggle ? toggle.checked : true
             };
 
@@ -124,6 +145,12 @@
             savePeriodFilters();
 
             console.log(`필터 저장 완료 [Step: ${regressionStep}]`, data);
+        }
+
+        // [추가] UI에서 호출하는 통합 필터 적용 함수
+        function applyFilter() {
+            saveFilterSettings();
+            updateAll(); // 렌더링 즉시 반영
         }
 
         // [수정됨] 현재 회귀 단계의 필터 설정 불러오기
@@ -135,13 +162,22 @@
                 const maxInput = document.getElementById('filterMax');
                 const toggle = document.getElementById('filterToggle');
 
-                if (minInput) minInput.value = saved.min;
-                if (maxInput) maxInput.value = saved.max;
-                if (toggle) toggle.checked = saved.enabled;
+                if (minInput) minInput.value = saved.min !== undefined ? saved.min : 1;
+                if (maxInput) maxInput.value = saved.max !== undefined ? saved.max : 6;
 
-                return true; // 로드 성공
+                // [수정] 대시보드에서 온 enabled 상태를 마스터 토글에 반영
+                if (toggle) toggle.checked = saved.enabled !== false;
+
+                return true;
+            } else {
+                // [추가] 저장된 값이 없으면 기본값으로 초기화
+                const minInput = document.getElementById('filterMin');
+                const maxInput = document.getElementById('filterMax');
+                if (minInput) minInput.value = 1;
+                if (maxInput) maxInput.value = 6;
+                // filterToggle은 마스터 상태를 유지함
             }
-            return false; // 저장된 데이터 없음
+            return false;
         }
 
         // [추가됨] 전 회귀 일괄 적용 함수
@@ -170,7 +206,6 @@
             document.getElementById('filterMax').value = batchMax;
             document.getElementById('filterToggle').checked = batchEnabled;
 
-            document.getElementById('filterToggle').checked = batchEnabled;
             // console.log(`모든 회귀(2~200)에 필터(Min:${batchMin}, Max:${batchMax}, 적용:${batchEnabled ? 'ON' : 'OFF'})가 적용되었습니다.`);
             updateAll(); // 화면 갱신
         }
@@ -252,14 +287,79 @@
 
         // [추가] 실시간 동기화를 위한 스토리지 이벤트 리스너
         window.addEventListener('storage', (e) => {
-            if (e.key === 'regression_analysis' || e.key === 'lotto_period_filters') {
-                console.log('🔄 필터 변경 감지: UI 갱신');
-                loadPeriodFilters().then(() => {
-                    loadFilterSettings();
-                    updateAll();
-                });
+            const targetKeys = ['regression_analysis', 'regression_patterns', 'lotto_period_filters'];
+            if (targetKeys.includes(e.key)) {
+                console.log(`🔄 필터 변경 감지 (${e.key}): UI 갱신 (Regression)`);
+                try {
+                    const newData = JSON.parse(e.newValue);
+                    if (newData) {
+                        // [수정] 대시보드와 구조 통일 (settings 객체 추출)
+                        const incomingSettings = newData.settings || (newData.periodFilters ? newData.periodFilters : null);
+                        if (incomingSettings) {
+                            periodFilters = incomingSettings;
+                        } else if (newData && !newData.settings && !newData.periodFilters) {
+                            // Flat structure fallback
+                            periodFilters = newData;
+                        }
+
+                        // 마스터 활성화 상태(enabled) 반영
+                        const masterEnabled = newData.enabled !== undefined ? newData.enabled : true;
+                        const toggle = document.getElementById('filterToggle');
+                        if (toggle) toggle.checked = masterEnabled;
+                    }
+                } catch (err) {
+                    console.error('필터 데이터 파싱 실패', err);
+                }
+
+                loadFilterSettings(); // 현재 단계 UI 갱신
+                updateAll(); // 화면 전체 갱신
             }
         });
+
+        // 🔹 화면 전체 갱신 함수 (전역)
+        function updateAll() {
+            const targetRoundSelect = document.getElementById('targetRoundSelect');
+            const regressionStepSelect = document.getElementById('regressionStepSelect');
+
+            if (targetRoundSelect) targetRound = parseInt(targetRoundSelect.value);
+            if (regressionStepSelect) regressionStep = parseInt(regressionStepSelect.value);
+
+            // 타이틀 업데이트
+            const filterSubTitle = document.getElementById('filterSubTitle');
+            const chainTitle = document.getElementById('chainTitle');
+            const historyTitle = document.getElementById('historyTitle');
+
+            if (filterSubTitle) filterSubTitle.textContent = `${regressionStep}회귀 필터`;
+            if (chainTitle) chainTitle.textContent = `${regressionStep}회귀`;
+            if (historyTitle) historyTitle.textContent = `회차별 당첨번호 및 ${regressionStep}회귀 당첨수`;
+
+            // 최근 10회차 버튼 상태 초기화
+            const btn = document.getElementById('recent10FilterBtn');
+            const btnText = document.getElementById('recent10BtnText');
+            if (btn && btnText) {
+                btn.classList.remove('from-purple-500', 'to-purple-700');
+                btn.classList.add('from-blue-500', 'to-indigo-600');
+                btnText.textContent = '최근 10회차 필터 적용';
+            }
+
+            if (typeof renderDashboard === 'function') renderDashboard();
+            if (typeof renderFilterSection === 'function') renderFilterSection();
+
+            // 필터 설정 로드 (UI 입력창 갱신)
+            loadFilterSettings();
+
+            // 하이라이트 인덱스 초기화
+            chainHighlightIdx = null;
+            historyHighlightIdx = null;
+
+            if (typeof renderChainTable === 'function') renderChainTable();
+            if (typeof updateHistoryTable === 'function') updateHistoryTable();
+
+            // AI 분석 지연 실행
+            if (typeof refreshAIAnalysis === 'function') {
+                setTimeout(() => refreshAIAnalysis(), 50);
+            }
+        }
     </script>
 
     <style>
@@ -1115,40 +1215,6 @@
             stepSelect.innerHTML = stepOptions;
         }
 
-        function updateAll() {
-            targetRound = parseInt(document.getElementById('targetRoundSelect').value);
-            regressionStep = parseInt(document.getElementById('regressionStepSelect').value);
-
-            // 타이틀 업데이트
-            document.getElementById('filterSubTitle').textContent = `${regressionStep}회귀 필터`;
-            document.getElementById('chainTitle').textContent = `${regressionStep}회귀`;
-            document.getElementById('historyTitle').textContent = `회차별 당첨번호 및 ${regressionStep}회귀 당첨수`;
-
-            // [수정됨] 최근 10회차 버튼 상태 초기화 (각 회귀는 독립 상태)
-            const btn = document.getElementById('recent10FilterBtn');
-            const btnText = document.getElementById('recent10BtnText');
-            if (btn && btnText) {
-                btn.classList.remove('from-purple-500', 'to-purple-700');
-                btn.classList.add('from-blue-500', 'to-indigo-600');
-                btnText.textContent = '최근 10회차 필터 적용';
-            }
-
-            renderDashboard();
-            renderFilterSection();
-
-            // [수정됨] periodFilters 객체에서 필터 적용 (이때 최신화된 데이터가 로드됨)
-            loadFilterSettings();
-
-            // [수정됨] 셀렉트 변경 시나 페이지 최초 진입 시 불필요한 자동 하이라이트 제거
-            chainHighlightIdx = null;
-            historyHighlightIdx = null;
-
-            renderChainTable();
-            updateHistoryTable();
-
-            // [수정됨] AI 분석은 약간 지연 실행하여 레이아웃 흔들림 방지
-            setTimeout(() => refreshAIAnalysis(), 50);
-        }
 
         // [추가] 회차 변경 시 2~200회귀 전체에 대하여 최근 10회차 필터를 강제 계산 및 periodFilters에 저장
         function _calculateAllRecent10Filters() {
@@ -1813,6 +1879,19 @@ ${contextData}
                 // STR: 0이면 원형 '미', 0보다 크면 녹색 숫자
                 const strContent = strVal === 0 ? `<span class="ball-mi">미</span>` : `<span class="text-green-600 font-bold">${strVal}</span>`;
 
+                // [추가] 실시간 필터링 로직 적용
+                const config = periodFilters[regressionStep] || { min: 0, max: 6, enabled: true };
+                const isMasterOn = document.getElementById('filterToggle')?.checked ?? true;
+
+                let isFilteredOut = false;
+                if (isMasterOn) {
+                    if (hitCount < config.min || hitCount > config.max) {
+                        isFilteredOut = true;
+                    }
+                }
+
+                if (isFilteredOut) return; // 필터링된 행은 그리지 않음 (또는 흐리게 처리 가능)
+
                 // 하이라이트 클래스 결정
                 let rowColorClass = '';
                 if (chainHighlightIdx !== null && index >= chainHighlightIdx && index < chainHighlightIdx + 10) {
@@ -1909,6 +1988,19 @@ ${contextData}
 
                 // STR: 0이면 원형 '미', 0보다 크면 녹색 숫자
                 const strContent = strVal === 0 ? `<span class="ball-mi">미</span>` : `<span class="text-green-600 font-bold">${strVal}</span>`;
+
+                // [추가] 실시간 필터링 로직 적용
+                const config = periodFilters[regressionStep] || { min: 0, max: 6, enabled: true };
+                const isMasterOn = document.getElementById('filterToggle')?.checked ?? true;
+
+                let isFilteredOut = false;
+                if (isMasterOn) {
+                    if (hitCount < config.min || hitCount > config.max) {
+                        isFilteredOut = true;
+                    }
+                }
+
+                if (isFilteredOut) return; // 필터링된 행은 그리지 않음
 
                 // 하이라이트 클래스 결정
                 let rowColorClass = '';

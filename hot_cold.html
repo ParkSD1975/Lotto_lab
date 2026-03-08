@@ -84,6 +84,7 @@
 
             // 현재 UI의 설정값을 periodFilters 객체의 해당 기간(currentPeriod)에 저장
             periodFilters[currentPeriod] = {
+                enabled: document.getElementById('filterToggle').checked,
                 hotMin: document.getElementById('hotMin').value,
                 hotMax: document.getElementById('hotMax').value,
                 neutralMin: document.getElementById('neutralMin').value,
@@ -129,14 +130,48 @@
                 for (const period of [5, 10, 15, 20]) {
                     const periodKey = `hot_cold_${period}`;
                     const data = await window.filterService.loadSetting(periodKey);
-                    if (data && data.settings && data.settings.periodFilter) {
+
+                    if (data) {
                         // [New] 새 회차 인지: targetRound가 다르면 해당 기간 필터 초기화
-                        if (data.settings.targetRound && currentRound && data.settings.targetRound !== currentRound) {
+                        const settings = data.settings || {};
+                        if (settings.targetRound && currentRound && settings.targetRound !== currentRound) {
                             console.log(`🔄 [${periodKey}] 새 회차 감지, 해당 기간 필터 초기화`);
-                            continue; // 해당 기간만 스킵 (최근 10회차 기본값 후 적용됨)
+                            continue;
                         }
-                        periodFilters[period] = data.settings.periodFilter;
-                        if (!saved) saved = { filterApplied: data.enabled, lastPeriod: period };
+
+                        const periodFilter = settings.periodFilter;
+                        let finalPF = null;
+
+                        if (periodFilter) {
+                            finalPF = periodFilter;
+                        } else if (settings.hotRange || settings.warmRange || settings.coldRange) {
+                            // Dashboard 포맷 (배열) 대응
+                            finalPF = {
+                                hotMin: settings.hotRange?.[0] ?? 0,
+                                hotMax: settings.hotRange?.[1] ?? 6,
+                                neutralMin: settings.warmRange?.[0] ?? 0,
+                                neutralMax: settings.warmRange?.[1] ?? 6,
+                                coldMin: settings.coldRange?.[0] ?? 0,
+                                coldMax: settings.coldRange?.[1] ?? 6
+                            };
+                        }
+
+                        if (finalPF) {
+                            periodFilters[period] = {
+                                enabled: data.enabled !== undefined ? data.enabled : true,
+                                hotMin: parseInt(finalPF.hotMin ?? 0),
+                                hotMax: parseInt(finalPF.hotMax ?? 6),
+                                neutralMin: parseInt(finalPF.neutralMin ?? 0),
+                                neutralMax: parseInt(finalPF.neutralMax ?? 6),
+                                coldMin: parseInt(finalPF.coldMin ?? 0),
+                                coldMax: parseInt(finalPF.coldMax ?? 6)
+                            };
+                        }
+
+                        // 현재 기간의 설정이라면 saved에 기록 (나중에 applyPeriodSettings에서 사용)
+                        if (period === currentPeriod) {
+                            saved = { filterApplied: data.enabled !== undefined ? data.enabled : true, lastPeriod: period };
+                        }
                     }
                 }
             }
@@ -160,6 +195,12 @@
                 applyPeriodSettings(currentPeriod);
                 updatePeriodButtonUI(currentPeriod);
                 updateListCriteriaDisplay(currentPeriod);
+
+                // 🔄 UI 갱신 추가
+                updateAnalysis();
+                renderCountTable();
+                renderDrawsList();
+                renderFilterZones();
             }
 
             // GNB 바스켓 동기화
@@ -193,6 +234,12 @@
                 if (document.getElementById('coldMin')) document.getElementById('coldMin').value = savedSettings.coldMin;
                 if (document.getElementById('coldMax')) document.getElementById('coldMax').value = savedSettings.coldMax;
 
+                // [추가] 기간별 활성화 상태 복원
+                const isEnabled = savedSettings.enabled !== undefined ? savedSettings.enabled : true;
+                const toggle = document.getElementById('filterToggle');
+                if (toggle) toggle.checked = isEnabled;
+                filterApplied = isEnabled;
+
                 // 제외수/고정수 복원
                 excludeNumbers = savedSettings.excludeNumbers || [];
                 fixedNumbers = savedSettings.fixedNumbers || [];
@@ -201,7 +248,42 @@
                 calculateAndSetMinMax(period);
                 excludeNumbers = [];
                 fixedNumbers = [];
+
+                // 기본적으로 켬
+                const toggle = document.getElementById('filterToggle');
+                if (toggle) toggle.checked = true;
+                filterApplied = true;
             }
+        }
+
+        // [신규] 최근 10회차를 기반으로 필터 최소/최대값 자동 계산
+        function calculateAndSetMinMax(period) {
+            if (!allData || allData.length === 0) return;
+            const recent10 = allData.slice(0, 10);
+            let hMin = 6, hMax = 0, nMin = 6, nMax = 0, cMin = 6, cMax = 0;
+
+            recent10.forEach(draw => {
+                const { hot, neutral, cold } = getClassifiedNumbers(period, draw.round);
+                let hCount = 0, nCount = 0, cCount = 0;
+                draw.numbers.forEach(num => {
+                    if (hot.includes(num)) hCount++;
+                    else if (neutral.includes(num)) nCount++;
+                    else if (cold.includes(num)) cCount++;
+                });
+                if (hCount < hMin) hMin = hCount;
+                if (hCount > hMax) hMax = hCount;
+                if (nCount < nMin) nMin = nCount;
+                if (nCount > nMax) nMax = nCount;
+                if (cCount < cMin) cMin = cCount;
+                if (cCount > cMax) cMax = cCount;
+            });
+
+            if (document.getElementById('hotMin')) document.getElementById('hotMin').value = hMin;
+            if (document.getElementById('hotMax')) document.getElementById('hotMax').value = hMax;
+            if (document.getElementById('neutralMin')) document.getElementById('neutralMin').value = nMin;
+            if (document.getElementById('neutralMax')) document.getElementById('neutralMax').value = nMax;
+            if (document.getElementById('coldMin')) document.getElementById('coldMin').value = cMin;
+            if (document.getElementById('coldMax')) document.getElementById('coldMax').value = cMax;
         }
 
         // [신규] 기간 버튼 UI 업데이트 함수
@@ -236,8 +318,6 @@
 
             // 새로운 period로 전환
             currentPeriod = period;
-
-            // 새 period의 설정 적용
             applyPeriodSettings(period);
 
             // UI 업데이트
@@ -247,7 +327,7 @@
             renderCountTable();
             updateFilterMaxValues();
             renderFilterZones();
-            renderDrawsList(); // 기간 변경 시에는 리스트 새로고침 필요
+            renderDrawsList();
 
             // 로딩 속도 최적화를 위해 자동 AI 분석(타이틀 분석) 실행 제거
             // await refreshAIAnalysis();
@@ -887,6 +967,7 @@
 
                 // [수정] 필터 로드 (저장된 값이 없으면 기본값)
                 await loadFilterSettings();
+                applyPeriodSettings(currentPeriod); // 저장된 기간별 설정 적용
 
                 // [추가] URL 파라미터 ?period=N 으로 진입 시 해당 기준 회차 자동 선택
                 // 대시보드(filter.html)에서 핫/콜드 5회 세션 → 링크 클릭 시 자동 5회차 선택
@@ -969,31 +1050,62 @@
                 if ([5, 10, 15, 20].includes(period)) {
                     try {
                         const parsed = JSON.parse(e.newValue);
+                        if (!parsed) return;
+
                         const settings = parsed.settings || parsed;
                         const enabled = parsed.enabled !== undefined ? parsed.enabled : true;
 
-                        if (settings && settings.periodFilter) {
-                            periodFilters[period] = settings.periodFilter;
+                        // [수정] Dashboard 포맷(배열)과 분석페이지 포맷(객체) 모두 대응
+                        let pf = settings.periodFilter;
+                        if (!pf && (settings.hotRange || settings.warmRange || settings.coldRange)) {
+                            pf = {
+                                hotMin: settings.hotRange?.[0] ?? 0,
+                                hotMax: settings.hotRange?.[1] ?? 6,
+                                neutralMin: settings.warmRange?.[0] ?? 0,
+                                neutralMax: settings.warmRange?.[1] ?? 6,
+                                coldMin: settings.coldRange?.[0] ?? 0,
+                                coldMax: settings.coldRange?.[1] ?? 6
+                            };
+                        }
+
+                        if (pf) {
+                            periodFilters[period] = {
+                                enabled: enabled,
+                                hotMin: parseInt(pf.hotMin ?? 0),
+                                hotMax: parseInt(pf.hotMax ?? 6),
+                                neutralMin: parseInt(pf.neutralMin ?? 0),
+                                neutralMax: parseInt(pf.neutralMax ?? 6),
+                                coldMin: parseInt(pf.coldMin ?? 0),
+                                coldMax: parseInt(pf.coldMax ?? 6)
+                            };
 
                             // 현재 보고 있는 기준 회차 탭과 동일할 경우 UI 즉시 업데이트
                             if (currentPeriod === period) {
-                                document.getElementById('hotMin').value = settings.periodFilter.hotMin ?? 0;
-                                document.getElementById('hotMax').value = settings.periodFilter.hotMax ?? 6;
-                                document.getElementById('neutralMin').value = settings.periodFilter.neutralMin ?? 0;
-                                document.getElementById('neutralMax').value = settings.periodFilter.neutralMax ?? 6;
-                                document.getElementById('coldMin').value = settings.periodFilter.coldMin ?? 0;
-                                document.getElementById('coldMax').value = settings.periodFilter.coldMax ?? 6;
+                                if (document.getElementById('hotMin')) document.getElementById('hotMin').value = periodFilters[period].hotMin;
+                                if (document.getElementById('hotMax')) document.getElementById('hotMax').value = periodFilters[period].hotMax;
+                                if (document.getElementById('neutralMin')) document.getElementById('neutralMin').value = periodFilters[period].neutralMin;
+                                if (document.getElementById('neutralMax')) document.getElementById('neutralMax').value = periodFilters[period].neutralMax;
+                                if (document.getElementById('coldMin')) document.getElementById('coldMin').value = periodFilters[period].coldMin;
+                                if (document.getElementById('coldMax')) document.getElementById('coldMax').value = periodFilters[period].coldMax;
 
                                 const toggle = document.getElementById('filterToggle');
                                 if (toggle) toggle.checked = enabled;
+                                filterApplied = enabled;
 
-                                // 하이라이트/카운트 테이블 비주얼 업데이트 트리거
-                                if (typeof highlightStartRound !== 'undefined' && highlightStartRound) {
-                                    if (typeof highlightTenDraws === 'function') highlightTenDraws(highlightStartRound);
-                                } else {
-                                    if (typeof renderCountTable === 'function') renderCountTable();
-                                }
+                                updateAnalysis(); // 값이 바뀌었으므로 분석 리스트 갱신 시도
                             }
+                        }
+
+                        // 🔄 실시간 UI 갱신 (전체 갱신)
+                        updateAnalysis();
+                        renderCountTable();
+                        updateFilterMaxValues();
+                        renderFilterZones();
+                        renderDrawsList();
+
+                        // 하이라이트 유지 (있는 경우)
+                        if (highlightStartRound) {
+                            highlightTenDraws(highlightStartRound);
                         }
                     } catch (err) {
                         console.error('필터 실시간 동기화 파싱 오류:', err);
@@ -1702,61 +1814,30 @@
             }
         }
 
-        function applyRecent10Filters() {
-            const btn = document.getElementById('recent10FilterBtn');
-            const btnText = document.getElementById('recent10BtnText');
-            const toggle = document.getElementById('filterToggle'); // Hot/Cold may use filterToggle
 
+
+        function applyRecent10Filters() {
             if (!allData || allData.length === 0) return;
+            const toggle = document.getElementById('filterToggle');
 
             if (isRecentTenFilter) {
-                // 해제: 초기 상태로 복구 (0~6)
                 isRecentTenFilter = false;
-                document.getElementById('hotMin').value = 0;
-                document.getElementById('hotMax').value = 6;
-                document.getElementById('neutralMin').value = 0;
-                document.getElementById('neutralMax').value = 6;
-                document.getElementById('coldMin').value = 0;
-                document.getElementById('coldMax').value = 6;
-
+                ['hotMin', 'hotMax', 'neutralMin', 'neutralMax', 'coldMin', 'coldMax'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) el.value = (id.includes('Max') ? 6 : 0);
+                });
                 if (toggle) toggle.checked = false;
-
+                filterApplied = false;
                 highlightStartRound = null;
                 updateFilters();
                 saveFilterSettings();
                 updateRecent10FilterUI();
-                // 필터는 조합용이므로 리스트 렌더링 불필요
+                renderDrawsList();
                 return;
             }
 
-            const recent10 = allData.slice(0, 10);
-            let minHot = 6, maxHot = 0;
-            let minNeu = 6, maxNeu = 0;
-            let minCold = 6, maxCold = 0;
-
-            recent10.forEach(draw => {
-                const { hot, neutral, cold } = getClassifiedNumbers(currentPeriod, draw.round);
-                let hCount = 0, nCount = 0, cCount = 0;
-                draw.numbers.forEach(num => {
-                    if (hot.includes(num)) hCount++;
-                    else if (neutral.includes(num)) nCount++;
-                    else if (cold.includes(num)) cCount++;
-                });
-
-                if (hCount < minHot) minHot = hCount;
-                if (hCount > maxHot) maxHot = hCount;
-                if (nCount < minNeu) minNeu = nCount;
-                if (nCount > maxNeu) maxNeu = nCount;
-                if (cCount < minCold) minCold = cCount;
-                if (cCount > maxCold) maxCold = cCount;
-            });
-
-            document.getElementById('hotMin').value = minHot;
-            document.getElementById('hotMax').value = maxHot;
-            document.getElementById('neutralMin').value = minNeu;
-            document.getElementById('neutralMax').value = maxNeu;
-            document.getElementById('coldMin').value = minCold;
-            document.getElementById('coldMax').value = maxCold;
+            // [수정] 공통 함수로 최소/최대값 설정
+            calculateAndSetMinMax(currentPeriod);
 
             isRecentTenFilter = true;
             updateFilters();
@@ -1768,8 +1849,9 @@
                 toggleFilterApply();
             }
 
+            const recent10 = allData.slice(0, 10);
             highlightTenDraws(recent10[0].round);
-            console.log(`최근 10회차 필터 적용 완료`);
+            renderDrawsList();
         }
 
         function updateRecent10FilterUI() {
@@ -1778,8 +1860,8 @@
             if (!btn || !btnText) return;
 
             if (isRecentTenFilter) {
-                btn.classList.remove('from-blue-500', 'to-indigo-600');
                 btn.classList.add('from-purple-500', 'to-purple-700');
+                btn.classList.remove('from-blue-500', 'to-indigo-600');
                 btnText.textContent = '필터 적용 해제';
             } else {
                 btn.classList.remove('from-purple-500', 'to-purple-700');
@@ -1788,275 +1870,28 @@
             }
         }
 
-        // 🔹 [New] AI 분석용 컨텍스트 생성 도우미 (통계/패턴 데이터 통합)
         function generateAnalysisContext(period) {
-            const range = 50; // 분석할 과거 데이터 범위
+            const range = 50;
             const data = allData.slice(0, range);
+            let hSum = 0, nSum = 0, cSum = 0;
 
-            // 1. 기초 통계 (Hot/Neutral/Cold 출현 빈도)
-            let hotSum = 0, neuSum = 0, coldSum = 0;
             const history = data.map(d => {
-                const { hot, neutral, cold } = getClassifiedNumbers(period, d.round);
-                const hCount = d.numbers.filter(n => hot.includes(n)).length;
-                const nCount = d.numbers.filter(n => neutral.includes(n)).length;
-                const cCount = d.numbers.filter(n => cold.includes(n)).length;
-                hotSum += hCount; neuSum += nCount; coldSum += cCount;
-                return { round: d.round, h: hCount, n: nCount, c: cCount };
-            });
-
-            const avgHot = (hotSum / range).toFixed(1);
-            const avgNeu = (neuSum / range).toFixed(1);
-            const avgCold = (coldSum / range).toFixed(1);
-
-            // 2. 이동평균 (최근 5회 vs 20회) - 추세 파악
-            const recent5 = history.slice(0, 5);
-            const avgHot5 = (recent5.reduce((a, b) => a + b.h, 0) / 5).toFixed(1);
-            const avgCold5 = (recent5.reduce((a, b) => a + b.c, 0) / 5).toFixed(1);
-
-            const hotTrend = parseFloat(avgHot5) > parseFloat(avgHot) ? "상승세 (평균 상회)" : "하락세/보합";
-            const coldTrend = parseFloat(avgCold5) > parseFloat(avgCold) ? "상승세 (평균 상회)" : "하락세/보합";
-
-            // 3. Gap & Streak (현재 상태 진단)
-            let tempHotGap = 0;
-            for (let i = 0; i < allData.length; i++) {
-                const { hot } = getClassifiedNumbers(period, allData[i].round);
-                if (allData[i].numbers.filter(n => hot.includes(n)).length > 1) break;
-                tempHotGap++;
-            }
-
-            // 4. 최근 10회 흐름 요약
-            const recentFlow = history.slice(0, 10).map(d => `${d.round}회(H:${d.h}/C:${d.c})`).join(', ');
-
-            // 5. 현재 Hot/Cold 번호 목록
-            const { hot, neutral, cold } = getClassifiedNumbers(period, selectedRound);
-
-            return `
-## 1. 핫/콜드 기초 통계 (최근 ${range}회 기준)
-- 평균 출현: Hot(${avgHot}개), Neutral(${avgNeu}개), Cold(${avgCold}개)
-- 최근 5회 추세: Hot ${avgHot5}개 (${hotTrend}), Cold ${avgCold5}개 (${coldTrend})
-
-## 2. 리스크/기회 요인 (Gap & Streak)
-- Hot 저출현 Gap: ${tempHotGap}회차 연속 약세 (평균 회귀 가능성 ${tempHotGap > 2 ? '높음' : '보통'})
-- Cold 과출현 경향: 최근 Cold 번호가 자주 출현하는지 확인 필요
-
-## 3. 구성 현황 (기준: 최근 ${period}회 빈도)
-- Hot(${hot.length}개): ${hot.join(', ')}
-- Cold(${cold.length}개): ${cold.join(', ')}
-
-## 4. 최근 10회 상세 흐름
-- ${recentFlow}
-            `;
-        }
-
-        // ========== AI Chatbot Functions ==========
-
-        // Helper function to calculate hot/neutral/cold counts for a draw
-        function calculateHotColdCounts(draw) {
-            if (!draw || !draw.numbers) return { hot: 0, neutral: 0, cold: 0 };
-
-            const features = featuresMap.get(draw.round);
-            if (!features) return { hot: 0, neutral: 0, cold: 0 };
-
-            let hotCount = 0, neutralCount = 0, coldCount = 0;
-
-            draw.numbers.forEach(num => {
-                const feature = features.find(f => f.number === num);
-                if (!feature) return;
-
-                const count = feature[`appearance_count_${currentPeriod}`] || 0;
-                if (count >= 4) hotCount++;
-                else if (count <= 1) coldCount++;
-                else neutralCount++;
-            });
-
-            return { hot: hotCount, neutral: neutralCount, cold: coldCount };
-        }
-
-        // Helper function to generate analysis context for hot/cold data
-        function generateAnalysisContext(range) {
-            const data = allData.slice(0, range);
-            const hotCounts = [];
-            const neutralCounts = [];
-            const coldCounts = [];
-
-            data.forEach(draw => {
-                const counts = calculateHotColdCounts(draw);
-                hotCounts.push(counts.hot);
-                neutralCounts.push(counts.neutral);
-                coldCounts.push(counts.cold);
-            });
-
-            // Basic statistics
-            const avgHot = (hotCounts.reduce((a, b) => a + b, 0) / hotCounts.length).toFixed(2);
-            const avgNeutral = (neutralCounts.reduce((a, b) => a + b, 0) / neutralCounts.length).toFixed(2);
-            const avgCold = (coldCounts.reduce((a, b) => a + b, 0) / coldCounts.length).toFixed(2);
-
-            // Recent trends
-            const recent5Hot = (hotCounts.slice(0, 5).reduce((a, b) => a + b, 0) / Math.min(5, hotCounts.length)).toFixed(2);
-            const recent5Neutral = (neutralCounts.slice(0, 5).reduce((a, b) => a + b, 0) / Math.min(5, neutralCounts.length)).toFixed(2);
-            const recent5Cold = (coldCounts.slice(0, 5).reduce((a, b) => a + b, 0) / Math.min(5, coldCounts.length)).toFixed(2);
-
-            // Recent 30 rounds detail
-            const recent30 = data.slice(0, 30).map((d, i) => {
                 const counts = calculateHotColdCounts(d);
-                return `${d.round}회: H${counts.hot}/N${counts.neutral}/C${counts.cold}`;
-            }).join(' | ');
-
-            return `
-## 1. 핫/콜드 기초 통계 (최근 ${range}회, ${currentPeriod}회 기준)
-- Hot 평균: ${avgHot}개 (최근5회: ${recent5Hot})
-- Neutral 평균: ${avgNeutral}개 (최근5회: ${recent5Neutral})
-- Cold 평균: ${avgCold}개 (최근5회: ${recent5Cold})
-
-## 2. 최근 30회 흐름
-${recent30}
-`;
-        }
-
-        function applyRecent10Filters() {
-            const btn = document.getElementById('recent10FilterBtn');
-            const btnText = document.getElementById('recent10BtnText');
-            const toggle = document.getElementById('filterToggle'); // Hot/Cold may use filterToggle
-
-            if (!allData || allData.length === 0) return;
-
-            if (isRecentTenFilter) {
-                // 해제: 초기 상태로 복구 (0~6)
-                isRecentTenFilter = false;
-                document.getElementById('hotMin').value = 0;
-                document.getElementById('hotMax').value = 6;
-                document.getElementById('neutralMin').value = 0;
-                document.getElementById('neutralMax').value = 6;
-                document.getElementById('coldMin').value = 0;
-                document.getElementById('coldMax').value = 6;
-
-                if (toggle) toggle.checked = false;
-
-                highlightStartRound = null;
-                updateFilters();
-                saveFilterSettings();
-                updateRecent10FilterUI();
-                // 필터는 조합용이므로 리스트 렌더링 불필요
-                return;
-            }
-
-            const recent10 = allData.slice(0, 10);
-            let minHot = 6, maxHot = 0;
-            let minNeu = 6, maxNeu = 0;
-            let minCold = 6, maxCold = 0;
-
-            recent10.forEach(draw => {
-                const { hot, neutral, cold } = getClassifiedNumbers(currentPeriod, draw.round);
-                let hCount = 0, nCount = 0, cCount = 0;
-                draw.numbers.forEach(num => {
-                    if (hot.includes(num)) hCount++;
-                    else if (neutral.includes(num)) nCount++;
-                    else if (cold.includes(num)) cCount++;
-                });
-
-                if (hCount < minHot) minHot = hCount;
-                if (hCount > maxHot) maxHot = hCount;
-                if (nCount < minNeu) minNeu = nCount;
-                if (nCount > maxNeu) maxNeu = nCount;
-                if (cCount < minCold) minCold = cCount;
-                if (cCount > maxCold) maxCold = cCount;
+                hSum += counts.hot; nSum += counts.neutral; cSum += counts.cold;
+                return counts;
             });
 
-            document.getElementById('hotMin').value = minHot;
-            document.getElementById('hotMax').value = maxHot;
-            document.getElementById('neutralMin').value = minNeu;
-            document.getElementById('neutralMax').value = maxNeu;
-            document.getElementById('coldMin').value = minCold;
-            document.getElementById('coldMax').value = maxCold;
+            const avgH = (hSum / range).toFixed(1);
+            const avgN = (nSum / range).toFixed(1);
+            const avgC = (cSum / range).toFixed(1);
 
-            isRecentTenFilter = true;
-            updateFilters();
-            saveFilterSettings();
-            updateRecent10FilterUI();
-
-            if (toggle && !toggle.checked) {
-                toggle.checked = true;
-                toggleFilterApply();
-            }
-
-            highlightTenDraws(recent10[0].round);
-            console.log(`최근 10회차 필터 적용 완료`);
-        }
-
-        function updateRecent10FilterUI() {
-            const btn = document.getElementById('recent10FilterBtn');
-            const btnText = document.getElementById('recent10BtnText');
-            if (!btn || !btnText) return;
-
-            if (isRecentTenFilter) {
-                btn.classList.remove('from-blue-500', 'to-indigo-600');
-                btn.classList.add('from-purple-500', 'to-purple-700');
-                btnText.textContent = '필터 적용 해제';
-            } else {
-                btn.classList.remove('from-purple-500', 'to-purple-700');
-                btn.classList.add('from-blue-500', 'to-indigo-600');
-                btnText.textContent = '최근 10회차 필터 적용';
-            }
-        }
-
-        // 🔹 [New] AI 분석용 컨텍스트 생성 도우미 (통계/패턴 데이터 통합)
-        function generateAnalysisContext(period) {
-            const range = 50; // 분석할 과거 데이터 범위
-            const data = allData.slice(0, range);
-
-            // 1. 기초 통계 (Hot/Neutral/Cold 출현 빈도)
-            let hotSum = 0, neuSum = 0, coldSum = 0;
-            const history = data.map(d => {
-                const { hot, neutral, cold } = getClassifiedNumbers(period, d.round);
-                const hCount = d.numbers.filter(n => hot.includes(n)).length;
-                const nCount = d.numbers.filter(n => neutral.includes(n)).length;
-                const cCount = d.numbers.filter(n => cold.includes(n)).length;
-                hotSum += hCount; neuSum += nCount; coldSum += cCount;
-                return { round: d.round, h: hCount, n: nCount, c: cCount };
-            });
-
-            const avgHot = (hotSum / range).toFixed(1);
-            const avgNeu = (neuSum / range).toFixed(1);
-            const avgCold = (coldSum / range).toFixed(1);
-
-            // 2. 이동평균 (최근 5회 vs 20회) - 추세 파악
-            const recent5 = history.slice(0, 5);
-            const avgHot5 = (recent5.reduce((a, b) => a + b.h, 0) / 5).toFixed(1);
-            const avgCold5 = (recent5.reduce((a, b) => a + b.c, 0) / 5).toFixed(1);
-
-            const hotTrend = parseFloat(avgHot5) > parseFloat(avgHot) ? "상승세 (평균 상회)" : "하락세/보합";
-            const coldTrend = parseFloat(avgCold5) > parseFloat(avgCold) ? "상승세 (평균 상회)" : "하락세/보합";
-
-            // 3. Gap & Streak (현재 상태 진단)
-            let tempHotGap = 0;
-            for (let i = 0; i < allData.length; i++) {
-                const { hot } = getClassifiedNumbers(period, allData[i].round);
-                if (allData[i].numbers.filter(n => hot.includes(n)).length > 1) break;
-                tempHotGap++;
-            }
-
-            // 4. 최근 10회 흐름 요약
-            const recentFlow = history.slice(0, 10).map(d => `${d.round}회(H:${d.h}/C:${d.c})`).join(', ');
-
-            // 5. 현재 Hot/Cold 번호 목록
             const { hot, neutral, cold } = getClassifiedNumbers(period, selectedRound);
 
-            return `
-## 1. 핫/콜드 기초 통계 (최근 ${range}회 기준)
-- 평균 출현: Hot(${avgHot}개), Neutral(${avgNeu}개), Cold(${avgCold}개)
-- 최근 5회 추세: Hot ${avgHot5}개 (${hotTrend}), Cold ${avgCold5}개 (${coldTrend})
-
-## 2. 리스크/기회 요인 (Gap & Streak)
-- Hot 저출현 Gap: ${tempHotGap}회차 연속 약세 (평균 회귀 가능성 ${tempHotGap > 2 ? '높음' : '보통'})
-- Cold 과출현 경향: 최근 Cold 번호가 자주 출현하는지 확인 필요
-
-## 3. 구성 현황 (기준: 최근 ${period}회 빈도)
-- Hot(${hot.length}개): ${hot.join(', ')}
-- Cold(${cold.length}개): ${cold.join(', ')}
-
-## 4. 최근 10회 상세 흐름
-- ${recentFlow}
-            `;
+            return `## 1. 핫/콜드 통계 (최근 ${range}회, 기준 ${period}회)
+- 평균 출현: Hot(${avgH}개), Neutral(${avgN}개), Cold(${avgC}개)
+- 현재 구성: Hot ${hot.length}개, Neutral ${neutral.length}개, Cold ${cold.length}개
+- Hot 번호: ${hot.join(', ')}
+- Cold 번호: ${cold.join(', ')}`;
         }
 
         // ========== AI Chatbot Functions ==========
@@ -2066,12 +1901,8 @@ ${recent30}
         function calculateHotColdCounts(draw) {
             if (!draw || !draw.numbers) return { hot: 0, neutral: 0, cold: 0 };
 
-            // 기존의 불안정한 featuresMap 의존 코드를 버리고, 
-            // 이미 검증된 분류 함수(getClassifiedNumbers)를 사용하여 개수를 셉니다.
-            // 이렇게 하면 DB 데이터가 늦게 와도 실시간으로 계산해서 정확한 값을 냅니다.
             const { hot, neutral, cold } = getClassifiedNumbers(currentPeriod, draw.round);
 
-            // 해당 회차 당첨 번호 안에 핫/뉴트럴/콜드가 각각 몇 개 있는지 카운팅
             let hCount = 0, nCount = 0, cCount = 0;
 
             draw.numbers.forEach(num => {

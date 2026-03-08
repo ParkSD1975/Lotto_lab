@@ -170,22 +170,7 @@
 
         // ==================== 필터 & 하이라이트 함수 ====================
 
-        function highlightRecentTenRows() {
-            const drawsList = document.getElementById('drawsList');
-            if (!drawsList) return;
-
-            const rows = drawsList.querySelectorAll('tr');
-
-            rows.forEach(row => {
-                row.classList.remove('row-highlight');
-            });
-
-            if (isRecentTenFilter) {
-                for (let i = 0; i < 10 && i < rows.length; i++) {
-                    rows[i].classList.add('row-highlight');
-                }
-            }
-        }
+        /* [삭제] highlightRecentTenRows 함수 삭제 (자동 하이라이트 방지) */
 
         function updateRecentTenFilterFlag() {
             if (activeFilters.size === 0) {
@@ -207,7 +192,6 @@
         function applyFilterWithHighlight() {
             updateRecentTenFilterFlag();
             applyFilter();
-            highlightRecentTenRows();
         }
 
         // [표준화] 최근 10회차 필터 자동 적용 (missing.html 기준)
@@ -227,6 +211,9 @@
                 if (chk) chk.checked = false;
                 isRecentTenFilter = false;
                 highlightStartRound = null;
+
+                // 수동 모드로 리셋할지 여부: 유저가 직접 껐다면 수동 상태라고 보기 애매할 수 있으므로
+                localStorage.setItem('odd_even_is_manual', 'false');
 
                 updateUIState();
                 applyFilter(); // Filter logic will handle the reset
@@ -259,6 +246,9 @@
             // AI 분석 갱신 (Optional)
             refreshAIAnalysis();
 
+            // 최근 10회차 버튼을 사용자가 직접 클릭한 경우는 '자동 세팅'을 스스로 켠 것과 같음. 수동 상태 해제.
+            localStorage.setItem('odd_even_is_manual', 'false');
+
             console.log('최근 10회차 홀짝 필터 적용 완료');
         }
 
@@ -269,22 +259,45 @@
             const lastProcessed = parseInt(localStorage.getItem('odd_even_last_processed_round') || '0');
 
             if (latestRound > lastProcessed) {
-                console.log(`🆕 새 회차 감지 (${latestRound}회). 필터 자동 적용 및 수동 제외 초기화.`);
+                const isManual = localStorage.getItem('odd_even_is_manual') === 'true';
 
-                // 1. 수동 제외 리스트 초기화 (새 회차 분석을 위해)
-                excludedOddEvens = [];
-                restoredAutoOddEvens = [];
+                if (isManual) {
+                    console.log(`🆕 회차 갱신 감지 (${latestRound}회). 수동 필터 설정 유지.`);
+                } else {
+                    console.log(`🆕 회차 갱신 감지 (${latestRound}회). 필터 자동 적용(버튼 비활성화) 및 수동 제외 초기화.`);
 
-                // 2. 최근 10회차 필터 자동 활성화
-                const btn = document.getElementById('recent10FilterBtn');
-                const chk = document.getElementById('applyFilterCheck');
+                    // 1. 수동 제외 리스트 초기화 
+                    excludedOddEvens = [];
+                    restoredAutoOddEvens = [];
 
-                // 이미 활성화된 상태가 아니라면 활성화 처리
-                if (btn && !btn.classList.contains('from-purple-500')) {
-                    applyRecent10Filters();
-                } else if (chk) {
-                    chk.checked = true;
+                    // 2. 최근 10회차 필터 수치만 자동 계산하여 활성화 (버튼은 끄기)
+                    const recent10Data = allDrawData.slice(0, 10);
+                    activeFilters.clear();
+                    recent10Data.forEach(d => activeFilters.add(d.ratio));
+
+                    const btn = document.getElementById('recent10FilterBtn');
+                    const btnText = document.getElementById('recent10BtnText');
+                    const chk = document.getElementById('applyFilterCheck');
+
+                    if (btn && btnText) {
+                        btn.classList.remove('from-purple-500', 'to-purple-700');
+                        btn.classList.add('from-blue-500', 'to-indigo-600');
+                        btnText.textContent = '최근 10회차 필터 적용';
+                    }
+
+                    if (chk) {
+                        chk.checked = true;
+                    }
+
+                    isRecentTenFilter = false; // 버튼 효과(연속 하이라이트 등)이 켜진 게 아니므로
+                    highlightStartRound = null;
+
+                    updateRecentTenFilterFlag();
+                    updateUIState();
                     applyFilter();
+
+                    // 자동 업데이트이므로 계속 false
+                    localStorage.setItem('odd_even_is_manual', 'false');
                 }
 
                 // 3. 처리된 회차 기록
@@ -295,18 +308,31 @@
 
         async function initializeRecentTenFilter() {
             const loaded = await loadFilterSettings();
+            const isManual = localStorage.getItem('odd_even_is_manual') === 'true';
 
-            if (!loaded) {
+            // [수정] 수동 설정이 없거나, 로컬 스토리지 필터 로드 자체를 실패했을 때
+            if (!loaded || !isManual) {
                 const recent10Data = allDrawData.slice(0, 10);
+                activeFilters.clear();
                 recent10Data.forEach(d => activeFilters.add(d.ratio));
 
-                isRecentTenFilter = true;
+                // 초기 로드 시 자동 필터는 값을 채워주지만 (ac_value.html 방식) 
+                // 버튼은 활성화 하지 않고, 수동이 아니라는 명시
+                localStorage.setItem('odd_even_is_manual', 'false');
+
+                const chk = document.getElementById('applyFilterCheck');
+                if (chk) chk.checked = true;
+
+                isRecentTenFilter = false;
+                highlightStartRound = null; // 초기 강제 로드 시 하이라이트 트리거 제거
 
                 updateUIState();
-                applyFilterWithHighlight();
+
+                // applyFilterWithHighlight(); 대신에 일반 리스트 렌더링 호출 (초기 하이라이트 방지)
+                applyFilter(true);
             } else {
                 updateRecentTenFilterFlag();
-                highlightRecentTenRows();
+                // highlightRecentTenRows(); // [삭제] 자동 하이라이트 방지
             }
         }
 
@@ -333,6 +359,11 @@
             '0:6': { bg: '#F3E8FF', text: '#6B21A8', border: '#A855F7' }  // 보라 (극단)
         };
 
+        // [추가] 수동 변경 시 호출되는 함수
+        function markManual() {
+            localStorage.setItem('odd_even_is_manual', 'true');
+        }
+
         // [수정] 필터 설정 저장 함수 (DB 저장)
         async function saveFilterSettings() {
             if (window.isLoadingSettings) return; // [추가] 로딩 중에는 저장하지 않음
@@ -345,7 +376,8 @@
                 selectedRatios: Array.from(activeFilters),
                 excludedOddEvens: excludedOddEvens || [],
                 restoredAutoOddEvens: restoredAutoOddEvens || [],
-                recent10FilterActive: recent10FilterActive
+                recent10FilterActive: recent10FilterActive,
+                isManual: localStorage.getItem('odd_even_is_manual') === 'true' // 저장 시점의 수동 여부
             };
             const enabled = toggle ? toggle.checked : true;
             const settingsWithEnabled = { ...data, enabled };
@@ -391,6 +423,14 @@
                 }
 
                 if (saved) {
+
+                    // 수동 여부 복원 (없으면 false)
+                    if (saved.isManual !== undefined) {
+                        localStorage.setItem('odd_even_is_manual', saved.isManual ? 'true' : 'false');
+                    } else {
+                        localStorage.setItem('odd_even_is_manual', 'false');
+                    }
+
                     activeFilters = new Set(saved.selectedRatios || []);
                     excludedOddEvens = saved.excludedOddEvens || [];
                     restoredAutoOddEvens = saved.restoredAutoOddEvens || [];
@@ -398,25 +438,17 @@
                     const toggle = document.getElementById('applyFilterCheck');
                     if (toggle) toggle.checked = saved.enabled !== undefined ? saved.enabled : true;
 
-                    if (saved.recent10FilterActive) {
-                        const btn = document.getElementById('recent10FilterBtn');
-                        const btnText = document.getElementById('recent10BtnText');
-                        if (btn && btnText) {
-                            btn.classList.remove('from-blue-500', 'to-indigo-600');
-                            btn.classList.add('from-purple-500', 'to-purple-700');
-                            btnText.textContent = '필터 해제';
-                        }
-                        isRecentTenFilter = true;
-                    } else {
-                        const btn = document.getElementById('recent10FilterBtn');
-                        const btnText = document.getElementById('recent10BtnText');
-                        if (btn && btnText && btn.classList.contains('from-purple-500')) {
-                            btn.classList.remove('from-purple-500', 'to-purple-700');
-                            btn.classList.add('from-blue-500', 'to-indigo-600');
-                            btnText.textContent = '최근 10회차 필터 적용';
-                        }
-                        isRecentTenFilter = false;
+                    // [수정] 버튼 상태 자동 복원 로직 제거. 
+                    // 사용자가 명시적으로 클릭했을 때만 활성화 효과(하이라이팅 등)가 나타나야 하므로 초기화 시 버튼은 항상 Off 상태 유지
+                    const btn = document.getElementById('recent10FilterBtn');
+                    const btnText = document.getElementById('recent10BtnText');
+                    if (btn && btnText && btn.classList.contains('from-purple-500')) {
+                        btn.classList.remove('from-purple-500', 'to-purple-700');
+                        btn.classList.add('from-blue-500', 'to-indigo-600');
+                        btnText.textContent = '최근 10회차 필터 적용';
                     }
+                    isRecentTenFilter = false;
+                    highlightStartRound = null; // 초기 로드 시 하이라이트 강제 초기화
 
                     updateUIState();
                     applyFilter(true); // UI 갱신 (저장 스킵)
@@ -425,6 +457,9 @@
                     }, 0);
                     return true;
                 }
+
+                // 로드 실패 시
+                localStorage.setItem('odd_even_is_manual', 'false');
                 return false;
             } finally {
                 window.isLoadingSettings = false;
@@ -433,6 +468,7 @@
 
         // 수동 제외 토글 함수
         function toggleOddEvenFilter(ratio, checked) {
+            markManual(); // [추가]
             if (!checked) {
                 if (!excludedOddEvens.includes(ratio)) excludedOddEvens.push(ratio);
             } else {
@@ -445,6 +481,7 @@
 
         // 자동 제외 취소 (복원)
         function restoreAutoOddEven(ratio) {
+            markManual(); // [추가]
             if (!restoredAutoOddEvens.includes(ratio)) restoredAutoOddEvens.push(ratio);
             applyFilter();
             renderExcludedOddEvenBadges();
@@ -452,6 +489,7 @@
 
         // 수동 제외 취소
         function restoreManualOddEven(ratio) {
+            markManual(); // [추가]
             excludedOddEvens = excludedOddEvens.filter(r => r !== ratio);
             applyFilter();
             renderExcludedOddEvenBadges();
@@ -1168,6 +1206,7 @@
         }
 
         function toggleFilter(ratio) {
+            markManual(); // [추가] 직접 패널 버튼이나 통계표를 눌렀을 때
             if (activeFilters.has(ratio)) activeFilters.delete(ratio);
             else activeFilters.add(ratio);
 
@@ -1381,6 +1420,16 @@
                 }
             }, 50);
         }
+
+        // [추가] 대시보드 실시간 동기화 (Storage Event)
+        window.addEventListener('storage', async function (e) {
+            if (e.key === 'odd_even_filter' || e.key === 'odd_even_pattern') {
+                console.log(`[odd_even] Storage event detected for: ${e.key}, reloading...`);
+                await loadFilterSettings();
+                applyFilter();
+                updateStatistics();
+            }
+        });
 
         // [New] AI & Drawer Functions
         function toggleDrawer(show) {

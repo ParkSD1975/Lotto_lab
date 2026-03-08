@@ -1054,9 +1054,42 @@ Format: JSON
                 if (enabled !== undefined) {
                     dataToSave = { ...filterData, enabled: enabled };
                 }
-                localStorage.setItem(pageKey, JSON.stringify(dataToSave));
-                // 대시보드 호환성을 위해 _filter 접미어 키도 함께 저장
-                localStorage.setItem(pageKey + '_filter', JSON.stringify(dataToSave));
+                const jsonStr = JSON.stringify(dataToSave);
+
+                // 1. [표준화] 매핑 테이블 정의
+                const keyMap = {
+                    'high_low_pattern': 'low_high_filter',
+                    'odd_even_pattern': 'odd_even_filter',
+                    'composite_count': 'composite_filter',
+                    'prime_number_patterns': 'prime_filter',
+                    'triangular_number_patterns': 'triangular_filter',
+                    'neighbor_number_patterns': 'neighbor_number_filter',
+                    'multiple_3_count': 'multiple_filter',
+                    'ac_value': 'ac_value_filter'
+                };
+
+                // 2. [저장] 원본 키 및 표준화된 키 모두 저장하여 호환성 확보
+                localStorage.setItem(pageKey, jsonStr);
+                localStorage.setItem(pageKey + '_filter', jsonStr); // 대시보드 호환 키
+
+                const standardKey = keyMap[pageKey];
+                if (standardKey) {
+                    localStorage.setItem(standardKey, jsonStr);
+                }
+
+                // 3. [브로드캐스트] 현재 탭 및 다른 탭에 저장 완료 통지
+                const keysToSignal = [pageKey, pageKey + '_filter', standardKey].filter(Boolean);
+                keysToSignal.forEach(k => {
+                    // 외부 탭용 (storage 이벤트는 다른 탭에만 발생하므로 수동 트리거는 불필요하지만 명시적 기록용)
+                    // 현재 탭용 (window.dispatchEvent)
+                    window.dispatchEvent(new StorageEvent('storage', {
+                        key: k,
+                        newValue: jsonStr,
+                        storageArea: localStorage
+                    }));
+                });
+
+                console.log(`[Utils.saveFilter] Saved and broadcasted for: ${pageKey} (${standardKey || 'no standard key'})`);
             } catch (e) {
                 console.error('필터 저장 실패:', e);
             }

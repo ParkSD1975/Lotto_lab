@@ -59,6 +59,28 @@
         let excludedComposites = new Set();
         let isRecentTenFilter = false;
 
+        // [추가] 수동 변경 시 호출되는 함수
+        function markManual() {
+            localStorage.setItem('composite_number_is_manual', 'true');
+        }
+
+        // [추가] 최근 10회차 필터 버튼 UI 동기화
+        function updateRecentTenFilterFlag() {
+            const btn = document.getElementById('recent10FilterBtn');
+            const btnText = document.getElementById('recent10BtnText');
+            if (!btn || !btnText) return;
+
+            if (isRecentTenFilter) {
+                btn.classList.remove('from-blue-500', 'to-indigo-600', 'from-indigo-500');
+                btn.classList.add('from-purple-500', 'to-purple-700');
+                btnText.textContent = '필터 해제';
+            } else {
+                btn.classList.remove('from-purple-500', 'to-purple-700');
+                btn.classList.add('from-blue-500', 'to-indigo-600');
+                btnText.textContent = '최근 10회차 필터 적용';
+            }
+        }
+
         // 하이라이트 상태
         let selectedValueHighlight = { type: null, value: null }; // type: 'composite' or 'prime'
 
@@ -88,7 +110,8 @@
             const data = {
                 selectedCounts: Array.from(activeFilters), // activeFilters -> selectedCounts 표준화
                 excludedComposites: Array.from(excludedComposites),
-                recent10FilterActive: isRecentTenFilter
+                recent10FilterActive: isRecentTenFilter,
+                isManual: localStorage.getItem('composite_number_is_manual') === 'true' // [추가] 수동 상태 저장
             };
             const settingsWithEnabled = { ...data, enabled };
 
@@ -129,7 +152,17 @@
                     activeFilters = new Set(counts);
 
                     if (saved.excludedComposites) excludedComposites = new Set(saved.excludedComposites);
-                    if (saved.recent10FilterActive !== undefined) isRecentTenFilter = saved.recent10FilterActive;
+
+                    // [추가] 수동 여부 복원
+                    if (saved.isManual !== undefined) {
+                        localStorage.setItem('composite_number_is_manual', saved.isManual ? 'true' : 'false');
+                    } else {
+                        localStorage.setItem('composite_number_is_manual', 'false');
+                    }
+
+                    // [수정] 초기 로드 시 버튼 상태 자동 복원을 하이라이트 없이 처리하기 위해 false 강제
+                    isRecentTenFilter = false;
+                    highlightStartRound = null;
 
                     const chk = document.getElementById('applyFilterCheck');
                     if (chk) chk.checked = saved.enabled !== false; // undefined/null일 경우 true 기본값 유지를 고려
@@ -150,6 +183,8 @@
                             highlightStartRound = null;
                         }
                     }
+
+                    updateRecentTenFilterFlag(); // [추가] UI 동기화
 
                     const input = document.getElementById('excludeNumbersInput');
                     if (input) {
@@ -198,19 +233,23 @@
 
         // [표준화] 최근 10회차 필터 자동 적용 (missing.html 기준)
         // [표준화] 최근 10회차 필터 자동 적용
-        function applyRecent10Filters() {
+        function applyRecent10Filters(resetExclusions = false) {
             const btn = document.getElementById('recent10FilterBtn');
             const btnText = document.getElementById('recent10BtnText');
             const chk = document.getElementById('applyFilterCheck');
 
+            if (resetExclusions) {
+                excludedComposites.clear();
+            }
+
             // 토글: 이미 켜져있으면 끄기 (보라색 클래스 존재 여부로 판단)
-            if (btn.classList.contains('from-purple-500')) {
+            if (isRecentTenFilter && !resetExclusions) {
                 btn.classList.remove('from-purple-500', 'to-purple-700');
                 btn.classList.add('from-indigo-500', 'to-indigo-600');
                 btnText.textContent = '최근 10회차 필터 적용';
 
                 // 필터 초기화
-                activeFilters.clear();
+                // activeFilters.clear(); // 끄더라도 현재 선택은 유지
                 isRecentTenFilter = false;
                 highlightStartRound = null;
 
@@ -229,13 +268,18 @@
             activeFilters = new Set(counts);
 
             // 3. UI 업데이트 (보라색 토글)
-            btn.classList.remove('from-blue-500', 'to-indigo-600');
+            btn.classList.remove('from-blue-500', 'to-indigo-600', 'from-indigo-500');
             btn.classList.add('from-purple-500', 'to-purple-700');
             btnText.textContent = '필터 해제';
 
             // 메인 필터 체크박스 자동 활성화
             if (chk) chk.checked = true;
             isRecentTenFilter = true;
+
+            // 사용자가 직접 클릭한 경우만 수동 모드 해제 (자동 복구가 우선하게 함)
+            if (!resetExclusions) {
+                localStorage.setItem('composite_number_is_manual', 'false');
+            }
 
             // 4. 리스트 갱신 및 하이라이트
             updateUIState();
@@ -254,34 +298,31 @@
 
             // 새 회차 감지
             if (latestRound !== savedRound) {
-                localStorage.setItem(storageKey, String(latestRound));
+                const isManual = localStorage.getItem('composite_number_is_manual') === 'true';
 
-                // [NEW] 수동 제외수 초기화 (새 회차 갱신 시점)
-                if (savedRound > 0) {
+                if (isManual) {
+                    console.log(`🆕 회차 갱신 감지 (${latestRound}회). 수동 필터 설정 유지.`);
+                } else {
+                    console.log(`🆕 회차 갱신 감지 (${latestRound}회). 최근 10회차 필터 자동 세팅 (버튼 비활성)`);
+
+                    // 수동 제외 초기화
                     excludedComposites.clear();
-                    const compositeArray = [
-                        4, 6, 8, 9, 10, 12, 14, 15, 16, 18,
-                        20, 21, 22, 24, 25, 26, 27, 28, 30, 32,
-                        33, 34, 35, 36, 38, 39, 40, 42, 44, 45
-                    ];
-                    compositeArray.forEach(p => {
-                        const chk = document.getElementById(`exclude_${p}`);
-                        if (chk) chk.checked = false;
-                        if (window.Basket) window.Basket.removeExclude(p);
-                    });
-                    if (window.BasketUI && window.BasketUI.refresh) window.BasketUI.refresh();
+                    // 필터 수치만 자동 계산 (하이라이트 및 버튼 활성화 제외)
+                    const recent10Data = allDrawData.slice(0, 10);
+                    const counts = new Set(recent10Data.map(d => d.compositeCount));
+                    activeFilters = new Set(counts);
 
-                    const input = document.getElementById('excludeNumbersInput');
-                    if (input) input.value = '';
-                    await saveFilterSettings();
+                    isRecentTenFilter = false;
+                    highlightStartRound = null;
+
+                    updateUIState();
+                    applyFilter();
+
+                    localStorage.setItem('composite_number_is_manual', 'false');
                 }
 
-                // 새 회차가 감지되었을 때(또는 최초 실행 시) 최근 10회차 필터를 자동 적용
-                console.log(`🎯 [자동 필터] 새 회차 감지: ${latestRound}회 → 최근 10회차 필터 자동 적용`);
-                const btn = document.getElementById('recent10FilterBtn');
-                if (btn && !btn.classList.contains('from-purple-500')) {
-                    applyRecent10Filters();
-                }
+                localStorage.setItem(storageKey, String(latestRound));
+                await saveFilterSettings();
             }
         }
 
@@ -765,7 +806,8 @@
     <script>
         document.addEventListener('DOMContentLoaded', async () => {
             await fetchLottoData();
-            // 🔥 새 회차 업데이트 감지 후 필터 자동 적용
+            // initializeRecentTenFilter 호출 (만약 정의되어 있다면, 또는 수동 상태 체크용)
+            // checkAndResetOnNewDraw는 fetchLottoData 내부의 loadFilterSettings 이후에 호출되도록 조정하거나 여기서 호출
             await checkAndResetOnNewDraw();
         });
 
@@ -890,6 +932,7 @@
         }
 
         function toggleSelection(count) {
+            markManual(); // [추가] 수동 변경 마킹
             isRecentTenFilter = false; // 수동 변경 시 해제
             if (activeFilters.has(count)) {
                 activeFilters.delete(count);
@@ -1391,6 +1434,7 @@ ${distText}
         }
 
         function syncExcludeFilter() {
+            markManual(); // [추가] 수동 변경 마킹
             const compositeArray = [
                 4, 6, 8, 9, 10, 12, 14, 15, 16, 18,
                 20, 21, 22, 24, 25, 26, 27, 28, 30, 32,
@@ -1430,56 +1474,6 @@ ${distText}
             const cbs = document.querySelectorAll('input[id^="exclude_"]');
             cbs.forEach(cb => cb.checked = false);
             syncExcludeFilter();
-        }
-
-        // [표준화] 최근 10회차 필터 자동 적용 (missing.html 기준)
-        function applyRecent10Filters() {
-            const btn = document.getElementById('recent10FilterBtn');
-            const btnText = document.getElementById('recent10BtnText');
-
-            // 토글: 이미 켜져있으면 끄기 (보라색 클래스 존재 여부로 판단)
-            if (btn.classList.contains('from-purple-500')) {
-                btn.classList.remove('from-purple-500', 'to-purple-700');
-                btn.classList.add('from-blue-500', 'to-indigo-600');
-                btnText.textContent = '최근 10회차 필터 적용';
-
-                // 필터 초기화
-                activeFilters.clear();
-                // 토글 자동 해제 (필요시)
-                const toggle = document.getElementById('applyFilterCheck');
-                if (toggle) toggle.checked = false;
-
-                isRecentTenFilter = false;
-                highlightStartRound = null;
-                updateUIState();
-                applyFilter();
-                return;
-            }
-
-            if (!allDrawData || allDrawData.length < 10) return;
-
-            // 1. 최근 10회차 데이터 수집
-            const recent10 = allDrawData.slice(0, 10);
-            const counts = new Set(recent10.map(d => d.compositeCount));
-
-            // 2. 필터 값 적용
-            activeFilters = new Set(counts);
-
-            // 3. UI 업데이트 (보라색 토글)
-            btn.classList.remove('from-blue-500', 'to-indigo-600');
-            btn.classList.add('from-purple-500', 'to-purple-700');
-            btnText.textContent = '필터 해제';
-
-            const toggle = document.getElementById('applyFilterCheck');
-            if (toggle) toggle.checked = true;
-
-            // 4. 하이라이트 및 리스트 갱신
-            isRecentTenFilter = true;
-            highlightStartRound = allDrawData[0].round;
-            updateUIState();
-            applyFilter();
-
-            console.log('최근 10회차 합성수 필터 적용 완료');
         }
     </script>
     <!-- AI Q&A Sidebar (Floating Right) -->
@@ -1680,6 +1674,16 @@ ${distText}
                 });
             });
         }
+
+        // [추가] 대시보드 실시간 동기화 (Storage Event)
+        window.addEventListener('storage', async function (e) {
+            if (e.key === 'composite_count' || e.key === 'composite_filter') {
+                console.log(`[composite_number] Storage event detected for: ${e.key}, reloading...`);
+                await loadFilterSettings();
+                applyFilter();
+                updateStatistics();
+            }
+        });
     </script>
 </body>
 
