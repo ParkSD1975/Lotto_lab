@@ -45,46 +45,66 @@
         let streakAlerts = [];
         let selectedRegressionData = null;
 
-        // [수정됨] 로컬 스토리지에서 전체 필터 데이터 로드 (DB 연동)
+        // [수정됨] 로컬 스토리지에서 전체 필터 데이터 로드 (DB 연동 및 회차 체크 추가)
         async function loadPeriodFilters() {
-            let saved = null;
+            let savedRound = 0;
 
             // DB에서 로드 (FilterService 사용)
             if (window.filterService && window.filterService.initialized) {
                 const data = await window.filterService.loadSetting('regression_analysis');
                 if (data && data.settings) {
                     periodFilters = data.settings;
-                    return true;
+                    return data.savedRound || 0;
+                } else if (data && Object.keys(data).length > 0) { // 호환성
+                    periodFilters = data;
+                    return 0;
                 }
             }
 
-            // Fallback: localStorage
-            saved = localStorage.getItem('lotto_period_filters');
+            // Fallback: localStorage -> regression_analysis 우선
+            const dashSaved = localStorage.getItem('regression_analysis');
+            if (dashSaved) {
+                try {
+                    const parsed = JSON.parse(dashSaved);
+                    if (parsed.settings) {
+                        periodFilters = parsed.settings;
+                        return parsed.savedRound || 0;
+                    }
+                } catch (e) { }
+            }
+
+            let saved = localStorage.getItem('lotto_period_filters');
             if (saved) {
                 try {
                     periodFilters = JSON.parse(saved);
-                    return true;
+                    return 0;
                 } catch (e) {
                     console.error("필터 데이터 파싱 오류", e);
                     periodFilters = {};
                 }
             }
-            return false;
+            return 0;
         }
 
-        // [수정됨] 전체 필터 데이터 저장 (DB 연동)
+        // [수정] 전체 필터 데이터 저장 (DB 연동 및 회차 저장 추가)
         async function savePeriodFilters() {
+            const enabled = document.getElementById('filterToggle')?.checked ?? true;
             // DB 저장 (FilterService 사용)
             if (window.filterService && window.filterService.initialized) {
                 // [키값 통일] regression_analysis로 저장
                 console.log('💾 Supabase 저장: regression_analysis', periodFilters);
-                await window.filterService.saveSetting('regression_analysis', periodFilters, true);
+                await window.filterService.saveSetting('regression_analysis', periodFilters, enabled);
             }
 
-            // Fallback: localStorage
-            localStorage.setItem('lotto_period_filters', JSON.stringify(periodFilters));
-            // 대시보드 호환성 위해 추가 저장
-            localStorage.setItem('regression_analysis', JSON.stringify({ settings: periodFilters, enabled: true }));
+            // [수정] 공통 Utils를 통해 DB 및 localStorage 동시 저장 (실시간 동기화 'storage' 이벤트 트리거)
+            if (window.Utils && window.Utils.saveFilter) {
+                await window.Utils.saveFilter('regression_analysis', periodFilters, enabled);
+            } else {
+                // Fallback: localStorage
+                localStorage.setItem('lotto_period_filters', JSON.stringify(periodFilters));
+                // 대시보드 호환성 및 회차 관리 위해 추가 저장
+                localStorage.setItem('regression_analysis', JSON.stringify({ settings: periodFilters, savedRound: targetRound, enabled: enabled }));
+            }
         }
 
         // [수정됨] 현재 회귀 단계의 필터 설정 저장
@@ -229,6 +249,17 @@
         function applyFilter() {
             saveFilterSettings();
         }
+
+        // [추가] 실시간 동기화를 위한 스토리지 이벤트 리스너
+        window.addEventListener('storage', (e) => {
+            if (e.key === 'regression_analysis' || e.key === 'lotto_period_filters') {
+                console.log('🔄 필터 변경 감지: UI 갱신');
+                loadPeriodFilters().then(() => {
+                    loadFilterSettings();
+                    updateAll();
+                });
+            }
+        });
     </script>
 
     <style>
@@ -1022,8 +1053,14 @@
                     }
                 }
 
-                // [추가됨] 앱 시작 시 필터 로드
-                await loadPeriodFilters(); // await 추가
+                // [추가됨] 앱 시작 시 필터 로드 및 회차 점검
+                const loadedRound = await loadPeriodFilters();
+
+                // DB 조회 회차와 필터 저장 회차가 불일치하거나 설정 파일이 비어있는 경우
+                if (loadedRound !== targetRound || Object.keys(periodFilters).length === 0) {
+                    console.log(`🔄 회차 업데이트 또는 초기 필터 설정 (대상 회차: ${targetRound}, 로드된 회차: ${loadedRound}) => 최근 10회차 필터 일괄 반영`);
+                    _calculateAllRecent10Filters();
+                }
 
                 updateAll();
 
@@ -1099,15 +1136,12 @@
             renderDashboard();
             renderFilterSection();
 
-            // [수정됨] periodFilters 객체에서 로드 시도, 없으면 최근 10회차 필터 자동 적용
-            const loaded = loadFilterSettings();
-            if (!loaded) {
-                _applyRecent10FilterValues();
-            }
+            // [수정됨] periodFilters 객체에서 필터 적용 (이때 최신화된 데이터가 로드됨)
+            loadFilterSettings();
 
-            // [수정됨] 최근 10회 하이라이트 인덱스를 렌더링 전에 사전 설정
-            chainHighlightIdx = 0;
-            historyHighlightIdx = 0;
+            // [수정됨] 셀렉트 변경 시나 페이지 최초 진입 시 불필요한 자동 하이라이트 제거
+            chainHighlightIdx = null;
+            historyHighlightIdx = null;
 
             renderChainTable();
             updateHistoryTable();
@@ -1116,36 +1150,31 @@
             setTimeout(() => refreshAIAnalysis(), 50);
         }
 
-        // [추가] 최근 10회차 필터 값 계산 및 UI 적용 (저장은 별도)
-        function _applyRecent10FilterValues() {
-            if (!allData || allData.length === 0) return false;
-            let curr = targetRound - regressionStep;
-            let values = [];
-            let count = 0;
-            while (curr > 0 && count < 10) {
-                const currData = allData.find(d => d.round === curr);
-                const prevData = allData.find(d => d.round === curr - regressionStep);
-                if (currData && prevData) {
-                    let hits = 0;
-                    prevData.numbers.forEach(n => { if (currData.numbers.includes(n)) hits++; });
-                    values.push(hits);
-                    count++;
+        // [추가] 회차 변경 시 2~200회귀 전체에 대하여 최근 10회차 필터를 강제 계산 및 periodFilters에 저장
+        function _calculateAllRecent10Filters() {
+            if (!allData || allData.length === 0) return;
+
+            for (let step = 2; step <= 200; step++) {
+                let curr = targetRound - step;
+                let values = [];
+                let count = 0;
+                while (curr > 0 && count < 10) {
+                    const currData = allData.find(d => d.round === curr);
+                    const prevData = allData.find(d => d.round === curr - step);
+                    if (currData && prevData) {
+                        let hits = 0;
+                        prevData.numbers.forEach(n => { if (currData.numbers.includes(n)) hits++; });
+                        values.push(hits);
+                        count++;
+                    }
+                    curr -= step;
                 }
-                curr -= regressionStep;
+
+                if (values.length > 0) {
+                    periodFilters[step] = { min: Math.min(...values), max: Math.max(...values), enabled: true };
+                }
             }
-            if (values.length === 0) return false;
-            const minVal = Math.min(...values);
-            const maxVal = Math.max(...values);
-            const minInput = document.getElementById('filterMin');
-            const maxInput = document.getElementById('filterMax');
-            const toggle = document.getElementById('filterToggle');
-            if (minInput) minInput.value = minVal;
-            if (maxInput) maxInput.value = maxVal;
-            if (toggle) toggle.checked = true;
-            // 저장
-            periodFilters[regressionStep] = { min: minVal, max: maxVal, enabled: true };
-            savePeriodFilters();
-            return true;
+            savePeriodFilters(); // 한 번에 전체 저장
         }
 
         // [추가] 번호대별 색상 클래스 반환 헬퍼
@@ -2129,6 +2158,14 @@ ${contextData}
             if (!container) return;
             baseRound = targetRound - 1;
 
+            // ── sessionStorage 캐싱: 같은 회차+회귀단계 결과는 재사용 ──
+            const cacheKey = `regression_insight_${targetRound}_${regressionStep}`;
+            const cached = sessionStorage.getItem(cacheKey);
+            if (cached) {
+                container.innerHTML = cached;
+                return;
+            }
+
             if (window.AIAnalysis) {
                 const regressionCtx = prepareRegressionContext();
                 await window.AIAnalysis.executeAnalysis({
@@ -2144,6 +2181,10 @@ ${contextData}
 4. 대상번호 중 이번 회차(${targetRound}회차)에 재출현할 가능성이 높은 번호를 통계 근거와 함께 제시하라.
 5. 회귀 주기의 특성(주기성, 연속성, 패턴 붕괴 가능성)에 초점을 맞춰 분석하라.`
                 });
+                // 결과 캐싱
+                if (container.innerHTML && !container.innerHTML.includes('animate-spin')) {
+                    try { sessionStorage.setItem(cacheKey, container.innerHTML); } catch (e) { }
+                }
             }
         }
 
