@@ -676,50 +676,50 @@
                         <div class="mt-6 border-t border-gray-100 pt-6">
                             <div class="flex flex-col gap-4">
                                 <div class="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-                                    <button onclick="openAIModal('현재 설정된 주기에 따르면 다음 회차에 당첨번호가 나올까?')"
+                                    <button onclick="openQnaModal('현재 설정된 주기에 따르면 다음 회차에 당첨번호가 나올까?')"
                                         class="px-3 py-1.5 text-xs font-medium bg-white border border-blue-200 text-blue-600 rounded-full hover:bg-blue-50 transition-colors whitespace-nowrap">✨
                                         다음 회차 적중 예측</button>
-                                    <button onclick="openAIModal('현재 연속 미출현(Gap) 상태가 위험한 수준인가?')"
+                                    <button onclick="openQnaModal('현재 연속 미출현(Gap) 상태가 위험한 수준인가?')"
                                         class="px-3 py-1.5 text-xs font-medium bg-white border border-purple-200 text-purple-600 rounded-full hover:bg-purple-50 transition-colors whitespace-nowrap">📊
                                         Gap 위험도 분석</button>
-                                    <button onclick="openAIModal('이 회귀 패턴이 깨지고 있는 추세인가, 유지되는 추세인가?')"
+                                    <button onclick="openQnaModal('이 회귀 패턴이 깨지고 있는 추세인가, 유지되는 추세인가?')"
                                         class="px-3 py-1.5 text-xs font-medium bg-white border border-red-200 text-red-600 rounded-full hover:bg-red-50 transition-colors whitespace-nowrap">📉
                                         패턴 붕괴/유지</button>
-                                    <button onclick="openAIModal('과거 통계상 이 정도 Gap 이후에는 보통 당첨이 나왔나?')"
+                                    <button onclick="openQnaModal('과거 통계상 이 정도 Gap 이후에는 보통 당첨이 나왔나?')"
                                         class="px-3 py-1.5 text-xs font-medium bg-white border border-green-200 text-green-600 rounded-full hover:bg-green-50 transition-colors whitespace-nowrap">🔥
                                         과거 사례 비교</button>
-                                    <button onclick="openAIModal('가장 확률이 높은 회귀 주기(Step)를 추천해줘')"
+                                    <button onclick="openQnaModal('가장 확률이 높은 회귀 주기(Step)를 추천해줘')"
                                         class="px-3 py-1.5 text-xs font-medium bg-white border border-orange-200 text-orange-600 rounded-full hover:bg-orange-50 transition-colors whitespace-nowrap">⚙️
                                         최적 주기 추천</button>
-                                    <button onclick="openAIModal('이번 회차에 나올만한 예상 번호 3개만 찍어줘')"
+                                    <button onclick="openQnaModal('이번 회차에 나올만한 예상 번호 3개만 찍어줘')"
                                         class="px-3 py-1.5 text-xs font-medium bg-white border border-indigo-200 text-indigo-600 rounded-full hover:bg-indigo-50 transition-colors whitespace-nowrap">🎯
                                         예상 번호 추천</button>
-                                    <button onclick="openAIModal('최근 5회차 동안 이 주기의 적중률은 어땠어?')"
+                                    <button onclick="openQnaModal('최근 5회차 동안 이 주기의 적중률은 어땠어?')"
                                         class="px-3 py-1.5 text-xs font-medium bg-white border border-teal-200 text-teal-600 rounded-full hover:bg-teal-50 transition-colors whitespace-nowrap">📈
                                         최근 5회 적중률?</button>
-                                    <button onclick="openAIModal('주기 효율을 고려할 때 이번 필터 범위는 어떻게 설정할까?')"
+                                    <button onclick="openQnaModal('주기 효율을 고려할 때 이번 필터 범위는 어떻게 설정할까?')"
                                         class="px-3 py-1.5 text-xs font-medium bg-white border border-amber-200 text-amber-600 rounded-full hover:bg-amber-50 transition-colors whitespace-nowrap">🔢
                                         필터 범위 추천</button>
-                                    <button onclick="openAIModal('패턴이 붕괴될 경우 대비할만한 백업 주기는?')"
+                                    <button onclick="openQnaModal('패턴이 붕괴될 경우 대비할만한 백업 주기는?')"
                                         class="px-3 py-1.5 text-xs font-medium bg-white border border-pink-200 text-pink-600 rounded-full hover:bg-pink-50 transition-colors whitespace-nowrap">📊
                                         백업 주기 찾기</button>
-                                    <button onclick="openAIModal('이 회귀 방식의 장기적 수익 모델 가능성은?')"
+                                    <button onclick="openQnaModal('이 회귀 방식의 장기적 수익 모델 가능성은?')"
                                         class="px-3 py-1.5 text-xs font-medium bg-white border border-cyan-200 text-cyan-600 rounded-full hover:bg-cyan-50 transition-colors whitespace-nowrap">🔄
                                         장기 수익 분석</button>
                                     <!-- 🔹 [New] 추가 퀵버튼 5종 (회귀분석 특화) -->
-                                    <button onclick="openAIModal('회귀 주기를 100회 이상으로 늘렸을 때의 성적은?')"
+                                    <button onclick="openQnaModal('회귀 주기를 100회 이상으로 늘렸을 때의 성적은?')"
                                         class="px-3 py-1.5 text-xs font-medium bg-white border border-yellow-200 text-yellow-600 rounded-full hover:bg-yellow-50 transition-colors whitespace-nowrap">🔄
                                         장기 주기 분석</button>
-                                    <button onclick="openAIModal('최근 20주기 동안의 당첨 분포를 요약해줘')"
+                                    <button onclick="openQnaModal('최근 20주기 동안의 당첨 분포를 요약해줘')"
                                         class="px-3 py-1.5 text-xs font-medium bg-white border border-emerald-200 text-emerald-600 rounded-full hover:bg-emerald-50 transition-colors whitespace-nowrap">📊
                                         최근 20주기 통계</button>
-                                    <button onclick="openAIModal('현재 Gap이 최장 Gap 대비 어느 정도 위험 수준인가?')"
+                                    <button onclick="openQnaModal('현재 Gap이 최장 Gap 대비 어느 정도 위험 수준인가?')"
                                         class="px-3 py-1.5 text-xs font-medium bg-white border border-rose-200 text-rose-600 rounded-full hover:bg-rose-50 transition-colors whitespace-nowrap">📉
                                         Gap 임계점 분석</button>
-                                    <button onclick="openAIModal('최근 적중률을 고려한 이번 최적 필터 범위는?')"
+                                    <button onclick="openQnaModal('최근 적중률을 고려한 이번 최적 필터 범위는?')"
                                         class="px-3 py-1.5 text-xs font-medium bg-white border border-lime-200 text-lime-600 rounded-full hover:bg-lime-50 transition-colors whitespace-nowrap">🎯
                                         최적 필터 범위</button>
-                                    <button onclick="openAIModal('현재 주기와 인접한 다른 주기의 성격도 비슷한가?')"
+                                    <button onclick="openQnaModal('현재 주기와 인접한 다른 주기의 성격도 비슷한가?')"
                                         class="px-3 py-1.5 text-xs font-medium bg-white border border-violet-200 text-violet-600 rounded-full hover:bg-violet-50 transition-colors whitespace-nowrap">🧬
                                         다중 회귀 비교</button>
                                 </div>
@@ -1045,8 +1045,8 @@
                         },
                         onAnalysisCreate: (params, intent) => {
                             const query = document.getElementById('nlpInput')?.value;
-                            if (query && typeof openAIModal === 'function') {
-                                openAIModal(query);
+                            if (query && typeof openQnaModal === 'function') {
+                                openQnaModal(query);
                             }
                         }
                     });
@@ -1523,7 +1523,7 @@
             if (!userPrompt) return;
             inputEl.value = '';
 
-            openAIModal();
+            openQnaModal();
             const content = document.getElementById('aiQnaContent');
             const uniqueId = 'ai-res-' + Date.now();
 
@@ -2147,7 +2147,7 @@ ${contextData}
             }
         }
 
-        function openAIModal(initialPrompt = '') {
+        function openQnaModal(initialPrompt = '') {
             const modal = document.getElementById('aiQnaModal');
             if (!modal) return;
             modal.classList.remove('hidden');
@@ -2162,7 +2162,7 @@ ${contextData}
             }
         }
 
-        function closeAIModal() {
+        function closeQnaModal() {
             const modal = document.getElementById('aiQnaModal');
             if (!modal) return;
             modal.classList.add('translate-x-full');
@@ -2186,7 +2186,7 @@ ${contextData}
                     </div>
                     AI 챗봇
                 </h3>
-                <button onclick="closeAIModal()"
+                <button onclick="closeQnaModal()"
                     class="p-2 hover:bg-gray-100 rounded-full transition-colors flex items-center justify-center text-gray-400 hover:text-gray-600">
                     <span class="material-symbols-outlined">close</span>
                 </button>

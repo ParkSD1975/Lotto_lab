@@ -1469,30 +1469,6 @@
         // [AI 엔진] Standardized AI Configuration (Total Sum)
         // ==========================================================
 
-        // 1. AI Modal Functions
-        function openAIModal(initialPrompt = '') {
-            const modal = document.getElementById('aiModal');
-            const content = document.getElementById('aiQnaContent');
-            if (modal) {
-                modal.classList.remove('hidden');
-                modal.classList.add('flex'); // Ensure flex is added when showing
-                content.innerHTML = '';
-                chatHistory = [];
-                if (initialPrompt) {
-                    const userMsg = `<div class="flex justify-end mb-4"><div class="bg-blue-600 text-white px-4 py-2 rounded-2xl shadow-sm text-sm">${initialPrompt}</div></div>`;
-                    content.innerHTML += userMsg;
-                }
-            }
-        }
-
-        function closeAIModal() {
-            const modal = document.getElementById('aiModal');
-            if (modal) {
-                modal.classList.add('hidden');
-                modal.classList.remove('flex');
-            }
-        }
-
         let chatHistory = [];
 
         async function submitModalFollowUp() {
@@ -1640,7 +1616,7 @@ ${safeContent}</div>`;
             const userPrompt = inputEl.value.trim();
             if (!userPrompt) return;
 
-            openAIModal(userPrompt);
+            openQnaModal(userPrompt);
             inputEl.value = '';
 
             // 컨텍스트 데이터 준비
@@ -1934,7 +1910,7 @@ ${stats.recent30Str}
             if (!prompt) return;
 
             // 1. 챗봇 모달 열기
-            openAIModal();
+            openQnaModal();
 
             const content = document.getElementById('aiQnaContent');
             const uniqueId = 'ai-res-' + Date.now();
@@ -2157,8 +2133,8 @@ ${stats.recent30Str}
         }
 
 
-        function openAIModal(initialPrompt = '') {
-            const modal = document.getElementById('aiModal');
+        function openQnaModal(initialPrompt = '') {
+            const modal = document.getElementById('aiQnaModal');
             const bg = document.getElementById('aiModalBg');
             const panel = document.getElementById('aiModalPanel');
 
@@ -2174,8 +2150,8 @@ ${stats.recent30Str}
             if (content) content.innerHTML = '';
         }
 
-        function closeAIModal() {
-            const modal = document.getElementById('aiModal');
+        function closeQnaModal() {
+            const modal = document.getElementById('aiQnaModal');
             const bg = document.getElementById('aiModalBg');
             const panel = document.getElementById('aiModalPanel');
 
@@ -2301,12 +2277,12 @@ ${finalRules}
     </script>
 
     <!-- AI Sidebar Modal -->
-    <div id="aiModal" class="fixed inset-0 z-50 overflow-hidden hidden" aria-labelledby="slide-over-title" role="dialog"
+    <div id="aiQnaModal" class="fixed inset-0 z-50 overflow-hidden hidden" aria-labelledby="slide-over-title" role="dialog"
         aria-modal="true">
         <div class="absolute inset-0 overflow-hidden">
             <!-- Background overlay -->
             <div id="aiModalBg" class="absolute inset-0 bg-gray-500 bg-opacity-75 transition-opacity opacity-0"
-                onclick="closeAIModal()"></div>
+                onclick="closeQnaModal()"></div>
 
             <div class="pointer-events-none fixed inset-y-0 right-0 flex max-w-full pl-10">
                 <div id="aiModalPanel"
@@ -2314,7 +2290,7 @@ ${finalRules}
                     <!-- Header -->
                     <div class="flex items-start justify-between p-6 border-b border-gray-200 bg-white">
                         <h2 class="text-lg font-bold text-gray-900" id="slide-over-title">AI 분석 채팅</h2>
-                        <button onclick="closeAIModal()"
+                        <button onclick="closeQnaModal()"
                             class="ml-3 flex h-7 items-center justify-center rounded-full bg-white text-gray-400 hover:text-gray-500 focus:outline-none">
                             <span class="material-symbols-outlined">close</span>
                         </button>
