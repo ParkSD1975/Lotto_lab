@@ -33,9 +33,8 @@
         let featuresMap = new Map(); // 🔥 DB 분석 데이터 캐싱
         let targetRound = 0;
         let regressionStep = 2; // Default 2회귀
-
-        // [수정됨] 회귀별 필터값을 관리하는 객체
         let periodFilters = {};
+        let isMasterEnabled = true;
 
         // 하이라이트 상태 관리
         let selectedValueHighlight = null;
@@ -45,94 +44,76 @@
         let streakAlerts = [];
         let selectedRegressionData = null;
 
-        // [수정됨] 로컬 스토리지에서 전체 필터 데이터 로드 (DB 연동 및 회차 체크 추가)
+        // [수정] 필터 로드 로직 (DB 우선, 로컬 fallback)
         async function loadPeriodFilters() {
-            let savedRound = 0;
-
-            // DB에서 로드 (FilterService 사용)
-            if (window.filterService && window.filterService.initialized) {
-                const data = await window.filterService.loadSetting('regression_analysis');
-                if (data) {
-                    // FilterService returns the whole payload {settings, enabled, savedRound, ...}
-                    periodFilters = data.settings || (data.periodFilters ? data.periodFilters : {});
-                    if (data.settings === undefined && !data.periodFilters) periodFilters = data;
-
-                    const masterEnabled = data.enabled !== undefined ? data.enabled : true;
-                    const toggle = document.getElementById('filterToggle');
-                    if (toggle) toggle.checked = masterEnabled;
-
-                    // savedRound가 settings 바깥에 있는지 확인
-                    return data.savedRound || (data.settings && data.settings.savedRound) || 0;
+            try {
+                // 1. FilterService 우선 사용
+                if (window.filterService?.initialized) {
+                    const settings = await window.filterService.loadAllSettings(targetRound);
+                    if (settings && settings['regression_analysis']) {
+                        const reg = settings['regression_analysis'];
+                        periodFilters = reg.settings || {};
+                        isMasterEnabled = reg.enabled || false;
+                        console.log('✅ DB에서 회귀 필터 로드 완료:', { isMasterEnabled, periodFilters });
+                        updateAll();
+                        return;
+                    }
                 }
-            }
 
-            // Fallback: localStorage -> regression_analysis 우선
-            const dashSaved = localStorage.getItem('regression_analysis');
-            if (dashSaved) {
-                try {
-                    const parsed = JSON.parse(dashSaved);
-                    periodFilters = parsed.settings || (parsed.periodFilters ? parsed.periodFilters : parsed);
-                    const masterEnabled = parsed.enabled !== undefined ? parsed.enabled : true;
-                    const toggle = document.getElementById('filterToggle');
-                    if (toggle) toggle.checked = masterEnabled;
-                    return parsed.savedRound || 0;
-                } catch (e) { }
-            }
+                // 2. [Fallback] localStorage 확인
+                const savedRaw = localStorage.getItem('regression_analysis');
+                if (savedRaw) {
+                    const saved = JSON.parse(savedRaw);
+                    const data = (saved && saved.settings) ? saved.settings : saved;
+                    const enabled = (saved && saved.enabled !== undefined) ? saved.enabled : true;
 
-            let saved = localStorage.getItem('lotto_period_filters');
-            if (saved) {
-                try {
-                    periodFilters = JSON.parse(saved);
-                    return 0;
-                } catch (e) {
-                    console.error("필터 데이터 파싱 오류", e);
-                    periodFilters = {};
+                    // 회차 체크
+                    if (saved.targetRound && saved.targetRound !== targetRound) {
+                        console.log(`⚠️ 다른 회차(${saved.targetRound})의 필터이므로 현재 회차(${targetRound})에는 적용하지 않습니다.`);
+                        return;
+                    }
+
+                    periodFilters = data || {};
+                    isMasterEnabled = enabled;
+                    console.log('✅ 로컬에서 회귀 필터 로드 완료:', { isMasterEnabled, periodFilters });
                 }
-            }
-            return 0;
-        }
-
-        // [수정] 전체 필터 데이터 저장 (DB 연동 및 회차 저장 추가)
-        async function savePeriodFilters() {
-            // 마스터 토글 상태와 개별 필터 설정은 별개로 관리되어야 하지만,
-            // Utils.saveFilter('regression_analysis', ...) 호출 시 세 번째 인자가
-            // 대시보드의 '카테고리 전체 ON/OFF'를 결정하므로, 여기서는 무조건 true 혹은 
-            // 현재 대시보드의 마스터 상태를 유지해야 합니다.
-            // 분석 페이지 상단의 '필터 적용' 체크박스가 마스터 역할을 한다고 가정합니다.
-            const isMasterEnabled = document.getElementById('filterToggle')?.checked ?? true;
-
-            // [핵심] 개별 회귀 단계의 enabled 상태는 periodFilters[step].enabled에 저장되어 있음
-            // 이 함수는 '카테고리 마스터 상태'를 포함하여 전체 설정을 저장하는 용도입니다.
-
-            // DB 저장 (FilterService 사용)
-            if (window.filterService && window.filterService.initialized) {
-                console.log('💾 Supabase 저장: regression_analysis', periodFilters);
-                await window.filterService.saveSetting('regression_analysis', periodFilters, isMasterEnabled);
-            }
-
-            // [수정] 공통 Utils를 통해 DB 및 localStorage 동시 저장 (savedRound 포함)
-            if (window.Utils && window.Utils.saveFilter) {
-                await window.Utils.saveFilter('regression_analysis', periodFilters, isMasterEnabled, { savedRound: targetRound });
-            } else {
-                // Fallback: localStorage
-                localStorage.setItem('lotto_period_filters', JSON.stringify(periodFilters));
-                localStorage.setItem('regression_analysis', JSON.stringify({
-                    settings: periodFilters,
-                    savedRound: targetRound,
-                    enabled: isMasterEnabled
-                }));
-                localStorage.setItem('regression_patterns', JSON.stringify({
-                    settings: periodFilters,
-                    enabled: isMasterEnabled
-                }));
+            } catch (e) {
+                console.error('필터 로드 실패:', e);
             }
         }
 
-        // [수정됨] 현재 회귀 단계의 필터 설정 저장
+        // [수정] 필터 저장 로직 (표준 Utils 사용)
+        function savePeriodFilters() {
+            try {
+                const dataToSave = { ...periodFilters };
+                if (window.Utils && window.Utils.saveFilter) {
+                    window.Utils.saveFilter('regression_analysis', dataToSave, isMasterEnabled, {
+                        targetRound: targetRound,
+                        regressionStep: regressionStep,
+                        _source: 'regression_page'
+                    });
+                } else {
+                    localStorage.setItem('regression_analysis', JSON.stringify({
+                        settings: dataToSave,
+                        enabled: isMasterEnabled,
+                        targetRound: targetRound,
+                        _ts: Date.now()
+                    }));
+                }
+                console.log('✅ 회귀 필터 저장 완료');
+            } catch (e) {
+                console.error('필터 저장 실패:', e);
+            }
+        }
+
+        // 현재 단계 필터 저장
         function saveFilterSettings() {
             const minInput = document.getElementById('filterMin');
             const maxInput = document.getElementById('filterMax');
             const toggle = document.getElementById('filterToggle');
+
+            // [버그수정] isMasterEnabled를 개별 토글로 덮어쓰지 않음
+            // isMasterEnabled는 전역 마스터 상태로 별도 관리
 
             const data = {
                 min: minInput ? parseInt(minInput.value || 0) : 1,
@@ -140,47 +121,36 @@
                 enabled: toggle ? toggle.checked : true
             };
 
-            // 객체에 저장 후 로컬스토리지 반영
             periodFilters[regressionStep] = data;
             savePeriodFilters();
-
-            console.log(`필터 저장 완료 [Step: ${regressionStep}]`, data);
+            console.log(`필터 저장 완료 [Step: ${regressionStep}]`, data, `(Master: ${isMasterEnabled})`);
         }
 
-        // [추가] UI에서 호출하는 통합 필터 적용 함수
-        function applyFilter() {
-            saveFilterSettings();
-            updateAll(); // 렌더링 즉시 반영
-        }
-
-        // [수정됨] 현재 회귀 단계의 필터 설정 불러오기
+        // 현재 단계 필터 불러오기
         function loadFilterSettings() {
             const saved = periodFilters[regressionStep];
+            const minInput = document.getElementById('filterMin');
+            const maxInput = document.getElementById('filterMax');
+            const toggle = document.getElementById('filterToggle');
 
             if (saved) {
-                const minInput = document.getElementById('filterMin');
-                const maxInput = document.getElementById('filterMax');
-                const toggle = document.getElementById('filterToggle');
-
                 if (minInput) minInput.value = saved.min !== undefined ? saved.min : 1;
                 if (maxInput) maxInput.value = saved.max !== undefined ? saved.max : 6;
-
-                // [수정] 대시보드에서 온 enabled 상태를 마스터 토글에 반영
-                if (toggle) toggle.checked = saved.enabled !== false;
-
-                return true;
+                // [버그수정] 개별 회귀 단계의 enabled 상태를 그대로 복원
+                if (toggle) toggle.checked = saved.enabled !== undefined ? saved.enabled : isMasterEnabled;
             } else {
-                // [추가] 저장된 값이 없으면 기본값으로 초기화
-                const minInput = document.getElementById('filterMin');
-                const maxInput = document.getElementById('filterMax');
                 if (minInput) minInput.value = 1;
                 if (maxInput) maxInput.value = 6;
-                // filterToggle은 마스터 상태를 유지함
+                if (toggle) toggle.checked = isMasterEnabled;
             }
-            return false;
+            return !!saved;
         }
 
-        // [추가됨] 전 회귀 일괄 적용 함수
+        function applyFilter() {
+            saveFilterSettings();
+            updateAll();
+        }
+
         function applyBatchFilter() {
             const batchMin = parseInt(document.getElementById('batchFilterMin').value);
             const batchMax = parseInt(document.getElementById('batchFilterMax').value);
@@ -191,37 +161,21 @@
                 return;
             }
 
-            // 2회귀부터 200회귀까지 일괄 설정
             for (let i = 2; i <= 200; i++) {
-                periodFilters[i] = {
-                    min: batchMin,
-                    max: batchMax,
-                    enabled: batchEnabled
-                };
+                periodFilters[i] = { min: batchMin, max: batchMax, enabled: batchEnabled };
             }
             savePeriodFilters();
-
-            // 현재 화면 갱신을 위해 현재 값도 업데이트
-            document.getElementById('filterMin').value = batchMin;
-            document.getElementById('filterMax').value = batchMax;
-            document.getElementById('filterToggle').checked = batchEnabled;
-
-            // console.log(`모든 회귀(2~200)에 필터(Min:${batchMin}, Max:${batchMax}, 적용:${batchEnabled ? 'ON' : 'OFF'})가 적용되었습니다.`);
-            updateAll(); // 화면 갱신
+            updateAll();
         }
 
-        // [추가됨] 전 회귀 최근 10회 성적 기반 일괄 적용 (토글 방식)
         function applyBatchRecent10Filters() {
             const btn = document.getElementById('batchRecent10Btn');
             const btnText = document.getElementById('batchRecent10BtnText');
 
-            // 토글: 이미 보라색이면 필터 해제 (batchRecent10Active 플래그 체크)
             if (btn && btn.classList.contains('bg-purple-600')) {
                 btn.classList.remove('bg-purple-600', 'hover:bg-purple-700');
                 btn.classList.add('bg-blue-500', 'hover:bg-blue-600');
                 if (btnText) btnText.textContent = '최근 10회 일괄 적용';
-
-                // periodFilters 전체 초기화
                 periodFilters = {};
                 savePeriodFilters();
                 updateAll();
@@ -229,16 +183,12 @@
             }
 
             if (!allData || allData.length === 0) return;
-
             const batchEnabled = document.getElementById('batchFilterToggle').checked;
-            const currentBase = targetRound;
 
             for (let s = 2; s <= 200; s++) {
-                let curr = currentBase - s;
+                let curr = targetRound - s;
                 let values = [];
                 let count = 0;
-
-                // 각 회귀 단계별 최근 10회차 데이터 수집
                 while (curr > 0 && count < 10) {
                     const currData = allData.find(d => d.round === curr);
                     const prevData = allData.find(d => d.round === curr - s);
@@ -250,73 +200,50 @@
                     }
                     curr -= s;
                 }
-
                 if (values.length > 0) {
-                    periodFilters[s] = {
-                        min: Math.min(...values),
-                        max: Math.max(...values),
-                        enabled: batchEnabled
-                    };
+                    periodFilters[s] = { min: Math.min(...values), max: Math.max(...values), enabled: batchEnabled };
                 }
             }
-
             savePeriodFilters();
-
-            // 버튼 보라색으로 변경 (활성화 상태)
             if (btn) {
                 btn.classList.remove('bg-blue-500', 'hover:bg-blue-600');
                 btn.classList.add('bg-purple-600', 'hover:bg-purple-700');
             }
             if (btnText) btnText.textContent = '일괄 필터 해제';
-
-            // 현재 활성화된 회귀 단계의 UI 필터값도 갱신
-            const currentSaved = periodFilters[regressionStep];
-            if (currentSaved) {
-                document.getElementById('filterMin').value = currentSaved.min;
-                document.getElementById('filterMax').value = currentSaved.max;
-                document.getElementById('filterToggle').checked = currentSaved.enabled;
-            }
-
-            console.log('✅ 전 회귀 최근 10회차 기반 일괄 설정 완료 (2~200)');
-            updateAll(); // 화면 갱신
+            updateAll();
         }
 
-        function applyFilter() {
-            saveFilterSettings();
-        }
-
-        // [추가] 실시간 동기화를 위한 스토리지 이벤트 리스너
+        // 🔹 [동기화] 대시보드 및 타 페이지 연동
         window.addEventListener('storage', (e) => {
-            const targetKeys = ['regression_analysis', 'regression_patterns', 'lotto_period_filters'];
-            if (targetKeys.includes(e.key)) {
-                console.log(`🔄 필터 변경 감지 (${e.key}): UI 갱신 (Regression)`);
+            if (e.key === 'regression_analysis' || e.key === 'regression_patterns' || e.key === 'lotto_period_filters') {
+                if (!e.newValue) return;
                 try {
-                    const newData = JSON.parse(e.newValue);
-                    if (newData) {
-                        // [수정] 대시보드와 구조 통일 (settings 객체 추출)
-                        const incomingSettings = newData.settings || (newData.periodFilters ? newData.periodFilters : null);
-                        if (incomingSettings) {
-                            periodFilters = incomingSettings;
-                        } else if (newData && !newData.settings && !newData.periodFilters) {
-                            // Flat structure fallback
-                            periodFilters = newData;
-                        }
+                    const saved = JSON.parse(e.newValue);
+                    if (saved._source === 'regression_page') return;
 
-                        // 마스터 활성화 상태(enabled) 반영
-                        const masterEnabled = newData.enabled !== undefined ? newData.enabled : true;
-                        const toggle = document.getElementById('filterToggle');
-                        if (toggle) toggle.checked = masterEnabled;
+                    const data = (saved && saved.settings) ? saved.settings : saved;
+                    const enabled = (saved && saved.enabled !== undefined) ? saved.enabled : true;
+
+                    if (saved.targetRound && saved.targetRound !== targetRound) return;
+
+                    periodFilters = data || {};
+                    isMasterEnabled = enabled;
+
+                    console.log('🔄 필터 실시간 동기화 수신:', { isMasterEnabled, periodFilters });
+                    // [버그수정] updateAll()로 테이블 전체 재렌더링 포함
+                    if (typeof updateAll === 'function') {
+                        updateAll();
+                    } else {
+                        loadFilterSettings();
+                        if (typeof renderFilterSection === 'function') renderFilterSection();
                     }
+                    if (typeof refreshAIAnalysis === 'function') refreshAIAnalysis();
                 } catch (err) {
-                    console.error('필터 데이터 파싱 실패', err);
+                    console.error('동기화 데이터 파싱 실패:', err);
                 }
-
-                loadFilterSettings(); // 현재 단계 UI 갱신
-                updateAll(); // 화면 전체 갱신
             }
         });
 
-        // 🔹 화면 전체 갱신 함수 (전역)
         function updateAll() {
             const targetRoundSelect = document.getElementById('targetRoundSelect');
             const regressionStepSelect = document.getElementById('regressionStepSelect');
@@ -324,7 +251,6 @@
             if (targetRoundSelect) targetRound = parseInt(targetRoundSelect.value);
             if (regressionStepSelect) regressionStep = parseInt(regressionStepSelect.value);
 
-            // 타이틀 업데이트
             const filterSubTitle = document.getElementById('filterSubTitle');
             const chainTitle = document.getElementById('chainTitle');
             const historyTitle = document.getElementById('historyTitle');
@@ -333,7 +259,6 @@
             if (chainTitle) chainTitle.textContent = `${regressionStep}회귀`;
             if (historyTitle) historyTitle.textContent = `회차별 당첨번호 및 ${regressionStep}회귀 당첨수`;
 
-            // 최근 10회차 버튼 상태 초기화
             const btn = document.getElementById('recent10FilterBtn');
             const btnText = document.getElementById('recent10BtnText');
             if (btn && btnText) {
@@ -344,21 +269,14 @@
 
             if (typeof renderDashboard === 'function') renderDashboard();
             if (typeof renderFilterSection === 'function') renderFilterSection();
-
-            // 필터 설정 로드 (UI 입력창 갱신)
             loadFilterSettings();
 
-            // 하이라이트 인덱스 초기화
             chainHighlightIdx = null;
             historyHighlightIdx = null;
 
             if (typeof renderChainTable === 'function') renderChainTable();
             if (typeof updateHistoryTable === 'function') updateHistoryTable();
-
-            // AI 분석 지연 실행
-            if (typeof refreshAIAnalysis === 'function') {
-                setTimeout(() => refreshAIAnalysis(), 50);
-            }
+            if (typeof refreshAIAnalysis === 'function') setTimeout(() => refreshAIAnalysis(), 50);
         }
     </script>
 
