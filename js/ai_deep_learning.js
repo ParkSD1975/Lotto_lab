@@ -88,7 +88,7 @@ const DeepLearning = {
     },
 
     async checkConnection(isStartup = false) {
-        const url = window.AI_SERVER_URL || 'https://lotto-api-server.onrender.com';
+        const url = window.AI_SERVER_URL || 'https://lottolab-production-31e3.up.railway.app';
         if (window.AIProxy && typeof window.AIProxy.checkHealth === 'function') {
             this.state.isConnected = await window.AIProxy.checkHealth(!isStartup);
         } else {
@@ -1681,7 +1681,7 @@ const DeepLearning = {
         var remaining = matrixNums.filter(n => !priority.includes(n));
         var queue = [...priority, ...remaining];
 
-        const url = window.AI_SERVER_URL || 'https://lotto-api-server.onrender.com';
+        const url = window.AI_SERVER_URL || 'https://lottolab-production-31e3.up.railway.app';
         const target_round = d.target_round;
         const CONCURRENCY = 3;
 
@@ -1740,7 +1740,7 @@ const DeepLearning = {
             var evidenceText = (d.evidence && d.evidence[number]) ? d.evidence[number] : null;
             if (!evidenceText) {
                 try {
-                    const url = window.AI_SERVER_URL || 'https://lotto-api-server.onrender.com';
+                    const url = window.AI_SERVER_URL || 'https://lottolab-production-31e3.up.railway.app';
                     const reqBody = { number: number, user_query: "이 번호에 대한 심층 분석을 해줘" };
                     if (d.target_round) reqBody.target_round = d.target_round;
                     const res = await fetch(url + '/api/explain/', {
@@ -1861,7 +1861,7 @@ const DeepLearning = {
     },
 
     _getBaseUrl() {
-        return window.AI_SERVER_URL || 'https://lotto-api-server.onrender.com';
+        return window.AI_SERVER_URL || 'https://lottolab-production-31e3.up.railway.app';
     },
 
     renderBalls(id, nums) {
