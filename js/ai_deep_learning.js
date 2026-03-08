@@ -208,7 +208,10 @@ const DeepLearning = {
         this.showLoading(true, 'AI 심층 분석 데이터 조회 중...');
 
         try {
-            const dbData = await this._fetchAnalysisFromDB(this.state.targetRound);
+            let dbData = null;
+            if (!forceReload) {
+                dbData = await this._fetchAnalysisFromDB(this.state.targetRound);
+            }
             if (dbData) {
                 console.log("📦 [DeepLearning] DB에서 분석 결과 로드 성공!");
                 this.setProgress(100, '완료!');
@@ -230,6 +233,7 @@ const DeepLearning = {
                     this.setProgress(100, '완료!');
                     this.state.analysisData = result;
                     this.renderAll(result);
+                    this.showLoading(false);
                 } else {
                     throw new Error("Python 분석 실패 (응답 없음)");
                 }
@@ -265,7 +269,7 @@ const DeepLearning = {
                 .eq('target_round', round)
                 .order('created_at', { ascending: false })
                 .limit(1)
-                .single();
+                .maybeSingle();
 
             if (data && data.analysis_data) {
                 return typeof data.analysis_data === 'string'
@@ -1322,10 +1326,10 @@ const DeepLearning = {
         groupArray.forEach(g => {
             const avgProb = g.avg_prob || 0;
             let barColor = '#CCFBF1', width = '10%';
-            if (avgProb >= 4.0)      { width = '100%'; barColor = '#134E4A'; }
-            else if (avgProb >= 3.0) { width = '75%';  barColor = '#0F766E'; }
-            else if (avgProb >= 2.0) { width = '50%';  barColor = '#14B8A6'; }
-            else if (avgProb >= 1.0) { width = '25%';  barColor = '#5EEAD4'; }
+            if (avgProb >= 4.0) { width = '100%'; barColor = '#134E4A'; }
+            else if (avgProb >= 3.0) { width = '75%'; barColor = '#0F766E'; }
+            else if (avgProb >= 2.0) { width = '50%'; barColor = '#14B8A6'; }
+            else if (avgProb >= 1.0) { width = '25%'; barColor = '#5EEAD4'; }
 
             const expCell = `
                 <div class="flex flex-col items-center justify-center h-full px-2" title="평균확률: ${avgProb.toFixed(2)}%">
@@ -1383,10 +1387,10 @@ const DeepLearning = {
             if (!d) return;
             const avgProb = (d.avg_prob || 0) * 100;
             let barColor = '#CCFBF1', width = '10%';
-            if (avgProb >= 4.0)      { width = '100%'; barColor = '#134E4A'; }
-            else if (avgProb >= 3.0) { width = '75%';  barColor = '#0F766E'; }
-            else if (avgProb >= 2.0) { width = '50%';  barColor = '#14B8A6'; }
-            else if (avgProb >= 1.0) { width = '25%';  barColor = '#5EEAD4'; }
+            if (avgProb >= 4.0) { width = '100%'; barColor = '#134E4A'; }
+            else if (avgProb >= 3.0) { width = '75%'; barColor = '#0F766E'; }
+            else if (avgProb >= 2.0) { width = '50%'; barColor = '#14B8A6'; }
+            else if (avgProb >= 1.0) { width = '25%'; barColor = '#5EEAD4'; }
 
             const expCell = `
                 <div class="flex flex-col items-center justify-center h-full px-2" title="평균확률: ${avgProb.toFixed(2)}%">
@@ -1400,8 +1404,8 @@ const DeepLearning = {
                 const ms = (d.model_scores || {})[m] || {};
                 const signal = ms.signal || 'neutral';
                 let opacity = 0.15, height = '4px';
-                if (signal === 'positive')      { opacity = 1.0; height = '14px'; }
-                else if (signal === 'neutral')  { opacity = 0.5; height = '8px'; }
+                if (signal === 'positive') { opacity = 1.0; height = '14px'; }
+                else if (signal === 'neutral') { opacity = 0.5; height = '8px'; }
                 return `<td class="px-2 py-3 text-center align-bottom" title="${m.toUpperCase()}: ${signal}">
                     <div style="display:flex;align-items:flex-end;justify-content:center;height:16px;">
                         <div style="width:12px;height:${height};background-color:${MODEL_COLORS[m]};opacity:${opacity};border-radius:2px;"></div>
