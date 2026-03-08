@@ -27,6 +27,15 @@ const DeepLearning = {
         ]);
         this.loadHistoryList(); // checkConnection 완료 후 비동기 실행 (중복 /health 요청 방지)
 
+        // 연결 실패 시 서버 웜업 후 재시도 (Render.com 콜드스타트 대응)
+        if (!this.state.isConnected) {
+            setTimeout(() => {
+                this.checkConnection().then(() => {
+                    if (this.state.isConnected) this.loadHistoryList();
+                });
+            }, 35000);
+        }
+
         // 2. UI 이벤트 바인딩
         this.bindEvents();
 
@@ -1692,6 +1701,12 @@ const DeepLearning = {
                     if (xaiData.explanation) {
                         d.evidence[number] = xaiData.explanation;
                         console.log(`[XAI Prefetch] ${number}번 캐시 완료`);
+                    }
+                    // 서버 응답 성공 → 연결 상태 업데이트 (콜드스타트 후 복구)
+                    if (!this.state.isConnected) {
+                        this.state.isConnected = true;
+                        this.updateConnectionStatusUI();
+                        this.loadHistoryList();
                     }
                 }
             } catch (e) {
