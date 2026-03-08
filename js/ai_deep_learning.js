@@ -20,12 +20,12 @@ const DeepLearning = {
         const startTime = Date.now();
         console.log("🚀 Deep Learning v3.5 Initializing...");
 
-        // 1. 핵심 정보 병렬 로드
+        // 1. 핵심 정보 병렬 로드 (checkConnection 먼저 완료해야 loadHistoryList가 isConnected를 정확히 읽음)
         await Promise.all([
             this.setTargetRound(),
-            this.checkConnection(true),
-            this.loadHistoryList()
+            this.checkConnection(true)
         ]);
+        this.loadHistoryList(); // checkConnection 완료 후 비동기 실행 (중복 /health 요청 방지)
 
         // 2. UI 이벤트 바인딩
         this.bindEvents();
@@ -233,6 +233,7 @@ const DeepLearning = {
                 this.setProgress(100, '완료!');
                 this.state.analysisData = dbData;
                 this.renderAll(dbData);
+                this._prefetchXAIInBackground();
                 this.state.isAnalyzing = false;
                 this.showLoading(false);
                 return;
@@ -249,7 +250,11 @@ const DeepLearning = {
                     this.setProgress(100, '완료!');
                     this.state.analysisData = result;
                     this.renderAll(result);
+                    this._prefetchXAIInBackground();
                     this.showLoading(false);
+                    // 서버 웜업 후 이력 목록 재시도 (초기 콜드스타트로 실패했을 수 있음)
+                    const histSel = document.getElementById('historySelect');
+                    if (!histSel || histSel.options.length <= 1) this.loadHistoryList();
                 } else {
                     throw new Error("Python 분석 실패 (응답 없음)");
                 }
@@ -1594,16 +1599,13 @@ const DeepLearning = {
         const select = document.getElementById('historySelect');
         if (!select) return;
 
-        // [수정] 연결되지 않았더라도 우선 시도 (백엔드가 떠오르는 중일 수 있으므로)
-        // 만약 state.isConnected가 false라면 여기서 즉시 체크 시도
-        if (!this.state.isConnected) {
-            await this.checkConnection(true);
-        }
+        // init()의 checkConnection(true)에서 이미 처리됨 - 중복 호출 금지
+        if (!this.state.isConnected) return;
 
         const url = this._getBaseUrl();
         try {
             var res = await fetch(url + '/api/deep-analysis/v3/history', {
-                signal: AbortSignal.timeout(5000)
+                signal: AbortSignal.timeout(15000)
             });
             if (!res.ok) return;
             var data = await res.json();
@@ -1647,11 +1649,65 @@ const DeepLearning = {
             var roundEl = document.getElementById('targetRoundDisplay');
             if (roundEl) roundEl.textContent = analysisData.target_round;
             this.renderAll(analysisData);
+            this._prefetchXAIInBackground();
         } catch (e) {
             console.error('이력 로드 실패:', e);
             alert('이력 로드 실패: ' + e.message);
         } finally {
             setTimeout(function () { DeepLearning.showLoading(false); }, 300);
+        }
+    },
+
+    async _prefetchXAIInBackground() {
+        var d = this.state.analysisData;
+        if (!d) return;
+        if (!d.evidence) d.evidence = {};
+
+        // 우선순위: top_5 + exclude_10 (클릭 가능성 높음)
+        var priority = [...new Set([...(d.top_5 || []), ...(d.exclude_10 || [])])];
+
+        // 나머지: matrix_data 번호 (total 점수 순)
+        var _mtxSource = (d.analysis && d.analysis.matrix_data) ? d.analysis.matrix_data : (d.matrix_data || []);
+        var matrixNums = [..._mtxSource].sort((a, b) => (b.total || 0) - (a.total || 0)).map(m => m.num);
+        var remaining = matrixNums.filter(n => !priority.includes(n));
+        var queue = [...priority, ...remaining];
+
+        const url = window.AI_SERVER_URL || 'https://lotto-api-server.onrender.com';
+        const target_round = d.target_round;
+        const CONCURRENCY = 3;
+
+        const fetchOne = async (number) => {
+            if (d.evidence[number]) return; // 이미 캐시됨
+            try {
+                const reqBody = { number, user_query: "이 번호에 대한 심층 분석을 해줘" };
+                if (target_round) reqBody.target_round = target_round;
+                const res = await fetch(url + '/api/explain/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(reqBody),
+                    signal: AbortSignal.timeout(15000)
+                });
+                if (res.ok) {
+                    const xaiData = await res.json();
+                    if (xaiData.explanation) {
+                        d.evidence[number] = xaiData.explanation;
+                        console.log(`[XAI Prefetch] ${number}번 캐시 완료`);
+                    }
+                }
+            } catch (e) {
+                // 백그라운드 프리페치 실패 무시
+            }
+        };
+
+        // 1.5초 후 시작 (UI 렌더링과 경쟁 방지)
+        await new Promise(r => setTimeout(r, 1500));
+
+        // CONCURRENCY개씩 병렬 처리
+        for (let i = 0; i < queue.length; i += CONCURRENCY) {
+            // 분석 데이터가 교체된 경우 중단
+            if (this.state.analysisData !== d) break;
+            const batch = queue.slice(i, i + CONCURRENCY);
+            await Promise.all(batch.map(fetchOne));
         }
     },
 

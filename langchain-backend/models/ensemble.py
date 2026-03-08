@@ -33,15 +33,15 @@ class LottoEnsemble:
             "gnn": GNNTrainer()
         }
         
-        # 기본 뼈대 가중치 (초기값)
+        # 기본 뼈대 가중치 (초기값) - 합계 1.0
         self.default_weights = {
-            "xgboost": 0.30,
+            "xgboost": 0.25,       # 0.30 → 0.25 (autoencoder 편입으로 조정)
             "lstm": 0.20,
             "cnn": 0.10,
             "transformer": 0.15,
             "gnn": 0.15,
             "markov": 0.10,
-            "autoencoder": 0.0 # 0% weight, used for penalty only but needs to be in UI
+            "autoencoder": 0.05    # 0.0 → 0.05 (복원 오차 기반 예측 기여도 반영)
         }
         
         # ★ 시스템 시작 시 진화된 가중치가 있다면 불러오기
@@ -57,7 +57,8 @@ class LottoEnsemble:
                     # 기존 가중치에 새로운 모델이 추가된 경우 대응 (e.g. autoencoder)
                     for k, v in w.items():
                         if k in base_weights:
-                            base_weights[k] = v
+                            # 이전 버전에서 0으로 저장된 경우 기본값 사용 (autoencoder 0→0.05 마이그레이션)
+                            base_weights[k] = v if v > 0 else base_weights[k]
                     print(f"🧠 [Meta-Learning] 진화된 동적 가중치 로드 완료: {base_weights}")
                     return base_weights
             except Exception:
@@ -77,7 +78,6 @@ class LottoEnsemble:
             scores = {k: v for k, v in self.weights.items()}
 
             for name, model in self.models.items():
-                if name == "autoencoder": continue # AE는 이상치 탐지용이므로 제외
                 try:
                     # 각 모델별로 최신 회차 예측 시뮬레이션
                     preds = model.predict(history)
@@ -178,7 +178,6 @@ class LottoEnsemble:
             return {"probabilities": {}, "model_contributions": {}, "evidence": {}}
 
         contributions = {m: {} for m in self.weights.keys()}
-        contributions["autoencoder"] = {}
 
         # 1. 딥러닝/머신러닝 예측
         for name, model in self.models.items():
