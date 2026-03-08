@@ -2129,6 +2129,14 @@ ${contextData}
             if (!container) return;
             baseRound = targetRound - 1;
 
+            // ── sessionStorage 캐싱: 같은 회차+회귀단계 결과는 재사용 ──
+            const cacheKey = `regression_insight_${targetRound}_${regressionStep}`;
+            const cached = sessionStorage.getItem(cacheKey);
+            if (cached) {
+                container.innerHTML = cached;
+                return;
+            }
+
             if (window.AIAnalysis) {
                 const regressionCtx = prepareRegressionContext();
                 await window.AIAnalysis.executeAnalysis({
@@ -2144,6 +2152,10 @@ ${contextData}
 4. 대상번호 중 이번 회차(${targetRound}회차)에 재출현할 가능성이 높은 번호를 통계 근거와 함께 제시하라.
 5. 회귀 주기의 특성(주기성, 연속성, 패턴 붕괴 가능성)에 초점을 맞춰 분석하라.`
                 });
+                // 결과 캐싱
+                if (container.innerHTML && !container.innerHTML.includes('animate-spin')) {
+                    try { sessionStorage.setItem(cacheKey, container.innerHTML); } catch (e) { }
+                }
             }
         }
 
