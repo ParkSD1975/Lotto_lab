@@ -47,8 +47,10 @@ window.FilterDashboard = {
             // [수정] 커스텀 분석 관련 키 감지 추가
             const isCustomFilter = e.key.startsWith('custom_filter_');
             const isAnalysisRefresh = e.key === 'custom_analysis_refresh';
+            // [수정] LNB 순서 변경 감지 (custom_analysis.html에서 드래그 시 발생)
+            const isLnbOrderChange = e.key === 'lnbOrder_custom';
 
-            const isWatched = watchedKeys.has(e.key) || e.key.endsWith('_filter') || isCustomFilter || isAnalysisRefresh;
+            const isWatched = watchedKeys.has(e.key) || e.key.endsWith('_filter') || isCustomFilter || isAnalysisRefresh || isLnbOrderChange;
             if (!isWatched) return;
 
             console.log(`🔄 Storage Change Detected: ${e.key}. Refreshing Dashboard...`);
@@ -56,6 +58,12 @@ window.FilterDashboard = {
             // 커스텀 분석 생성/삭제/수정 시 즉시 DB 재로드
             if (isAnalysisRefresh) {
                 this.loadDataFromDB().then(() => this.renderUI());
+                return;
+            }
+
+            // [수정] LNB 순서 변경 시 커스텀 필터 카드 순서 즉시 동기화
+            if (isLnbOrderChange) {
+                this.renderCustomFilters();
                 return;
             }
 
@@ -78,6 +86,10 @@ window.FilterDashboard = {
             if ((e.key === 'regression_analysis' || e.key === 'regression_patterns' || e.key === 'lotto_period_filters') && e.newValue) {
                 try {
                     const newData = JSON.parse(e.newValue);
+                    // [추가] 회차 정보가 있고 현재 회차와 다르면 무시 (동기화 꼬임 방지)
+                    const msgRound = newData.targetRound || newData.target_round;
+                    if (msgRound && msgRound !== this.state.targetRound) return;
+
                     // settings 또는 periodFilters 객체가 있으면 우선 사용
                     this.state.regressionSettings = newData.settings || (newData.periodFilters ? newData.periodFilters : newData);
                     this.state.regressionEnabled = newData.enabled !== undefined ? newData.enabled : true;
@@ -144,6 +156,20 @@ window.FilterDashboard = {
             this.handleDeepLink(focusId);
         }
 
+        // [동기화] regression.html에서 특정 step 링크로 진입 시 해당 행으로 스크롤
+        const stepParam = params.get('step');
+        if (stepParam && tab === 'regression') {
+            setTimeout(() => {
+                const stepEl = document.getElementById(`regression-row-${stepParam}`);
+                if (stepEl) {
+                    stepEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    stepEl.style.outline = '2px solid #6366f1';
+                    stepEl.style.boxShadow = '0 0 0 4px rgba(99,102,241,0.2)';
+                    setTimeout(() => { stepEl.style.outline = ''; stepEl.style.boxShadow = ''; }, 2000);
+                }
+            }, 800);
+        }
+
         document.getElementById('btnRegAllOn')?.addEventListener('click', () => this.bulkToggleRegression(true));
         document.getElementById('btnRegAllOff')?.addEventListener('click', () => this.bulkToggleRegression(false));
     },
@@ -200,6 +226,10 @@ window.FilterDashboard = {
             this.state.allDraws = draws || [];
 
             if (this.state.allDraws.length > 0) {
+                // [추가] 차기 회차 계산 (regression.html과 동일한 로직)
+                this.state.targetRound = this.state.allDraws[0].round + 1;
+                console.log(`[FilterDashboard] Current Target Round: ${this.state.targetRound}`);
+
                 const prevNum = (this.state.allDraws[0].numbers || []).slice(0, 6);
                 const prevBonus = this.state.allDraws[0].bonus || this.state.allDraws[0].bonus_number || this.state.allDraws[0].bonusNo;
 
@@ -226,7 +256,7 @@ window.FilterDashboard = {
 
 
 
-            const allSettings = await window.filterService.loadAllSettings();
+            const allSettings = await window.filterService.loadAllSettings(this.state.targetRound);
             console.log('[FilterDashboard] All Settings Loaded', allSettings);
 
             this.state.userSettings = {};
@@ -384,6 +414,23 @@ window.FilterDashboard = {
             const { data: customs, error: customsError } = await _customQuery;
             if (customsError) console.error("Custom Analyses Load Error:", customsError);
             this.state.customFilters = customs || [];
+
+            // [수정] 초기 로드 시 lnbOrder_custom 기준으로 정렬 (토글 후 재로드 시 순서 유지)
+            try {
+                const _savedOrder = JSON.parse(localStorage.getItem('lnbOrder_custom'));
+                if (_savedOrder && _savedOrder.length > 0) {
+                    this.state.customFilters.sort((a, b) => {
+                        const hA = `custom_analysis.html?id=${a.id}`;
+                        const hB = `custom_analysis.html?id=${b.id}`;
+                        const iA = _savedOrder.indexOf(hA);
+                        const iB = _savedOrder.indexOf(hB);
+                        if (iA !== -1 && iB !== -1) return iA - iB;
+                        if (iA !== -1) return -1;
+                        if (iB !== -1) return 1;
+                        return 0;
+                    });
+                }
+            } catch (e) { /* ignore */ }
 
             let loadedBasket = { fixed: [], exclude: [] };
             try { loadedBasket = JSON.parse(localStorage.getItem('lotto_basket')) || { fixed: [], exclude: [] }; } catch (e) { }
@@ -1502,7 +1549,7 @@ window.FilterDashboard = {
             const targetNums = this.state.allDraws[i - 1] ? this.state.allDraws[i - 1].numbers : [];
 
             html += `
-            <div class="px-6 py-4 grid grid-cols-1 md:grid-cols-3 items-center gap-4 hover:bg-slate-50 border-b border-slate-100 ${isActuallyEnabled ? 'bg-emerald-50/30' : 'opacity-60 grayscale'}">
+            <div id="regression-row-${i}" class="px-6 py-4 grid grid-cols-1 md:grid-cols-3 items-center gap-4 hover:bg-slate-50 border-b border-slate-100 ${isActuallyEnabled ? 'bg-emerald-50/30' : 'opacity-60 grayscale'}">
                 <div class="flex items-center gap-6 justify-start">
                     <label class="relative inline-flex items-center cursor-pointer scale-110">
                         <input type="checkbox" class="sr-only peer" ${isActuallyEnabled ? 'checked' : ''} onchange="FilterDashboard.toggleRegression(${i})">
@@ -1538,7 +1585,25 @@ window.FilterDashboard = {
         let html = '';
         let activeCount = 0;
 
-        this.state.customFilters.forEach(custom => {
+        // [수정] lnbOrder_custom 기준으로 정렬 → LNB 순서와 동기화, 토글 시 순서 유지
+        let orderedFilters = [...this.state.customFilters];
+        try {
+            const savedOrder = JSON.parse(localStorage.getItem('lnbOrder_custom'));
+            if (savedOrder && savedOrder.length > 0) {
+                orderedFilters.sort((a, b) => {
+                    const hrefA = `custom_analysis.html?id=${a.id}`;
+                    const hrefB = `custom_analysis.html?id=${b.id}`;
+                    const idxA = savedOrder.indexOf(hrefA);
+                    const idxB = savedOrder.indexOf(hrefB);
+                    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+                    if (idxA !== -1) return -1;
+                    if (idxB !== -1) return 1;
+                    return 0;
+                });
+            }
+        } catch (e) { /* ignore */ }
+
+        orderedFilters.forEach(custom => {
             try {
                 let config = {};
                 if (typeof custom.filter_config === 'string') {
@@ -1903,9 +1968,9 @@ window.FilterDashboard = {
         this.state.regressionEnabled = true;
 
         if (window.Utils && window.Utils.saveFilter) {
-            await window.Utils.saveFilter('regression_analysis', this.state.regressionSettings, true);
+            await window.Utils.saveFilter('regression_analysis', this.state.regressionSettings, true, { targetRound: this.state.targetRound });
         } else if (window.filterService?.initialized) {
-            await window.filterService.saveSetting('regression_analysis', this.state.regressionSettings, true);
+            await window.filterService.saveSetting('regression_analysis', this.state.regressionSettings, true, this.state.targetRound);
         }
         this.renderRegressionFilters();
         this.updateNeonCounter();
@@ -1921,9 +1986,9 @@ window.FilterDashboard = {
             const isOn = this.state.regressionEnabled !== false;
             // [수정] Utils.saveFilter를 사용하여 실시간 동기화(storage 이벤트) 트리거
             if (window.Utils && window.Utils.saveFilter) {
-                await window.Utils.saveFilter('regression_analysis', this.state.regressionSettings, isOn);
+                await window.Utils.saveFilter('regression_analysis', this.state.regressionSettings, isOn, { targetRound: this.state.targetRound });
             } else if (window.filterService?.initialized) {
-                await window.filterService.saveSetting('regression_analysis', this.state.regressionSettings, isOn);
+                await window.filterService.saveSetting('regression_analysis', this.state.regressionSettings, isOn, this.state.targetRound);
             }
             this.updateNeonCounter();
         }, 500);
@@ -1976,9 +2041,9 @@ window.FilterDashboard = {
             else this.state.regressionSettings[i].enabled = isOn;
         }
         if (window.Utils && window.Utils.saveFilter) {
-            await window.Utils.saveFilter('regression_analysis', this.state.regressionSettings, isOn);
+            await window.Utils.saveFilter('regression_analysis', this.state.regressionSettings, isOn, { targetRound: this.state.targetRound });
         } else if (window.filterService?.initialized) {
-            await window.filterService.saveSetting('regression_analysis', this.state.regressionSettings, isOn);
+            await window.filterService.saveSetting('regression_analysis', this.state.regressionSettings, isOn, this.state.targetRound);
         }
         this.renderRegressionFilters();
         this.updateNeonCounter();

@@ -60,9 +60,17 @@ class LottoEnsemble:
                             # 이전 버전에서 0으로 저장된 경우 기본값 사용 (autoencoder 0→0.05 마이그레이션)
                             base_weights[k] = v if v > 0 else base_weights[k]
                     print(f"🧠 [Meta-Learning] 진화된 동적 가중치 로드 완료: {base_weights}")
-                    return base_weights
             except Exception:
                 pass
+
+        # 파일에 누락된 모델 키가 있을 경우 최신 7개 키로 갱신 저장
+        # (구버전 파일에 gnn/autoencoder가 없어 0.0으로 표시되는 문제 방지)
+        try:
+            with open(self.weights_file, "w") as f:
+                json.dump(base_weights, f, indent=2)
+        except Exception:
+            pass
+
         return base_weights
 
     def _update_meta_weights(self, draws):

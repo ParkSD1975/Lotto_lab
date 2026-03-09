@@ -49,7 +49,7 @@
         // let excludedNumbers = new Set(); <-- 삭제
         let selectedHeaderNumbers = new Set();
 
-        // [수정] 필터 설정 저장 함수 (DB 저장)
+        // [수정] 필터 설정 저장 함수 (Utils.saveFilter → DB + localStorage + 브로드캐스트)
         async function saveFilterSettings() {
             const toggle = document.getElementById('filterToggle');
             const basket = window.Basket.get();
@@ -60,12 +60,11 @@
             };
             const enabled = toggle ? toggle.checked : true;
 
-            // DB 저장 (FilterService 사용)
-            if (window.filterService && window.filterService.initialized) {
+            // [동기화] Utils.saveFilter 사용 → DB + localStorage 동시 저장 + storage 이벤트 브로드캐스트
+            if (window.Utils && window.Utils.saveFilter) {
+                await window.Utils.saveFilter('stats_by_number_filter', data, enabled);
+            } else if (window.filterService && window.filterService.initialized) {
                 await window.filterService.saveSetting('stats_by_number_patterns', data, enabled);
-            } else if (window.Utils && window.Utils.saveFilter) {
-                // Fallback: localStorage
-                window.Utils.saveFilter('stats_by_number_filter', { ...data, enabled });
             }
         }
 
@@ -639,7 +638,7 @@
                                             onclick="document.getElementById('filterToggle').click()">필터 적용</span>
                                     </div>
 
-                                    <a href="filter.html"
+                                    <a href="filter.html?tab=foundation"
                                         class="text-sm font-medium text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
                                         <span class="material-symbols-outlined text-[18px]">tune</span>
                                         필터 페이지 가기
@@ -1075,8 +1074,52 @@
             saveFilterSettings();
         }
 
-        // Basket 변경 감지 시 리렌더링
+        // Basket 변경 감지 시 리렌더링 (같은 탭 내)
         window.addEventListener('basketChanged', renderFilterBoxes);
+
+        // [동기화] 필터대시보드(filter.html) 또는 다른 탭에서 설정 변경 시 실시간 반영
+        window.addEventListener('storage', async (e) => {
+            // stats_by_number 필터 설정 변경 동기화
+            if (e.key === 'stats_by_number_filter' || e.key === 'stats_by_number_filter_filter') {
+                if (!e.newValue) return;
+                try {
+                    const saved = JSON.parse(e.newValue);
+                    const data = (saved.settings !== undefined) ? saved.settings : saved;
+                    const toggle = document.getElementById('filterToggle');
+                    if (toggle && saved.enabled !== undefined) toggle.checked = saved.enabled;
+                    if (data.sortByMissCount !== undefined) {
+                        sortByMissCount = data.sortByMissCount;
+                        updateSortButtonUI();
+                    }
+                    renderFilterBoxes();
+                    if (typeof updateRange === 'function') updateRange(currentRange);
+                } catch (err) {
+                    console.error('[stats_by_number] 필터 동기화 오류:', err);
+                }
+            }
+
+            // lotto_basket 변경 동기화 (filter.html에서 바스켓 고정수/제외수 변경 시)
+            if (e.key === 'lotto_basket' && e.newValue) {
+                try {
+                    const basket = JSON.parse(e.newValue);
+                    const currentBasket = window.Basket ? window.Basket.get() : { fixed: [], exclude: [] };
+                    // 기존 basket 클리어 후 재설정
+                    if (basket.fixed) {
+                        currentBasket.fixed.forEach(n => window.Basket.removeFixed && window.Basket.removeFixed(n));
+                        basket.fixed.forEach(n => window.Basket.addFixed && window.Basket.addFixed(n));
+                    }
+                    if (basket.exclude) {
+                        currentBasket.exclude.forEach(n => window.Basket.removeExclude && window.Basket.removeExclude(n));
+                        basket.exclude.forEach(n => window.Basket.addExclude && window.Basket.addExclude(n));
+                    }
+                    renderFilterBoxes();
+                    if (typeof updateRange === 'function') updateRange(currentRange);
+                    console.log('🔄 [stats_by_number] lotto_basket 동기화 완료');
+                } catch (err) {
+                    console.error('[stats_by_number] basket 동기화 오류:', err);
+                }
+            }
+        });
 
         // ==========================================================
         // [AI 분석 엔진] 번호별 통계 전용

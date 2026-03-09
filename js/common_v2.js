@@ -1398,9 +1398,11 @@ Format: JSON
                     throw new Error("Supabase is not initialized.");
                 }
 
-                // Supabase insert
+                // [RLS수정] user_id 포함하여 삽입 (RLS 정책: auth.uid() = user_id)
+                const _uid = window.filterService?.userId
+                    || (await window.supabaseClient.auth.getUser())?.data?.user?.id;
                 const { error } = await window.supabaseClient.from('user_checkpoints').insert([
-                    { round: parseInt(round), memo: memo }
+                    { round: parseInt(round), memo: memo, user_id: _uid }
                 ]);
 
                 if (error) throw error;

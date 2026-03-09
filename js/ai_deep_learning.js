@@ -1005,21 +1005,29 @@ const DeepLearning = {
         if (condContainer && pipeline.modelWeights) {
             const MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7', gnn: '#ef4444' };
             const MODEL_LABELS = { lstm: 'LSTM', xgboost: 'XGBoost', cnn: 'CNN', transformer: 'Transformer', markov: 'Markov', autoencoder: 'Autoenc.', gnn: 'GNN' };
-            const weights = pipeline.modelWeights;
+            // 구버전 DB 캐시에 누락된 모델 키를 기본값으로 보완 (예: autoencoder:0.0 → 0.045)
+            const DEFAULT_WEIGHTS = { lstm: 0.213, xgboost: 0.182, cnn: 0.212, transformer: 0.212, markov: 0.091, autoencoder: 0.045, gnn: 0.045 };
+            const rawWeights = pipeline.modelWeights;
+            const weights = {};
+            Object.keys(MODEL_LABELS).forEach(name => {
+                const v = rawWeights[name];
+                weights[name] = (v != null && v > 0) ? v : DEFAULT_WEIGHTS[name] || 0;
+            });
             const weightValues = Object.values(weights).map(v => v || 0);
 
             const maxW = weightValues.length > 0 ? Math.max(...weightValues) : 0;
-            const barsHtml = Object.entries(weights).map(([name, w]) => {
-                const w_val = w || 0;
+            const barsHtml = Object.entries(weights).map(([name, w_val]) => {
                 const pct = (w_val * 100).toFixed(1);
                 const barW = maxW > 0 ? (w_val / maxW * 100).toFixed(1) : 0;
                 const color = MODEL_COLORS[name] || '#9CA3AF';
+                // 구버전 캐시에서 기본값으로 보완된 경우 텍스트 색상을 흐리게
+                const isDefault = (rawWeights[name] == null || rawWeights[name] === 0);
                 return `<div style="display:flex;align-items:center;gap:10px;font-size:12px">
                     <span style="width:70px;color:#4B5563;font-weight:700;text-align:right">${MODEL_LABELS[name] || name}</span>
                     <div style="flex:1;height:10px;background:#F3F4F6;border-radius:99px;overflow:hidden">
-                        <div style="width:${barW}%;height:100%;background:${color};border-radius:99px;transition:width 0.6s ease"></div>
+                        <div style="width:${barW}%;height:100%;background:${isDefault ? color + '80' : color};border-radius:99px;transition:width 0.6s ease"></div>
                     </div>
-                    <span style="width:40px;color:${color};font-weight:800;text-align:right">${pct}%</span>
+                    <span style="width:40px;color:${isDefault ? '#9CA3AF' : color};font-weight:800;text-align:right">${isDefault ? '~' : ''}${pct}%</span>
                 </div>`;
             }).join('');
             const reason = pipeline.weightReasons || '';
@@ -1490,7 +1498,7 @@ const DeepLearning = {
         tbody.innerHTML = displayData.map(item => {
             const targetsHtml = (item.targets || []).map(n => {
                 const colorClass = this.getBallColorClass(n);
-                return `<span class="ball-common ${colorClass} w-6 h-6 text-[10px]">${n}</span>`;
+                return `<span class="ball-common ${colorClass} w-7 h-7 text-xs">${n}</span>`;
             }).join('');
 
             // 적중 분포 막대 (0~6)

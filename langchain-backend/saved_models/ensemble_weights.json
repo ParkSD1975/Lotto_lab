@@ -1,7 +1,9 @@
 {
-  "transformer": 0.23308559643950522,
-  "lstm": 0.2339545105083464,
-  "cnn": 0.23295989305214834,
-  "xgboost": 0.2,
-  "markov": 0.1
+  "transformer": 0.212,
+  "lstm": 0.213,
+  "cnn": 0.212,
+  "xgboost": 0.182,
+  "markov": 0.091,
+  "gnn": 0.045,
+  "autoencoder": 0.045
 }

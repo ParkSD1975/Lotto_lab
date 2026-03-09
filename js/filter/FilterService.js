@@ -306,6 +306,7 @@ class FilterService {
         const definition = await this.getDefinitionByKey(filterKey);
         if (!definition) return null;
 
+        // [수정] 우선순위 로직: 특정 회차(targetRound) 먼저 조회 후 없으면 NULL(기본값) 조회
         let query = this.supabase
             .from('filter_settings')
             .select('*')
@@ -313,19 +314,31 @@ class FilterService {
             .eq('filter_definition_id', definition.id);
 
         if (targetRound) {
-            query = query.eq('target_round', targetRound);
+            // 특정 회차와 NULL을 모두 가져오되, 회차 우선순위 부여를 위해 or 조건 사용
+            query = query.or(`target_round.eq.${targetRound},target_round.is.null`);
+            const { data, error } = await query;
+
+            if (error) {
+                console.error(`❌ 필터 설정 로드 실패 (${filterKey}):`, error);
+                return null;
+            }
+
+            if (!data || data.length === 0) return null;
+
+            // targetRound가 일치하는 것이 있으면 그것을 반환, 없으면 NULL인 것을 반환
+            const specificMatch = data.find(item => item.target_round === targetRound);
+            return specificMatch || data.find(item => item.target_round === null);
         } else {
+            // targetRound가 없으면 NULL인 것만 조회
             query = query.is('target_round', null);
+            const { data, error } = await query.maybeSingle();
+
+            if (error) {
+                console.error(`❌ 필터 설정 로드 실패 (${filterKey}):`, error);
+                return null;
+            }
+            return data;
         }
-
-        const { data, error } = await query.maybeSingle();
-
-        if (error) {
-            console.error(`❌ 필터 설정 로드 실패 (${filterKey}):`, error);
-            return null;
-        }
-
-        return data;
     }
 
     /**
@@ -363,7 +376,15 @@ class FilterService {
 
         // filter_key를 키로 하는 객체로 변환
         const result = {};
-        data?.forEach(item => {
+
+        // [수정] 정렬: null인 항목을 먼저 처리하고, 특정 회차(targetRound)인 항목을 나중에 처리하여 덮어쓰기 (우선순위 부여)
+        const sortedData = [...(data || [])].sort((a, b) => {
+            if (a.target_round === null && b.target_round !== null) return -1;
+            if (a.target_round !== null && b.target_round === null) return 1;
+            return 0;
+        });
+
+        sortedData.forEach(item => {
             if (item.filter_definitions) {
                 result[item.filter_definitions.filter_key] = {
                     settings: item.settings,
@@ -801,9 +822,8 @@ if (window.Utils) {
 
     window.Utils.saveFilter = async function (pageKey, settings, enabled = true, extra = {}) {
         if (!settings) return;
-        // [수정] 3개 인자 호출 방식 지원: (key, data, enabled) 또는 (key, {enabled, ...data, settings})
-        // 기존 filterData, enabledArg 처리 로직은 새로운 시그니처에 맞춰 제거됨.
-        // 이제 settings, enabled, extra가 직접 전달됨.
+        // [수정] targetRound 추출 로직 개선 (extra 객체에서 명시적으로 추출)
+        const targetRound = extra.targetRound || extra.target_round || null;
 
         // 1. [표준화] 매핑 테이블
         const keyMap = {
@@ -831,7 +851,8 @@ if (window.Utils) {
 
         // 2. DB 저장 시도
         if (window.filterService?.initialized) {
-            await window.filterService.saveSetting(pageKey, settings, enabled, extra);
+            // [수정] saveSetting 호출 시 targetRound를 세 번째 인자로 전달
+            await window.filterService.saveSetting(pageKey, settings, enabled, targetRound);
         }
 
         // 3. [저장 & 브로드캐스트] localStorage 기록 및 이벤트 트리거

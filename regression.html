@@ -56,7 +56,7 @@
                         isMasterEnabled = reg.enabled || false;
                         console.log('✅ DB에서 회귀 필터 로드 완료:', { isMasterEnabled, periodFilters });
                         updateAll();
-                        return;
+                        return targetRound; // [버그수정] targetRound 반환 → _calculateAllRecent10Filters 덮어쓰기 방지
                     }
                 }
 
@@ -70,12 +70,13 @@
                     // 회차 체크
                     if (saved.targetRound && saved.targetRound !== targetRound) {
                         console.log(`⚠️ 다른 회차(${saved.targetRound})의 필터이므로 현재 회차(${targetRound})에는 적용하지 않습니다.`);
-                        return;
+                        return; // 다른 회차: undefined 반환 → 재계산 허용
                     }
 
                     periodFilters = data || {};
                     isMasterEnabled = enabled;
                     console.log('✅ 로컬에서 회귀 필터 로드 완료:', { isMasterEnabled, periodFilters });
+                    return targetRound; // [버그수정] targetRound 반환 → _calculateAllRecent10Filters 덮어쓰기 방지
                 }
             } catch (e) {
                 console.error('필터 로드 실패:', e);
@@ -258,6 +259,10 @@
             if (filterSubTitle) filterSubTitle.textContent = `${regressionStep}회귀 필터`;
             if (chainTitle) chainTitle.textContent = `${regressionStep}회귀`;
             if (historyTitle) historyTitle.textContent = `회차별 당첨번호 및 ${regressionStep}회귀 당첨수`;
+
+            // [동기화] 필터 페이지 링크에 현재 step 포함 (filter.html에서 해당 행으로 스크롤)
+            const dashLink = document.getElementById('filterDashboardLink');
+            if (dashLink) dashLink.href = `filter.html?tab=regression&step=${regressionStep}`;
 
             const btn = document.getElementById('recent10FilterBtn');
             const btnText = document.getElementById('recent10BtnText');
@@ -805,7 +810,7 @@
                                 <div class="flex items-center gap-2">
                                     <span class="text-white font-bold text-xs" id="filterSubTitle">2회귀 필터</span>
                                 </div>
-                                <a href="filter.html?tab=regression&id=regression_analysis"
+                                <a id="filterDashboardLink" href="filter.html?tab=regression&id=regression_analysis"
                                     class="text-sm font-medium text-white hover:text-slate-200 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-white/10 border border-transparent hover:border-white/20">
                                     <span class="material-symbols-outlined text-[18px]">tune</span>
                                     필터 페이지 가기

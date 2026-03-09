@@ -72,7 +72,8 @@
          */
         async invoke(config) {
             try {
-                const isAlive = await this.checkHealth();
+                // [성능] invoke 경로에서는 5초 타임아웃으로 health check → 서버 다운 시 빠른 폴백
+                const isAlive = await this.checkHealth(false, true);
                 if (isAlive) {
                     console.log("🚀 [AIProxy] Python RAG 서버로 분석 요청 전송...", config);
                     const controller = new AbortController();
