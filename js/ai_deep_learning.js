@@ -27,15 +27,6 @@ const DeepLearning = {
         ]);
         this.loadHistoryList(); // checkConnection 완료 후 비동기 실행 (중복 /health 요청 방지)
 
-        // 연결 실패 시 서버 웜업 후 재시도 (Render.com 콜드스타트 대응)
-        if (!this.state.isConnected) {
-            setTimeout(() => {
-                this.checkConnection().then(() => {
-                    if (this.state.isConnected) this.loadHistoryList();
-                });
-            }, 35000);
-        }
-
         // 2. UI 이벤트 바인딩
         this.bindEvents();
 
@@ -88,11 +79,21 @@ const DeepLearning = {
     },
 
     async checkConnection(isStartup = false) {
-        const url = window.AI_SERVER_URL || 'https://lottolab-production-31e3.up.railway.app';
-        if (window.AIProxy && typeof window.AIProxy.checkHealth === 'function') {
-            this.state.isConnected = await window.AIProxy.checkHealth(!isStartup);
+        if (window.AIProxy && typeof window.AIProxy.warmup === 'function') {
+            if (isStartup) {
+                // 초기 로드: 웜업 모드 (최대 250초 대기, 진행 상황 UI 업데이트)
+                this.updateConnectionStatusUI('warming');
+                const ok = await window.AIProxy.warmup((elapsed) => {
+                    this.updateConnectionStatusUI('warming', elapsed);
+                });
+                this.state.isConnected = ok;
+                if (ok) window.AIProxy.startKeepAlive(); // 연결 성공 시 keep-alive 시작
+            } else {
+                this.state.isConnected = await window.AIProxy.checkHealth(true);
+            }
         } else {
             try {
+                const url = window.AI_SERVER_URL || 'https://lottolab-production-31e3.up.railway.app';
                 const timeout = isStartup ? 3000 : 5000;
                 const res = await fetch(url + '/health', { signal: AbortSignal.timeout(timeout) });
                 this.state.isConnected = res.ok;
@@ -100,16 +101,19 @@ const DeepLearning = {
                 this.state.isConnected = false;
             }
         }
-        // [추가] 연결 상태 UI 업데이트 호출
         this.updateConnectionStatusUI();
     },
 
     // [신규] 연결 상태 UI 업데이트 함수
-    updateConnectionStatusUI() {
+    updateConnectionStatusUI(state, elapsed) {
         const el = document.getElementById('connectionStatus');
         if (!el) return;
 
-        if (this.state.isConnected) {
+        if (state === 'warming') {
+            const sec = elapsed ? ` (${elapsed}초...)` : '';
+            el.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span> 서버 웜업 중${sec}`;
+            el.className = 'flex items-center gap-1.5 text-[11px] font-bold text-amber-600 bg-amber-50 px-2.5 py-0.5 rounded-full border border-amber-200';
+        } else if (this.state.isConnected) {
             el.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> 연결됨';
             el.className = 'flex items-center gap-1.5 text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200';
         } else {

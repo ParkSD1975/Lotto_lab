@@ -12,6 +12,78 @@
     window.AIProxy = {
         _isServerDown: false,
         _lastCheckTime: 0,
+        _keepAliveTimer: null,
+
+        /**
+         * 콜드스타트 웜업: 최대 250초 대기하며 서버 기동을 기다림
+         * @param {function} onProgress - 5초마다 경과초 전달 (UI 업데이트용)
+         */
+        async warmup(onProgress) {
+            const WARMUP_TIMEOUT = 250000; // 250초 (실측 212초 + 여유)
+            console.log('🔥 [AIProxy] 서버 웜업 시작 (최대 250초 대기)...');
+
+            let elapsed = 0;
+            const ticker = setInterval(() => {
+                elapsed += 5;
+                if (onProgress) onProgress(elapsed);
+            }, 5000);
+
+            let success = false;
+            for (const url of BASE_URLS) {
+                try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), WARMUP_TIMEOUT);
+                    const res = await fetch(`${url}/health`, { method: 'GET', signal: controller.signal });
+                    clearTimeout(timeoutId);
+                    if (res.ok) {
+                        CURRENT_BASE_URL = url;
+                        this._isServerDown = false;
+                        this._lastCheckTime = Date.now();
+                        success = true;
+                        console.log(`✅ [AIProxy] 서버 웜업 완료 (${elapsed}초 경과)`);
+                        break;
+                    }
+                } catch (e) {
+                    console.warn('⚠️ [AIProxy] 웜업 실패:', e.message);
+                }
+            }
+
+            clearInterval(ticker);
+            if (!success) {
+                this._isServerDown = true;
+                this._lastCheckTime = Date.now();
+            }
+            return success;
+        },
+
+        /**
+         * Keep-alive: 주기적 ping으로 Railway 슬립 방지
+         * @param {number} intervalMs - 기본 10분
+         */
+        startKeepAlive(intervalMs = 10 * 60 * 1000) {
+            this.stopKeepAlive();
+            this._keepAliveTimer = setInterval(async () => {
+                try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 10000);
+                    await fetch(`${CURRENT_BASE_URL}/health`, { method: 'GET', signal: controller.signal });
+                    clearTimeout(timeoutId);
+                    this._lastCheckTime = Date.now();
+                    this._isServerDown = false;
+                    console.log('💓 [AIProxy] Keep-alive ping 성공');
+                } catch (e) {
+                    console.warn('⚠️ [AIProxy] Keep-alive ping 실패');
+                }
+            }, intervalMs);
+            console.log(`💓 [AIProxy] Keep-alive 시작 (${intervalMs / 60000}분 간격)`);
+        },
+
+        stopKeepAlive() {
+            if (this._keepAliveTimer) {
+                clearInterval(this._keepAliveTimer);
+                this._keepAliveTimer = null;
+            }
+        },
 
         async checkHealth(force = false, isStartup = false) {
             const now = Date.now();
