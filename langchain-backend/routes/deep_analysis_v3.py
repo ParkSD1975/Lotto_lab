@@ -49,7 +49,7 @@ def simulate_all_filters(model_probs, history_draws, n_sim=1000):
         return {}, {}
     norm_probs = [p/total_prob for p in probs]
 
-    stats = {k: [] for k in ["sum", "ac", "odd", "high", "prime", "consecutive", "tail_sum", "composite", "square", "triangular", "twin", "mul3", "mul4", "mul5", "non_multiple", "hot10", "missing", "neighbor", "carryover"]}
+    stats = {k: [] for k in ["sum", "ac", "odd", "high", "prime", "consecutive", "tail_sum", "composite", "square", "triangular", "twin", "mul3", "mul4", "mul5", "mul34", "mul35", "mul45", "non_multiple", "hot10", "missing", "neighbor", "carryover"]}
     PRIMES = {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43}
     SQUARES = {1, 4, 9, 16, 25, 36}
     TRIANGULARS = {1, 3, 6, 10, 15, 21, 28, 36, 45}
@@ -57,6 +57,9 @@ def simulate_all_filters(model_probs, history_draws, n_sim=1000):
     MUL3_NUMS = {3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45}
     MUL4_NUMS = {4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44}
     MUL5_NUMS = {5, 10, 15, 20, 25, 30, 35, 40, 45}
+    MUL34_NUMS = MUL3_NUMS & MUL4_NUMS   # {12, 24, 36}
+    MUL35_NUMS = MUL3_NUMS & MUL5_NUMS   # {15, 30, 45}
+    MUL45_NUMS = MUL4_NUMS & MUL5_NUMS   # {20, 40}
     MULTIPLE_ALL = MUL3_NUMS | MUL4_NUMS | MUL5_NUMS
     
     # 핫10, 장기미출현, 이웃수, 이월수 기준 데이터 준비
@@ -305,6 +308,9 @@ def get_model_filter_expectations(filter_name: str, history_draws: list, model_c
         "mul3":         lambda c: sum(1 for x in c if x in MUL3_NUMS),
         "mul4":         lambda c: sum(1 for x in c if x in MUL4_NUMS),
         "mul5":         lambda c: sum(1 for x in c if x in MUL5_NUMS),
+        "mul34":        lambda c: sum(1 for x in c if x in MUL34_NUMS),
+        "mul35":        lambda c: sum(1 for x in c if x in MUL35_NUMS),
+        "mul45":        lambda c: sum(1 for x in c if x in MUL45_NUMS),
         "non_multiple": lambda c: sum(1 for x in c if x not in MULTIPLE_ALL),
         # [New] 추가 필터
         "hot10":        lambda c: sum(1 for x in c if x in hot10_nums),
@@ -329,6 +335,9 @@ def get_model_filter_expectations(filter_name: str, history_draws: list, model_c
         "mul3":         (0,   6),
         "mul4":         (0,   6),
         "mul5":         (0,   6),
+        "mul34":        (0,   3),
+        "mul35":        (0,   3),
+        "mul45":        (0,   2),
         "non_multiple": (0,   6),
         "hot10":        (0,   6),
         "missing":      (0,   6),
@@ -1176,7 +1185,9 @@ async def _ask_llm_strategy_v3(target_round, top_5, exclude_10, history_draws, c
             "odd": "홀짝", "high": "저고", "prime": "소수",
             "consecutive": "연속수", "composite": "합성수", "square": "제곱수",
             "triangular": "삼각수", "twin": "쌍둥이수", "mul3": "3의 배수",
-            "mul4": "4의 배수", "mul5": "5의 배수", "non_multiple": "비배수",
+            "mul4": "4의 배수", "mul5": "5의 배수",
+            "mul34": "3·4의 배수", "mul35": "3·5의 배수", "mul45": "4·5의 배수",
+            "non_multiple": "비배수",
             "hot10": "최근 10회 출현", "missing": "장기 미출현", "neighbor": "이웃수", "carryover": "이월수"
         }
         filter_summary = []
@@ -1355,19 +1366,107 @@ def _save_analysis_history(target_round: int, result: dict):
     try:
         client = get_client()
         strategy = result.get("strategy", {})
+        analysis = result.get("analysis", {})
+
+        # 추천수 / 제외수
+        recommended = strategy.get("top_5", [])
+        excluded = strategy.get("exclude_10", [])
+
+        # 추천조합 (최대 20개)
+        combinations = result.get("combinations", [])
+
+        # 번호별 종합 순위: matrix_data 모델 점수 평균
+        matrix_data = analysis.get("matrix_data", {})
+        number_rankings = {}
+        model_rankings = {}
+        for num_str, model_scores in matrix_data.items():
+            scores = [v for v in model_scores.values() if isinstance(v, (int, float))]
+            number_rankings[num_str] = round(sum(scores) / len(scores), 4) if scores else 0.0
+            for model_name, score in model_scores.items():
+                if model_name not in model_rankings:
+                    model_rankings[model_name] = {}
+                model_rankings[model_name][num_str] = score
+
+        # 적용 필터 스냅샷
+        applied_filters = result.get("pipeline", {}).get("filters_applied", {})
+
+        # 모델별 분석 내용
+        model_analysis = {
+            "strategy": strategy,
+            "evidence": result.get("evidence", {}),
+            "pipeline": result.get("pipeline", {}),
+        }
 
         row = {
             "target_round": target_round,
             "confidence": strategy.get("confidence", 0),
             "summary": (strategy.get("summary", ""))[:500],
             "analysis_data": json.dumps(result, cls=NumpyEncoder, ensure_ascii=False),
+            "recommended_numbers": recommended,
+            "excluded_numbers": excluded,
+            "combinations": json.dumps(combinations[:20], cls=NumpyEncoder, ensure_ascii=False),
+            "number_rankings": json.dumps(number_rankings, cls=NumpyEncoder, ensure_ascii=False),
+            "model_rankings": json.dumps(model_rankings, cls=NumpyEncoder, ensure_ascii=False),
+            "applied_filters": json.dumps(applied_filters, cls=NumpyEncoder, ensure_ascii=False),
+            "model_analysis": json.dumps(model_analysis, cls=NumpyEncoder, ensure_ascii=False),
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
 
-        client.table("deep_analysis_history").insert(row).execute()
+        # upsert: 같은 회차 재분석 시 덮어쓰기
+        client.table("deep_analysis_history").upsert(row, on_conflict="target_round").execute()
         print(f"[OK] 분석 이력 저장 완료: {target_round}회차")
     except Exception as e:
         print(f"이력 저장 실패 (무시): {e}")
+
+
+def _save_model_performance_log(target_round: int, result: dict):
+    """모델별 예측 기록을 model_performance_log에 저장.
+    당첨번호 발표 후 /history/verify/{round} API로 hit_count/precision 업데이트.
+    """
+    try:
+        client = get_client()
+        analysis = result.get("analysis", {})
+        matrix_data = analysis.get("matrix_data", {})  # {"1": {"lstm": 0.8, ...}, ...}
+        pipeline = result.get("pipeline", {})
+        weights = pipeline.get("weights", {})  # {"lstm": 0.3, "cnn": 0.25, ...}
+
+        # 모델별로 번호→점수 dict 구성
+        model_num_scores: dict = {}
+        for num_str, model_scores in matrix_data.items():
+            for model_name, score in model_scores.items():
+                if not isinstance(score, (int, float)):
+                    continue
+                if model_name not in model_num_scores:
+                    model_num_scores[model_name] = {}
+                model_num_scores[model_name][int(num_str)] = score
+
+        if not model_num_scores:
+            print(f"[SKIP] model_performance_log: matrix_data 없음 ({target_round}회차)")
+            return
+
+        for model_name, num_scores in model_num_scores.items():
+            # 점수 내림차순 → 상위 10개 번호
+            sorted_nums = sorted(num_scores.items(), key=lambda x: x[1], reverse=True)
+            top10 = [n for n, _ in sorted_nums[:10]]
+
+            entry = {
+                "round": target_round,
+                "model_name": model_name,
+                "prediction_type": "recommendation",
+                "predicted_numbers": top10,
+                "actual_numbers": [],       # 당첨번호 발표 후 업데이트
+                "hit_count": 0,             # 발표 후 업데이트
+                "precision_at_6": None,     # 발표 후 계산
+                "precision_at_10": None,    # 발표 후 계산
+                "weight_at_prediction": round(float(weights.get(model_name, 0.0)), 4),
+            }
+            client.table("model_performance_log") \
+                  .upsert(entry, on_conflict="round,model_name,prediction_type") \
+                  .execute()
+
+        print(f"[OK] 모델 성능 기록 저장 완료: {target_round}회차 ({len(model_num_scores)}개 모델)")
+    except Exception as e:
+        print(f"모델 성능 기록 저장 실패 (무시): {e}")
 
 
 # ------------------------------------------------------------------
@@ -1475,15 +1574,101 @@ async def get_history_detail(history_id: int):
         return _json_response({"success": False, "error": str(e)})
 
 
+@router.get("/history/round/{round_number}")
+async def get_verification_data(round_number: int):
+    """특정 회차의 예측 데이터 조회 (검증 페이지용)."""
+    try:
+        client = get_client()
+        result = (
+            client.table("deep_analysis_history")
+            .select("target_round,recommended_numbers,excluded_numbers,combinations,number_rankings,model_rankings,confidence,summary,created_at")
+            .eq("target_round", round_number)
+            .single()
+            .execute()
+        )
+        if result.data:
+            return _json_response({"success": True, "data": result.data})
+        return _json_response({"success": False, "error": f"{round_number}회차 데이터 없음"})
+    except Exception as e:
+        return _json_response({"success": False, "error": str(e)})
+
+
+@router.get("/history/list/rounds")
+async def get_history_list(limit: int = 20, offset: int = 0):
+    """저장된 회차 목록 조회 (검증 페이지용 요약)."""
+    try:
+        client = get_client()
+        result = (
+            client.table("deep_analysis_history")
+            .select("id,target_round,confidence,summary,recommended_numbers,actual_numbers,created_at")
+            .order("target_round", desc=True)
+            .range(offset, offset + limit - 1)
+            .execute()
+        )
+        return _json_response({"success": True, "data": result.data or [], "total": len(result.data or [])})
+    except Exception as e:
+        return _json_response({"success": False, "error": str(e)})
+
+
+@router.post("/history/verify/{round_number}")
+async def update_actual_result(round_number: int, body: dict):
+    """당첨번호 입력 → model_performance_log hit_count/precision 업데이트.
+    body: { "actual_numbers": [5, 7, 23, 35, 40, 41] }
+    """
+    try:
+        client = get_client()
+        actual_list = body.get("actual_numbers", [])
+        if not actual_list or len(actual_list) < 6:
+            return _json_response({"success": False, "error": "actual_numbers 6개 이상 필요"})
+
+        actual_set = set(actual_list)
+
+        # model_performance_log 업데이트
+        logs = (
+            client.table("model_performance_log")
+            .select("id,predicted_numbers")
+            .eq("round", round_number)
+            .execute()
+        )
+
+        updated = 0
+        for row in (logs.data or []):
+            predicted = row.get("predicted_numbers") or []
+            top6 = set(predicted[:6])
+            top10 = set(predicted[:10])
+            hit = len(actual_set & set(predicted))
+
+            client.table("model_performance_log").update({
+                "actual_numbers": actual_list,
+                "hit_count": hit,
+                "precision_at_6": round(len(actual_set & top6) / 6, 4),
+                "precision_at_10": round(len(actual_set & top10) / 10, 4),
+            }).eq("id", row["id"]).execute()
+            updated += 1
+
+        # deep_analysis_history에도 actual_numbers 기록
+        client.table("deep_analysis_history").update({
+            "actual_numbers": actual_list,
+        }).eq("target_round", round_number).execute()
+
+        return _json_response({
+            "success": True,
+            "message": f"{round_number}회차 검증 완료",
+            "models_updated": updated,
+        })
+    except Exception as e:
+        return _json_response({"success": False, "error": str(e)})
+
+
 # ------------------------------------------------------------------
 # Main API
 # ------------------------------------------------------------------
 @router.get("/analysis")
 async def get_deep_analysis(round_num: int = None):
     start_time = time.time()
-    client = get_client() # [Fix] Define client for DB operations
-    
+
     try:
+        client = get_client() # [Fix] Inside try-block to catch Supabase connection errors
         all_draws = fetch_all_draws()
         if not all_draws: return _json_response({"success": False})
 
@@ -1907,8 +2092,10 @@ async def get_deep_analysis(round_num: int = None):
             "sum": "총합", "tail_sum": "끝수합", "ac": "AC값",
             "odd": "홀짝비율", "high": "저고비율", "prime": "소수",
             "composite": "합성수", "consecutive": "연속수", "square": "제곱수",
-            "triangular": "삼각수", "twin": "동형수", "mul3": "3의 배수", # [수정] 쌍둥이수 -> 동형수
-            "mul4": "4의 배수", "mul5": "5의 배수", "non_multiple": "배수외", # [수정] 비배수 -> 배수외
+            "triangular": "삼각수", "twin": "동형수", "mul3": "3의 배수",
+            "mul4": "4의 배수", "mul5": "5의 배수",
+            "mul34": "3·4의 배수", "mul35": "3·5의 배수", "mul45": "4·5의 배수",
+            "non_multiple": "배수외",
             "hot10": "최근 10회 출현", "missing": "장기 미출현", 
             "neighbor": "이웃수", "carryover": "이월수"
         }
@@ -2049,11 +2236,15 @@ async def get_deep_analysis(round_num: int = None):
             }
         }
 
-        # [10] 이력 저장 (비동기, 실패해도 무시)
+        # [10] 이력 저장 (실패해도 무시)
         try:
             _save_analysis_history(target_round, result)
         except Exception as e:
             print(f"이력 저장 실패 (무시): {e}")
+        try:
+            _save_model_performance_log(target_round, result)
+        except Exception as e:
+            print(f"모델 성능 기록 저장 실패 (무시): {e}")
 
         return _json_response(result)
 
