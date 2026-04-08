@@ -230,7 +230,10 @@ def get_model_filter_expectations(filter_name: str, history_draws: list, model_c
     MUL3_NUMS = {3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45}
     MUL4_NUMS = {4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44}
     MUL5_NUMS = {5, 10, 15, 20, 25, 30, 35, 40, 45}
-    
+    MUL34_NUMS = MUL3_NUMS & MUL4_NUMS   # {12, 24, 36}
+    MUL35_NUMS = MUL3_NUMS & MUL5_NUMS   # {15, 30, 45}
+    MUL45_NUMS = MUL4_NUMS & MUL5_NUMS   # {20, 40}
+
     # 동적 컨텍스트 데이터 계산 (Hot10, Missing, Neighbor, Carryover)
     last_10 = [set(d.get("numbers", [])) for d in history_draws[:10]]
     hot10_nums = set().union(*last_10) if last_10 else set()
