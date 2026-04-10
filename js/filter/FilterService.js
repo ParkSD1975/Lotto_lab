@@ -38,16 +38,58 @@ class FilterService {
         if (this.initialized) return true;
 
         try {
-            // 1. 사용자 확인
-            const { data: { user } } = await this.supabase.auth.getUser();
+            // 1. 사용자 확인 (없으면 익명 로그인 자동 처리)
+            let { data: { user } } = await this.supabase.auth.getUser();
+            const isNewAnonUser = !user;
             if (!user) {
-                console.warn('⚠️ FilterService: 로그인 필요');
-                return false;
+                console.log('🔐 FilterService: 익명 로그인 시도...');
+                const { data: anonData, error: anonErr } = await this.supabase.auth.signInAnonymously();
+                if (anonErr || !anonData?.user) {
+                    console.warn('⚠️ FilterService: 익명 로그인 실패', anonErr?.message);
+                    // [Fix] 익명 로그인 불가 시 (localhost 등) → 저장된 preset_id로 읽기 전용 초기화
+                    // filter_definitions(category=system)과 filter_settings(anon role 허용)은 인증 없이 읽기 가능
+                    const savedPresetId = localStorage.getItem('_lotto_preset_id');
+                    if (savedPresetId) {
+                        this.currentPresetId = savedPresetId;
+                        this.initialized = true;
+                        console.log('✅ FilterService: 로컬 preset_id로 읽기 전용 모드 초기화', savedPresetId);
+                        return true;
+                    }
+                    console.warn('⚠️ FilterService: preset_id 없음, localStorage 모드로 폴백');
+                    return false;
+                }
+                user = anonData.user;
+                console.log('✅ FilterService: 익명 로그인 성공 (새 세션)');
             }
             this.userId = user.id;
 
-            // 2. 기본 프리셋 확보
-            await this.ensureDefaultPreset();
+            // [Fix] 세션 만료 후 새 익명 유저 생성 시: localStorage에 저장된 preset_id로 기존 데이터 먼저 복구 시도
+            if (isNewAnonUser) {
+                const savedPresetId = localStorage.getItem('_lotto_preset_id');
+                if (savedPresetId) {
+                    console.log('🔄 FilterService: 세션 복구 시도 - 기존 preset_id:', savedPresetId);
+                    const { error: updateErr } = await this.supabase
+                        .from('user_filter_presets')
+                        .update({ user_id: this.userId })
+                        .eq('id', savedPresetId);
+                    if (!updateErr) {
+                        this.currentPresetId = savedPresetId;
+                        console.log('✅ FilterService: 기존 필터 설정 복구 완료 (세션 재연결)');
+                    } else {
+                        console.warn('⚠️ FilterService: preset 복구 실패, 새 preset 생성', updateErr.message);
+                    }
+                }
+            }
+
+            // 2. 기본 프리셋 확보 (복구 실패 또는 최초 실행 시)
+            if (!this.currentPresetId) {
+                await this.ensureDefaultPreset();
+            }
+
+            // preset_id localStorage에 저장 (다음 세션 복구용)
+            if (this.currentPresetId) {
+                localStorage.setItem('_lotto_preset_id', this.currentPresetId);
+            }
 
             // 3. localStorage 마이그레이션 (최초 1회)
             await this.migrateFromLocalStorage();
@@ -389,7 +431,8 @@ class FilterService {
                 result[item.filter_definitions.filter_key] = {
                     settings: item.settings,
                     enabled: item.enabled,
-                    target_round: item.target_round
+                    target_round: item.target_round,
+                    updated_at: item.updated_at
                 };
             }
         });
@@ -437,23 +480,23 @@ class FilterService {
             'carryover_filter': 'carryover_count',
             'odd_even_filter': 'odd_even_pattern',
             'low_high_filter': 'high_low_pattern',
-            'prime_filter': 'prime_count',
+            'prime_filter': 'prime_number_patterns',
             'composite_filter': 'composite_count',
-            'square_filter': 'square_count',
-            'twin_filter': 'twin_count',
+            'square_filter': 'square_number_patterns',
+            'twin_filter': 'twin_number_patterns',
             'consecutive_filter': 'consecutive_count',
             'hot_cold_filter': 'hot_cold_10',
             'missing_filter': 'long_term_miss',
             'missing_period': 'long_term_miss', // [추가] 분석 페이지 키 추가
             'missGroupFilters': 'missing_custom_filter', // [추가] 커스텀 미출현 그룹 마이그레이션
             'multiple_filter': 'multiple_3_count',  // 배수는 별도 처리 필요
-            'neighbor_filter': 'neighbor_count',
+            'neighbor_filter': 'neighbor_number_patterns',
             'number_range_filter': 'number_range_patterns', // Changed from zone_3_pattern
             'stats_by_number_filter': null,  // 통계용, 필터 아님
             // 새로 추가된 필터
             'lotto_paper_filter': 'lotto_paper_pattern',
             'gung_filter': 'magic_square_pattern',
-            'triangular_filter': 'triangular_count',
+            'triangular_filter': 'triangular_number_patterns',
             'regression_patterns': 'regression_analysis'
         };
 
@@ -695,7 +738,8 @@ class FilterService {
         let query = this.supabase
             .from('ai_custom_analyses')
             .select('id, title, target_numbers, filter_config')
-            .not('filter_config', 'is', null);
+            .not('filter_config', 'is', null)
+            .is('target_round', null); // [추가] 마스터 행만 조회 (회차별 스냅샷 제외)
         if (this.userId) query = query.eq('user_id', this.userId);
         const { data, error } = await query;
 
@@ -817,75 +861,7 @@ async function initFilterService() {
  * Utils.saveFilter 확장 (DB 우선, fallback으로 localStorage)
  */
 if (window.Utils) {
-    const originalSaveFilter = window.Utils.saveFilter;
-    const originalLoadFilter = window.Utils.loadFilter;
-
-    window.Utils.saveFilter = async function (pageKey, settings, enabled = true, extra = {}) {
-        if (!settings) return;
-        // [수정] targetRound 추출 로직 개선 (extra 객체에서 명시적으로 추출)
-        const targetRound = extra.targetRound || extra.target_round || null;
-
-        // 1. [표준화] 매핑 테이블
-        const keyMap = {
-            'high_low_pattern': 'low_high_filter',
-            'odd_even_pattern': 'odd_even_filter',
-            'composite_count': 'composite_filter',
-            'prime_number_patterns': 'prime_filter',
-            'triangular_number_patterns': 'triangular_filter',
-            'neighbor_number_patterns': 'neighbor_number_filter',
-            'multiple_3_count': 'multiple_filter',
-            'ac_value': 'ac_value_filter',
-            'regression_patterns': 'regression_analysis',
-            'regression_analysis': 'regression_patterns'
-        };
-
-        const standardKey = keyMap[pageKey];
-        // [중요] 대시보드 state 구조와 동일하게 nested 형태로 저장 ({settings, enabled})
-        const envelope = {
-            settings: settings,
-            enabled: enabled,
-            _ts: Date.now(),
-            ...extra
-        };
-        const jsonStr = JSON.stringify(envelope);
-
-        // 2. DB 저장 시도
-        if (window.filterService?.initialized) {
-            // [수정] saveSetting 호출 시 targetRound를 세 번째 인자로 전달
-            await window.filterService.saveSetting(pageKey, settings, enabled, targetRound);
-        }
-
-        // 3. [저장 & 브로드캐스트] localStorage 기록 및 이벤트 트리거
-        try {
-            const keysToSync = new Set([pageKey, pageKey + '_filter', standardKey, 'lotto_period_filters'].filter(Boolean));
-            keysToSync.forEach(k => {
-                localStorage.setItem(k, jsonStr);
-                window.dispatchEvent(new StorageEvent('storage', {
-                    key: k,
-                    newValue: jsonStr,
-                    storageArea: localStorage
-                }));
-            });
-            console.log(`[FilterService] Broadcasted (${pageKey}):`, Array.from(keysToSync));
-        } catch (e) {
-            console.error('필터 로컬 저장 실패:', e);
-        }
-    };
-
-    window.Utils.loadFilter = async function (pageKey) {
-        // DB에서 로드 시도
-        if (window.filterService?.initialized) {
-            const data = await window.filterService.loadSetting(pageKey);
-            if (data) {
-                return {
-                    ...data.settings,
-                    enabled: data.enabled
-                };
-            }
-        }
-        // fallback: localStorage
-        return originalLoadFilter(pageKey);
-    };
+    // Utils.saveFilter/loadFilter overrides removed. Managed in common_v2.js.
 }
 
 // 모듈 내보내기

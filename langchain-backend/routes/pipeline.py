@@ -6,13 +6,18 @@ router = APIRouter(
     tags=["Pipeline"]
 )
 
-pipeline = WeeklyPipeline()
+_pipeline = None
+
+def get_pipeline():
+    global _pipeline
+    if _pipeline is None:
+        _pipeline = WeeklyPipeline()
+    return _pipeline
 
 @router.post("/run")
 async def run_pipeline(background_tasks: BackgroundTasks, new_round: int = None):
     """주간 분석 파이프라인 수동 실행 (백그라운드)."""
-    # 백그라운드 작업으로 등록하여 API 응답은 즉시 반환
-    background_tasks.add_task(pipeline.run, new_round)
+    background_tasks.add_task(get_pipeline().run, new_round)
     return {"status": "started", "message": "주간 분석 파이프라인이 백그라운드에서 시작되었습니다."}
 
 @router.get("/status")

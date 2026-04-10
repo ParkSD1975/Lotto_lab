@@ -1,11 +1,11 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html class="light" lang="ko">
 
 <head>
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>Lotto Lab - 회귀분석 (Supabase AI)</title>
-    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="css/tailwind.css" rel="stylesheet" />
     <link rel="icon" href="data:,">
 
     <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css"
@@ -21,6 +21,7 @@
     <script src="js/aiProxy.js"></script>
     <script src="js/filter/FilterService.js"></script>
     <script src="js/layout.js"></script>
+    <script src="js/deep_insight_panel.js"></script>
 
     <!-- 🔹 [New] NLP 모듈 (자연어 처리 및 자동완성) -->
     <script src="js/NLPProcessor.js"></script>
@@ -44,86 +45,133 @@
         let streakAlerts = [];
         let selectedRegressionData = null;
 
-        // [수정] 필터 로드 로직 (DB 우선, 로컬 fallback)
+        // [표준] 필터 동기화 플래그
+        const storageKey = 'regression_analysis';
+        let _regressionSelfSaving = false;
+        let _filterSettingsLoaded = false;
+        let isRecentTenFilter = false; // [추가] 최근 10회차 필터 활성화 상태
+
+        // [표준화] 소수 패턴 마커
+        function markManual() {
+            localStorage.setItem('regression_analysis_isManual', 'true');
+            deactivateRecent10IfActive();
+        }
+
+        // [표준] 필터 로드 로직 (Utils.loadFilter 우선)
         async function loadPeriodFilters() {
+            window.isLoadingSettings = true;
             try {
-                // 1. FilterService 우선 사용
-                if (window.filterService?.initialized) {
-                    const settings = await window.filterService.loadAllSettings(targetRound);
-                    if (settings && settings['regression_analysis']) {
-                        const reg = settings['regression_analysis'];
-                        periodFilters = reg.settings || {};
-                        isMasterEnabled = reg.enabled || false;
-                        console.log('✅ DB에서 회귀 필터 로드 완료:', { isMasterEnabled, periodFilters });
-                        updateAll();
-                        return targetRound; // [버그수정] targetRound 반환 → _calculateAllRecent10Filters 덮어쓰기 방지
-                    }
+                let data = null;
+
+                if (window.Utils && window.Utils.loadFilter) {
+                    // localStorage _ts vs DB updated_at 비교하여 최신값 사용
+                    data = await window.Utils.loadFilter(storageKey, targetRound);
+                } else if (window.filterService?.initialized) {
+                    const all = await window.filterService.loadAllSettings(targetRound);
+                    if (all?.[storageKey]) data = all[storageKey];
                 }
 
-                // 2. [Fallback] localStorage 확인
-                const savedRaw = localStorage.getItem('regression_analysis');
-                if (savedRaw) {
-                    const saved = JSON.parse(savedRaw);
-                    const data = (saved && saved.settings) ? saved.settings : saved;
-                    const enabled = (saved && saved.enabled !== undefined) ? saved.enabled : true;
-
-                    // 회차 체크
-                    if (saved.targetRound && saved.targetRound !== targetRound) {
-                        console.log(`⚠️ 다른 회차(${saved.targetRound})의 필터이므로 현재 회차(${targetRound})에는 적용하지 않습니다.`);
-                        return; // 다른 회차: undefined 반환 → 재계산 허용
+                if (data) {
+                    const s = data.settings !== undefined ? data.settings : data;
+                    if (s && typeof s === 'object') {
+                        // 숫자 키(2~200)만 periodFilters로 추출
+                        const filters = {};
+                        for (const key of Object.keys(s)) {
+                            const k = parseInt(key);
+                            if (!isNaN(k) && k >= 2 && k <= 200) filters[k] = s[key];
+                        }
+                        periodFilters = filters;
+                        isMasterEnabled = data.enabled !== false;
+                        
+                        // [추가] 최근 10회차 필터 상태 복원
+                        if (s.recent10FilterActive !== undefined) {
+                            isRecentTenFilter = s.recent10FilterActive;
+                        }
+                        console.log(`✅ 회귀 필터 로드 완료 (${Object.keys(periodFilters).length}개 스텝)`);
+                        return targetRound;
                     }
-
-                    periodFilters = data || {};
-                    isMasterEnabled = enabled;
-                    console.log('✅ 로컬에서 회귀 필터 로드 완료:', { isMasterEnabled, periodFilters });
-                    return targetRound; // [버그수정] targetRound 반환 → _calculateAllRecent10Filters 덮어쓰기 방지
                 }
+                return undefined;
             } catch (e) {
                 console.error('필터 로드 실패:', e);
+                return undefined;
+            } finally {
+                window.isLoadingSettings = false;
+                _filterSettingsLoaded = true; // 로드 완료 → 이후 save 허용
             }
         }
 
-        // [수정] 필터 저장 로직 (표준 Utils 사용)
-        function savePeriodFilters() {
+        // [표준] 필터 저장 로직 (dual-row: NULL + targetRound)
+        async function savePeriodFilters(buttonElement) {
+            if (!_filterSettingsLoaded) return; // 로드 완료 전 빈값 저장 방지
+
+            let originalContent = '';
+            if (buttonElement?.innerHTML) {
+                originalContent = buttonElement.innerHTML;
+                buttonElement.disabled = true;
+                buttonElement.innerHTML = '<span class="material-symbols-outlined animate-spin text-sm align-middle mr-1">sync</span>저장 중...';
+            }
+
             try {
-                const dataToSave = { ...periodFilters };
+                const settings = {
+                    ...periodFilters,
+                    recent10FilterActive: isRecentTenFilter
+                };
+
+                _regressionSelfSaving = true;
+                // NULL row 저장 (크로스탭 실시간 동기화용)
                 if (window.Utils && window.Utils.saveFilter) {
-                    window.Utils.saveFilter('regression_analysis', dataToSave, isMasterEnabled, {
-                        targetRound: targetRound,
-                        regressionStep: regressionStep,
-                        _source: 'regression_page'
-                    });
-                } else {
-                    localStorage.setItem('regression_analysis', JSON.stringify({
-                        settings: dataToSave,
-                        enabled: isMasterEnabled,
-                        targetRound: targetRound,
-                        _ts: Date.now()
-                    }));
+                    await window.Utils.saveFilter(storageKey, settings, isMasterEnabled);
+                }
+                // targetRound row 저장 (대시보드 연동용)
+                if (window.filterService?.initialized && targetRound) {
+                    await window.filterService.saveSetting(storageKey, settings, isMasterEnabled, targetRound);
                 }
                 console.log('✅ 회귀 필터 저장 완료');
+
+                if (buttonElement) {
+                    const originalBg = buttonElement.className;
+                    buttonElement.classList.remove('bg-blue-600', 'hover:bg-blue-700', 'bg-blue-500', 'hover:bg-blue-600');
+                    buttonElement.classList.add('bg-emerald-600', 'hover:bg-emerald-700');
+                    buttonElement.innerHTML = '<span class="material-symbols-outlined text-sm align-middle mr-1">check_circle</span>저장 완료';
+                    setTimeout(() => {
+                        buttonElement.className = originalBg;
+                        buttonElement.innerHTML = originalContent;
+                        buttonElement.disabled = false;
+                    }, 1500);
+                }
             } catch (e) {
                 console.error('필터 저장 실패:', e);
+                if (buttonElement) {
+                    buttonElement.innerHTML = '<span class="material-symbols-outlined text-sm align-middle mr-1">error</span>저장 실패';
+                    const oldBg = buttonElement.className;
+                    buttonElement.className = "px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-bold shadow-md";
+                    setTimeout(() => {
+                        buttonElement.className = oldBg;
+                        buttonElement.innerHTML = originalContent;
+                        buttonElement.disabled = false;
+                    }, 2000);
+                }
+            } finally {
+                _regressionSelfSaving = false;
             }
         }
 
         // 현재 단계 필터 저장
-        function saveFilterSettings() {
+        async function saveFilterSettings(btn) {
             const minInput = document.getElementById('filterMin');
             const maxInput = document.getElementById('filterMax');
             const toggle = document.getElementById('filterToggle');
 
-            // [버그수정] isMasterEnabled를 개별 토글로 덮어쓰지 않음
-            // isMasterEnabled는 전역 마스터 상태로 별도 관리
-
             const data = {
-                min: minInput ? parseInt(minInput.value || 0) : 1,
-                max: maxInput ? parseInt(maxInput.value || 6) : 6,
+                // [수정] 0~6 범위 제한 추가
+                min: minInput ? Math.max(0, Math.min(6, parseInt(minInput.value || 0))) : 1,
+                max: maxInput ? Math.max(0, Math.min(6, parseInt(maxInput.value || 0))) : 6,
                 enabled: toggle ? toggle.checked : true
             };
 
             periodFilters[regressionStep] = data;
-            savePeriodFilters();
+            await savePeriodFilters(btn);
             console.log(`필터 저장 완료 [Step: ${regressionStep}]`, data, `(Master: ${isMasterEnabled})`);
         }
 
@@ -147,14 +195,27 @@
             return !!saved;
         }
 
-        function applyFilter() {
-            saveFilterSettings();
+        async function applyFilter() {
+            // input onchange로 호출 시 input 요소가 btn으로 전달되지 않도록 BUTTON만 허용
+            const el = event?.currentTarget;
+            const btn = (el && el.tagName === 'BUTTON') ? el : null;
+            await saveFilterSettings(btn);
             updateAll();
         }
 
-        function applyBatchFilter() {
-            const batchMin = parseInt(document.getElementById('batchFilterMin').value);
-            const batchMax = parseInt(document.getElementById('batchFilterMax').value);
+        // [수정] 수동 필터 변경 래퍼
+        async function applyFilterManual() {
+            markManual();
+            await applyFilter();
+        }
+
+        async function applyBatchFilter() {
+            markManual();
+            const el = event?.currentTarget;
+            const btn = (el && el.tagName === 'BUTTON') ? el : null;
+            // [수정] 0~6 범위 제한 추가
+            const batchMin = Math.max(0, Math.min(6, parseInt(document.getElementById('batchFilterMin').value) || 0));
+            const batchMax = Math.max(0, Math.min(6, parseInt(document.getElementById('batchFilterMax').value) || 6));
             const batchEnabled = document.getElementById('batchFilterToggle').checked;
 
             if (isNaN(batchMin) || isNaN(batchMax)) {
@@ -165,11 +226,11 @@
             for (let i = 2; i <= 200; i++) {
                 periodFilters[i] = { min: batchMin, max: batchMax, enabled: batchEnabled };
             }
-            savePeriodFilters();
+            await savePeriodFilters(btn);
             updateAll();
         }
 
-        function applyBatchRecent10Filters() {
+        async function applyBatchRecent10Filters() {
             const btn = document.getElementById('batchRecent10Btn');
             const btnText = document.getElementById('batchRecent10BtnText');
 
@@ -178,7 +239,7 @@
                 btn.classList.add('bg-blue-500', 'hover:bg-blue-600');
                 if (btnText) btnText.textContent = '최근 10회 일괄 적용';
                 periodFilters = {};
-                savePeriodFilters();
+                await savePeriodFilters(btn);
                 updateAll();
                 return;
             }
@@ -205,7 +266,7 @@
                     periodFilters[s] = { min: Math.min(...values), max: Math.max(...values), enabled: batchEnabled };
                 }
             }
-            savePeriodFilters();
+            await savePeriodFilters(btn);
             if (btn) {
                 btn.classList.remove('bg-blue-500', 'hover:bg-blue-600');
                 btn.classList.add('bg-purple-600', 'hover:bg-purple-700');
@@ -214,34 +275,54 @@
             updateAll();
         }
 
-        // 🔹 [동기화] 대시보드 및 타 페이지 연동
-        window.addEventListener('storage', (e) => {
-            if (e.key === 'regression_analysis' || e.key === 'regression_patterns' || e.key === 'lotto_period_filters') {
-                if (!e.newValue) return;
-                try {
-                    const saved = JSON.parse(e.newValue);
-                    if (saved._source === 'regression_page') return;
+        // 로그아웃 시 필터 UI 초기화
+        function resetFilterUI() {
+            periodFilters = {};
+            isMasterEnabled = true;
+            const minEl = document.getElementById('filterMin');
+            const maxEl = document.getElementById('filterMax');
+            if (minEl) minEl.value = 1;
+            if (maxEl) maxEl.value = 6;
+            const tog = document.getElementById('filterToggle');
+            if (tog) tog.checked = false;
+            const btn = document.getElementById('recent10FilterBtn');
+            const btnText = document.getElementById('recent10BtnText');
+            if (btn) {
+                btn.classList.remove('from-purple-500', 'to-purple-700');
+                btn.classList.add('from-blue-500', 'to-blue-600');
+            }
+            if (btnText) btnText.textContent = '최근 10회차 필터 적용';
+            applyFilter();
+        }
 
-                    const data = (saved && saved.settings) ? saved.settings : saved;
-                    const enabled = (saved && saved.enabled !== undefined) ? saved.enabled : true;
-
-                    if (saved.targetRound && saved.targetRound !== targetRound) return;
-
-                    periodFilters = data || {};
-                    isMasterEnabled = enabled;
-
-                    console.log('🔄 필터 실시간 동기화 수신:', { isMasterEnabled, periodFilters });
-                    // [버그수정] updateAll()로 테이블 전체 재렌더링 포함
-                    if (typeof updateAll === 'function') {
-                        updateAll();
-                    } else {
-                        loadFilterSettings();
-                        if (typeof renderFilterSection === 'function') renderFilterSection();
-                    }
-                    if (typeof refreshAIAnalysis === 'function') refreshAIAnalysis();
-                } catch (err) {
-                    console.error('동기화 데이터 파싱 실패:', err);
+        // [표준] 대시보드 실시간 동기화 (Storage Event)
+        window.addEventListener('storage', async (e) => {
+            if (_regressionSelfSaving) return;
+            if (e.key !== storageKey) return;
+            if (!e.newValue) return;
+            try {
+                const envelope = JSON.parse(e.newValue);
+                // 로그아웃 감지
+                if (envelope.enabled === false && !envelope.settings && Object.keys(envelope).filter(k => !isNaN(parseInt(k))).length === 0) {
+                    resetFilterUI(); return;
                 }
+                const s = envelope.settings !== undefined ? envelope.settings : envelope;
+                const enabled = envelope.enabled !== undefined ? envelope.enabled : true;
+
+                // 숫자 키(2~200)만 periodFilters로 추출
+                const filters = {};
+                for (const key of Object.keys(s)) {
+                    const k = parseInt(key);
+                    if (!isNaN(k) && k >= 2 && k <= 200) filters[k] = s[key];
+                }
+                periodFilters = filters;
+                isMasterEnabled = enabled;
+                isRecentTenFilter = s.recent10FilterActive || false;
+
+                console.log('🔄 회귀 필터 실시간 동기화:', Object.keys(periodFilters).length + '개 스텝');
+                if (typeof updateAll === 'function') updateAll();
+            } catch (err) {
+                console.error('동기화 데이터 파싱 실패:', err);
             }
         });
 
@@ -267,9 +348,15 @@
             const btn = document.getElementById('recent10FilterBtn');
             const btnText = document.getElementById('recent10BtnText');
             if (btn && btnText) {
-                btn.classList.remove('from-purple-500', 'to-purple-700');
-                btn.classList.add('from-blue-500', 'to-indigo-600');
-                btnText.textContent = '최근 10회차 필터 적용';
+                if (isRecentTenFilter) {
+                    btn.classList.remove('from-blue-500', 'to-blue-600');
+                    btn.classList.add('from-purple-500', 'to-purple-700');
+                    btnText.textContent = '필터 해제';
+                } else {
+                    btn.classList.remove('from-purple-500', 'to-purple-700');
+                    btn.classList.add('from-blue-500', 'to-blue-600');
+                    btnText.textContent = '최근 10회차 필터 적용';
+                }
             }
 
             if (typeof renderDashboard === 'function') renderDashboard();
@@ -281,7 +368,7 @@
 
             if (typeof renderChainTable === 'function') renderChainTable();
             if (typeof updateHistoryTable === 'function') updateHistoryTable();
-            if (typeof refreshAIAnalysis === 'function') setTimeout(() => refreshAIAnalysis(), 50);
+            if (typeof initDeepInsight === 'function') setTimeout(() => initDeepInsight(), 50);
         }
     </script>
 
@@ -357,11 +444,17 @@
 
         /* 당첨수 값 하이라이트 (다크그레이 원형) */
         .ball-hit.selected-value {
-            background-color: #374151 !important;
-            /* 다크그레이 */
-            color: white !important;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-            transform: scale(1.1);
+            background-color: #374151 !important; /* text-slate-700 다크그레이 */
+            color: #ffffff !important;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
+            transform: scale(1.15);
+            z-index: 5;
         }
 
         .black-highlight-title {
@@ -499,41 +592,53 @@
             background-color: #F3E8FF;
         }
 
+        /* 숫자 입력 화살표: 기본 숨김, hover/focus 시 투명 배경으로 표시 */
         input[type=number]::-webkit-inner-spin-button,
         input[type=number]::-webkit-outer-spin-button {
-            -webkit-appearance: none;
-            margin: 0;
+            opacity: 0;
+            transition: opacity 0.15s;
+            background: transparent;
+            filter: invert(1) brightness(2);
         }
 
-        /* 번호대별 색상 스타일 */
+        input[type=number]:hover::-webkit-inner-spin-button,
+        input[type=number]:hover::-webkit-outer-spin-button,
+        input[type=number]:focus::-webkit-inner-spin-button,
+        input[type=number]:focus::-webkit-outer-spin-button {
+            opacity: 1;
+            background: transparent;
+            filter: invert(1) brightness(2);
+        }
+
+        /* [수정] 수동필터와 동일한 색상 체계 (Hex) 적용 */
         .lotto-ball.n1-10 {
-            background: #f59e0b;
+            background: #F7C948;
             color: #fff;
-            border-color: #f59e0b;
+            border-color: #eab308;
         }
 
         .lotto-ball.n11-20 {
-            background: #3b82f6;
+            background: #4a90d9;
             color: #fff;
-            border-color: #3b82f6;
+            border-color: #2563eb;
         }
 
         .lotto-ball.n21-30 {
-            background: #ef4444;
+            background: #E04A4A;
             color: #fff;
-            border-color: #ef4444;
+            border-color: #dc2626;
         }
 
         .lotto-ball.n31-40 {
-            background: #a1a1aa;
+            background: #6B7280;
             color: #fff;
-            border-color: #a1a1aa;
+            border-color: #4b5563;
         }
 
         .lotto-ball.n41-45 {
-            background: #22c55e;
+            background: #48B05A;
             color: #fff;
-            border-color: #22c55e;
+            border-color: #16a34a;
         }
 
         .lotto-ball.carryover {
@@ -604,8 +709,18 @@
                         <h1 class="text-2xl font-bold text-gray-900 mb-1">회귀분석</h1>
                         <p class="text-sm text-gray-500">특정 주기로 반복되는 당첨번호의 회귀 패턴을 분석합니다.</p>
                     </div>
+                        <!-- AI Insight Panel (Standardized) -->
+                        <div class="ai-section p-8 pb-10 mb-6 font-sans">
+                            <h3 class="text-lg font-bold text-gray-900 mb-4">딥러닝 Insight</h3>
+                            <div id="dlInsightContainer">
+                                <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
+                                    <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
+                                    <span class="text-sm">딥러닝 모델 분석 중 (7개 모델)...</span>
+                                </div>
+                            </div>
+                        </div>
 
-                    <!-- [추가] 통계 대시보드 (3컬럼) -->
+                        <!-- [추가] 통계 대시보드 (3컬럼) -->
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <!-- Card 1: Current Status -->
                         <div
@@ -684,125 +799,18 @@
                         </div>
                     </div>
 
-                    <div class="ai-section p-8 pb-10 mb-6 border border-gray-200 shadow-sm">
-                        <div class="flex items-center justify-between mb-6">
-                            <div class="flex items-baseline gap-2">
-                                <h3 class="text-2xl font-extrabold text-gray-900 tracking-tight">AI Insight</h3>
-                                <span id="aiTargetInfo" class="text-sm text-gray-500 font-medium"></span>
-                            </div>
-                            <button onclick="window.AIAnalysis.openPromptLibraryModal('regression', event)"
-                                class="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-blue-200 text-blue-600 rounded-lg text-sm font-medium hover:bg-blue-50 transition-colors">
-                                <span class="material-symbols-outlined text-lg">library_books</span>
-                                프롬프트 라이브러리
-                            </button>
-                        </div>
-
-                        <!-- 3-Section AI Analysis Content -->
-                        <div id="aiAnalysisContent"
-                            class="min-h-[220px] bg-white rounded-xl p-0 overflow-hidden relative border border-gray-100 shadow-inner">
-                            <div class="p-5 space-y-3 animate-pulse">
-                                <div class="flex items-center gap-3">
-                                    <div class="w-6 h-6 bg-slate-100 rounded-md"></div>
-                                    <div class="h-3 bg-slate-100 rounded-md w-1/4"></div>
-                                </div>
-                                <div class="space-y-2">
-                                    <div class="h-2.5 bg-slate-50 rounded-md w-full"></div>
-                                    <div class="h-2.5 bg-slate-50 rounded-md w-[85%]"></div>
-                                </div>
-                                <div class="grid grid-cols-3 gap-3 mt-4">
-                                    <div class="h-20 bg-slate-50 rounded-lg"></div>
-                                    <div class="h-20 bg-slate-50 rounded-lg"></div>
-                                    <div class="h-20 bg-slate-50 rounded-lg"></div>
-                                </div>
-                                <div
-                                    class="absolute inset-0 flex items-center justify-center bg-white/40 backdrop-blur-[1px]">
-                                    <div class="flex flex-col items-center gap-2">
-                                        <div
-                                            class="w-8 h-8 border-3 border-indigo-500 border-t-transparent rounded-full animate-spin">
-                                        </div>
-                                        <span class="text-xs font-bold text-gray-400">패턴 분석 중...</span>
-                                    </div>
+                        <div class="ai-section p-8 pb-10 mb-6 font-sans">
+                            <h3 class="text-lg font-bold text-gray-900 mb-4">딥러닝 Insight</h3>
+                            <div id="dlInsightContainer">
+                                <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
+                                    <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
+                                    <span class="text-sm">딥러닝 모델 분석 중 (7개 모델)...</span>
                                 </div>
                             </div>
                         </div>
-
-                        <!-- Quick Sample Buttons (Route to Chatbot Style) -->
-                        <div class="mt-6 border-t border-gray-100 pt-6">
-                            <div class="flex flex-col gap-4">
-                                <div class="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-                                    <button onclick="openAIModal('현재 설정된 주기에 따르면 다음 회차에 당첨번호가 나올까?')"
-                                        class="px-3 py-1.5 text-xs font-medium bg-white border border-blue-200 text-blue-600 rounded-full hover:bg-blue-50 transition-colors whitespace-nowrap">✨
-                                        다음 회차 적중 예측</button>
-                                    <button onclick="openAIModal('현재 연속 미출현(Gap) 상태가 위험한 수준인가?')"
-                                        class="px-3 py-1.5 text-xs font-medium bg-white border border-purple-200 text-purple-600 rounded-full hover:bg-purple-50 transition-colors whitespace-nowrap">📊
-                                        Gap 위험도 분석</button>
-                                    <button onclick="openAIModal('이 회귀 패턴이 깨지고 있는 추세인가, 유지되는 추세인가?')"
-                                        class="px-3 py-1.5 text-xs font-medium bg-white border border-red-200 text-red-600 rounded-full hover:bg-red-50 transition-colors whitespace-nowrap">📉
-                                        패턴 붕괴/유지</button>
-                                    <button onclick="openAIModal('과거 통계상 이 정도 Gap 이후에는 보통 당첨이 나왔나?')"
-                                        class="px-3 py-1.5 text-xs font-medium bg-white border border-green-200 text-green-600 rounded-full hover:bg-green-50 transition-colors whitespace-nowrap">🔥
-                                        과거 사례 비교</button>
-                                    <button onclick="openAIModal('가장 확률이 높은 회귀 주기(Step)를 추천해줘')"
-                                        class="px-3 py-1.5 text-xs font-medium bg-white border border-orange-200 text-orange-600 rounded-full hover:bg-orange-50 transition-colors whitespace-nowrap">⚙️
-                                        최적 주기 추천</button>
-                                    <button onclick="openAIModal('이번 회차에 나올만한 예상 번호 3개만 찍어줘')"
-                                        class="px-3 py-1.5 text-xs font-medium bg-white border border-indigo-200 text-indigo-600 rounded-full hover:bg-indigo-50 transition-colors whitespace-nowrap">🎯
-                                        예상 번호 추천</button>
-                                    <button onclick="openAIModal('최근 5회차 동안 이 주기의 적중률은 어땠어?')"
-                                        class="px-3 py-1.5 text-xs font-medium bg-white border border-teal-200 text-teal-600 rounded-full hover:bg-teal-50 transition-colors whitespace-nowrap">📈
-                                        최근 5회 적중률?</button>
-                                    <button onclick="openAIModal('주기 효율을 고려할 때 이번 필터 범위는 어떻게 설정할까?')"
-                                        class="px-3 py-1.5 text-xs font-medium bg-white border border-amber-200 text-amber-600 rounded-full hover:bg-amber-50 transition-colors whitespace-nowrap">🔢
-                                        필터 범위 추천</button>
-                                    <button onclick="openAIModal('패턴이 붕괴될 경우 대비할만한 백업 주기는?')"
-                                        class="px-3 py-1.5 text-xs font-medium bg-white border border-pink-200 text-pink-600 rounded-full hover:bg-pink-50 transition-colors whitespace-nowrap">📊
-                                        백업 주기 찾기</button>
-                                    <button onclick="openAIModal('이 회귀 방식의 장기적 수익 모델 가능성은?')"
-                                        class="px-3 py-1.5 text-xs font-medium bg-white border border-cyan-200 text-cyan-600 rounded-full hover:bg-cyan-50 transition-colors whitespace-nowrap">🔄
-                                        장기 수익 분석</button>
-                                    <!-- 🔹 [New] 추가 퀵버튼 5종 (회귀분석 특화) -->
-                                    <button onclick="openAIModal('회귀 주기를 100회 이상으로 늘렸을 때의 성적은?')"
-                                        class="px-3 py-1.5 text-xs font-medium bg-white border border-yellow-200 text-yellow-600 rounded-full hover:bg-yellow-50 transition-colors whitespace-nowrap">🔄
-                                        장기 주기 분석</button>
-                                    <button onclick="openAIModal('최근 20주기 동안의 당첨 분포를 요약해줘')"
-                                        class="px-3 py-1.5 text-xs font-medium bg-white border border-emerald-200 text-emerald-600 rounded-full hover:bg-emerald-50 transition-colors whitespace-nowrap">📊
-                                        최근 20주기 통계</button>
-                                    <button onclick="openAIModal('현재 Gap이 최장 Gap 대비 어느 정도 위험 수준인가?')"
-                                        class="px-3 py-1.5 text-xs font-medium bg-white border border-rose-200 text-rose-600 rounded-full hover:bg-rose-50 transition-colors whitespace-nowrap">📉
-                                        Gap 임계점 분석</button>
-                                    <button onclick="openAIModal('최근 적중률을 고려한 이번 최적 필터 범위는?')"
-                                        class="px-3 py-1.5 text-xs font-medium bg-white border border-lime-200 text-lime-600 rounded-full hover:bg-lime-50 transition-colors whitespace-nowrap">🎯
-                                        최적 필터 범위</button>
-                                    <button onclick="openAIModal('현재 주기와 인접한 다른 주기의 성격도 비슷한가?')"
-                                        class="px-3 py-1.5 text-xs font-medium bg-white border border-violet-200 text-violet-600 rounded-full hover:bg-violet-50 transition-colors whitespace-nowrap">🧬
-                                        다중 회귀 비교</button>
-                                </div>
-                                <div id="nlp-input-wrapper" class="relative">
-                                    <!-- NLP 컴포넌트 주입 -->
-                                    <div id="nlp-main-input"></div>
-
-                                    <div id="original-ai-input" class="hidden">
-                                        <input type="text" id="aiUserPrompt"
-                                            class="w-full pl-4 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder-gray-400"
-                                            placeholder="회귀 분석에 대해 궁금한 점을 물어보세요..."
-                                            onkeyup="if(event.key === 'Enter') submitCustomAIAnalysis()">
-                                        <button onclick="submitCustomAIAnalysis()"
-                                            class="absolute right-4 top-1/2 -translate-y-1/2 text-blue-500 hover:text-blue-600 active:scale-90 transition-all">
-                                            <svg viewBox="0 0 24 24" class="w-5 h-5" fill="none"
-                                                xmlns="http://www.w3.org/2000/svg">
-                                                <path d="M2.01 21L23 12L2.01 3L2 10L17 12L2 14L2.01 21Z"
-                                                    stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                                    stroke-linejoin="round" />
-                                            </svg>
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
 
                     <div
-                        class="bg-[#1e1a4f] p-4 rounded-xl border border-indigo-900 grid grid-cols-1 lg:grid-cols-2 gap-4 text-white">
+                        class="bg-[#1e1a4f] p-4 rounded-xl border border-blue-900 grid grid-cols-1 lg:grid-cols-2 gap-4 text-white">
 
                         <div class="flex flex-col justify-center h-full gap-2">
 
@@ -811,6 +819,7 @@
                                     <span class="text-white font-bold text-xs" id="filterSubTitle">2회귀 필터</span>
                                 </div>
                                 <a id="filterDashboardLink" href="filter.html?tab=regression&id=regression_analysis"
+                                    target="_blank"
                                     class="text-sm font-medium text-white hover:text-slate-200 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-white/10 border border-transparent hover:border-white/20">
                                     <span class="material-symbols-outlined text-[18px]">tune</span>
                                     필터 페이지 가기
@@ -825,31 +834,31 @@
 
                                     <!-- Middle: Min/Max -->
                                     <div
-                                        class="flex items-center gap-2 bg-indigo-950 px-2 py-1 rounded-lg border border-indigo-800 shadow-sm flex-shrink-0">
+                                        class="flex items-center gap-2 bg-blue-950 px-2 py-1 rounded-lg border border-blue-800 shadow-sm flex-shrink-0">
                                         <input type="number" id="filterMin" value="1" min="0" max="6"
-                                            onchange="applyFilter()"
+                                            onchange="applyFilterManual()"
                                             class="w-6 text-center text-xs font-bold border-none bg-transparent focus:ring-0 p-0 text-white">
-                                        <span class="text-indigo-400 font-bold">~</span>
+                                        <span class="text-blue-400 font-bold">~</span>
                                         <input type="number" id="filterMax" value="6" min="0" max="6"
-                                            onchange="applyFilter()"
+                                            onchange="applyFilterManual()"
                                             class="w-6 text-center text-xs font-bold border-none bg-transparent focus:ring-0 p-0 text-white">
                                     </div>
 
                                     <!-- Right: Recent 10 Button -->
                                     <button onclick="applyRecent10Filters()" id="recent10FilterBtn"
-                                        class="px-3 py-1.5 bg-blue-500 from-blue-500 to-indigo-600 bg-gradient-to-br hover:shadow-lg text-white text-[10px] font-bold rounded shadow-md transition-all active:scale-95 whitespace-nowrap">
+                                        class="px-3 py-1.5 bg-blue-500 from-blue-500 to-blue-600 bg-gradient-to-br hover:shadow-lg text-white text-[10px] font-bold rounded shadow-md transition-all active:scale-95 whitespace-nowrap">
                                         <span id="recent10BtnText">최근 10회차 필터 적용</span>
                                     </button>
                                 </div>
 
                                 <div class="flex items-center justify-end mt-1">
                                     <div
-                                        class="flex items-center gap-3 bg-indigo-900/50 px-3 py-1.5 rounded-full border border-indigo-800/50">
+                                        class="flex items-center gap-3 bg-blue-900/50 px-3 py-1.5 rounded-full border border-blue-800/50">
                                         <label class="relative inline-flex items-center cursor-pointer">
                                             <input type="checkbox" id="filterToggle" class="sr-only peer" checked
-                                                onchange="applyFilter()">
+                                                onchange="applyFilterManual()">
                                             <div
-                                                class="w-10 h-5 bg-gray-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-500 shadow-inner">
+                                                class="w-10 h-5 bg-gray-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-500 shadow-inner">
                                             </div>
                                         </label>
                                         <span class="text-[10px] font-bold text-white uppercase tracking-tighter">필터
@@ -860,21 +869,21 @@
 
                         </div>
 
-                        <div class="flex flex-col justify-between border-l border-indigo-900 pl-4 py-1">
+                        <div class="flex flex-col justify-between border-l border-blue-900 pl-4 py-1">
                             <div class="flex flex-col mb-1">
-                                <span class="font-bold text-indigo-200 text-xs">전 회귀 일괄 적용 (2~200)</span>
-                                <span class="text-[9px] text-indigo-400">
+                                <span class="font-bold text-blue-200 text-xs">전 회귀 일괄 적용 (2~200)</span>
+                                <span class="text-[9px] text-blue-400">
                                     전 회귀 필터를 일합으로 적용합니다. (일괄 적용 시 색상 주의)
                                 </span>
                             </div>
                             <div class="flex flex-col gap-2">
                                 <div class="flex items-center gap-4">
                                     <div
-                                        class="flex items-center gap-2 bg-indigo-950 px-2 py-1 rounded-lg border border-indigo-800 shadow-sm">
+                                        class="flex items-center gap-2 bg-blue-950 px-2 py-1 rounded-lg border border-blue-800 shadow-sm">
                                         <input type="number" id="batchFilterMin" value="1" min="0" max="6"
                                             onchange="applyBatchFilter()"
                                             class="w-6 text-center text-xs font-bold border-none bg-transparent focus:ring-0 p-0 text-white">
-                                        <span class="text-indigo-400">~</span>
+                                        <span class="text-blue-400">~</span>
                                         <input type="number" id="batchFilterMax" value="6" min="0" max="6"
                                             onchange="applyBatchFilter()"
                                             class="w-6 text-center text-xs font-bold border-none bg-transparent focus:ring-0 p-0 text-white">
@@ -890,12 +899,12 @@
                                 </div>
                                 <div class="flex items-center justify-end">
                                     <div
-                                        class="flex items-center gap-3 bg-indigo-900/50 px-3 py-1.5 rounded-full border border-indigo-800/50">
+                                        class="flex items-center gap-3 bg-blue-900/50 px-3 py-1.5 rounded-full border border-blue-800/50">
                                         <label class="relative inline-flex items-center cursor-pointer">
                                             <input type="checkbox" id="batchFilterToggle" class="sr-only peer" checked
                                                 onchange="applyBatchFilter()">
                                             <div
-                                                class="w-10 h-5 bg-gray-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-500 shadow-inner">
+                                                class="w-10 h-5 bg-gray-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-500 shadow-inner">
                                             </div>
                                         </label>
                                         <span class="text-[10px] font-bold text-white uppercase tracking-tighter">전회 일괄
@@ -931,7 +940,7 @@
                                         </div>
 
                                         <button onclick="scanAllRegressions()"
-                                            class="w-10 h-10 flex flex-col items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white rounded-full shadow-lg transition-all active:scale-95 ml-2 flex-shrink-0"
+                                            class="w-10 h-10 flex flex-col items-center justify-center bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg transition-all active:scale-95 ml-2 flex-shrink-0"
                                             title="회귀 전수 스캔 (2~200)">
                                             <span class="material-symbols-outlined text-[20px]">search</span>
                                             <span class="text-[7px] font-bold uppercase leading-none mt-0.5">SCAN</span>
@@ -964,7 +973,7 @@
                                                 당첨번호</th>
                                             <th
                                                 class="h-12 py-0 px-2 text-xs font-semibold text-white text-center w-16 border-r border-[#334155] align-middle">
-                                                당첨수</th>
+                                                HIT</th>
                                             <th
                                                 class="h-12 py-0 px-2 text-xs font-semibold text-white text-center w-16 border-r border-[#334155] align-middle">
                                                 STR</th>
@@ -1001,7 +1010,7 @@
                                                 당첨번호 (회귀 이월)</th>
                                             <th
                                                 class="h-12 py-0 px-2 text-xs font-semibold text-white text-center w-16 border-r border-[#334155] align-middle">
-                                                당첨수</th>
+                                                HIT</th>
                                             <th
                                                 class="h-12 py-0 px-2 text-xs font-semibold text-white text-center w-16 border-r border-[#334155] align-middle">
                                                 STR</th>
@@ -1076,16 +1085,19 @@
                     }
                 }
 
-                // [추가됨] 앱 시작 시 필터 로드 및 회차 점검
-                const loadedRound = await loadPeriodFilters();
+                // [수정] 필터 로드 시도 (targetRound 기준)
+                const loaded = await loadPeriodFilters();
 
-                // DB 조회 회차와 필터 저장 회차가 불일치하거나 설정 파일이 비어있는 경우
-                if (loadedRound !== targetRound || Object.keys(periodFilters).length === 0) {
-                    console.log(`🔄 회차 업데이트 또는 초기 필터 설정 (대상 회차: ${targetRound}, 로드된 회차: ${loadedRound}) => 최근 10회차 필터 일괄 반영`);
+                // [수정] 저장된 필터가 전혀 없는 초기 상태에서만 최근 10회차 자동 계산
+                if (!loaded || Object.keys(periodFilters).length === 0) {
+                    console.log('✨ 초기 설정 없음 → 2~200회귀 최근 10회차 필터 자동 계산');
                     _calculateAllRecent10Filters();
                 }
 
                 updateAll();
+
+                // [수정] 딥러닝 인사이트 초기화
+                initDeepInsight();
 
                 // [New] NLP 모듈 초기화 (기존 UI 보존 및 전용 영역 주입)
                 if (window.BasicAnalysisNLP) {
@@ -1139,7 +1151,8 @@
         }
 
 
-        // [추가] 회차 변경 시 2~200회귀 전체에 대하여 최근 10회차 필터를 강제 계산 및 periodFilters에 저장
+
+        // [표준] 신규 회차 시 2~200 전체 최근 10회차 필터 자동 계산
         function _calculateAllRecent10Filters() {
             if (!allData || allData.length === 0) return;
 
@@ -1158,12 +1171,12 @@
                     }
                     curr -= step;
                 }
-
                 if (values.length > 0) {
                     periodFilters[step] = { min: Math.min(...values), max: Math.max(...values), enabled: true };
                 }
             }
-            savePeriodFilters(); // 한 번에 전체 저장
+            _filterSettingsLoaded = true; // 계산 완료 후 save 허용
+            savePeriodFilters(); // 전체 저장 (NULL + targetRound)
         }
 
         // [추가] 번호대별 색상 클래스 반환 헬퍼
@@ -1288,6 +1301,7 @@
 
         // 🔹 하이라이트 기능 (값 클릭)
         function toggleValueHighlight(val) {
+            markManual();
             if (selectedValueHighlight === val) {
                 selectedValueHighlight = null;
             } else {
@@ -1300,6 +1314,7 @@
 
         // 🔹 하이라이트 기능 (행 클릭)
         function highlightRows(tableId, startIndex) {
+            markManual();
             const isChain = tableId === 'chainTableBody';
             let currentIdx = isChain ? chainHighlightIdx : historyHighlightIdx;
 
@@ -1316,6 +1331,36 @@
             else updateHistoryTable();
         }
 
+        // [표준화] 최근 10회차 필터를 비활성화하고 UI를 초기화하는 함수
+        function deactivateRecent10IfActive() {
+            if (!isRecentTenFilter) return;
+
+            const btn = document.getElementById('recent10FilterBtn');
+            const btnText = document.getElementById('recent10BtnText');
+            
+            isRecentTenFilter = false;
+
+            if (btn && btnText) {
+                btn.classList.remove('from-purple-500', 'to-purple-700', 'shadow-purple-200');
+                btn.classList.add('from-blue-500', 'to-blue-600', 'shadow-blue-200');
+                btnText.textContent = '최근 10회차 필터 적용';
+            }
+
+            // 필터 초기화 - 현재 회귀 단계(regressionStep)의 필터만 초기화하거나 UI만 초기화
+            document.getElementById('filterMin').value = '';
+            document.getElementById('filterMax').value = '';
+            const toggle = document.getElementById('filterToggle');
+            if (toggle) toggle.checked = isMasterEnabled;
+
+            chainHighlightIdx = null;
+            historyHighlightIdx = null;
+            
+            savePeriodFilters(); // 현재 UI 상태 저장
+            
+            renderChainTable();
+            updateHistoryTable();
+        }
+
         /**
          * 최근 10회차 하이라이트 자동 적용
          */
@@ -1326,26 +1371,13 @@
             updateHistoryTable();
         }
 
-        // [표준화] 최근 10회차 필터 자동 적용 (missing.html 기준)
-        function applyRecent10Filters() {
+        // [표준화] 최근 10회차 필터 자동 적용
+        async function applyRecent10Filters() {
             const btn = document.getElementById('recent10FilterBtn');
             const btnText = document.getElementById('recent10BtnText');
 
-            // 토글: 이미 켜져있으면 끄기 (보라색 클래스 존재 여부로 판단)
-            if (btn.classList.contains('from-purple-500')) {
-                btn.classList.remove('from-purple-500', 'to-purple-700');
-                btn.classList.add('from-blue-500', 'to-indigo-600');
-                btnText.textContent = '최근 10회차 필터 적용';
-
-                // 필터 초기화
-                document.getElementById('filterMin').value = '';
-                document.getElementById('filterMax').value = '';
-                document.getElementById('filterToggle').checked = false;
-
-                chainHighlightIdx = null;
-                historyHighlightIdx = null;
-                renderChainTable();
-                updateHistoryTable();
+            if (isRecentTenFilter) {
+                deactivateRecent10IfActive();
                 return;
             }
 
@@ -1374,16 +1406,24 @@
             const maxVal = Math.max(...values);
 
             // 2. UI 및 필터 활성화 (보라색 토글)
+            isRecentTenFilter = true;
             document.getElementById('filterMin').value = minVal;
             document.getElementById('filterMax').value = maxVal;
-            document.getElementById('filterToggle').checked = true;
+            
+            const toggle = document.getElementById('filterToggle');
+            if (toggle) toggle.checked = true;
 
-            btn.classList.remove('from-blue-500', 'to-indigo-600');
-            btn.classList.add('from-purple-500', 'to-purple-700');
-            btnText.textContent = '필터 해제';
+            // periodFilters에 즉시 반영
+            periodFilters[regressionStep] = { min: minVal, max: maxVal, enabled: true };
 
-            // 3. 필터 적용 및 하이라이트
-            saveFilterSettings();
+            if (btn && btnText) {
+                btn.classList.remove('from-blue-500', 'to-blue-600');
+                btn.classList.add('from-purple-500', 'to-purple-700');
+                btnText.textContent = '필터 해제';
+            }
+
+            // 3. 필터 저장 및 하이라이트
+            await savePeriodFilters();
             applyRecent10Highlight();
 
             console.log('최근 10회차 회귀 필터 적용 완료');
@@ -1511,16 +1551,16 @@
             const content = document.getElementById('aiQnaContent');
             content.innerHTML += `
                 <div class="flex justify-end mb-4">
-                    <div class="bg-indigo-600 text-white px-5 py-3 rounded-2xl shadow-md text-sm max-w-[85%] font-medium leading-relaxed">${val}</div>
+                    <div class="bg-blue-600 text-white px-5 py-3 rounded-2xl shadow-md text-sm max-w-[85%] font-medium leading-relaxed">${val}</div>
                 </div>`;
 
             const uniqueId = 'ai-res-' + Date.now();
             content.innerHTML += `
                 <div class="flex mb-6 animate-fade-in group">
-                    <div class="w-9 h-9 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 text-[10px] mr-3 flex-shrink-0 shadow-sm font-black">AI</div>
+                    <div class="w-9 h-9 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 text-[10px] mr-3 flex-shrink-0 shadow-sm font-black">AI</div>
                     <div id="${uniqueId}" class="bg-white border border-gray-100 text-gray-800 px-6 py-5 rounded-2xl shadow-sm text-sm min-h-[60px] flex-1 leading-relaxed">
                         <div class="flex items-center gap-3 text-slate-400">
-                            <div class="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+                            <div class="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
                             <span class="text-xs font-bold">패턴 분석 중...</span>
                         </div>
                     </div>
@@ -1547,13 +1587,13 @@
 
             content.innerHTML += `
                 <div class="flex justify-end mb-4">
-                    <div class="bg-indigo-600 text-white px-5 py-3 rounded-2xl shadow-md text-sm max-w-[85%] font-medium leading-relaxed">${userPrompt}</div>
+                    <div class="bg-blue-600 text-white px-5 py-3 rounded-2xl shadow-md text-sm max-w-[85%] font-medium leading-relaxed">${userPrompt}</div>
                 </div>
                 <div class="flex mb-6 animate-fade-in group">
-                    <div class="w-9 h-9 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 text-[10px] mr-3 flex-shrink-0 shadow-sm font-black">AI</div>
+                    <div class="w-9 h-9 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 text-[10px] mr-3 flex-shrink-0 shadow-sm font-black">AI</div>
                     <div id="${uniqueId}" class="bg-white border border-gray-100 text-gray-800 px-6 py-5 rounded-2xl shadow-sm text-sm min-h-[60px] flex-1 leading-relaxed">
                         <div class="flex items-center gap-3 text-slate-400">
-                            <div class="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+                            <div class="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
                             <span class="text-xs font-bold">회귀 흐름 분석 중...</span>
                         </div>
                     </div>
@@ -1576,7 +1616,7 @@
             if (container) {
                 container.innerHTML = `
                     <div class="flex items-center gap-2 text-gray-400 p-2">
-                        <div class="w-3 h-3 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+                        <div class="w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
                         <span class="text-xs font-bold">데이터 분석 중...</span>
                     </div>
                 `;
@@ -1802,18 +1842,7 @@ ${contextData}
                 // STR: 0이면 원형 '미', 0보다 크면 녹색 숫자
                 const strContent = strVal === 0 ? `<span class="ball-mi">미</span>` : `<span class="text-green-600 font-bold">${strVal}</span>`;
 
-                // [추가] 실시간 필터링 로직 적용
-                const config = periodFilters[regressionStep] || { min: 0, max: 6, enabled: true };
-                const isMasterOn = document.getElementById('filterToggle')?.checked ?? true;
-
-                let isFilteredOut = false;
-                if (isMasterOn) {
-                    if (hitCount < config.min || hitCount > config.max) {
-                        isFilteredOut = true;
-                    }
-                }
-
-                if (isFilteredOut) return; // 필터링된 행은 그리지 않음 (또는 흐리게 처리 가능)
+                // (사용자 요청으로 리스트 필터링 기능 제거)
 
                 // 하이라이트 클래스 결정
                 let rowColorClass = '';
@@ -1912,18 +1941,7 @@ ${contextData}
                 // STR: 0이면 원형 '미', 0보다 크면 녹색 숫자
                 const strContent = strVal === 0 ? `<span class="ball-mi">미</span>` : `<span class="text-green-600 font-bold">${strVal}</span>`;
 
-                // [추가] 실시간 필터링 로직 적용
-                const config = periodFilters[regressionStep] || { min: 0, max: 6, enabled: true };
-                const isMasterOn = document.getElementById('filterToggle')?.checked ?? true;
-
-                let isFilteredOut = false;
-                if (isMasterOn) {
-                    if (hitCount < config.min || hitCount > config.max) {
-                        isFilteredOut = true;
-                    }
-                }
-
-                if (isFilteredOut) return; // 필터링된 행은 그리지 않음
+                // (사용자 요청으로 리스트 필터링 기능 제거)
 
                 // 하이라이트 클래스 결정
                 let rowColorClass = '';
@@ -1994,21 +2012,21 @@ ${contextData}
 
                     tbody.innerHTML += `
                         <tr class="bg-white shadow-sm rounded-lg hover:shadow-md transition-shadow cursor-pointer" onclick="moveToRegression(${item.step})">
-                            <td class="px-4 py-3 rounded-l-lg border-l-4 border-indigo-500">
-                                <span class="text-indigo-900 font-black text-lg">${item.step}</span>
+                            <td class="px-4 py-3 rounded-l-lg border-l-4 border-blue-500">
+                                <span class="text-blue-900 font-black text-lg">${item.step}</span>
                                 <span class="text-xs text-gray-500 font-bold ml-1">회귀</span>
                             </td>
                             <td class="px-4 py-3 text-center text-sm text-gray-500">
                                 ${item.sourceRound}회
                             </td>
                             <td class="px-4 py-3 text-center">
-                                <span class="bg-indigo-100 text-indigo-700 px-2 py-1 rounded font-bold text-sm">${item.hitCount}수</span>
+                                <span class="bg-blue-100 text-blue-700 px-2 py-1 rounded font-bold text-sm">${item.hitCount}수</span>
                             </td>
                             <td class="px-4 py-3 text-center">
                                 <div class="flex items-center justify-center gap-1">${numbersHtml}</div>
                             </td>
                             <td class="px-4 py-3 rounded-r-lg text-center">
-                                <span class="text-xs text-gray-400 font-medium hover:text-indigo-600">이동 &rarr;</span>
+                                <span class="text-xs text-gray-400 font-medium hover:text-blue-600">이동 &rarr;</span>
                             </td>
                         </tr>
                     `;
@@ -2081,13 +2099,13 @@ ${contextData}
                 const color = getBallColorClass(item.num);
                 const percent = Math.round((item.count / totalRegressionsScanned) * 400);
                 congHtml += `
-                    <div class="flex items-center gap-4 bg-white p-3 rounded-xl shadow-sm border border-slate-200 hover:border-indigo-300 transition-colors">
+                    <div class="flex items-center gap-4 bg-white p-3 rounded-xl shadow-sm border border-slate-200 hover:border-blue-300 transition-colors">
                         <span class="text-sm font-black text-slate-400 w-5">${idx + 1}</span>
                         <span class="lotto-ball ${color} scale-90 shadow-sm">${item.num}</span>
                         <div class="flex-1 h-3 bg-slate-100 rounded-full overflow-hidden">
-                            <div class="h-full bg-indigo-600 rounded-full" style="width: ${Math.min(100, percent)}%"></div>
+                            <div class="h-full bg-blue-600 rounded-full" style="width: ${Math.min(100, percent)}%"></div>
                         </div>
-                        <span class="text-sm font-black text-indigo-700 w-12 text-right">${item.count}회</span>
+                        <span class="text-sm font-black text-blue-700 w-12 text-right">${item.count}회</span>
                     </div>
                 `;
             });
@@ -2168,38 +2186,10 @@ ${contextData}
             updateAll();
         }
 
-        async function refreshAIAnalysis() {
-            const container = document.getElementById('aiAnalysisContent');
-            if (!container) return;
-            baseRound = targetRound - 1;
-
-            // ── sessionStorage 캐싱: 같은 회차+회귀단계 결과는 재사용 ──
-            const cacheKey = `regression_insight_${targetRound}_${regressionStep}`;
-            const cached = sessionStorage.getItem(cacheKey);
-            if (cached) {
-                container.innerHTML = cached;
-                return;
-            }
-
-            if (window.AIAnalysis) {
-                const regressionCtx = prepareRegressionContext();
-                await window.AIAnalysis.executeAnalysis({
-                    containerId: 'aiAnalysisContent',
-                    analysisType: `${regressionStep}회귀 분석`,
-                    subjectRound: baseRound,
-                    targetRound: targetRound,
-                    customData: regressionCtx,
-                    customRules: `[${regressionStep}회귀 전용 분석 규칙]
-1. 반드시 제공된 데이터(대상번호, Gap, STR, 적중이력, 분포)만을 근거로 분석하라. 딥러닝·앙상블·XGBoost 등 머신러닝 용어는 절대 사용 금지.
-2. 현재 Gap 상태를 역대 최대 Gap과 비교하여 출현 임박 여부를 진단하라.
-3. 최근 주기 적중 이력과 적중 분포(평균 적중수)를 바탕으로 이번 주기의 예상 적중 개수 범위를 제시하라.
-4. 대상번호 중 이번 회차(${targetRound}회차)에 재출현할 가능성이 높은 번호를 통계 근거와 함께 제시하라.
-5. 회귀 주기의 특성(주기성, 연속성, 패턴 붕괴 가능성)에 초점을 맞춰 분석하라.`
-                });
-                // 결과 캐싱
-                if (container.innerHTML && !container.innerHTML.includes('animate-spin')) {
-                    try { sessionStorage.setItem(cacheKey, container.innerHTML); } catch (e) { }
-                }
+        // 딥러닝 인사이트 패널 초기화
+        function initDeepInsight() {
+            if (window.DeepInsightPanel) {
+                DeepInsightPanel.renderGroup('dlInsightContainer', 'regression');
             }
         }
 
@@ -2225,6 +2215,19 @@ ${contextData}
             setTimeout(() => {
                 modal.classList.add('hidden');
             }, 300);
+        }
+
+        /**
+         * [표준화] AI 통합 분석 실행 함수
+         * @param {string} query - 사용자의 질문 또는 분석 명령
+         */
+        async function runAIAnalysis(query) {
+            if (!query) return;
+            
+            // 챗봇 모달 오픈
+            if (typeof openAIModal === 'function') {
+                openAIModal(query);
+            }
         }
 
     </script>
@@ -2269,13 +2272,13 @@ ${contextData}
     <div id="scanResultModal"
         class="hidden fixed inset-0 bg-gray-900/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden">
-            <div class="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-indigo-50">
+            <div class="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-blue-50">
                 <div>
-                    <h3 class="text-lg font-black text-indigo-900 flex items-center gap-2">
+                    <h3 class="text-lg font-black text-blue-900 flex items-center gap-2">
                         <span class="material-symbols-outlined">data_exploration</span>
                         회귀 전수조사 결과 (2~200)
                     </h3>
-                    <p id="scanBaseInfo" class="text-xs text-indigo-600 mt-1">최근 회차에서 당첨번호가 이월된(적중한) 모든 회귀를 찾았습니다.</p>
+                    <p id="scanBaseInfo" class="text-xs text-blue-600 mt-1">최근 회차에서 당첨번호가 이월된(적중한) 모든 회귀를 찾았습니다.</p>
                 </div>
                 <button onclick="document.getElementById('scanResultModal').classList.add('hidden')"
                     class="p-2 hover:bg-white rounded-full transition-colors text-gray-400 hover:text-gray-600">
@@ -2330,10 +2333,10 @@ ${contextData}
                 <div class="col-span-12 xl:col-span-5 flex flex-col gap-6">
                     <div class="flex items-center justify-between border-b-2 border-slate-200 pb-4">
                         <h4 class="text-2xl font-black text-slate-900 flex items-center gap-3">
-                            <span class="material-symbols-outlined text-indigo-600 text-3xl">military_tech</span>
+                            <span class="material-symbols-outlined text-blue-600 text-3xl">military_tech</span>
                             번호별 중첩 상위
                         </h4>
-                        <span class="bg-indigo-600 text-white text-xs font-black px-4 py-1.5 rounded-full shadow-lg">HOT
+                        <span class="bg-blue-600 text-white text-xs font-black px-4 py-1.5 rounded-full shadow-lg">HOT
                             NUMBERS</span>
                     </div>
                     <div id="deepCongruenceList" class="grid grid-cols-1 gap-3 flex-1 pr-2">
@@ -2392,14 +2395,14 @@ ${contextData}
 
                     <!-- Bottom: Prediction Card -->
                     <div
-                        class="bg-indigo-700 rounded-2xl p-6 shadow-xl shadow-indigo-200 text-white flex flex-col justify-center relative overflow-hidden shrink-0">
+                        class="bg-blue-700 rounded-2xl p-6 shadow-xl shadow-blue-200 text-white flex flex-col justify-center relative overflow-hidden shrink-0">
                         <div class="relative z-10">
-                            <p class="text-[9px] font-black text-indigo-300 uppercase tracking-widest mb-2">Strategic
+                            <p class="text-[9px] font-black text-blue-300 uppercase tracking-widest mb-2">Strategic
                                 Intelligence</p>
                             <h5 class="text-xl font-black leading-tight">중첩 번호 출현율 <span
                                     class="text-amber-400">4.2배</span> 더 높은 확률</h5>
-                            <div class="mt-3 pt-3 border-t border-indigo-500/50">
-                                <p class="text-xs font-bold text-indigo-50 uppercase tracking-tight">
+                            <div class="mt-3 pt-3 border-t border-blue-500/50">
+                                <p class="text-xs font-bold text-blue-50 uppercase tracking-tight">
                                     "상위 중복수 중 최소 1개 출현 확률 72% 이상"
                                 </p>
                             </div>

@@ -26,16 +26,26 @@ if (window._COMMON_V2_LOADED) {
         console.warn('⚠️ Supabase SDK not loaded');
     }
 
+    // [BroadcastChannel] 크로스탭 필터 동기화 채널 초기화
+    // filter_dashboard.js(filter.html)가 아직 로드되지 않은 분석 페이지에서도 채널 생성하여
+    // Utils.saveFilter 호출 시 대시보드에 BroadcastChannel로 즉시 전달 가능하게 함
+    if (typeof BroadcastChannel !== 'undefined' && !window._lottoBc) {
+        try {
+            window._lottoBc = new BroadcastChannel('lotto_filter_sync');
+            console.log('[common_v2] BroadcastChannel(lotto_filter_sync) 초기화 완료');
+        } catch(_) { /* 미지원 환경 무시 */ }
+    }
+
     // ==========================================
     // 2. Lotto Constants
     // ==========================================
     window.LOTTO_CONSTANTS = {
         COLORS: {
-            P10: '#FBC400',
-            P20: '#69C8F2',
-            P30: '#FF7272',
-            P40: '#AAAAAA',
-            P45: '#B0D840'
+            P10: '#F7C948',
+            P20: '#4a90d9',
+            P30: '#E04A4A',
+            P40: '#6B7280',
+            P45: '#48B05A'
         },
         MULTIPLES: {
             '3배수': [3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45],
@@ -263,11 +273,11 @@ if (window._COMMON_V2_LOADED) {
             // 31~40: 회색 (#aaaaaa)
             // 41~45: 초록 (#b0d840)
             const n = parseInt(num);
-            if (n <= 10) return '#fbc400';
-            if (n <= 20) return '#69c8f2';
-            if (n <= 30) return '#ff7272';
-            if (n <= 40) return '#aaaaaa';
-            return '#b0d840';
+            if (n <= 10) return '#F7C948';
+            if (n <= 20) return '#4a90d9';
+            if (n <= 30) return '#E04A4A';
+            if (n <= 40) return '#6B7280';
+            return '#48B05A';
         }
     };
 
@@ -357,7 +367,7 @@ if (window._COMMON_V2_LOADED) {
                 good: mode === 'light' ? 'text-blue-600' : 'text-blue-300',
                 warn: mode === 'light' ? 'text-red-600' : 'text-red-300',
                 pattern: mode === 'light' ? 'text-purple-600' : 'text-purple-300',
-                recommendation: mode === 'light' ? 'text-indigo-600' : 'text-indigo-300',
+                recommendation: mode === 'light' ? 'text-blue-600' : 'text-blue-300',
                 trend: mode === 'light' ? 'text-teal-600' : 'text-teal-300',
                 highlight: mode === 'light' ? 'text-orange-600' : 'text-orange-300'
             };
@@ -462,12 +472,12 @@ if (window._COMMON_V2_LOADED) {
                     const filterHtml = analysis.filter_recommendations.map(function (r) {
                         const icon = iconMap[r.filter] || 'tune';
                         const valueText = r.pattern ? '패턴: ' + r.pattern : (r.min !== undefined && r.max !== undefined) ? r.min + ' ~ ' + r.max : r.max !== undefined ? '최대 ' + r.max : '-';
-                        return `<div class="bg-blue-50/50 rounded-xl border border-blue-100 p-3 hover:border-blue-300 transition-colors">
+                        return `<div class="flex-1 min-w-[200px] bg-blue-50/50 rounded-xl border border-blue-100 p-3 hover:border-blue-300 transition-colors">
                             <div class="flex items-center gap-2 mb-2"><span class="material-symbols-outlined text-blue-500 text-base">${icon}</span><h4 class="font-bold text-gray-800 text-xs">${r.filter}</h4></div>
                             <p class="text-blue-700 font-black text-sm mb-1.5">${valueText}</p>
                             <div class="bg-white p-2 rounded text-[11px] text-gray-600 leading-snug border border-blue-50/50">${r.evidence || '근거 데이터 없음'}</div></div>`;
                     }).join('');
-                    html += `<div class="mt-4 pt-4 border-t border-gray-100"><h5 class="text-sm font-bold text-gray-800 mb-3 flex items-center gap-1.5"><span class="material-symbols-outlined text-blue-500 text-lg">tune</span>AI 필터 추천 구간</h5><div class="grid grid-cols-2 lg:grid-cols-4 gap-3">${filterHtml}</div></div>`;
+                    html += `<div class="mt-4 pt-4 border-t border-gray-100"><h5 class="text-sm font-bold text-gray-800 mb-3 flex items-center gap-1.5"><span class="material-symbols-outlined text-blue-500 text-lg">tune</span>AI 필터 추천 구간</h5><div class="flex flex-wrap gap-3">${filterHtml}</div></div>`;
                 }
                 return html;
             }
@@ -501,12 +511,12 @@ if (window._COMMON_V2_LOADED) {
                     const filterHtml = analysis.filter_recommendations.map(function (r) {
                         const icon = iconMap[r.filter] || 'tune';
                         const valueText = r.pattern ? '패턴: ' + r.pattern : (r.min !== undefined && r.max !== undefined) ? r.min + ' ~ ' + r.max : r.max !== undefined ? '최대 ' + r.max : '-';
-                        return `<div class="bg-gray-800 rounded-xl border border-gray-700 p-3 hover:border-blue-500 transition-colors">
+                        return `<div class="flex-1 min-w-[200px] bg-gray-800 rounded-xl border border-gray-700 p-3 hover:border-blue-500 transition-colors">
                             <div class="flex items-center gap-2 mb-2"><span class="material-symbols-outlined text-blue-400 text-base">${icon}</span><h4 class="font-bold text-gray-200 text-xs">${r.filter}</h4></div>
                             <p class="text-blue-300 font-black text-sm mb-1.5">${valueText}</p>
                             <div class="bg-gray-900 p-2 rounded text-[11px] text-gray-400 leading-snug border border-gray-800">${r.evidence || '근거 데이터 없음'}</div></div>`;
                     }).join('');
-                    html += `<div class="mt-5 pt-5 border-t border-gray-700"><h5 class="text-sm font-bold text-gray-200 mb-3 flex items-center gap-1.5"><span class="material-symbols-outlined text-blue-400 text-lg">tune</span>AI 필터 추천 구간</h5><div class="grid grid-cols-2 lg:grid-cols-4 gap-3">${filterHtml}</div></div>`;
+                    html += `<div class="mt-5 pt-5 border-t border-gray-700"><h5 class="text-sm font-bold text-gray-200 mb-3 flex items-center gap-1.5"><span class="material-symbols-outlined text-blue-400 text-lg">tune</span>AI 필터 추천 구간</h5><div class="flex flex-wrap gap-3">${filterHtml}</div></div>`;
                 }
 
                 html += `</div>`;
@@ -588,6 +598,18 @@ ${customRules}
 
             // [New] Chat Style: Single response with Highlight Tags
             if (config.responseStyle === 'chat') {
+                var filterExample = (function() {
+                    var t = analysisType;
+                    if (t === 'total_sum' || t.includes('총합')) return '{"filter": "총합", "min": 100, "max": 180, "evidence": "근거"}';
+                    if (t === 'tail_sum' || t.includes('끝수합')) return '{"filter": "끝수합", "min": 16, "max": 28, "evidence": "근거"}';
+                    if (t === 'ac_value' || t.includes('AC값')) return '{"filter": "AC값", "min": 7, "max": 10, "evidence": "근거"}';
+                    if (t.includes('홀짝')) return '{"filter": "홀짝", "pattern": "3:3", "evidence": "근거"}';
+                    if (t.includes('저고') || t.includes('low_high')) return '{"filter": "저고", "pattern": "3:3", "evidence": "근거"}';
+                    if (t.includes('이월') || t.includes('carryover')) return '{"filter": "이월수", "min": 1, "max": 3, "evidence": "근거"}';
+                    if (t.includes('연속') || t.includes('consecutive')) return '{"filter": "연속수", "min": 0, "max": 2, "evidence": "근거"}';
+                    if (t.includes('소수') || t.includes('prime')) return '{"filter": "소수", "min": 1, "max": 3, "evidence": "근거"}';
+                    return '{"filter": "' + t + '", "min": 0, "max": 10, "evidence": "근거"}';
+                })();
                 return `
 # Role: 대한민국 로또 분석 권위자 (${analysisType} 전문)
 # Task: ${subjectRound}회차 실측 데이터를 분석하여, 차기 **${targetRound}회차**를 예측하라.
@@ -607,15 +629,14 @@ ${customRules}
   - {{good:숫자}} → 추천/긍정 (빨강)
   - {{warn:숫자}} → 제외/주의 (파랑)
   - {{range:텍스트}} → 주요 구간/텍스트 참조
+- filter_recommendations는 반드시 **현재 분석 중인 ${analysisType} 필터 1개만** 반환하라. 다른 분석 유형의 필터는 절대 포함하지 마라.
 - 오직 순수 JSON 포맷으로만 응답하라.
 
 # [JSON 구조]
 {
   "response": "분석 결과 및 답변 (태그 포함, 3-4문장)",
   "filter_recommendations": [
-    {"filter": "총합", "min": 100, "max": 180, "evidence": "근거"},
-    {"filter": "홀짝", "pattern": "3:3", "evidence": "근거"},
-    {"filter": "AC값", "min": 7, "max": 10, "evidence": "근거"}
+    ${filterExample}
   ]
 }`;
             }
@@ -687,7 +708,7 @@ ${customRules}
                 } else {
                     console.log("📡 [Fallback] 기존 Edge Function으로 요청 (AIProxy 미감지)");
                     // 기존 30개 페이지는 이 코드를 타게 됩니다.
-                    var response = await window.supabaseClient.functions.invoke('analyze-lotto', {
+                    var response = await window.supabaseClient.functions.invoke('ai-lotto-analyst', {
                         body: { context: prompt }
                     });
                     if (response.error) throw response.error;
@@ -1017,7 +1038,7 @@ Format: JSON
 `;
                 const fullContext = `${systemPrompt}\n\nUser Question: "${userPrompt}"\n\n${contextData}`;
 
-                const response = await window.supabaseClient.functions.invoke('analyze-lotto', {
+                const response = await window.supabaseClient.functions.invoke('ai-lotto-analyst', {
                     body: { context: fullContext }
                 });
 
@@ -1048,57 +1069,190 @@ Format: JSON
             return window.AIAnalysis.formatText(text, mode);
         },
 
-        saveFilter: function (pageKey, filterData, enabled) {
+        saveFilter: async function (pageKey, settings, enabled, targetRound) {
             try {
-                let dataToSave = filterData;
-                if (enabled !== undefined) {
-                    dataToSave = { ...filterData, enabled: enabled };
-                }
-                const jsonStr = JSON.stringify(dataToSave);
+                // 1. [구조 표준화] envelope 구조로 통일 ({ settings, enabled, ... })
+                let finalSettings = settings;
+                let finalEnabled = enabled;
+                let finalTargetRound = targetRound;
 
-                // 1. [표준화] 매핑 테이블 정의
-                const keyMap = {
-                    'high_low_pattern': 'low_high_filter',
-                    'odd_even_pattern': 'odd_even_filter',
-                    'composite_count': 'composite_filter',
-                    'prime_number_patterns': 'prime_filter',
-                    'triangular_number_patterns': 'triangular_filter',
-                    'neighbor_number_patterns': 'neighbor_number_filter',
-                    'multiple_3_count': 'multiple_filter',
-                    'ac_value': 'ac_value_filter'
+                // 이미 envelope 구조이거나 settings 내부에 targetRound가 있는 경우 처리
+                if (settings && settings.settings !== undefined) {
+                    finalSettings = settings.settings;
+                    finalEnabled = settings.enabled !== undefined ? settings.enabled : (enabled !== undefined ? enabled : true);
+                    // envelope 구조: 명시적 4th 인수가 우선, 없으면 envelope의 targetRound 사용
+                    finalTargetRound = (targetRound != null) ? targetRound : (settings.targetRound != null ? settings.targetRound : null);
+                } else {
+                    // Raw object인 경우: 반드시 명시적 4th 인수(targetRound)만 사용
+                    // settings 객체 내부의 targetRound는 무시 (대시보드 → 분석페이지 sync 오작동 방지)
+                    finalTargetRound = (targetRound != null) ? targetRound : null;
+                    if (enabled === undefined) finalEnabled = true;
+                }
+
+                const envelope = { 
+                    settings: finalSettings, 
+                    enabled: finalEnabled,
+                    targetRound: finalTargetRound,
+                    _ts: Date.now() 
+                };
+                const jsonStr = JSON.stringify(envelope);
+
+                // 2. [DB 및 로컬 키 매핑]
+                const dbKeyMap = {
+                    'hot_cold_5': 'hot_cold_5',
+                    'hot_cold_10': 'hot_cold_10',
+                    'hot_cold_15': 'hot_cold_15',
+                    'hot_cold_20': 'hot_cold_20',
+                    'hot_cold_filter': 'hot_cold_10',
+                    'high_low_pattern': 'high_low_pattern',
+                    'low_high_filter': 'high_low_pattern',
+                    'odd_even_pattern': 'odd_even_pattern',
+                    'odd_even_filter': 'odd_even_pattern',
+                    'composite_count': 'composite_count',
+                    'composite_filter': 'composite_count',
+                    'prime_number_patterns': 'prime_number_patterns',
+                    'prime_filter': 'prime_number_patterns',
+                    'triangular_number_patterns': 'triangular_number_patterns',
+                    'triangular_filter': 'triangular_number_patterns',
+                    'neighbor_number_patterns': 'neighbor_number_patterns',
+                    'neighbor_number_filter': 'neighbor_number_patterns',
+                    'neighbor_filter': 'neighbor_number_patterns',
+                    'neighbor_count': 'neighbor_number_patterns',
+                    'multiple_3_count': 'multiple_3_count',
+                    'multiple_filter': 'multiple_3_count',
+                    'ac_value': 'ac_value',
+                    'ac_value_filter': 'ac_value',
+                    'ac_filter': 'ac_value',
+                    'total_sum_filter': 'total_sum',
+                    'total_sum': 'total_sum',
+                    'tail_sum_filter': 'last_digit_sum',
+                    'last_digit_sum': 'last_digit_sum',
+                    'tail_digit_filter': 'tail_digit_patterns',
+                    'tail_digit_patterns': 'tail_digit_patterns',
+                    'carryover_filter': 'carryover_count',
+                    'carryover_count': 'carryover_count',
+                    'square_filter': 'square_number_patterns',
+                    'square_number_patterns': 'square_number_patterns',
+                    'twin_filter': 'twin_number_patterns',
+                    'twin_number_patterns': 'twin_number_patterns',
+                    'consecutive_filter': 'consecutive_count',
+                    'consecutive_count': 'consecutive_count',
+                    'missing_filter': 'missing_period',
+                    'missing_period': 'missing_period',
+                    'long_term_miss': 'missing_period',
+                    'number_range_filter': 'number_range_patterns',
+                    'number_range_patterns': 'number_range_patterns',
+                    'lotto_paper_filter': 'lotto_paper_pattern',
+                    'lotto_paper_pattern': 'lotto_paper_pattern',
+                    'gung_filter': 'magic_square_pattern',
+                    'magic_square_pattern': 'magic_square_pattern',
+                    'regression_patterns': 'regression_analysis',
+                    'regression_analysis': 'regression_analysis'
                 };
 
-                // 2. [저장] 원본 키 및 표준화된 키 모두 저장하여 호환성 확보
-                localStorage.setItem(pageKey, jsonStr);
-                localStorage.setItem(pageKey + '_filter', jsonStr); // 대시보드 호환 키
+                const standardKey = dbKeyMap[pageKey] || pageKey;
 
-                const standardKey = keyMap[pageKey];
-                if (standardKey) {
-                    localStorage.setItem(standardKey, jsonStr);
+                // 3. [로컬 저장] - 즉시 저장 (DB 저장 전 먼저 처리해야 동기화 지연 없음)
+                localStorage.setItem(standardKey, jsonStr);
+                // 레거시 키가 표준 키와 다를 경우 제거 (데이터 일관성)
+                if (pageKey !== standardKey) {
+                    localStorage.removeItem(pageKey);
+                    localStorage.removeItem(pageKey + '_filter');
                 }
 
-                // 3. [브로드캐스트] 현재 탭 및 다른 탭에 저장 완료 통지
-                const keysToSignal = [pageKey, pageKey + '_filter', standardKey].filter(Boolean);
-                keysToSignal.forEach(k => {
-                    // 외부 탭용 (storage 이벤트는 다른 탭에만 발생하므로 수동 트리거는 불필요하지만 명시적 기록용)
-                    // 현재 탭용 (window.dispatchEvent)
-                    window.dispatchEvent(new StorageEvent('storage', {
-                        key: k,
-                        newValue: jsonStr,
-                        storageArea: localStorage
-                    }));
-                });
+                // 4. [브로드캐스트] - 즉시 발화 (DB await 전에 실행해야 sync 즉각 반영)
+                // Phase 4: BroadcastChannel로 크로스탭 sync + dispatchEvent로 동일탭 sync
+                window.dispatchEvent(new StorageEvent('storage', {
+                    key: standardKey,
+                    newValue: jsonStr,
+                    storageArea: localStorage
+                }));
+                if (window._lottoBc) {
+                    try { window._lottoBc.postMessage({ type: 'FILTER_CHANGED', key: standardKey, value: jsonStr }); }
+                    catch (_) {}
+                }
 
-                console.log(`[Utils.saveFilter] Saved and broadcasted for: ${pageKey} (${standardKey || 'no standard key'})`);
+                // 5. [DB 저장] - 초기화된 경우만 백그라운드 저장 (미초기화 시 Supabase 타임아웃으로 인한 블로킹 방지)
+                if (window.filterService && window.filterService.initialized && typeof window.filterService.saveSetting === 'function') {
+                    try {
+                        await window.filterService.saveSetting(standardKey, finalSettings, finalEnabled, finalTargetRound);
+                    } catch (dbErr) {
+                        console.warn(`[Utils.saveFilter] DB Sync Fail for ${standardKey}:`, dbErr);
+                    }
+                }
+
+                console.log(`✅ [Utils.saveFilter] Saved: ${pageKey} -> ${standardKey} (Round: ${finalTargetRound})`);
             } catch (e) {
                 console.error('필터 저장 실패:', e);
             }
         },
 
-        loadFilter: function (pageKey) {
+        loadFilter: async function (pageKey, targetRound = null) {
             try {
-                var saved = localStorage.getItem(pageKey);
-                return saved ? JSON.parse(saved) : null;
+                // [표준 키 매핑] - saveFilter와 동일한 매핑으로 standardKey 계산
+                const _lsKeyMap = {
+                    'twin_filter': 'twin_number_patterns',
+                    'twin_number_patterns': 'twin_number_patterns',
+                    'consecutive_filter': 'consecutive_count',
+                    'consecutive_count': 'consecutive_count',
+                    'missing_filter': 'missing_period',
+                    'missing_period': 'missing_period',
+                    'long_term_miss': 'missing_period',
+                    'number_range_filter': 'number_range_patterns',
+                    'number_range_patterns': 'number_range_patterns',
+                    'neighbor_count': 'neighbor_number_patterns',
+                    'neighbor_number_patterns': 'neighbor_number_patterns',
+                    'neighbor_number_filter': 'neighbor_number_patterns',
+                    'neighbor_filter': 'neighbor_number_patterns',
+                    'lotto_paper_filter': 'lotto_paper_pattern',
+                    'lotto_paper_pattern': 'lotto_paper_pattern',
+                    'gung_filter': 'magic_square_pattern',
+                    'magic_square_pattern': 'magic_square_pattern',
+                    'regression_patterns': 'regression_analysis',
+                    'regression_analysis': 'regression_analysis'
+                };
+                const standardKey = _lsKeyMap[pageKey] || pageKey;
+
+                // 1. [localStorage 선읽기] - _ts 타임스탬프로 DB보다 최신인지 판단
+                var savedStr = localStorage.getItem(standardKey) || localStorage.getItem(pageKey);
+                var lsParsed = null;
+                var lsTs = 0;
+                if (savedStr) {
+                    try {
+                        lsParsed = JSON.parse(savedStr);
+                        lsTs = (lsParsed && lsParsed._ts) ? lsParsed._ts : 0;
+                    } catch (_) { lsParsed = null; }
+                }
+
+                // 2. [DB 조회] filterService 초기화된 경우만 (localStorage가 더 최신이면 스킵)
+                if (window.filterService && window.filterService.initialized && typeof window.filterService.loadSetting === 'function') {
+                    try {
+                        const dbData = await window.filterService.loadSetting(standardKey, targetRound);
+                        if (dbData) {
+                            // DB updated_at vs localStorage _ts 비교 → 더 최신 데이터 사용
+                            const dbTs = dbData.updated_at ? new Date(dbData.updated_at).getTime() : 0;
+                            if (dbTs > lsTs) {
+                                // DB가 더 최신 (다른 기기에서 저장한 경우 등)
+                                console.log(`✅ [Utils.loadFilter] DB 우선 사용: ${standardKey} (db:${dbTs} > ls:${lsTs})`);
+                                if (dbData.settings !== undefined) {
+                                    return { ...dbData.settings, enabled: dbData.enabled };
+                                }
+                                return dbData;
+                            }
+                            // localStorage가 같거나 더 최신 → localStorage 사용 (크로스탭 실시간 sync 우선)
+                            console.log(`✅ [Utils.loadFilter] localStorage 우선 사용: ${standardKey} (ls:${lsTs} >= db:${dbTs})`);
+                        }
+                    } catch (dbErr) {
+                        console.warn(`[Utils.loadFilter] DB Load Fail for ${standardKey}:`, dbErr);
+                    }
+                }
+
+                // 3. [localStorage 반환] - DB보다 최신이거나 DB 미사용 시
+                if (!lsParsed) return null;
+                if (lsParsed.settings !== undefined) {
+                    return { ...lsParsed.settings, enabled: lsParsed.enabled };
+                }
+                return lsParsed;
             } catch (e) {
                 console.error('필터 로드 실패:', e);
                 return null;
@@ -1222,7 +1376,7 @@ Format: JSON
                     <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 transform transition-all flex flex-col max-h-[90vh]">
                         <div class="flex justify-between items-center mb-4 shrink-0">
                             <h3 class="text-lg font-bold text-slate-800 flex items-center gap-2">
-                                <span class="material-symbols-outlined text-indigo-600">sticky_note_2</span>
+                                <span class="material-symbols-outlined text-blue-600">sticky_note_2</span>
                                 전문가 분석 메모
                             </h3>
                             <button onclick="window.ExpertMemo.close()" class="text-slate-400 hover:text-slate-600">
@@ -1232,7 +1386,7 @@ Format: JSON
                         
                         <div class="mb-4 shrink-0">
                             <label class="block text-xs font-bold text-slate-500 mb-1">적용할 타겟 회차 (분석회차)</label>
-                            <input type="number" id="memoTargetRound" onchange="window.ExpertMemo.loadHistory()" class="w-full border border-slate-200 rounded-lg text-sm px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="예: 1213">
+                            <input type="number" id="memoTargetRound" onchange="window.ExpertMemo.loadHistory()" class="w-full border border-slate-200 rounded-lg text-sm px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="예: 1213">
                         </div>
                         
                         <div class="mb-4 flex-1 overflow-y-auto min-h-[150px] border border-slate-200 rounded-lg bg-slate-50 custom-scrollbar relative" id="memoHistoryContainer">
@@ -1243,12 +1397,12 @@ Format: JSON
 
                         <div class="mb-5 shrink-0">
                             <label class="block text-xs font-bold text-slate-500 mb-1">분석 내용 (자연어로 자유롭게 입력)</label>
-                            <textarea id="memoContent" rows="3" class="w-full border border-slate-200 rounded-lg text-sm px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none resize-none custom-scrollbar" placeholder="예: 이번 주는 30번대가 강세일 것 같고..."></textarea>
+                            <textarea id="memoContent" rows="3" class="w-full border border-slate-200 rounded-lg text-sm px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none resize-none custom-scrollbar" placeholder="예: 이번 주는 30번대가 강세일 것 같고..."></textarea>
                         </div>
                         
                         <div class="flex justify-end gap-2 shrink-0">
                             <button onclick="window.ExpertMemo.close()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-bold transition-colors">닫기</button>
-                            <button id="btnSaveMemo" onclick="window.ExpertMemo.save()" class="px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-lg text-sm font-bold shadow-md transition-all flex items-center justify-center">
+                            <button id="btnSaveMemo" onclick="window.ExpertMemo.save()" class="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-lg text-sm font-bold shadow-md transition-all flex items-center justify-center">
                                 메모 추가
                             </button>
                         </div>
@@ -1294,7 +1448,7 @@ Format: JSON
             if (!roundInput || !container || !roundInput.value) return;
 
             const targetRound = parseInt(roundInput.value);
-            container.innerHTML = '<div class="absolute inset-0 flex flex-col items-center justify-center text-sm text-slate-400"><span class="material-symbols-outlined animate-spin align-middle mr-1 text-2xl mb-2 text-indigo-500">sync</span>이력을 불러오는 중...</div>';
+            container.innerHTML = '<div class="absolute inset-0 flex flex-col items-center justify-center text-sm text-slate-400"><span class="material-symbols-outlined animate-spin align-middle mr-1 text-2xl mb-2 text-blue-500">sync</span>이력을 불러오는 중...</div>';
 
             try {
                 if (!window.supabaseClient) {
@@ -1328,7 +1482,7 @@ Format: JSON
                     html += `
                         <div class="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm transition-all hover:shadow-md group/memo relative">
                             <div class="flex justify-between items-center mb-2.5">
-                                <span class="inline-flex items-center gap-1.5 text-[11px] font-black text-indigo-700 bg-indigo-50 px-2 py-1 rounded-md tracking-tight">
+                                <span class="inline-flex items-center gap-1.5 text-[11px] font-black text-blue-700 bg-blue-50 px-2 py-1 rounded-md tracking-tight">
                                     <span class="material-symbols-outlined text-[14px]">bookmark</span>
                                     #${index + 1}
                                 </span>

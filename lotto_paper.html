@@ -1,11 +1,11 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html class="light" lang="ko">
 
 <head>
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>Lotto Lab - 로또용지 분석 (Supabase AI)</title>
-    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="css/tailwind.css" rel="stylesheet" />
 
     <link rel="icon" href="data:,">
 
@@ -25,6 +25,7 @@
     <script src="js/common_v2.js"></script>
     <script src="js/filter/FilterService.js"></script>
     <script src="js/layout.js"></script>
+    <script src="js/deep_insight_panel.js"></script>
     <script src="js/NLPProcessor.js"></script>
     <script src="js/NLPInputComponent.js"></script>
     <script src="js/BasicAnalysisNLP.js"></script>
@@ -45,6 +46,7 @@
         // 셀 하이라이트 상태 관리
         let selectedHighlight = { col: null, val: null };
         let highlightStartRound = null;
+        let isRecentTenFilter = false; // [추가] '최근 10회차' 모드 상태값
 
         // 로또 용지 그룹 정의
         const paperDefinitions = {
@@ -80,7 +82,34 @@
             '세로1': '세1', '세로2': '세2', '세로3': '세3', '세로4': '세4', '세로5': '세5', '세로6': '세6', '세로7': '세7'
         };
 
-        // [수정] 필터 저장 함수 (DB 저장)
+        let _paperSelfSaving = false; // 자체 저장 StorageEvent 루프 방지
+
+        // [추가] 최근 10회차 필터를 비활성화하고 UI를 초기화하는 함수
+        function deactivateRecent10IfActive() {
+            if (isRecentTenFilter) {
+                isRecentTenFilter = false;
+                highlightStartRound = null;
+
+                const btn = document.getElementById('recent10FilterBtn');
+                const btnText = document.getElementById('recent10BtnText');
+                if (btn) {
+                    btn.classList.remove('from-purple-500', 'to-purple-700');
+                    btn.classList.add('from-blue-500', 'to-blue-600');
+                }
+                if (btnText) btnText.textContent = '최근 10회차 필터 적용';
+                
+                localStorage.setItem('lotto_paper_filter_isManual', 'true');
+                saveFilterSettings();
+            }
+        }
+
+        // [추가] 수동 조작 마킹
+        function markManual() {
+            localStorage.setItem('lotto_paper_filter_isManual', 'true');
+            deactivateRecent10IfActive();
+        }
+
+        // [Fix] 필터 저장 — Utils.saveFilter 사용으로 StorageEvent 발생 + 대시보드 동기화
         async function saveFilterSettings() {
             const groups = {};
             Object.keys(paperDefinitions).forEach(type => {
@@ -94,58 +123,62 @@
                 }
             });
 
-            // [New] 현재 회차 함께 저장 (새 회차 갱신 시 자동 최근 10회차 필터 적용을 위함)
-            const targetRound = (allDrawData && allDrawData.length > 0) ? allDrawData[0].round : null;
-
-            const data = { groups: groups, targetRound: targetRound };
+            // [수정] isRecentTenFilter 상태를 데이터에 포함
+            const data = { groups: groups, recent10FilterActive: isRecentTenFilter };
             const enabled = document.getElementById('applyFilterCheck').checked;
 
-            // DB 저장 (FilterService 사용)
-            if (window.filterService && window.filterService.initialized) {
-                await window.filterService.saveSetting('lotto_paper_pattern', data, enabled);
-            } else if (window.Utils && window.Utils.saveFilter) {
-                // Fallback: localStorage
-                window.Utils.saveFilter('lotto_paper_filter', { ...data, enabled });
+            if (window.Utils && window.Utils.saveFilter) {
+                try {
+                    _paperSelfSaving = true;
+                    await window.Utils.saveFilter('lotto_paper_pattern', data, enabled);
+                } finally {
+                    _paperSelfSaving = false;
+                }
             }
         }
 
-        // [수정] 필터 로드 함수 (DB 로드)
+        // [Fix] 필터 로드 — Utils.loadFilter 사용 (flat 구조 대응)
         async function loadFilterSettings() {
             let saved = null;
 
-            // DB에서 로드 (FilterService 사용)
-            if (window.filterService && window.filterService.initialized) {
-                const data = await window.filterService.loadSetting('lotto_paper_pattern');
-                if (data) {
-                    saved = { ...data.settings, enabled: data.enabled };
-                }
-            }
-
-            // Fallback: localStorage
-            if (!saved && window.Utils && window.Utils.loadFilter) {
-                saved = window.Utils.loadFilter('lotto_paper_filter');
+            if (window.Utils && window.Utils.loadFilter) {
+                const latestRound = allDrawData?.[0]?.round || null;
+                saved = await window.Utils.loadFilter('lotto_paper_pattern', latestRound);
             }
 
             if (saved) {
-                // [New] 새 회차(토요일 업데이트) 인지 확인하여 다르면 기본값(최근 10회차) 적용 위해 false 반환
-                const currentRound = (allDrawData && allDrawData.length > 0) ? allDrawData[0].round : null;
-                if (saved.targetRound && currentRound && saved.targetRound !== currentRound) {
-                    console.log('🔄 새 회차 감지됨, 최근 10회차 기본값으로 초기화합니다.');
-                    return false;
-                }
+                // [Fix] Utils.loadFilter는 flat 구조 반환
+                const s = (saved.settings !== undefined) ? saved.settings : saved;
 
-                if (saved.groups) {
-                    Object.keys(saved.groups).forEach(type => {
+                if (s.groups) {
+                    Object.keys(s.groups).forEach(type => {
                         const minInput = document.getElementById(`min_${type}`);
                         const maxInput = document.getElementById(`max_${type}`);
-                        if (minInput && maxInput && saved.groups[type]) {
-                            minInput.value = saved.groups[type].min;
-                            maxInput.value = saved.groups[type].max;
+                        if (minInput && maxInput && s.groups[type]) {
+                            minInput.value = s.groups[type].min;
+                            maxInput.value = s.groups[type].max;
                         }
                     });
                 }
                 if (saved.enabled !== undefined) {
                     document.getElementById('applyFilterCheck').checked = saved.enabled;
+                }
+                // [수정] isRecentTenFilter 상태 동기화
+                isRecentTenFilter = !!s.recent10FilterActive;
+                const btn = document.getElementById('recent10FilterBtn');
+                const btnText = document.getElementById('recent10BtnText');
+                if (btn && btnText) {
+                    if (isRecentTenFilter) {
+                        btn.classList.remove('from-blue-500', 'to-blue-600');
+                        btn.classList.add('from-purple-500', 'to-purple-700');
+                        btnText.textContent = '필터 해제';
+                        highlightStartRound = allDrawData?.[0]?.round || null;
+                    } else {
+                        btn.classList.remove('from-purple-500', 'to-purple-700');
+                        btn.classList.add('from-blue-500', 'to-blue-600');
+                        btnText.textContent = '최근 10회차 필터 적용';
+                        highlightStartRound = null;
+                    }
                 }
                 return true;
             }
@@ -238,6 +271,22 @@
             transition: all 0.2s;
         }
 
+        /* 배수 분석과 동일한 볼 스타일 */
+        .lotto-ball-mini {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 11px;
+            color: white;
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            margin-right: 2px;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+        }
+
         /* 입력창 스피너 제거 및 표준 속성 추가 */
         input[type=number]::-webkit-inner-spin-button,
         input[type=number]::-webkit-outer-spin-button {
@@ -328,6 +377,17 @@
         .custom-scrollbar::-webkit-scrollbar-thumb:hover {
             background: #a8a8a8;
         }
+        /* [수정] 숫자 입력 스피너 숨김 (회귀분석 UI 스타일) */
+        input[type=number]::-webkit-inner-spin-button,
+        input[type=number]::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            appearance: none;
+            margin: 0;
+        }
+        input[type=number] {
+            -moz-appearance: textfield;
+            appearance: textfield;
+        }
     </style>
 </head>
 
@@ -353,109 +413,12 @@
                         <div class="grid grid-cols-7 gap-2 mb-6" id="statCards">
                         </div>
 
-                        <div class="ai-section p-8 pb-10 mb-6">
-                            <div class="flex items-center justify-between mb-6">
-                                <div class="flex items-baseline gap-2">
-                                    <h3 class="text-2xl font-extrabold text-gray-900 tracking-tight">AI Insight</h3>
-                                    <span id="aiTargetInfo" class="text-sm text-gray-500 font-medium"></span>
-                                </div>
-                                <button onclick="window.AIAnalysis.openPromptLibraryModal('lotto_paper', event)"
-                                    class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors">
-                                    <span class="material-symbols-outlined text-lg">library_books</span>
-                                    프롬프트 라이브러리
-                                </button>
-                            </div>
-
-                            <div class="relative min-h-[300px]">
-                                <div id="aiAnalysisContent" class="text-base text-gray-800 leading-relaxed p-4">
-                                    <div class="flex items-center justify-center p-12 text-gray-500">
-                                        AI 분석 결과를 기다리는 중입니다...
-                                    </div>
-                                </div>
-                                <div id="aiLoadingIndicator"
-                                    class="absolute inset-0 flex items-center justify-center bg-white/90 z-10 hidden rounded-lg transition-opacity duration-300">
-                                    <div class="flex flex-col items-center gap-3 text-gray-500">
-                                        <span
-                                            class="material-symbols-outlined text-3xl animate-spin text-blue-500">progress_activity</span>
-                                        <span class="text-sm font-medium animate-pulse">AI가 용지 패턴을 분석하고 있습니다...</span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="mt-6 border-t border-gray-100 pt-6">
-                                <div class="flex flex-col gap-3">
-                                    <div class="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='이번 회차에 나올 가능성이 가장 높은 패턴과 번호는?'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-blue-50 text-blue-600 rounded-full hover:bg-blue-100 transition-colors whitespace-nowrap">
-                                            ✨ 다음 회차 예측
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='현재 비정상적으로 많이 나오고 있는 과열 구간은 어디야?'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-red-50 text-red-600 rounded-full hover:bg-red-100 transition-colors whitespace-nowrap">
-                                            🔥 과열 구간 진단
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='오랫동안 안 나온 번호 중 부활 가능성이 있는 것은?'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-cyan-50 text-cyan-600 rounded-full hover:bg-cyan-100 transition-colors whitespace-nowrap">
-                                            🧊 Cold/미출현 분석
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='최근 급격히 출현 빈도가 늘고 있는 번호나 구간은?'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-green-50 text-green-600 rounded-full hover:bg-green-100 transition-colors whitespace-nowrap">
-                                            📈 상승세 패턴
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='이제 꺾일 때가 되어 제외수로 고려할만한 번호는?'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-gray-50 text-gray-600 rounded-full hover:bg-gray-100 transition-colors whitespace-nowrap">
-                                            📉 하락/제외 후보
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='지난 회차 당첨번호 중 다시 나올(이월) 확률이 높은 수는?'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-indigo-50 text-indigo-600 rounded-full hover:bg-indigo-100 transition-colors whitespace-nowrap">
-                                            🔄 이월수 가능성
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='통계적 평균보다 덜 나와서 곧 채워질 구간은?'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-teal-50 text-teal-600 rounded-full hover:bg-teal-100 transition-colors whitespace-nowrap">
-                                            ⚖️ 평균 회귀 분석
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='이번 회차 필터링(Min-Max)을 위한 최적의 범위 추천해줘.'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-orange-50 text-orange-600 rounded-full hover:bg-orange-100 transition-colors whitespace-nowrap">
-                                            🎯 최적 필터값
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='최근 자주 같이 짝지어 나오는 번호 조합이 있어?'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-yellow-50 text-yellow-600 rounded-full hover:bg-yellow-100 transition-colors whitespace-nowrap">
-                                            🤝 동반 출현수
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='이번에 번호가 하나도 안 나올 것으로 예상되는 구간(멸 구간)은?'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-pink-50 text-pink-600 rounded-full hover:bg-pink-100 transition-colors whitespace-nowrap">
-                                            🚫 멸(Zero) 구간
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='이번 회차에 유력한 끝수 패턴은 무엇일까?'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-lime-50 text-lime-600 rounded-full hover:bg-lime-100 transition-colors whitespace-nowrap">
-                                            🔢 끝수 뒤집기
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='규칙적인 주기로 나오고 있는 번호나 패턴이 있어?'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-fuchsia-50 text-fuchsia-600 rounded-full hover:bg-fuchsia-100 transition-colors whitespace-nowrap">
-                                            ⏰ 주기성/타이밍
-                                        </button>
-                                    </div>
-                                    <div class="relative">
-                                        <input type="text" id="aiUserPrompt"
-                                            class="w-full pl-4 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder-gray-400"
-                                            placeholder="용지 분석에 대해 궁금한 점을 물어보세요..."
-                                            onkeyup="if(event.key === 'Enter') submitCustomAIAnalysis()">
-                                        <button onclick="submitCustomAIAnalysis()"
-                                            class="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors">
-                                            <span class="material-symbols-outlined text-xl">send</span>
-                                        </button>
-                                    </div>
+                        <div class="ai-section p-8 pb-10 mb-6 font-sans">
+                            <h3 class="text-lg font-bold text-gray-900 mb-4">딥러닝 Insight</h3>
+                            <div id="dlInsightContainer">
+                                <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
+                                    <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
+                                    <span class="text-sm">딥러닝 모델 분석 중 (7개 모델)...</span>
                                 </div>
                             </div>
                         </div>
@@ -526,15 +489,15 @@
                     <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm" id="filter-page">
                         <div class="flex items-center justify-between mb-6">
                             <h3 class="text-xl font-bold text-gray-900">조합 필터</h3>
-                            <a href="filter.html?tab=foundation&id=lotto_paper_pattern"
-                                class="text-sm font-medium text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
+                            <a href="filter.html?tab=foundation&id=lotto_paper_pattern" target="_blank"
+                                class="text-sm font-medium text-slate-500 hover:text-blue-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
                                 <span class="material-symbols-outlined text-[18px]">tune</span>
                                 필터 페이지 가기
                             </a>
                         </div>
 
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4" id="filterContainer">
-                            <!-- JS 렌더링 (범위별 Min/Max) -->
+                        <div class="divide-y divide-slate-100" id="filterContainer">
+                            <!-- JS 렌더링 (회귀분석 스타일 그리드 레이아웃) -->
                         </div>
 
                         <div class="flex flex-col sm:flex-row items-center justify-between mt-8 gap-4 px-2">
@@ -550,7 +513,7 @@
                             </div>
 
                             <button id="recent10FilterBtn" onclick="applyRecent10Filters()"
-                                class="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl shadow-md hover:shadow-lg transition-all text-sm font-bold min-w-[240px] justify-center whitespace-nowrap">
+                                class="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl shadow-md hover:shadow-lg transition-all text-sm font-bold min-w-[240px] justify-center whitespace-nowrap">
                                 <span class="material-symbols-outlined text-[20px]">auto_fix_high</span>
                                 <span id="recent10BtnText">최근 10회차 필터 적용</span>
                             </button>
@@ -637,37 +600,81 @@
             }
         });
 
-        // [추가] 대시보드 연동을 위한 Storage 이벤트 리스너
+        // 대시보드 실시간 동기화 (Storage Event) — 자체 저장 이벤트 무시
         window.addEventListener('storage', async function (e) {
+            if (_paperSelfSaving) return;
             if (e.key === 'lotto_paper_pattern' || e.key === 'lotto_paper_filter') {
+                if (!e.newValue) return;
+                try {
+                    const parsed = JSON.parse(e.newValue);
+                    const fc = parsed.settings !== undefined ? parsed.settings : parsed;
+                    // 로그아웃 감지: enabled=false이고 groups가 없는 경우
+                    if (parsed.enabled === false && !fc.groups) {
+                        resetPaperFilterUI();
+                        return;
+                    }
+                } catch (_) {}
+                console.log('🔄 대시보드 필터 변경 감지: 로또용지 패턴 동기화');
                 const reloaded = await loadFilterSettings();
-                if (reloaded) {
-                    applyFilter();
+                if (reloaded && allDrawData.length > 0) {
+                    const displayData = allDrawData.slice(0, currentRange);
+                    renderDrawsList(displayData);
+                    updateStats(displayData);
+                    updateCharts(displayData);
                 }
             }
         });
 
-        // [추가] 새 회차 감합 시 자동 필터 갱신 로직
+        // 로그아웃 시 모든 필터값 0-0, 미적용 상태로 리셋
+        function resetPaperFilterUI() {
+            Object.keys(paperDefinitions).forEach(type => {
+                const minInput = document.getElementById(`min_${type}`);
+                const maxInput = document.getElementById(`max_${type}`);
+                if (minInput) minInput.value = 0;
+                if (maxInput) maxInput.value = 0;
+            });
+            const chk = document.getElementById('applyFilterCheck');
+            if (chk) chk.checked = false;
+            highlightStartRound = null;
+            isRecentTenFilter = false; // [추가] 상태 초기화
+            const btn = document.getElementById('recent10FilterBtn');
+            const btnText = document.getElementById('recent10BtnText');
+            if (btn) {
+                btn.classList.remove('from-purple-500', 'to-purple-700');
+                btn.classList.add('from-blue-500', 'to-blue-600');
+            }
+            if (btnText) btnText.textContent = '최근 10회차 필터 적용';
+            if (allDrawData.length > 0) renderDrawsList(allDrawData.slice(0, currentRange));
+            console.log('🔒 로그아웃: 용지 필터 0-0 리셋 완료');
+        }
+
+        // 새 회차 감지 시 최근 10회차 필터값 자동 재설정
         function checkAndResetOnNewDraw() {
             if (!allDrawData || allDrawData.length === 0) return;
             const latestRound = allDrawData[0].round;
-            const lsKey = 'lotto_paper_last_processed_round';
-            const lastProcessed = localStorage.getItem(lsKey);
+            const lsKey = 'lotto_paper_last_calibrated_round';
+            const lastCalibrated = parseInt(localStorage.getItem(lsKey) || '0');
 
-            // 신규 회차 감지 시
-            if (!lastProcessed || parseInt(lastProcessed) !== latestRound) {
-                console.log(`✨ 신규 회차 감지: ${latestRound}회 - 최근 10회차 필터 자동 적용`);
-
-                const savedEnabled = localStorage.getItem('lotto_paper_pattern');
-                const hasUserSavedState = savedEnabled !== null; // 사용자가 명시적으로 저장한 상태가 있는지
-
-                if (!hasUserSavedState) {
-                    // 사용자가 저장한 상태가 없으면 기본적으로 10회차 필터 자동 적용
-                    applyRecent10Filters(false); // UI 하이라이트 없이 범위만 적용
-                }
-
+            if (lastCalibrated < latestRound) {
+                console.log(`✨ 신규 회차 감지: ${latestRound}회 - 최근 10회차 필터값 자동 재설정`);
+                _applyRecent10Values(); // 값만 재설정 (체크박스·하이라이트 상태 유지)
                 localStorage.setItem(lsKey, latestRound.toString());
             }
+        }
+
+        // min/max 값만 최근 10회차 기반으로 재설정 (UI 토글 상태 변경 없음)
+        function _applyRecent10Values() {
+            if (!allDrawData || allDrawData.length < 10) return;
+            const recent10 = allDrawData.slice(0, 10);
+            Object.keys(paperDefinitions).forEach(type => {
+                const counts = recent10.map(d => d.counts[type]);
+                const minInput = document.getElementById(`min_${type}`);
+                const maxInput = document.getElementById(`max_${type}`);
+                if (minInput) minInput.value = Math.min(...counts);
+                if (maxInput) maxInput.value = Math.max(...counts);
+            });
+            saveFilterSettings();
+            renderDrawsList(allDrawData.slice(0, currentRange));
         }
 
 
@@ -716,40 +723,52 @@
                 const counts = recent10.map(d => d.counts[type]);
                 const minVal = Math.min(...counts);
                 const maxVal = Math.max(...counts);
+                const maxLimit = paperDefinitions[type].length;
 
                 const numbersHtml = paperDefinitions[type].map(n =>
-                    `<span class="w-8 h-8 flex items-center justify-center rounded-full text-[10px] mx-0.5 font-bold ball-custom shadow-sm" style="background-color: ${paperColors[type]};">${String(n)}</span>`
+                    `<span class="lotto-ball-mini" style="background-color: ${paperColors[type]};">${String(n)}</span>`
                 ).join('');
 
                 const div = document.createElement('div');
-                div.className = 'bg-slate-50 rounded-xl p-4 border border-slate-100 mb-2';
+                // [수정] 회귀분석 필터와 동일한 3컬럼 그리드 레이아웃 적용
+                div.className = 'px-6 py-4 grid grid-cols-1 md:grid-cols-3 items-center gap-4 hover:bg-slate-50 border-b border-slate-100 transition-colors';
 
                 div.innerHTML = `
-                <div class="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
-                    <div class="flex-1 min-w-0">
-                        <div class="flex items-center gap-2 mb-3">
-                            <span class="px-2 py-0.5 rounded bg-white border border-slate-200 text-xs font-black text-slate-700 w-16 text-center">${type}</span>
-                            <div class="h-px flex-1 bg-slate-200"></div>
-                        </div>
-                        <div class="flex flex-wrap gap-1 pb-1">
-                            ${numbersHtml}
+                    <!-- Col 1: Label -->
+                    <div class="flex items-center gap-2 justify-start">
+                        <span class="text-sm font-black text-slate-800 whitespace-nowrap">${type}</span>
+                        <span class="text-[11px] font-bold text-slate-400">(${maxLimit}개)</span>
+                    </div>
+                    <!-- Col 2: Balls (Center) -->
+                    <div class="flex items-center justify-center gap-1">
+                        ${numbersHtml}
+                    </div>
+                    <!-- Col 3: Filter Range Box (Right) -->
+                    <div class="flex items-center justify-end gap-3">
+                        <div class="flex items-center gap-1 bg-white border border-slate-200 rounded-xl px-2 py-1.5 shadow-sm focus-within:ring-2 focus-within:ring-emerald-500">
+                            <!-- [수정] 아이콘을 +/- 에서 화살표(Up/Down)로 변경 -->
+                            <button onclick="changeValue('min_${type}', -1, 0, ${maxLimit})" class="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors group">
+                                <span class="material-symbols-outlined text-[18px]">expand_more</span>
+                            </button>
+                            <input type="number" id="min_${type}" oninput="applyFilterManual()" min="0" max="${maxLimit}" value="${minVal}"
+                                class="w-10 text-center font-black bg-transparent border-none p-0 focus:ring-0 text-base text-emerald-600">
+                            <button onclick="changeValue('min_${type}', 1, 0, ${maxLimit})" class="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors group">
+                                <span class="material-symbols-outlined text-[18px]">expand_less</span>
+                            </button>
+
+                            <span class="text-slate-300 font-bold px-1">~</span>
+                            
+                            <button onclick="changeValue('max_${type}', -1, 0, ${maxLimit})" class="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors group">
+                                <span class="material-symbols-outlined text-[18px]">expand_more</span>
+                            </button>
+                            <input type="number" id="max_${type}" oninput="applyFilterManual()" min="0" max="${maxLimit}" value="${maxVal}"
+                                class="w-10 text-center font-black bg-transparent border-none p-0 focus:ring-0 text-base text-emerald-600">
+                            <button onclick="changeValue('max_${type}', 1, 0, ${maxLimit})" class="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors group">
+                                <span class="material-symbols-outlined text-[18px]">expand_less</span>
+                            </button>
                         </div>
                     </div>
-                    <div class="flex items-center gap-4 bg-white p-3 rounded-lg border border-slate-200 shadow-sm flex-shrink-0">
-                        <div class="flex items-center gap-2">
-                            <span class="text-xs font-black text-slate-500 uppercase tracking-wider">Min</span>
-                            <input type="number" id="min_${type}" onchange="applyFilter()" min="0" max="6" value="${minVal}" 
-                                class="w-12 h-9 text-center border-none bg-slate-100 rounded-md text-sm font-black text-indigo-600 focus:ring-2 focus:ring-indigo-500">
-                        </div>
-                        <div class="w-px h-6 bg-slate-200"></div>
-                        <div class="flex items-center gap-2">
-                            <span class="text-xs font-black text-slate-500 uppercase tracking-wider">Max</span>
-                            <input type="number" id="max_${type}" onchange="applyFilter()" min="0" max="6" value="${maxVal}" 
-                                class="w-12 h-9 text-center border-none bg-slate-100 rounded-md text-sm font-black text-indigo-600 focus:ring-2 focus:ring-indigo-500">
-                        </div>
-                    </div>
-                </div>
-            `;
+                `;
                 container.appendChild(div);
             });
         }
@@ -773,6 +792,7 @@
         }
 
         function toggleStatCard(type) {
+            markManual(); // [추가] 수동 조작 마킹
             if (selectedPaperType === type) {
                 selectedPaperType = null;
             } else {
@@ -787,7 +807,7 @@
             const displayData = allDrawData.slice(0, currentRange);
             renderDrawsList(displayData);
             updateCharts(displayData);
-            refreshAIAnalysis();
+            initDeepInsight();
         }
 
         function updateStatCardStyles() {
@@ -815,6 +835,7 @@
 
         let debounceTimer = null;
         function updateRange(value) {
+            markManual(); // [추가] 수동 조작 마킹
             currentRange = parseInt(value);
             document.getElementById('rangeDisplay').textContent = value + '회';
 
@@ -835,7 +856,7 @@
                 updateStats(displayData);
                 renderDrawsList(displayData);
                 updateCharts(displayData);
-                refreshAIAnalysis();
+                initDeepInsight();
 
                 if (aiLoader) aiLoader.classList.add('hidden');
             }, 300);
@@ -853,6 +874,7 @@
         }
 
         function toggleCellHighlight(col, val) {
+            markManual(); // [추가] 수동 조작 마킹
             if (selectedHighlight.col === col && selectedHighlight.val === val) {
                 selectedHighlight = { col: null, val: null };
             } else {
@@ -974,6 +996,7 @@
         }
 
         function highlightRows(round) {
+            markManual(); // [추가] 수동 조작 마킹
             if (highlightStartRound === round) {
                 highlightStartRound = null;
             } else {
@@ -984,13 +1007,14 @@
         }
 
         function changeGraphType(type) {
+            markManual(); // [추가] 수동 조작 마킹
             if (selectedPaperType !== type) {
                 selectedPaperType = type;
                 updateStatCardStyles();
                 const displayData = allDrawData.slice(0, currentRange);
                 renderDrawsList(displayData);
                 updateCharts(displayData);
-                refreshAIAnalysis();
+                initDeepInsight();
             }
         }
 
@@ -1128,6 +1152,38 @@
             });
         }
 
+        function applyFilterManual() {
+            markManual(); // [수정] 수동 입력 시 최근10 해제
+            applyFilter();
+        }
+
+        // [추가] 필터 숫자 증감 함수
+        function changeValue(id, delta, min, max) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            let val = parseInt(el.value) || 0;
+            val += delta;
+            if (val < min) val = min;
+            if (val > max) val = max;
+            el.value = val;
+            
+            // 논리적 오류 방지 (min > max 되지 않도록)
+            const isMin = id.startsWith('min_');
+            const type = id.replace(isMin ? 'min_' : 'max_', '');
+            const otherId = isMin ? `max_${type}` : `min_${type}`;
+            const otherEl = document.getElementById(otherId);
+            if (otherEl) {
+                let otherVal = parseInt(otherEl.value) || 0;
+                if (isMin && val > otherVal) {
+                    otherEl.value = val;
+                } else if (!isMin && val < otherVal) {
+                    otherEl.value = val;
+                }
+            }
+
+            applyFilterManual();
+        }
+
         function applyFilter() {
             saveFilterSettings();
 
@@ -1215,87 +1271,22 @@
             inputEl.value = '';
         }
 
-        async function refreshAIAnalysis() {
-            if (!allDrawData || allDrawData.length === 0) return;
-
-            const subjectData = allDrawData[0];
-            const subjectRound = subjectData.round;
-            const targetRound = subjectRound + 1;
-
-            const targetEl = document.getElementById('aiTargetInfo');
-            if (targetEl) targetEl.textContent = '';
-
-            const targetRange = selectedPaperType || '전체 용지 라인';
-
-            // [Modified] Richer Statistics for Initial Insight
-            const totalRows = 7;
-            const totalCols = 7;
-
-            // Zero Lines (Exclusion)
-            const zeroLines = Object.keys(paperDefinitions).filter(k => subjectData.counts[k] === 0);
-
-            // Crowded Lines (>= 3)
-            const crowdedLines = Object.keys(paperDefinitions).filter(k => subjectData.counts[k] >= 3).map(k => `${k}(${subjectData.counts[k]}개)`);
-
-            // Full Distribution Text
-            const rowDist = Array.from({ length: 7 }, (_, i) => `가로${i + 1}:${subjectData.counts['가로' + (i + 1)]}`).join(', ');
-            const colDist = Array.from({ length: 7 }, (_, i) => `세로${i + 1}:${subjectData.counts['세로' + (i + 1)]}`).join(', ');
-
-            await window.AIAnalysis.executeAnalysis({
-                containerId: 'aiAnalysisContent',
-                analysisType: '로또용지 패턴', // This might be used by the internal AIAnalysis, but we focused on executeLocalAIAnalysis
-                subjectRound: subjectRound,
-                targetRound: targetRound,
-                customData: `
-# [분석 데이터]
-- 기준 회차: ${subjectRound}회
-- 멸(Zero) 라인: ${zeroLines.length > 0 ? zeroLines.join(', ') : '없음'}
-- 과열(3개 이상) 라인: ${crowdedLines.length > 0 ? crowdedLines.join(', ') : '없음'}
-- 가로 라인 분포: ${rowDist}
-- 세로 라인 분포: ${colDist}
-                `,
-                customRules: `
-# 분석 규칙 및 제약사항:
-1. "XGBoost", "Deep Learning", "앙상블", "피처", "Feature", "가중치", "0.xxxx 확률" 등 기술적 용어를 절대 사용하지 마세요.
-2. 대신 "상승세", "하락세", "과열", "강세", "약세" 등 일반인이 이해하기 쉬운 직관적인 표현을 사용하세요.
-3. 멸 라인 법칙: 매 회차 가로/세로 라인 중 2~4개 라인은 당첨번호가 나오지 않는 경향이 있습니다. 이를 '멸 라인'이라 합니다.
-4. 쏠림 현상(과열): 특정 라인에 3개 이상 당첨번호가 몰리면, 차회차에는 해당 라인의 출현 빈도가 낮아질("식어갈") 가능성을 통계적으로 진단하세요.
-
-# 절대 금지어:
-에너지, 기운, 파동, 운세, 소액 투자, 분산 투자, 고액 투자 지양, 투자 전략,
-100% 보장은 없다, 참고용, 책임지지 않습니다, 재미로, 행운을 빕니다,
-당첨을 기원, 감이 좋다, 직감, 필승, 대박, XGBoost, 딥러닝, Ensemble
-                `
-            });
+        // 딥러닝 인사이트 패널 초기화
+        function initDeepInsight() {
+            if (window.DeepInsightPanel) {
+                DeepInsightPanel.renderGroup('dlInsightContainer', 'lotto_paper');
+            }
         }
 
         // [표준화] 최근 10회차 필터 자동 적용
         function applyRecent10Filters(isUserClick = true) {
             const btn = document.getElementById('recent10FilterBtn');
             const btnText = document.getElementById('recent10BtnText');
-            const chk = document.getElementById('applyFilterCheck'); // 메인 체크박스 (ID 확인: applyFilterCheck)
+            const chk = document.getElementById('applyFilterCheck'); 
 
-            // 토글: 이미 켜져있으면 끄기 (보라색 클래스 존재 여부로 판단)
-            if (isUserClick && btn.classList.contains('from-purple-500')) {
-                btn.classList.remove('from-purple-500', 'to-purple-700');
-                btn.classList.add('from-blue-500', 'to-indigo-600');
-                btnText.textContent = '최근 10회차 필터 적용';
-
-                // 필터 초기화
-                Object.keys(paperDefinitions).forEach(type => {
-                    const minInput = document.getElementById(`min_${type}`);
-                    const maxInput = document.getElementById(`max_${type}`);
-                    if (minInput) minInput.value = ''; // Reset to empty instead of 0
-                    if (maxInput) maxInput.value = ''; // Reset to empty instead of 6
-                });
-
-                // 메인 필터 체크박스 해제
-                if (chk) chk.checked = false;
-
-                highlightStartRound = null;
-                applyFilter();
-                const displayData = allDrawData.slice(0, currentRange);
-                renderDrawsList(displayData);
+            // 토글: 이미 켜져있으면 끄기
+            if (isUserClick && isRecentTenFilter) {
+                deactivateRecent10IfActive(); // [수정] 공통 함수 사용
                 return;
             }
 
@@ -1319,7 +1310,8 @@
 
             // 3. UI 업데이트 (보라색 토글)
             if (isUserClick) {
-                btn.classList.remove('from-blue-500', 'to-indigo-600');
+                isRecentTenFilter = true; // [추가] 상태값 업데이트
+                btn.classList.remove('from-blue-500', 'to-blue-600');
                 btn.classList.add('from-purple-500', 'to-purple-700');
                 btnText.textContent = '필터 해제';
             }

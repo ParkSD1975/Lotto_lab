@@ -170,11 +170,11 @@
 
     // ── 볼 색상 헬퍼 ───────────────────────────────────────
     function ballColor(n) {
-        if (n <= 10) return '#f59e0b';
-        if (n <= 20) return '#3b82f6';
-        if (n <= 30) return '#ef4444';
-        if (n <= 40) return '#6b7280';
-        return '#10b981';
+        if (n <= 10) return '#F7C948';
+        if (n <= 20) return '#4a90d9';
+        if (n <= 30) return '#E04A4A';
+        if (n <= 40) return '#6B7280';
+        return '#48B05A';
     }
 
     // ── 패널 렌더링 ────────────────────────────────────────
@@ -265,7 +265,7 @@
         const el = document.createElement('div');
         el.id = 'basket-toast';
         el.className = 'fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] px-5 py-3 rounded-xl text-sm font-semibold shadow-xl transition-all';
-        el.style.background = type === 'warn' ? '#ef4444' : '#4c1d95';
+        el.style.background = type === 'warn' ? '#ef4444' : '#1d4ed8';
         el.style.color = '#fff';
         el.textContent = msg;
         document.body.appendChild(el);

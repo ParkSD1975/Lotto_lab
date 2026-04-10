@@ -1,11 +1,11 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html class="light" lang="ko">
 
 <head>
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>Lotto Lab - 당첨번호 관리</title>
-    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="css/tailwind.css" rel="stylesheet" />
     <link rel="icon" href="data:,">
 
     <link rel="stylesheet" href="css/common.css" />
@@ -191,12 +191,12 @@
         /* 행 선택 스타일 */
         .data-table tbody tr.selected-row td {
             background: #c7d2fe !important;
-            color: #1e1b4b;
+            color: #1e3a8a;
         }
 
         .data-table tbody tr.selected-row td.sticky-col {
             background: #c7d2fe !important;
-            color: #1e1b4b;
+            color: #1e3a8a;
             border-right-color: #a5b4fc;
         }
 
@@ -367,7 +367,7 @@
                     </div>
                     <div class="flex items-center gap-3">
                         <span id="totalCount"
-                            class="text-xs font-bold text-indigo-600 bg-indigo-50 px-3 py-1 rounded-full border border-indigo-100">0회차</span>
+                            class="text-xs font-bold text-blue-600 bg-blue-50 px-3 py-1 rounded-full border border-blue-100">0회차</span>
                     </div>
                 </div>
 
@@ -494,7 +494,7 @@
                     <label class="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">보너스</label>
                     <div class="flex items-center gap-3">
                         <input type="number" id="manualBonus"
-                            class="input-base w-24 text-center font-bold text-lg text-slate-800 border-indigo-200 bg-indigo-50"
+                            class="input-base w-24 text-center font-bold text-lg text-slate-800 border-blue-200 bg-blue-50"
                             min="1" max="45" oninput="checkInput(this)">
                     </div>
                 </div>
@@ -589,7 +589,7 @@
                 processData(drawsResult.data);
 
                 document.getElementById('totalCount').textContent = `총 ${allDrawData.length}회차`;
-                renderTable(allDrawData.reverse());
+                renderTable(allDrawData.slice().reverse()); // [수정] 원본 배열을 바꾸지 않도록 slice() 추가
 
                 document.getElementById('loadingOverlay').style.display = 'none';
 

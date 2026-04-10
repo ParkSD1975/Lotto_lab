@@ -12,6 +12,102 @@
     let isCounting = false;
     let isGenerating = false;
     let pendingFilters = null;
+    let lastExactCount = -1; // -1: 아직 계산 안됨, 0+: 워커 전수조사 결과
+    let indepCountTimer = null;   // debounce 타이머: 마지막 COUNT_RESULT 후 INDEP_COUNT 예약
+    let isIndepCounting = false;  // INDEP_COUNT 진행 중 여부
+    let pendingIndepCount = false; // INDEP_COUNT 완료 후 재실행 필요 여부
+
+    // filter_dashboard.js의 updateNeonCounter()에서 직접 워커 트리거 가능하도록 전역 노출
+    window.triggerFilterCount = function () {
+        if (isWorkerReady && !isGenerating) triggerCount();
+    };
+
+    // 수동필터 뱃지 갱신 등 외부에서 CUMUL_BADGES 재실행 요청
+    window.triggerIndepCount = function () {
+        if (isWorkerReady && !isGenerating) scheduleIndepCount();
+    };
+
+    // ──────────────────────────────────────────────────
+    // Foundation 필터 배지 키 목록 (로딩 상태 표시용)
+    // ──────────────────────────────────────────────────
+    const BADGE_FILTER_KEYS = [
+        'total_sum', 'last_digit_sum', 'ac_value', 'odd_even_pattern', 'high_low_pattern',
+        'tail_digit_patterns', 'prime_number_patterns', 'square_number_patterns',
+        'triangular_number_patterns', 'twin_number_patterns', 'composite_count',
+        'consecutive_count', 'number_range_patterns', 'magic_square_pattern',
+        'lotto_paper_pattern', 'multiple_3_count', 'carryover_count',
+        'neighbor_number_patterns', 'hot_cold_5', 'hot_cold_10', 'hot_cold_15', 'hot_cold_20',
+        'missing_period', 'missing_custom_filter'
+    ];
+
+    // 배지 업데이트: 각 필터 카드에 누적 카운트 표시
+    function updateFilterCountBadges(badges) {
+        window._lastCumulBadges = badges;
+        for (const [filterKey, survivors] of Object.entries(badges)) {
+            const el = document.getElementById(`indep-count-${filterKey}`);
+            if (el) {
+                el.textContent = survivors.toLocaleString() + '개';
+                el.classList.remove('hidden', 'indep-loading');
+            }
+        }
+        // 결과 없는 로딩 배지는 숨김 (비활성 필터)
+        document.querySelectorAll('.indep-loading').forEach(function(el) {
+            el.classList.add('hidden');
+            el.classList.remove('indep-loading');
+        });
+    }
+
+    // 전역 노출: renderUI 재실행 후 배지 복원용
+    window.applyIndepCountBadges = function() {
+        if (window._lastCumulBadges) {
+            updateFilterCountBadges(window._lastCumulBadges);
+        } else if (isIndepCounting) {
+            showLoadingBadges(); // 계산 중이면 로딩 상태 복원
+        }
+    };
+
+    // 모든 foundation 및 수동필터 배지에 로딩 상태 표시
+    function showLoadingBadges() {
+        // 고정 필터들
+        BADGE_FILTER_KEYS.forEach(function(filterKey) {
+            const el = document.getElementById('indep-count-' + filterKey);
+            if (el) {
+                el.textContent = '···';
+                el.classList.remove('hidden');
+                el.classList.add('indep-loading');
+            }
+        });
+        
+        // [추가] 수동필터 배지들 (동적 ID)
+        document.querySelectorAll("[id^='indep-count-manual_']").forEach(function(el) {
+            el.textContent = '···';
+            el.classList.remove('hidden');
+            el.classList.add('indep-loading');
+        });
+    }
+
+    // CUMUL_BADGES 실제 전송 (누적 카운팅)
+    function sendIndepCount() {
+        indepCountTimer = null;
+        if (!worker || !isWorkerReady || isGenerating) return;
+        isIndepCounting = true;
+        showLoadingBadges(); // 즉시 로딩 상태 표시
+        // 누적 카운팅: enabled 필터만 (COUNT와 동일한 필터셋)
+        const filters = gatherActiveFilters(false);
+        worker.postMessage({ type: 'CUMUL_BADGES', filters });
+    }
+
+    // INDEP_COUNT 예약 (debounce 1초)
+    // COUNT_RESULT가 올 때마다 타이머 리셋 → 마지막 COUNT 안정화 후 실행
+    // isIndepCounting 중이면 pendingIndepCount 플래그만 설정 (중복 실행 방지)
+    function scheduleIndepCount() {
+        if (isIndepCounting) {
+            pendingIndepCount = true; // 현재 계산 완료 후 재실행
+            return;
+        }
+        if (indepCountTimer) clearTimeout(indepCountTimer);
+        indepCountTimer = setTimeout(sendIndepCount, 1000);
+    }
 
     // ──────────────────────────────────────────────────
     // UI 헬퍼
@@ -41,25 +137,41 @@
     // ──────────────────────────────────────────────────
     function initWorker() {
         if (!window.Worker) return;
-        worker = new Worker('js/filter/combination_worker.js');
+        worker = new Worker('js/filter/combination_worker.js?v=' + Date.now());
         worker.postMessage({ type: 'INIT' });
 
         worker.onmessage = function (e) {
             const data = e.data;
             if (data.type === 'INIT_DONE') {
                 isWorkerReady = true;
-                triggerCount();
+                // allDraws 로드 완료된 경우에만 즉시 트리거
+                // 미로드 시 renderUI 훅이 loadDataFromDB 완료 후 자동 트리거함
+                if (window.FilterDashboard?.state?.allDraws?.length > 0) {
+                    triggerCount();
+                }
             } else if (data.type === 'STEPCNT_RESULT') {
                 printStepCount(data.result);
             } else if (data.type === 'DIAGNOSE_RESULT') {
                 showDiagnoseResult(data.result);
             } else if (data.type === 'COUNT_RESULT') {
                 isCounting = false;
+                lastExactCount = data.count; // 전수조사 정확한 값 저장
                 updateCounterUI(data.count);
                 if (pendingFilters) {
                     const filters = pendingFilters;
                     pendingFilters = null;
                     sendToWorker(filters);
+                }
+                // COUNT_RESULT마다 INDEP_COUNT 예약 (debounce 2초)
+                // pendingFilters 여부와 무관하게 마지막 COUNT 완료 후 자동 실행
+                scheduleIndepCount();
+            } else if (data.type === 'CUMUL_BADGES_RESULT') {
+                isIndepCounting = false;
+                updateFilterCountBadges(data.badges);
+                // 계산 중 필터가 변경된 경우 재실행
+                if (pendingIndepCount) {
+                    pendingIndepCount = false;
+                    scheduleIndepCount();
                 }
             } else if (data.type === 'GENERATE_RESULT') {
                 isGenerating = false;
@@ -71,10 +183,27 @@
                     type: 'filter_exact_match'
                 }));
 
+                // 대상 회차 찾기 (allDraws[0]이 최신 회차이므로 + 1)
+                const sysState = window.FilterDashboard?.state;
+                const latestRoundObj = sysState?.allDraws?.[0];
+                const tr = latestRoundObj ? latestRoundObj.round + 1 : null;
+
+                // [추가/수정] 필터 스냅샷 캡처 (UI 복원용)
+                const state = window.FilterDashboard?.state || {};
+                const filter_snapshot = {
+                    userSettings: state.userSettings || {},
+                    basket: state.basket || { fixed: [], excluded: [] },
+                    customFilters: state.customFilters || [],
+                    regressionSettings: state.regressionSettings || {},
+                    manualFilters: state.manualFilters || []
+                };
+
                 localStorage.setItem('generated_filter_combos', JSON.stringify({
                     timestamp: new Date().getTime(),
                     total_pool: data.totalValid,
-                    combinations: combos
+                    combinations: combos,
+                    target_round: tr,
+                    filter_snapshot: filter_snapshot
                 }));
 
                 const btn = document.getElementById('btnGenerateCombos');
@@ -88,7 +217,8 @@
     // ──────────────────────────────────────────────────
     // 필터 수집 (메인 함수)
     // ──────────────────────────────────────────────────
-    function gatherActiveFilters() {
+    // ignoreEnabled=true: 토글 OFF 필터도 포함 (배지 계산용)
+    function gatherActiveFilters(ignoreEnabled = false) {
         const filters = {};
 
         // FilterDashboard 없으면 빈 필터 반환 (워커는 통과만 함)
@@ -100,13 +230,15 @@
 
         /**
          * 특정 filter_key가 enabled인지 확인 후 settings 반환
+         * ignoreEnabled=true 시 enabled 체크 생략 (배지 독립 카운팅용)
          * disabled이거나 없으면 null 반환
          */
         function getSetting(filterKey) {
             const def = (S.foundationFilters || []).find(d => d.filter_key === filterKey);
             if (!def) return null;
             const us = S.userSettings[def.id];
-            if (!us || !us.enabled) return null;
+            if (!us) return null;
+            if (!ignoreEnabled && !us.enabled) return null;
             return us.settings || {};
         }
 
@@ -443,7 +575,12 @@
                 // [수정] r1Min/Max 등은 해당 기간 그룹에 포함된 '번호 개수'의 최소/최대값임
                 const minCount = ranges[`${gd.key}Min`] !== undefined ? parseInt(ranges[`${gd.key}Min`]) : 0;
                 const maxCount = ranges[`${gd.key}Max`] !== undefined ? parseInt(ranges[`${gd.key}Max`]) : 6;
-                mpGroups.push({ nums, min: minCount, max: maxCount });
+                // [버그수정] 그룹 실제 크기 < 설정 min → 달성 불가 → 실제 크기로 cap (영구 count=0 방지)
+                const effectiveMin = Math.min(minCount, nums.length);
+                if (effectiveMin < minCount) {
+                    console.warn(`[미출현기간] ${gd.key} 그룹 실제 크기(${nums.length}) < 설정 min(${minCount}). min을 ${effectiveMin}로 자동 보정.`);
+                }
+                mpGroups.push({ nums, min: effectiveMin, max: maxCount });
             });
             if (mpGroups.length > 0) filters.missingPeriodFilter = mpGroups;
         }
@@ -527,6 +664,20 @@
             if (regArr.length > 0) filters.regressionFilters = regArr;
         }
 
+        // ── 수동 필터 (manual_filters 테이블) ─────────────────
+        if (S.manualFilters && S.manualFilters.length > 0) {
+            const mfArr = S.manualFilters
+                .filter(mf => mf.enabled !== false)
+                .map(mf => ({
+                    id: mf.id,
+                    title: mf.title || '수동필터',
+                    selectedNums: (mf.selected_numbers || []).map(Number),
+                    min: mf.min_match !== undefined ? mf.min_match : 1,
+                    max: mf.max_match !== undefined ? mf.max_match : 6
+                }));
+            if (mfArr.length > 0) filters.manualFilters = mfArr;
+        }
+
         return filters;
     }
 
@@ -558,7 +709,9 @@
 
         const { pass, total, failMap } = result;
 
-        // [추가] 페이지에 표시된 필터 순서 정의
+        // [추가] 페이지에 표시된 필터 순서 정의 (checkFilters / buildStages 순서와 일치)
+        // 주의: a.name.includes(p) 매칭 사용 → 실제 failMap 키에 포함되는 문자열이어야 함
+        // ※ 구체적인 이름(예: '끝수합')이 포괄적인 이름(예: '끝수')보다 먼저 위치해야 findIndex가 올바름
         const PAGE_ORDER = [
             '바스켓 고정수', '바스켓 제외수',
             '총합', '총합 제외값',
@@ -566,11 +719,15 @@
             'AC값', 'AC값 제외',
             '홀짝 패턴', '홀짝 제외',
             '고저 패턴', '고저 제외',
-            '소수', '제곱수', '삼각수', '쌍수(동형수)', '합성수',
-            '연번', '번호대', '엔트로피', '9궁(마방진)', '로또용지', '배수 패턴',
-            '이월수', '이웃수',
-            '핫콜드', '미출현 기간', '미출현 커스텀',
-            '커스텀분석', '회귀분석'
+            '연번',
+            '이웃수',
+            '이월수',
+            '소수', '합성수', '삼각수', '제곱수', '쌍수',
+            '끝수',
+            '배수',
+            '번호대', '엔트로피', '9궁', '로또용지',
+            '핫콜드', '미출현기간', '미출현커스텀',
+            '회귀분석', '커스텀분석', '수동필터'
         ];
 
         // failMap(배열)을 페이지 순서에 맞춰 정렬
@@ -863,8 +1020,13 @@
             return;
         }
 
-        const counterEl = document.getElementById('neonCounter');
-        const currentCount = parseInt(counterEl?.innerText.replace(/[^0-9]/g, '')) || 0;
+        // DOM 값 대신 워커 전수조사 결과 사용
+        if (lastExactCount === -1) {
+            alert('조합 수 계산이 진행 중입니다. 잠시 후 다시 시도해주세요.');
+            return;
+        }
+
+        const currentCount = lastExactCount;
 
         if (currentCount === 0) {
             alert('선택하신 필터 조건에 맞는 조합이 0개입니다. 필터를 조금 완화해주세요.');

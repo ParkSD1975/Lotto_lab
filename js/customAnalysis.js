@@ -1,7 +1,7 @@
-﻿let currentAnalysis = null;
+let currentAnalysis = null;
 let allDrawData = [];
 let referenceRound = 0; // 기준 회차 (0=최신)
-let historyViewLimit = 100; // [New] 히스토리 조회 제한 (기본 100)
+let historyViewLimit = 200; // [수정] 딥러닝 백필 데이터(1211회~) 노출을 위해 기본 범위를 200회로 확대
 
 const aiCache = new Map(); // [New] AI 예측 데이터 캐시
 
@@ -155,6 +155,19 @@ async function initAnalysis(analysisId) {
         const historyRes = await window.supabaseClient.from('analysis_history').select('*').eq('analysis_id', analysisId);
         currentAnalysis.history_data = historyRes.data || [];
 
+        // [수정] 수동(직접입력)의 경우 다음 회차 이력이 존재하면 UI의 target_numbers에 즉시 연동 (상단볼/대시보드/그리드 노출)
+        if (currentAnalysis.type === 'manual' || currentAnalysis.type === 'direct') {
+            const nextRound = (allDrawData[0]?.round || 0) + 1;
+            const hist = currentAnalysis.history_data.find(h => h.target_round === nextRound);
+            if (hist && hist.target_numbers && hist.target_numbers.length > 0) {
+                // [수정] 정렬(sort) 제거하여 모델별 중요도 순서 유지
+                currentAnalysis.target_numbers = [...hist.target_numbers];
+                if (!currentAnalysis.filter_config) currentAnalysis.filter_config = {};
+                currentAnalysis.filter_config.target_round = nextRound;
+                console.log(`[DL Sync] ${nextRound}회차 데이터 UI 연동 완료`);
+            }
+        }
+
         // 3. 초기 렌더링 (로드 시에는 AI 자동 분석 방지)
         renderBaseInfo();
         await updateAnalysisDisplay();
@@ -277,33 +290,66 @@ function calculateStats(analysis, draws) {
     let totalHitCount = 0;
     let hitRounds = 0;
 
-    // [New] 분석 생성일(created_at) 기준 필터링 로직 추가
-    // 사용자의 요청에 따라 '분석 페이지 생성 후 부터' 계산하도록 함.
+    // [수정] history_data가 있으면 무조건 전체 이력 표시 (aiSource 여부, type 여부 무관)
+    // DB에 저장된 GNN/CNN 등 AI 모델들은 type='manual'로 저장되어 있으므로
+    // createdAt 필터를 적용하면 과거 데이터가 통째로 막혀버림
+    const hasHistoryData = (analysis.history_data || []).length > 0;
     const createdAt = analysis.created_at ? new Date(analysis.created_at) : null;
+    
+    // [수정] filteredAscDraws를 기본값(전체 ascDraws)으로 먼저 선언 → 조건과 무관하게 항상 정의됨
     let filteredAscDraws = ascDraws;
-
-    if (createdAt && (type === 'manual' || type === 'direct')) {
-        // 생성일보다 늦게 추첨된 회차(date 기반) 혹은 생성 시점의 최신 회차를 찾아 필터링
-        // allDrawData는 DESC(최신순)이므로 ascDraws(과거순)에서 찾음
+    if (!hasHistoryData && !isAiType && createdAt && (type === 'manual' || type === 'direct')) {
         filteredAscDraws = ascDraws.filter(draw => {
             const drawDate = new Date(draw.date);
-            // 추첨일이 생성일 이후이거나, 추첨일 정보가 없으면 생성 시점 최신 회차 판단 로직 필요
-            // 여기서는 안전하게 '추첨일 >= 생성일' 기준으로 필터링 (시간 정보 포함)
             return drawDate >= createdAt;
         });
-
-        // 만약 필터링 결과가 너무 적다면(방금 생성한 경우), 
-        // 최소한 생성 시점의 최신 회차 1개는 포함하거나 혹은 빈 상태로 둠.
-        // 현재 로직은 생성 이후 실적만 수집함.
     }
 
     const history = filteredAscDraws.map((draw, idx) => {
         let targets = [];
 
         // [유형별 타겟 결정]
-        if (type === 'manual' || type === 'direct') {
+        if (type === 'manual' || type === 'direct' || isAiType) {
             const hist = (analysis.history_data || []).find(h => h.target_round === draw.round);
+            // [수정] 수파베이스에 저장된 이력 데이터를 최우선으로 사용하여 과거 데이터와 순위를 보존
             targets = (hist?.target_numbers || []).map(Number);
+            
+            // 만약 수파베이스에 데이터가 없고 AI 타입인 경우 실시간 캐시 시도
+            if (targets.length === 0 && isAiType) {
+                const aiData = aiCache.get(draw.round);
+                if (aiData) {
+                    if (type === 'ai_ensemble_fixed') {
+                        targets = (aiData.top_5 || aiData.recommended || []).slice(0, 6).map(Number);
+                    } else if (type === 'ai_ensemble_excluded') {
+                        targets = (aiData.exclude_10 || aiData.excluded || []).map(Number);
+                    } else if (type === 'ai_model_top' || type === 'ai_model_bottom') {
+                        const model = (analysis.rules?.model || 'ensemble').toLowerCase();
+                        const count = parseInt(analysis.rules?.count || 10);
+                        const isTop = (type === 'ai_model_top');
+
+                        const matrixData = aiData.matrix_data || [];
+                        if (matrixData.length > 0) {
+                            const sorted = [...matrixData].sort((a, b) => {
+                                let scoreA, scoreB;
+                                if (model === 'ensemble' || model === 'total') {
+                                    scoreA = a.total || 0;
+                                    scoreB = b.total || 0;
+                                } else {
+                                    scoreA = (a.models && a.models[model]) ? (a.models[model].score || 0) : 0;
+                                    scoreB = (b.models && b.models[model]) ? (b.models[model].score || 0) : 0;
+                                }
+                                return isTop ? (scoreB - scoreA) : (scoreA - scoreB);
+                            });
+                            targets = sorted.slice(0, count).map(item => Number(item.num));
+                        }
+                    }
+                }
+            }
+            
+            // [Fallback] 여전히 데이터가 전혀 없을 경우에만 전역 타겟(현재 타겟) 사용
+            if (targets.length === 0 && globalTargets.length > 0) {
+                targets = globalTargets.map(Number);
+            }
         } else if (type === 'static') {
             targets = (globalTargets || []).map(Number);
         } else if (isDynamic) {
@@ -323,39 +369,11 @@ function calculateStats(analysis, draws) {
             }
         } else if (type === 'group') {
             const groups = analysis.config?.groups || [];
-            // [Fix] 그룹 숫자가 문자열로 저장되어 있을 수 있으므로 숫자로 변환하여 타겟 추출
-            targets = [...new Set(groups.flatMap(g => (g.numbers || []).map(Number)))].sort((a, b) => a - b);
-        } else if (isAiType) {
-            // [New] AI 분석 유형 처리
-            const aiData = aiCache.get(draw.round);
-            if (aiData) {
-                if (type === 'ai_ensemble_fixed') {
-                    targets = (aiData.top_5 || aiData.recommended || []).slice(0, 6).map(Number);
-                } else if (type === 'ai_ensemble_excluded') {
-                    targets = (aiData.exclude_10 || aiData.excluded || []).map(Number);
-                } else if (type === 'ai_model_top' || type === 'ai_model_bottom') {
-                    const model = (analysis.rules?.model || 'ensemble').toLowerCase();
-                    const count = parseInt(analysis.rules?.count || 10);
-                    const isTop = (type === 'ai_model_top');
-
-                    const matrixData = aiData.matrix_data || [];
-                    if (matrixData.length > 0) {
-                        const sorted = [...matrixData].sort((a, b) => {
-                            let scoreA, scoreB;
-                            if (model === 'ensemble' || model === 'total') {
-                                scoreA = a.total || 0;
-                                scoreB = b.total || 0;
-                            } else {
-                                scoreA = (a.models && a.models[model]) ? (a.models[model].score || 0) : 0;
-                                scoreB = (b.models && b.models[model]) ? (b.models[model].score || 0) : 0;
-                            }
-                            return isTop ? (scoreB - scoreA) : (scoreA - scoreB);
-                        });
-                        targets = sorted.slice(0, count).map(item => Number(item.num));
-                    }
-                }
-            }
+            // [수정] 그룹 분석에서도 정렬(sort)을 제거하여 설정된 순서를 그대로 따름
+            targets = [...new Set(groups.flatMap(g => (g.numbers || []).map(Number)))];
         }
+        // 기존 AI 처리 블록 중복 제거 (위로 이동됨)
+
 
         const drawNums = (draw.numbers || []).map(Number);
         const matched = drawNums.filter(n => targets.includes(n));
@@ -432,9 +450,8 @@ function calculateStats(analysis, draws) {
     // ---------------------------------------------------------
     let nextTargets = [];
     if (type === 'manual' || type === 'direct') {
-        // [FIXED] Next round ALWAYS uses the current targets being actively edited,
-        // no historical carry-over dependency for the upcoming predictions to allow live UI updates.
-        nextTargets = [...globalTargets].sort((a, b) => a - b);
+        // [수정] 정렬을 제거하여 모델별 예측 순위 그대로 노출
+        nextTargets = [...globalTargets];
     } else if (type === 'static') {
         nextTargets = globalTargets;
     } else if (isDynamic) {
@@ -462,7 +479,8 @@ function calculateStats(analysis, draws) {
         }
     } else if (type === 'group') {
         const groups = analysis.config?.groups || [];
-        nextTargets = [...new Set(groups.flatMap(g => g.numbers))].sort((a, b) => a - b);
+        // [수정] 정렬 제거
+        nextTargets = [...new Set(groups.flatMap(g => g.numbers))];
     } else if (isAiType) {
         // [New] 다음 회차 AI 예측 데이터 로드 (캐싱된게 있으면 사용, 없으면 빈 배열)
         const aiData = aiCache.get(nextRound);
@@ -509,8 +527,11 @@ function calculateStats(analysis, draws) {
     const sortedHistory = [...history].reverse(); // history가 ASC이므로 뒤집어서 DESC로 만듦
     const combinedRows = [nextRow, ...sortedHistory];
 
+    // [수정] AI 분석 유형인 경우 historyViewLimit 무시하고 1211회차까지 모두 포함 (최소 200회 보장)
+    const finalRows = (isAiType || currentAnalysis.config?.aiSource) ? combinedRows : combinedRows.slice(0, historyViewLimit);
+
     return {
-        rows: combinedRows.slice(0, historyViewLimit), // [Mod] 동적 제한 적용
+        rows: finalRows, 
         currentGap: history[history.length - 1]?.gap || 0,
         currentStraight: history[history.length - 1]?.straight || 0,
         maxGap, maxStraight, maxHits,
@@ -569,10 +590,10 @@ function renderHeaderBalls(stats) {
         // stats.rows[0]은 Next Round (Upcoming)
         targets = stats.rows[0].targets || [];
     } else {
-        targets = (currentAnalysis.target_numbers || []).sort((a, b) => a - b);
+        targets = (currentAnalysis.target_numbers || []);
     }
 
-    const html = targets.length === 0 ?
+    const html = (!targets || targets.length === 0) ?
         '<span class="text-sm text-gray-400">선택된 번호가 없습니다.</span>' :
         targets.map(num => {
             const color = window.Utils?.getBallColor(num) || '#6B7280';
@@ -697,7 +718,8 @@ function renderManualGrid(container) {
                     </div>
                 </div>
                 <div class="overflow-x-auto custom-scrollbar pb-2">
-                    <div id="numberGrid" class="grid grid-rows-2 grid-flow-col gap-1.5 min-w-max"></div>
+                    <!-- [수정] 2줄 -> 3줄 레이아웃으로 변경 (높이 확보) -->
+                    <div id="numberGrid" class="grid grid-rows-3 grid-flow-col gap-1.5 min-w-max h-[140px] items-center"></div>
                 </div>
             </div>
         `;
@@ -748,7 +770,8 @@ function updateManualGridUI() {
         const color = window.Utils?.getBallColor(i) || '#64748b';
 
         // 클래스 및 스타일만 조절
-        btn.className = `w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold border transition-all ${active ? 'text-white border-transparent scale-105 shadow-md' : 'bg-white border-slate-100 text-slate-300 hover:border-indigo-100 hover:text-indigo-400'
+        // [수정] 버튼 크기 미세 조정 (w-9 -> w-[34px]) 및 텍스트 크기 최적화
+        btn.className = `w-[34px] h-[34px] rounded-full flex items-center justify-center text-[11px] font-bold border transition-all ${active ? 'text-white border-transparent scale-105 shadow-md' : 'bg-white border-slate-100 text-slate-300 hover:border-indigo-100 hover:text-indigo-400'
             }`;
         btn.style.backgroundColor = active ? color : 'white';
         btn.innerText = i;
@@ -758,111 +781,30 @@ function updateManualGridUI() {
 // Zone E: 필터
 function renderFilterUI() {
     const config = currentAnalysis.filter_config || { min: 1, max: 3, enabled: false };
-    const stats = calculateStats(currentAnalysis, allDrawData);
+    document.getElementById('customFilterMin').value = config.min;
+    document.getElementById('customFilterMax').value = config.max;
 
-    // [Auto-Calibration Logic]
-    // 최초 로드 시(혹은 설정이 없을 때), 최근 10회차 실적을 기반으로 필터 범위를 자동 제안하되,
-    // 사용자가 '직접' 끈 경우(enabled=false)에는 강제로 켜지 않도록 주의해야 함.
-    // 하지만 "Fibonacci" 같은 분석은 기본적으로 켜져있길 원할 수도 있음.
-    // 여기서는 "DB에 저장된 config"가 우선이며, 만약 config가 초기값(min:1, max:3, enabled:false)일 때만 자동 보정을 수행합니다.
-
-    // Check if it's default config
-    const isDefaultConfig = (config.min === 1 && config.max === 3 && config.enabled === false);
-
-    if (isDefaultConfig && stats && stats.rows.length > 0) {
-        const last10 = stats.rows.slice(0, 10);
-        const hits = last10.map(r => r.hitCount);
-        const minHit = Math.min(...hits);
-        const maxHit = Math.max(...hits);
-
-        // 자동 보정 적용 (범위만 업데이트하고, 활성화는 끄기 상태 유지 - 사용자가 켤 때 적용되도록)
-        // config.min = minHit;
-        // config.max = maxHit;
-        // NOTE: 사용자가 혼란스러워할 수 있으므로, 자동 보정은 "제안"만 하고 값은 건드리지 않거나,
-        // 아니면 값을 바꾸되 enabled는 false로 둠.
-
-        // 사용자 요청: "파보나치 수열 분석은 기본이 적용..." -> 즉, 유의미한 패턴이 있으면 켜주고 싶음.
-        // 하지만 "다시 끄고 새로고침하면 다시 적용" 되는 문제는 DB 저장이 안되어서 발생함.
-        // 따라서 DB 저장을 확실히 하고, 여기선 UI 렌더링에 집중.
-    }
-
-    const rangeDisplay = document.getElementById('filterRangeDisplay');
-    if (rangeDisplay) {
-        let label = '';
-        if (config.values && config.values.length > 0) {
-            label = config.values.join(', ') + '개';
-        } else {
-            label = `${config.min} ~ ${config.max}개`;
-        }
-
-        if (stats && stats.rows.length > 0) {
-            const last10 = stats.rows.slice(1, 11); // Next Round 제외한 최근 10회
-            const hits = last10.map(r => r.hitCount);
-            const minHit = Math.min(...hits);
-            const maxHit = Math.max(...hits);
-
-            rangeDisplay.innerHTML = `${label} <span class="text-[10px] text-gray-400 ml-2">(최근 10회 실적: ${minHit}~${maxHit})</span>`;
-        } else {
-            rangeDisplay.innerHTML = label;
-        }
-    }
-
-    const toggle = document.getElementById('filterToggle');
-    if (toggle) {
-        toggle.checked = config.enabled;
-        // 이벤트 핸들러가 HTML에 inline으로 박혀있으므로 (onchange="saveCustomFilter()")
-        // 여기서 별도 addEventListener는 안 해도 됨. 단 함수가 전역에 있어야 함.
-    }
-
-    const btnContainer = document.getElementById('filterBtnContainer');
-    if (btnContainer) {
-        btnContainer.innerHTML = '';
-        const limit = 6;
-        for (let i = 0; i <= limit; i++) {
-            // active 여부 결정 (values 배열 기준 또는 min~max 범위 기준)
-            let active = false;
-            if (config.values && config.values.length > 0) {
-                active = config.values.includes(i);
-            } else {
-                active = (i >= config.min && i <= config.max);
-            }
-
-            const btn = document.createElement('button');
-            btn.className = `px-3 py-1.5 rounded-lg text-sm font-medium border transition-all ${active ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300'}`;
-            btn.innerText = `${i}개`;
-            btn.onclick = async () => {
-                // [Fix] 복수 선택(Toggle) 로직으로 변경
-                if (!config.values || config.values.length === 0) {
-                    // 기존 min~max 기반이면 values로 변환
-                    config.values = [];
-                    for (let j = config.min; j <= config.max; j++) config.values.push(j);
-                }
-
-                const existingIdx = config.values.indexOf(i);
-                if (existingIdx >= 0) {
-                    // 해제 시도: 단, 최소 1개는 선택되어야 하므로 체크
-                    if (config.values.length > 1) {
-                        config.values.splice(existingIdx, 1);
-                    }
-                } else {
-                    // 추가
-                    config.values.push(i);
-                }
-                config.values.sort((a, b) => a - b);
-
-                // 하위 호환성을 위해 min, max도 업데이트
-                config.min = Math.min(...config.values);
-                config.max = Math.max(...config.values);
-
-                await saveFilterConfig();
-                renderFilterUI();
-                // [New] 필터가 변경되었으므로 대시보드 및 테이블 즉시 갱신
-                updateAnalysisDisplay(true); // AI 분석은 스킵
-            };
-            btnContainer.appendChild(btn);
-        }
+    // [추가] 필터 토글 상태 반영
+    const filterToggle = document.getElementById('filterToggle');
+    if (filterToggle) {
+        filterToggle.checked = (config.enabled === true);
     }
 }
+
+// [New] 필터 범위 직접 업데이트 함수 (Pill 디자인 대응)
+window.updateCustomRange = async function(type, val) {
+    if (!currentAnalysis) return;
+    const value = parseInt(val) || 0;
+    
+    if (type === 'min') currentAnalysis.filter_config.min = value;
+    else if (type === 'max') currentAnalysis.filter_config.max = value;
+
+    // values 배열 초기화 (min-max 모드로 전환)
+    delete currentAnalysis.filter_config.values;
+    
+    await saveFilterConfig();
+    updateAnalysisDisplay(true); // UI만 갱신
+};
 
 // [Global Function] 필터 토글 저장 함수 (HTML onchange에서 호출됨)
 window.saveCustomFilter = async function () {
@@ -1056,7 +998,8 @@ function renderHistoryTable(stats) {
     };
 
     // [UI Standardization] 전체 로우 중 '최대 타겟 개수'를 기준으로 통일된 사이즈 적용
-    const maxTargetLen = Math.max(...stats.rows.map(r => r.targets.length), 0);
+    // [Fix] stats.rows가 비어있을 경우 0으로 처리 (Math.max 오류 방지)
+    const maxTargetLen = stats.rows.length > 0 ? Math.max(...stats.rows.map(r => r.targets.length)) : 0;
 
     // [Refinement] 타겟 번호 개수가 모든 회차에서 동일한지 여부 판단 (Fixed Count)
     // - 개수 동일(Fixed Count): 중앙 정렬 (justify-center) - 번호가 달라도 개수가 같으면 중앙
@@ -1117,13 +1060,15 @@ function renderHistoryTable(stats) {
     tbody.innerHTML = stats.rows.map((row, index) => {
         const isInRange = (rangeHighlightIndex !== -1 && index >= rangeHighlightIndex && index < rangeHighlightIndex + 10);
 
-        // [New] 직접 입력형일 경우 텍스트 인풋 제공 (편집 모드 지원)
-        const isManualEntry = (type === 'manual' || type === 'direct');
+        // [New] 직접 입력형 또는 AI 분석 유형일 경우 텍스트/모델 순위 보존 렌더링
+        const isRankType = (type === 'manual' || type === 'direct' || type.startsWith('ai_'));
 
-        // [Refinement] 직접입력형 전용 (정렬 + 글로벌 사이즈 적용)
-        const alignClass = `${alignClassBase} ${globalGapClass}`;
+        // [수정] 딥러닝/수동입력 타입(isRankType)은 항상 좌측 정렬, 그 외는 기존 로직
+        const alignClass = isRankType
+            ? `justify-start ${globalGapClass}`
+            : `${alignClassBase} ${globalGapClass}`;
 
-        const targetVisualManual = `<div class="flex flex-nowrap items-center ${alignClass}" style="max-width: 100%; overflow-x: auto;">${row.targets.map(n => {
+        const targetVisualManual = `<div class="flex flex-nowrap items-center ${alignClass} pl-2" style="max-width: 100%; overflow-x: auto;">${row.targets.map(n => {
             const isMatched = row.matched.includes(n);
             const textClass = isMatched ? 'text-red-500 font-bold' : 'text-slate-400';
             return `<span class="${textClass} ${globalSizeClass} transition-all whitespace-nowrap shrink-0">${n}</span>`;
@@ -1147,8 +1092,9 @@ function renderHistoryTable(stats) {
         }).join('')}</div>`;
 
         let targetContent = '';
-        if (isManualEntry) {
-            if (editingRound === row.round) {
+        if (isRankType) {
+            const isManualEntry = (type === 'manual' || type === 'direct');
+            if (isManualEntry && editingRound === row.round) {
                 // 편집 모드: 인풋박스 노출 (코드 유지)
                 targetContent = `
                     <div class="flex flex-col items-center gap-2 w-full px-4" onclick="event.stopPropagation()">
@@ -1167,14 +1113,16 @@ function renderHistoryTable(stats) {
                     if (el) { el.focus(); el.select(); }
                 }, 10);
             } else {
-                // 보기 모드: 클릭 시 편집 전환
+                // [수정] 보기 모드: 딥러닝 타입은 좌측정렬로 강제 고정
                 targetContent = `
-                    <div class="cursor-edit group/edit relative w-full h-full min-h-[50px] flex items-center justify-center rounded-xl hover:bg-slate-100/50 transition-colors" 
-                         onclick="event.stopPropagation(); window.enterEditMode(${row.round})">
+                    <div class="cursor-pointer group/edit relative w-full h-full min-h-[50px] flex items-center ${isRankType ? 'justify-start pl-2' : 'justify-center'} rounded-xl hover:bg-slate-100/50 transition-colors" 
+                         ${isManualEntry ? `onclick="event.stopPropagation(); window.enterEditMode(${row.round})"` : ''}>
+
                         ${targetVisualManual}
+                        ${isManualEntry ? `
                         <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover/edit:opacity-100 transition-opacity pointer-events-none">
                             <span class="bg-indigo-600 text-white text-[10px] px-2 py-1 rounded-full shadow-lg font-bold">클릭하여 수정</span>
-                        </div>
+                        </div>` : ''}
                     </div>
                 `;
             }

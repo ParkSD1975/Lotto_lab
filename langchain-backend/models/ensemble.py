@@ -63,6 +63,12 @@ class LottoEnsemble:
             except Exception:
                 pass
 
+        # 합계가 1.0이 아닌 경우 정규화 (마이그레이션/rounding drift 방지)
+        total = sum(base_weights.values())
+        if total > 0 and abs(total - 1.0) > 0.001:
+            base_weights = {k: round(v / total, 4) for k, v in base_weights.items()}
+            print(f"⚠️ [Meta-Learning] 가중치 합계({total:.4f}) 비정상 → 정규화 완료")
+
         # 파일에 누락된 모델 키가 있을 경우 최신 7개 키로 갱신 저장
         # (구버전 파일에 gnn/autoencoder가 없어 0.0으로 표시되는 문제 방지)
         try:

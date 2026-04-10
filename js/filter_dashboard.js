@@ -13,6 +13,7 @@ window.FilterDashboard = {
         userSettings: {},
         regressionSettings: {},
         customFilters: [],
+        manualFilters: [],
         basket: { fixed: [], excluded: [] },
 
         // 고정 속성수 사전
@@ -26,6 +27,8 @@ window.FilterDashboard = {
         dynamicTargets: {}
     },
 
+    _dashSelfSaving: false, // 자체 저장 StorageEvent 루프 방지
+
     async init() {
         console.log("🚀 Real Filter Dashboard Booting...");
         await this.loadDataFromDB();
@@ -34,6 +37,8 @@ window.FilterDashboard = {
         // [수정] 실시간 동기화: 다른 탭에서 필터 변경 시 즉시 반영
         window.addEventListener('storage', (e) => {
             if (!e.key) return;
+            // [Fix] 대시보드 자체 저장으로 발생한 StorageEvent 무시 (re-render → 입력 포커스 유실 방지)
+            if (this._dashSelfSaving) return;
 
             const watchedKeys = new Set([
                 'total_sum', 'last_digit_sum', 'ac_value', 'odd_even_pattern', 'high_low_pattern',
@@ -44,37 +49,45 @@ window.FilterDashboard = {
                 'hot_cold_15', 'hot_cold_20', 'missing_period', 'missing_custom_filter',
                 'regression_analysis', 'lotto_basket', 'tail_digit_patterns'
             ]);
-            // [수정] 커스텀 분석 관련 키 감지 추가
+
             const isCustomFilter = e.key.startsWith('custom_filter_');
             const isAnalysisRefresh = e.key === 'custom_analysis_refresh';
-            // [수정] LNB 순서 변경 감지 (custom_analysis.html에서 드래그 시 발생)
             const isLnbOrderChange = e.key === 'lnbOrder_custom';
 
             const isWatched = watchedKeys.has(e.key) || e.key.endsWith('_filter') || isCustomFilter || isAnalysisRefresh || isLnbOrderChange;
             if (!isWatched) return;
 
+            // [Phase 4] BroadcastChannel 중복 방지: 처리 시각 기록
+            if (window._lottoBcHandled) window._lottoBcHandled.set(e.key, Date.now());
+
             console.log(`🔄 Storage Change Detected: ${e.key}. Refreshing Dashboard...`);
 
-            // 커스텀 분석 생성/삭제/수정 시 즉시 DB 재로드
             if (isAnalysisRefresh) {
                 this.loadDataFromDB().then(() => this.renderUI());
                 return;
             }
 
-            // [수정] LNB 순서 변경 시 커스텀 필터 카드 순서 즉시 동기화
             if (isLnbOrderChange) {
                 this.renderCustomFilters();
                 return;
             }
 
-            // 개별 커스텀 필터 설정 변경 시 state 반영
             if (isCustomFilter && e.newValue) {
                 try {
                     const customId = e.key.replace('custom_filter_', '');
                     const newData = JSON.parse(e.newValue);
                     const custom = this.state.customFilters.find(c => c.id === customId);
                     if (custom) {
-                        custom.filter_config = newData;
+                        // Utils.saveFilter가 envelope {settings, enabled, _ts} 구조로 저장하므로 settings 추출
+                        const fc = newData.settings !== undefined ? newData.settings : newData;
+                        if (fc && typeof fc === 'object') {
+                            // [Fix] envelope.enabled를 fc에 병합 → conf.enabled가 undefined인 경우에도 enabled 상태 보존
+                            // (DB에 enabled 필드 없이 저장된 구 버전 filter_config 방어)
+                            if (newData.settings !== undefined && newData.enabled !== undefined) {
+                                fc.enabled = newData.enabled;
+                            }
+                            custom.filter_config = fc;
+                        }
                         this.renderCustomFilters();
                         this.updateNeonCounter();
                         return;
@@ -82,15 +95,12 @@ window.FilterDashboard = {
                 } catch (err) { }
             }
 
-            // [추가] 회귀 분석 실시간 동기화 (regression_analysis, regression_patterns 또는 lotto_period_filters)
             if ((e.key === 'regression_analysis' || e.key === 'regression_patterns' || e.key === 'lotto_period_filters') && e.newValue) {
                 try {
                     const newData = JSON.parse(e.newValue);
-                    // [추가] 회차 정보가 있고 현재 회차와 다르면 무시 (동기화 꼬임 방지)
                     const msgRound = newData.targetRound || newData.target_round;
                     if (msgRound && msgRound !== this.state.targetRound) return;
 
-                    // settings 또는 periodFilters 객체가 있으면 우선 사용
                     this.state.regressionSettings = newData.settings || (newData.periodFilters ? newData.periodFilters : newData);
                     this.state.regressionEnabled = newData.enabled !== undefined ? newData.enabled : true;
                     this.renderUI();
@@ -98,13 +108,28 @@ window.FilterDashboard = {
                 } catch (err) { }
             }
 
-            // [핵심] localStorage 변경값을 state에 즉시 병합 후 UI 갱신
+            // [핵심] localStorage 변경값을 state에 즉시 병합 후 UI 갱신 (DB 레이스 컨디션 방지)
             if (e.newValue && e.key !== 'lotto_basket') {
                 try {
                     const newData = JSON.parse(e.newValue);
-                    const def = this.state.foundationFilters.find(d => d.filter_key === e.key);
-                    if (def && this.state.userSettings[def.id]) {
-                        // 중첩 구조 {settings, enabled} 또는 평탄 구조 {enabled, ...settings} 대응
+                    // _filter 접미사 호환성 처리
+                    const searchKey = e.key.endsWith('_filter') ? e.key.replace('_filter', '') : e.key;
+                    const def = this.state.foundationFilters.find(d => d.filter_key === searchKey || d.filter_key === e.key);
+
+                    if (def) {
+                        // [수정] userSettings[def.id]가 없어도 즉시 생성 후 fast-sync
+                        // (foundationFilters 로드됐으나 userSettings 미초기화 케이스 방어)
+                        if (!this.state.userSettings[def.id]) {
+                            try {
+                                const defaultParsed = typeof def.default_settings === 'string'
+                                    ? JSON.parse(def.default_settings || '{}')
+                                    : (def.default_settings || {});
+                                this.state.userSettings[def.id] = { enabled: false, settings: defaultParsed };
+                            } catch (_) {
+                                this.state.userSettings[def.id] = { enabled: false, settings: {} };
+                            }
+                        }
+                        console.log(`💡 [Sync] Fast-syncing ${e.key} to dashboard state`);
                         if (newData.settings !== undefined) {
                             this.state.userSettings[def.id].settings = newData.settings;
                             this.state.userSettings[def.id].enabled = newData.enabled !== false;
@@ -119,14 +144,40 @@ window.FilterDashboard = {
                             }
                         }
                         this.renderUI();
-                        return;
+                        return; // 즉시 반영 성공 시 DB 재로드 스킵
                     }
                 } catch (err) { }
             }
 
-            // 폴백: DB에서 전체 재조회
-            this.loadDataFromDB().then(() => this.renderUI());
+            // 폴백: DB에서 데이터 재로드 (디바운스 300ms - 멀티탭 동시 변경 레이스 컨디션 방지)
+            if (this._storageReloadTimer) clearTimeout(this._storageReloadTimer);
+            this._storageReloadTimer = setTimeout(() => {
+                this.loadDataFromDB().then(() => this.renderUI());
+            }, 300);
         });
+
+
+        // [Phase 4] BroadcastChannel 초기화 - 크로스탭 필터 변경 수신
+        // _lottoBcHandled: storage 이벤트와 BroadcastChannel 간 100ms 내 중복 처리 방지
+        window._lottoBcHandled = new Map();
+        if (typeof BroadcastChannel !== 'undefined') {
+            try {
+                window._lottoBc = new BroadcastChannel('lotto_filter_sync');
+                window._lottoBc.onmessage = (e) => {
+                    if (!e.data || e.data.type !== 'FILTER_CHANGED') return;
+                    const { key, value } = e.data;
+                    // storage 이벤트가 먼저 도착했으면 100ms 내 중복 무시
+                    const lastHandled = window._lottoBcHandled.get(key) || 0;
+                    if (Date.now() - lastHandled < 100) return;
+                    window._lottoBcHandled.set(key, Date.now());
+                    // storage 이벤트와 동일한 처리 로직 재사용 (dispatchEvent로 storage 핸들러 호출)
+                    window.dispatchEvent(new StorageEvent('storage', {
+                        key, newValue: value, storageArea: localStorage
+                    }));
+                };
+                console.log('[FilterDashboard] BroadcastChannel 초기화 완료');
+            } catch (_) { /* 미지원 환경 무시 */ }
+        }
 
         // [추가] GNB 바스켓 실시간 동기화 (같은 탭 내 이벤트 감지)
         window.addEventListener('basketChanged', (e) => {
@@ -174,6 +225,62 @@ window.FilterDashboard = {
         document.getElementById('btnRegAllOff')?.addEventListener('click', () => this.bulkToggleRegression(false));
     },
 
+    // [추가] 필터 값 증감 도우미 함수 (Foundation 전용)
+    changeFilterValue(defId, key, delta, min, max) {
+        const input = document.getElementById(`input-${defId}-${key}`);
+        if (!input) return;
+        let val = parseInt(input.value) || 0;
+        val += delta;
+        if (val < min) val = min;
+        if (val > max) val = max;
+        input.value = val;
+
+        // 논리적 오류 방지 (min > max 되지 않도록)
+        const isMin = key === 'min';
+        const otherId = isMin ? `input-${defId}-max` : `input-${defId}-min`;
+        const otherEl = document.getElementById(otherId);
+        if (otherEl) {
+            let otherVal = parseInt(otherEl.value) || 0;
+            if (isMin && val > otherVal) {
+                otherEl.value = val;
+                this.updateFilterValue(defId, 'max', val);
+            } else if (!isMin && val < otherVal) {
+                otherEl.value = val;
+                this.updateFilterValue(defId, 'min', val);
+            }
+        }
+
+        this.updateFilterValue(defId, key, val);
+    },
+
+    // [추가] 회귀분석 필터 값 증감 도우미 함수
+    changeRegressionValue(idx, key, delta, min, max) {
+        const input = document.getElementById(`reg-${idx}-${key}`);
+        if (!input) return;
+        let val = parseInt(input.value) || 0;
+        val += delta;
+        if (val < min) val = min;
+        if (val > max) val = max;
+        input.value = val;
+
+        // 논리적 오류 방지
+        const isMin = key === 'min';
+        const otherId = isMin ? `reg-${idx}-max` : `reg-${idx}-min`;
+        const otherEl = document.getElementById(otherId);
+        if (otherEl) {
+            let otherVal = parseInt(otherEl.value) || 0;
+            if (isMin && val > otherVal) {
+                otherEl.value = val;
+                this.updateRegressionRange(idx, 'max', val);
+            } else if (!isMin && val < otherVal) {
+                otherEl.value = val;
+                this.updateRegressionRange(idx, 'min', val);
+            }
+        }
+
+        this.updateRegressionRange(idx, key, val);
+    },
+
     renderUI() {
         this.state.totalActiveCount = 0;
         this.renderBasket();
@@ -186,6 +293,8 @@ window.FilterDashboard = {
         if (totalCountEl) {
             totalCountEl.textContent = this.state.totalActiveCount;
         }
+        // 헤더 높이 변동 후 탭 sticky 위치 재보정
+        if (window.fixTabTop) requestAnimationFrame(window.fixTabTop);
     },
 
     handleDeepLink(focusId) {
@@ -193,9 +302,9 @@ window.FilterDashboard = {
             const element = document.getElementById(`filter-${focusId}`) || document.getElementById(`filter-card-${focusId}`);
             if (element) {
                 element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                element.classList.add('transition-all', 'duration-500', 'ring-4', 'ring-indigo-500');
+                element.classList.add('transition-all', 'duration-500', 'ring-4', 'ring-blue-500');
                 setTimeout(() => {
-                    element.classList.remove('ring-4', 'ring-indigo-500');
+                    element.classList.remove('ring-4', 'ring-blue-500');
                 }, 2000);
             }
         }, 300);
@@ -229,6 +338,14 @@ window.FilterDashboard = {
                 // [추가] 차기 회차 계산 (regression.html과 동일한 로직)
                 this.state.targetRound = this.state.allDraws[0].round + 1;
                 console.log(`[FilterDashboard] Current Target Round: ${this.state.targetRound}`);
+
+                // 회차 변경 감지 (최근 10회차 자동 활성화용)
+                const _savedLastRound = parseInt(localStorage.getItem('_fdb_lastKnownRound') || '0');
+                const _currentRound = this.state.allDraws[0].round;
+                this._newRoundDetected = _savedLastRound > 0 && _savedLastRound < _currentRound;
+                if (_currentRound > _savedLastRound) {
+                    localStorage.setItem('_fdb_lastKnownRound', _currentRound.toString());
+                }
 
                 const prevNum = (this.state.allDraws[0].numbers || []).slice(0, 6);
                 const prevBonus = this.state.allDraws[0].bonus || this.state.allDraws[0].bonus_number || this.state.allDraws[0].bonusNo;
@@ -269,8 +386,11 @@ window.FilterDashboard = {
                 // localStorage 우선순위: filter_key_filter -> filter_key
                 let rawLocalData = null;
                 try {
-                    const localKey = `${def.filter_key}_filter`;
-                    // [핵심 수정] direct key(total_sum)를 _filter 접미사보다 우선함
+                    // localStorage 우선순위: filter_key_filter -> filter_key
+                    // [수정] missing_period의 경우 suffix가 없는 키가 우선임
+                    let localKey = `${def.filter_key}_filter`;
+                    if (def.filter_key === 'missing_period') localKey = 'missing_period';
+
                     const raw = localStorage.getItem(def.filter_key) || localStorage.getItem(localKey);
                     if (raw) rawLocalData = JSON.parse(raw);
 
@@ -281,69 +401,134 @@ window.FilterDashboard = {
                     }
                 } catch (e) { }
 
-                if (allSettings[def.filter_key]) {
-                    this.state.userSettings[def.id] = {
-                        enabled: allSettings[def.filter_key].enabled,
-                        settings: allSettings[def.filter_key].settings || {}
-                    };
+                // [수정] 데이터베이스(allSettings)에서 데이터 조회 시 매핑된 키도 함께 확인
+                const standardKeyMapping = {
+                    'ac_value': 'ac_value_filter',
+                    'high_low_pattern': 'low_high_filter',
+                    'odd_even_pattern': 'odd_even_filter',
+                    'composite_count': 'composite_filter',
+                    'prime_number_patterns': 'prime_filter',
+                    'neighbor_count': 'neighbor_number_patterns'  // 구 키 하위 호환 로드
+                };
+                const altKey = standardKeyMapping[def.filter_key];
+                const dbEntry = allSettings[def.filter_key] || (altKey ? allSettings[altKey] : null);
 
-                    // [핵심] DB 데이터와 Local 캐시 지능적 병합 (로그인 시 배지 누락 방지)
-                    const dbSettings = this.state.userSettings[def.id].settings;
-                    if (rawLocalData) {
-                        // 1. 제외 합계 병합: DB에 없거나 비어있는데 Local에 있으면 복구
-                        const hasExInDB = dbSettings.excludedSums && dbSettings.excludedSums.length > 0;
-                        const hasExInLocal = rawLocalData.excludedSums && rawLocalData.excludedSums.length > 0;
+                if (dbEntry) {
+                    // [타임스탬프 비교] localStorage(_ts) vs DB(updated_at) 중 더 최신을 primary로 사용
+                    const dbTs = dbEntry.updated_at ? new Date(dbEntry.updated_at).getTime() : 0;
+                    const lsTs = rawLocalData?._ts || 0;
+                    const localIsNewer = lsTs > dbTs;
 
-                        if (!hasExInDB && hasExInLocal) {
-                            console.log(`💡 [Merge] ${def.filter_key}: Local excludedSums recovered to DB state`);
-                            dbSettings.excludedSums = rawLocalData.excludedSums;
+                    if (localIsNewer && rawLocalData) {
+                        // localStorage가 더 최신 → localStorage를 primary로 사용
+                        const localSettings = rawLocalData.settings !== undefined ? rawLocalData.settings : rawLocalData;
+                        const localEnabled = rawLocalData.enabled !== undefined ? rawLocalData.enabled : true;
+                        this.state.userSettings[def.id] = {
+                            enabled: localEnabled,
+                            settings: Object.keys(localSettings).length > 0 ? localSettings : (dbEntry.settings || {})
+                        };
+                        console.log(`⚡ [Sync] ${def.filter_key}: localStorage 우선 (ls:${lsTs} > db:${dbTs})`);
+                    } else {
+                        // DB가 더 최신 또는 localStorage 없음 → DB를 primary로 사용
+                        this.state.userSettings[def.id] = {
+                            enabled: dbEntry.enabled,
+                            settings: dbEntry.settings || {}
+                        };
+                    }
+
+                    // [핵심] DB-primary일 때 Local 캐시로 누락 데이터 보완
+                    if (!localIsNewer && rawLocalData) {
+                        // Utils.saveFilter 표준 구조 대응 (Unboxing)
+                        const localSettings = rawLocalData.settings !== undefined ? rawLocalData.settings : rawLocalData;
+                        const localEnabled = rawLocalData.enabled !== undefined ? rawLocalData.enabled : (rawLocalData.enabled !== false);
+
+                        const dbSettings = this.state.userSettings[def.id].settings;
+
+                        // 1. 제외 값들 병합 (합계, AC값 등)
+                        const isAc = def.filter_key.includes('ac_value');
+                        const exKeyDB = isAc ? 'excludedAcValues' : 'excludedSums';
+                        const exKeyLocal = localSettings.excludedAcValues || localSettings.excludedSums || localSettings.excluded || [];
+
+                        if ((!dbSettings[exKeyDB] || dbSettings[exKeyDB].length === 0) && Array.isArray(exKeyLocal) && exKeyLocal.length > 0) {
+                            console.log(`💡 [Merge] ${def.filter_key}: Local ${exKeyDB} recovered to DB state`);
+                            dbSettings[exKeyDB] = exKeyLocal;
                         }
 
-                        // 2. 범위값 병합: DB에 없고 local에만 있는 경우 보호
-                        if (dbSettings.min === undefined && rawLocalData.min !== undefined) dbSettings.min = rawLocalData.min;
-                        if (dbSettings.max === undefined && rawLocalData.max !== undefined) dbSettings.max = rawLocalData.max;
-
-                        // 3. [수정] recent10FilterActive 플래그 병합 (배지 표시 핵심)
-                        // DB에 없거나 false인데 local에 true면 local 값 우선 적용
-                        if (!dbSettings.recent10FilterActive && rawLocalData.recent10FilterActive) {
-                            dbSettings.recent10FilterActive = rawLocalData.recent10FilterActive;
+                        // 2. 범위값 병합: DB ranges 내부 → local 순으로 fallback
+                        if (dbSettings.min === undefined) {
+                            // DB settings에 ranges.min이 있으면 최상위로 추출 (구 포맷 호환)
+                            if (dbSettings.ranges?.min !== undefined) dbSettings.min = dbSettings.ranges.min;
+                            else if (localSettings.min !== undefined) dbSettings.min = localSettings.min;
+                            else if (localSettings.ranges?.min !== undefined) dbSettings.min = localSettings.ranges.min;
+                        }
+                        if (dbSettings.max === undefined) {
+                            if (dbSettings.ranges?.max !== undefined) dbSettings.max = dbSettings.ranges.max;
+                            else if (localSettings.max !== undefined) dbSettings.max = localSettings.max;
+                            else if (localSettings.ranges?.max !== undefined) dbSettings.max = localSettings.ranges.max;
                         }
 
-                        // 4. [추가] 계수형 필터(소수, 합성수 등) 데이터 지능형 병합
+                        // 3. recent10FilterActive 플래그 병합
+                        if (!dbSettings.recent10FilterActive && localSettings.recent10FilterActive) {
+                            dbSettings.recent10FilterActive = localSettings.recent10FilterActive;
+                        }
+
+                        // 4. 복원된 자동 제외값 병합
+                        const resKeyDB = isAc ? 'restoredAutoAcValues' : 'restoredAutoSums';
+                        const resKeyLocal = localSettings.restoredAutoAcValues || localSettings.restoredAutoSums || [];
+                        if ((!dbSettings[resKeyDB] || dbSettings[resKeyDB].length === 0) && resKeyLocal.length > 0) {
+                            dbSettings[resKeyDB] = resKeyLocal;
+                        }
+
+                        // 5. 계수형 필터(소수, 합성수 등) 데이터 지능형 병합
                         const discreteKeys = ['prime_number_patterns', 'composite_count', 'odd_even_pattern', 'high_low_pattern'];
                         if (discreteKeys.includes(def.filter_key)) {
-                            const targetArrName = (def.filter_key === 'prime_number_patterns' || def.filter_key === 'composite_count') ? 'selectedCounts' : 'activeCounts';
-
-                            // DB에 선택값이 없는데 Local에 있으면 복구
-                            if ((!dbSettings[targetArrName] || dbSettings[targetArrName].length === 0) && rawLocalData[targetArrName]) {
-                                dbSettings[targetArrName] = rawLocalData[targetArrName];
+                            let targetArrName = 'selectedCounts'; // 기본값 (소수, 합성수)
+                            if (def.filter_key === 'odd_even_pattern' || def.filter_key === 'high_low_pattern') {
+                                targetArrName = 'selectedRatios'; // [수정] 홀짝/저고는 selectedRatios 사용
                             }
 
-                            // 특수 필드 병합
-                            if (def.filter_key === 'composite_count' && !dbSettings.excludedComposites && rawLocalData.excludedComposites) {
-                                dbSettings.excludedComposites = rawLocalData.excludedComposites;
+                            if ((!dbSettings[targetArrName] || dbSettings[targetArrName].length === 0) && localSettings[targetArrName]) {
+                                dbSettings[targetArrName] = localSettings[targetArrName];
                             }
                         }
 
-                        // 5. 홀짝 패턴 전용 데이터 병합
-                        if (def.filter_key === 'odd_even_pattern') {
-                            if (!dbSettings.excludedOddEvens && rawLocalData.excludedOddEvens) dbSettings.excludedOddEvens = rawLocalData.excludedOddEvens;
-                            if (!dbSettings.restoredAutoOddEvens && rawLocalData.restoredAutoOddEvens) dbSettings.restoredAutoOddEvens = rawLocalData.restoredAutoOddEvens;
-                            if (!dbSettings.selectedRatios && rawLocalData.selectedRatios) dbSettings.selectedRatios = rawLocalData.selectedRatios;
+                        // 6. [tail_digit 전용] filters 복구
+                        if (def.filter_key === 'tail_digit_patterns' && localSettings.filters) {
+                            dbSettings.filters = localSettings.filters;
                         }
 
-                        // 6. [tail_digit 전용] filters 복구 - localStorage를 항상 우선 적용
-                        // (updateTailDigitFilter에서 localStorage를 항상 최신으로 유지하기 때문)
-                        if (def.filter_key === 'tail_digit_patterns' && rawLocalData && rawLocalData.filters) {
-                            console.log('💡 [Merge] tail_digit_patterns: Applying localStorage filters');
-                            dbSettings.filters = rawLocalData.filters;
+                        // 7. [missing_custom_filter] filters 복구: DB가 빈 배열이면 localStorage의 그룹 데이터 사용
+                        if (def.filter_key === 'missing_custom_filter' && Array.isArray(localSettings.filters) && localSettings.filters.length > 0) {
+                            if (!Array.isArray(dbSettings.filters) || dbSettings.filters.length === 0) {
+                                // localStorage 회차와 현재 회차 일치 시에만 복원
+                                const lsTargetRound = localSettings.targetRound;
+                                const curExpected = this.state.allDraws.length > 0 ? this.state.allDraws[0].round + 1 : null;
+                                if (!lsTargetRound || !curExpected || lsTargetRound === curExpected) {
+                                    console.log(`💡 [Merge] missing_custom_filter: localStorage에서 ${localSettings.filters.length}개 그룹 복원`);
+                                    dbSettings.filters = localSettings.filters;
+                                    if (localSettings.counter) dbSettings.counter = localSettings.counter;
+                                    if (localSettings.targetRound) dbSettings.targetRound = localSettings.targetRound;
+                                }
+                            }
                         }
-                    }
+
+                        // 8. [missing_period] ranges 복구 (r1Min~r4Max)
+                        if (def.filter_key === 'missing_period' && localSettings.ranges) {
+                            if (!dbSettings.ranges || Object.keys(dbSettings.ranges).length === 0) {
+                                console.log(`💡 [Merge] missing_period: localStorage에서 ranges 복원`);
+                                dbSettings.ranges = localSettings.ranges;
+                            }
+                        }
+
+                        // [Fix] DB가 더 최신인 경우 DB의 enabled 값을 신뢰 (localStorage로 덮어쓰지 않음)
+                        // enabled는 DB → filterService.saveSetting()으로 즉시 동기화되므로 DB가 항상 정확함
+                    } // end !localIsNewer merge
                 } else if (rawLocalData) {
-                    const { enabled, ...actualSettings } = rawLocalData;
+                    const localSettings = rawLocalData.settings !== undefined ? rawLocalData.settings : rawLocalData;
+                    const localEnabled = rawLocalData.enabled !== undefined ? rawLocalData.enabled : (rawLocalData.enabled !== false);
                     this.state.userSettings[def.id] = {
-                        enabled: enabled || false,
-                        settings: Object.keys(actualSettings).length > 0 ? actualSettings : defaultParsed
+                        enabled: localEnabled,
+                        settings: Object.keys(localSettings).length > 0 ? localSettings : defaultParsed
                     };
                 } else {
                     this.state.userSettings[def.id] = { enabled: false, settings: defaultParsed };
@@ -352,35 +537,77 @@ window.FilterDashboard = {
                 // [정리] 레거시 키 삭제 (필요 시) - total_sum_filter 등
                 if (localStorage.getItem(`${def.filter_key}_filter`) && localStorage.getItem(def.filter_key)) {
                     // console.log(`🧹 Cleaning up legacy key: ${def.filter_key}_filter`);
-                    // localStorage.removeItem(`${def.filter_key}_filter`); 
+                    // localStorage.removeItem(`${def.filter_key}_filter`);
                 }
             }
 
-            // ── missing_custom_filter: 회차 불일치 시 자동 초기화 ──────────────────
-            // missing.html이 로컬에서만 리셋하고 DB 저장 안 한 경우 대시보드에서 정리
+            // 신규 회차 감지 시 recent10FilterActive 자동 활성화
+            if (this._newRoundDetected) {
+                console.log('[FilterDashboard] 🎉 신규 회차! 모든 필터 recent10FilterActive 자동 활성화...');
+                const recent10 = this.state.allDraws.slice(0, 10);
+                const flagOnlyKeys = ['total_sum', 'last_digit_sum', 'ac_value', 'odd_even_pattern', 'high_low_pattern', 'prime_number_patterns', 'composite_count', 'missing_period'];
+                for (const def of this.state.foundationFilters) {
+                    const us = this.state.userSettings[def.id];
+                    if (!us || def.filter_key === 'missing_custom_filter') continue;
+                    us.settings.recent10FilterActive = true;
+                    if (!flagOnlyKeys.includes(def.filter_key) && def.filter_key !== 'tail_digit_patterns') {
+                        this._calcAndApplyRecent10(def.filter_key, us, recent10);
+                    } else if (def.filter_key === 'tail_digit_patterns') {
+                        // tail_digit는 값 직접 계산
+                        const counts = Array.from({ length: 10 }, () => []);
+                        recent10.forEach(draw => {
+                            const digitCounts = new Array(10).fill(0);
+                            (draw.numbers || []).forEach(n => digitCounts[n % 10]++);
+                            for (let i = 0; i < 10; i++) counts[i].push(digitCounts[i]);
+                        });
+                        if (!us.settings.filters) us.settings.filters = {};
+                        for (let i = 0; i < 10; i++) {
+                            us.settings.filters[i] = { min: Math.min(...counts[i]), max: Math.max(...counts[i]) };
+                        }
+                    }
+                }
+                this._newRoundDetected = false;
+                // 비동기 배치 저장 (렌더링 차단 안 함)
+                setTimeout(async () => {
+                    for (const def of this.state.foundationFilters) {
+                        const us = this.state.userSettings[def.id];
+                        if (!us || def.filter_key === 'missing_custom_filter') continue;
+                        if (window.Utils && window.Utils.saveFilter) {
+                            await window.Utils.saveFilter(def.filter_key, us.settings, us.enabled, this.state.targetRound);
+                        }
+                    }
+                    console.log('[FilterDashboard] ✅ recent10 배치 저장 완료');
+                }, 200);
+            }
+
+            // ── missing_custom_filter: targetRound 업데이트 (그룹은 유지) ───────────
+            // 커스텀 그룹(사용자 직접 생성)은 회차가 변경되어도 삭제하지 않음
+            // 회차 불일치 감지 시 targetRound만 갱신하여 다음 로드에서 오탐 방지
             const mcDef = this.state.foundationFilters.find(d => d.filter_key === 'missing_custom_filter');
             if (mcDef && this.state.userSettings[mcDef.id] && this.state.allDraws.length > 0) {
                 const mcSet = this.state.userSettings[mcDef.id];
                 const savedRound = mcSet.settings?.targetRound;
-                const currentRound = this.state.allDraws[0].round;
-                const hasOldFilters = (mcSet.settings?.filters || []).some(f => f.numbers && f.numbers.length > 0);
+                const latestDraw = this.state.allDraws[0].round;
+                const expectedTargetRound = latestDraw + 1;
 
-                // 회차가 바뀌었거나, targetRound 기록 자체가 없는 오래된 데이터면 초기화
-                const roundMismatch = savedRound && savedRound !== currentRound;
-                const noRoundStamp = !savedRound;  // targetRound 없는 레거시 데이터
-
-                if ((roundMismatch || noRoundStamp) && hasOldFilters) {
-                    console.log(`[Dashboard] missing_custom_filter 자동 초기화 (savedRound=${savedRound}, current=${currentRound})`);
-                    mcSet.settings.filters = [];
-                    mcSet.settings.counter = 1;
-                    mcSet.settings.targetRound = currentRound;
-                    mcSet.enabled = false;
-                    // DB에 즉시 저장 → 다음 로드에서도 빈 상태 유지
+                // targetRound가 없거나 구 회차이면 갱신만 (filters는 절대 지우지 않음)
+                if (!savedRound || savedRound !== expectedTargetRound) {
+                    console.log(`[Dashboard] missing_custom_filter targetRound 갱신: ${savedRound} → ${expectedTargetRound} (그룹 유지)`);
+                    mcSet.settings.targetRound = expectedTargetRound;
+                    // DB 및 localStorage에 갱신된 targetRound 반영
                     if (window.filterService?.initialized) {
-                        await window.filterService.saveSetting('missing_custom_filter', mcSet.settings, false);
-                        localStorage.removeItem('missGroupFilters');
-                        localStorage.removeItem('missGroupFilterCounter');
+                        await window.filterService.saveSetting('missing_custom_filter', mcSet.settings, mcSet.enabled);
                     }
+                    // localStorage도 동기화
+                    try {
+                        const lsRaw = localStorage.getItem('missing_custom_filter');
+                        if (lsRaw) {
+                            const lsParsed = JSON.parse(lsRaw);
+                            if (lsParsed.settings) lsParsed.settings.targetRound = expectedTargetRound;
+                            lsParsed.targetRound = expectedTargetRound;
+                            localStorage.setItem('missing_custom_filter', JSON.stringify(lsParsed));
+                        }
+                    } catch (e) { }
                 }
             }
             // ────────────────────────────────────────────────────────────────────────
@@ -403,21 +630,62 @@ window.FilterDashboard = {
 
 
             // [수정] 커스텀 분석 데이터 로드 (필터링 조건 완화 및 안정화)
-            let _customQuery = window.supabaseClient.from('ai_custom_analyses').select('*');
+            let _customQuery = window.supabaseClient.from('ai_custom_analyses').select('*')
+                .is('target_round', null); // [추가] 마스터 행만 조회 (회차별 스냅샷 제외)
             const _customUserId = window.filterService?.userId;
 
+            // [Fix] userId 유무와 관계없이 항상 공용(user_id IS NULL) 데이터 포함
             if (_customUserId) {
-                // 사용자가 로그인한 경우: 본인 데이터 OR 공용(user_id가 null인 경우) 데이터 모두 가져옴
                 _customQuery = _customQuery.or(`user_id.eq.${_customUserId},user_id.is.null`);
+            } else {
+                // userId 없을 때도 공용 데이터 명시적 로드
+                _customQuery = _customQuery.is('user_id', null);
             }
 
             const { data: customs, error: customsError } = await _customQuery;
             if (customsError) console.error("Custom Analyses Load Error:", customsError);
+            console.log(`[FilterDashboard] Custom filters loaded: ${(customs || []).length}개 (userId: ${_customUserId || 'none'})`);
             this.state.customFilters = customs || [];
 
-            // [수정] 초기 로드 시 lnbOrder_custom 기준으로 정렬 (토글 후 재로드 시 순서 유지)
+            // [추가] AI 모델 및 커스텀 분석 대상 번호(history) 로드
             try {
-                const _savedOrder = JSON.parse(localStorage.getItem('lnbOrder_custom'));
+                const { data: latestHistories } = await window.supabaseClient
+                    .from('analysis_history')
+                    .select('*')
+                    .eq('target_round', this.state.targetRound);
+
+                if (latestHistories && latestHistories.length > 0) {
+                    this.state.customFilters.forEach(custom => {
+                        const hist = latestHistories.find(h => h.analysis_id === custom.id);
+                        if (hist && hist.target_numbers && hist.target_numbers.length > 0) {
+                            // [수성] history_data가 있으면 memory 상에 임시 저장하여 렌더링 시 사용
+                            custom.target_numbers = hist.target_numbers;
+                        }
+                    });
+                }
+
+                // [추가] AI 실시간 예측 데이터 로드 (AIProxy)
+                if (window.AIProxy && typeof window.AIProxy.getPredictions === 'function') {
+                    const aiResult = await window.AIProxy.getPredictions(this.state.targetRound);
+                    if (aiResult && aiResult.success) {
+                        this.state.aiUpcomingData = aiResult.data;
+                        console.log(`[FilterDashboard] AI Predictions loaded for round ${this.state.targetRound}`);
+                    }
+                }
+            } catch (e) {
+                console.warn("[FilterDashboard] AI/History data hydration failed:", e);
+            }
+
+            // [수정] 사이드바(layout.js)와 동일한 사용자 기반 스토리지 키 사용 (lnbOrder_custom_[userId])
+            try {
+                const _menuUserId = window.filterService?.userId
+                    || (await window.supabaseClient.auth.getUser()).data?.user?.id
+                    || localStorage.getItem('_lastLoginUserId')
+                    || null;
+
+                const storageKey = _menuUserId ? `lnbOrder_custom_${_menuUserId}` : 'lnbOrder_custom_guest';
+                const _savedOrder = JSON.parse(localStorage.getItem(storageKey));
+
                 if (_savedOrder && _savedOrder.length > 0) {
                     this.state.customFilters.sort((a, b) => {
                         const hA = `custom_analysis.html?id=${a.id}`;
@@ -432,6 +700,16 @@ window.FilterDashboard = {
                 }
             } catch (e) { /* ignore */ }
 
+            // ── 수동 필터 로드 (manual_filters 테이블) ──────────────
+            try {
+                const { data: manuals, error: manualsError } = await window.supabaseClient
+                    .from('manual_filters')
+                    .select('*')
+                    .order('created_at', { ascending: false });
+                if (manualsError) console.error('[FilterDashboard] manual_filters 로드 실패:', manualsError);
+                this.state.manualFilters = manuals || [];
+            } catch (e) { console.error('[FilterDashboard] manual_filters 예외:', e); }
+
             let loadedBasket = { fixed: [], exclude: [] };
             try { loadedBasket = JSON.parse(localStorage.getItem('lotto_basket')) || { fixed: [], exclude: [] }; } catch (e) { }
             this.state.basket = { fixed: loadedBasket.fixed || [], excluded: loadedBasket.exclude || [] };
@@ -444,21 +722,32 @@ window.FilterDashboard = {
         const finalFixed = fixedList.length > 0 ? fixedList : this.state.basket.fixed;
         const finalExcluded = excludedList.length > 0 ? excludedList : this.state.basket.excluded;
 
+        // [수정] 수동필터와 동일한 색상 체계 (Hex) 적용
+        const getBallStyle = (n) => {
+            if (n <= 10) return { bg: '#F7C948', border: '#eab308' };
+            if (n <= 20) return { bg: '#4a90d9', border: '#2563eb' };
+            if (n <= 30) return { bg: '#E04A4A', border: '#dc2626' };
+            if (n <= 40) return { bg: '#6B7280', border: '#4b5563' };
+            return { bg: '#48B05A', border: '#16a34a' };
+        };
+
         return numbers.map(n => {
             const isEx = finalExcluded.includes(n);
             const isFi = finalFixed.includes(n);
+            const style = getBallStyle(n);
             let ballClass = "w-7 h-7 flex items-center justify-center rounded-full text-[11px] font-black text-white shadow-sm border ";
+            let inlineStyle = "";
 
-            if (isFi) ballClass += "bg-blue-600 border-blue-400 ball-fixed";
-            else if (isEx) ballClass += "bg-slate-400 border-slate-500 ball-excluded";
-            else {
-                if (n <= 10) ballClass += "bg-amber-400 border-amber-500";
-                else if (n <= 20) ballClass += "bg-blue-500 border-blue-600";
-                else if (n <= 30) ballClass += "bg-rose-500 border-rose-600";
-                else if (n <= 40) ballClass += "bg-slate-500 border-slate-600";
-                else ballClass += "bg-emerald-500 border-emerald-600";
+            if (isFi) {
+                ballClass += "ball-fixed";
+                inlineStyle = "background-color: #2563eb; border-color: #3b82f6;";
+            } else if (isEx) {
+                ballClass += "ball-excluded";
+                inlineStyle = "background-color: #94a3b8; border-color: #64748b;";
+            } else {
+                inlineStyle = `background-color: ${style.bg}; border-color: ${style.border};`;
             }
-            return `<span class="${ballClass}">${String(n).padStart(2, '0')}</span>`;
+            return `<span class="${ballClass}" style="${inlineStyle}">${String(n).padStart(2, '0')}</span>`;
         }).join('');
     },
 
@@ -467,7 +756,7 @@ window.FilterDashboard = {
             'total_sum': 'total_sum.html', 'last_digit_sum': 'tail_sum.html', 'ac_value': 'ac_value.html',
             'prime_number_patterns': 'prime_number.html', 'composite_count': 'composite_number.html',
             'square_number_patterns': 'square_number.html', 'triangular_number_patterns': 'triangular_number.html',
-            'twin_number_patterns': 'twin_number.html', 'neighbor_number_patterns': 'neighbor_number.html',
+            'twin_number_patterns': 'twin_number.html', 'neighbor_count': 'neighbor_number.html', 'neighbor_number_patterns': 'neighbor_number.html',
             'carryover_count': 'carryover.html', 'consecutive_count': 'consecutive_number.html',
             'odd_even_pattern': 'odd_even.html', 'high_low_pattern': 'low_high.html',
             'tail_digit_patterns': 'tail_digit.html',
@@ -484,6 +773,47 @@ window.FilterDashboard = {
     },
 
     calculateCustomTargets(custom) {
+        // [추가] AI 모델 타입에 대한 실시간/이력 대상 번호 매핑
+        const isAiType = custom.type && custom.type.startsWith('ai_');
+
+        if (isAiType && this.state.aiUpcomingData) {
+            const aiData = this.state.aiUpcomingData;
+            // 1. 앙상블 고정/제외 타입
+            if (custom.type === 'ai_ensemble_fixed') {
+                return (aiData.top_5 || aiData.recommended || []).slice(0, 6).map(Number);
+            } else if (custom.type === 'ai_ensemble_excluded') {
+                return (aiData.exclude_10 || aiData.excluded || []).map(Number);
+            }
+            // 2. 모델별 TOP/BOTTOM 타입
+            else if (custom.type === 'ai_model_top' || custom.type === 'ai_model_bottom') {
+                const model = (custom.rules?.model || 'ensemble').toLowerCase();
+                const count = parseInt(custom.rules?.count || 10);
+                const isTop = (custom.type === 'ai_model_top');
+                const matrixData = aiData.matrix_data || [];
+
+                if (matrixData.length > 0) {
+                    const sorted = [...matrixData].sort((a, b) => {
+                        let scoreA, scoreB;
+                        if (model === 'ensemble' || model === 'total') {
+                            scoreA = a.total || 0;
+                            scoreB = b.total || 0;
+                        } else {
+                            scoreA = (a.models && a.models[model]) ? (a.models[model].score || 0) : 0;
+                            scoreB = (b.models && b.models[model]) ? (b.models[model].score || 0) : 0;
+                        }
+                        return isTop ? (scoreB - scoreA) : (scoreA - scoreB);
+                    });
+                    return sorted.slice(0, count).map(item => Number(item.num));
+                }
+            }
+        }
+
+        // AI 타입이더라도 history에서 로드된 target_numbers가 있으면 우선 사용 (fallback)
+        if (custom.target_numbers && custom.target_numbers.length > 0) {
+            return custom.target_numbers.map(Number);
+        }
+
+        // 기존 공통 로직 실행 (static, dynamic, group 등)
         return window.LOTTO_CONSTANTS.calculateCustomTargets(custom, this.state.allDraws, { isPrediction: true });
     },
 
@@ -501,7 +831,7 @@ window.FilterDashboard = {
             <div class="mt-4 mb-4 p-3 bg-slate-50 border border-slate-100 rounded-xl">
                 <div class="mb-2 flex justify-between items-center">
                     <span class="text-xs font-bold text-slate-500">대상번호</span>
-                    <span class="text-[11px] font-black text-indigo-600">${targetNums.length}개</span>
+                    <span class="text-[11px] font-black text-blue-600">${targetNums.length}개</span>
                 </div>
                 <div class="flex flex-wrap gap-1.5">
                     ${this.renderBalls(targetNums, excludedNums)}
@@ -509,27 +839,34 @@ window.FilterDashboard = {
             </div>`;
         }
 
-        const isRange = key.includes('sum') || key === 'ac_value' || key.includes('neighbor');
+        const isRange = key.includes('sum') || key.includes('ac_value') || key.includes('neighbor');
 
         if (isRange) {
             const defaultSet = typeof def.default_settings === 'string' ? JSON.parse(def.default_settings) : (def.default_settings || {});
+            const isCountFilter = key.includes('count') || key.includes('number_patterns') || key.includes('missing_period');
+            // [수정] AC값(10), 끝수합(60) 등 필터 속성에 맞는 정확한 Max값 설정 (0-6 고정 오류 해결)
+            const defaultMax = isCountFilter ? 6 :
+                (key.includes('total_sum') ? 255 :
+                    (key.includes('last_digit_sum') ? 60 :
+                        (key.includes('ac_value') ? 10 : 45)));
+
             const min = vals.min !== undefined ? vals.min : (defaultSet.min !== undefined ? defaultSet.min : 0);
-            const max = vals.max !== undefined ? vals.max : (defaultSet.max !== undefined ? defaultSet.max : (key.includes('total_sum') ? 255 : 45));
+            const max = vals.max !== undefined ? vals.max : (defaultSet.max !== undefined ? defaultSet.max : defaultMax);
+
+            // [수정] 탭별 메인 색상 적용 (기초분석: Blue)
+            const ringColor = 'focus-within:ring-blue-500';
+            const textColor = 'text-blue-600';
 
             html += `
-            <div class="flex items-center gap-3">
-                <div class="flex-1 bg-white border border-slate-200 rounded-lg flex items-center px-3 py-2 shadow-sm focus-within:ring-2 focus-within:ring-indigo-500">
-                    <span class="text-xs font-black text-slate-400 uppercase w-8">Min</span>
-                    <input type="number" value="${min}" 
+            <div class="flex items-center justify-end">
+                <div class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-1.5 shadow-sm focus-within:ring-2 ${ringColor}">
+                    <input type="number" id="input-${def.id}-min" min="0" max="${defaultMax}" value="${min}" 
                         onchange="FilterDashboard.updateFilterValue('${def.id}', 'min', this.value)"
-                        class="w-full text-right font-black text-slate-700 bg-transparent border-none p-0 focus:ring-0">
-                </div>
-                <span class="text-slate-300 font-bold">~</span>
-                <div class="flex-1 bg-white border border-slate-200 rounded-lg flex items-center px-3 py-2 shadow-sm focus-within:ring-2 focus-within:ring-indigo-500">
-                    <span class="text-xs font-black text-slate-400 uppercase w-8">Max</span>
-                    <input type="number" value="${max}" 
+                        class="w-12 text-center font-black ${textColor} bg-transparent border-none p-0 focus:ring-0 text-base">
+                    <span class="text-slate-300 font-bold">~</span>
+                    <input type="number" id="input-${def.id}-max" min="0" max="${defaultMax}" value="${max}" 
                         onchange="FilterDashboard.updateFilterValue('${def.id}', 'max', this.value)"
-                        class="w-full text-right font-black text-slate-700 bg-transparent border-none p-0 focus:ring-0">
+                        class="w-12 text-center font-black ${textColor} bg-transparent border-none p-0 focus:ring-0 text-base">
                 </div>
             </div>`;
 
@@ -538,9 +875,10 @@ window.FilterDashboard = {
 
                 // 시스템 자동 제외
                 let systemExcluded = [];
-                if (vals.recent10FilterActive && this.state.allDraws && this.state.allDraws.length > 0) {
-                    const restoredAuto = vals.restoredAutoSums || vals.restoredAutoAcValues || [];
+                const restoredAuto = vals.restoredAutoSums || vals.restoredAutoAcValues || [];
 
+                if (vals.recent10FilterActive && this.state.allDraws && this.state.allDraws.length > 0) {
+                    // recent10 활성: 실시간 계산
                     if (key === 'total_sum') {
                         systemExcluded = [...new Set(
                             this.state.allDraws.slice(0, 10).map(d => {
@@ -550,7 +888,6 @@ window.FilterDashboard = {
                             }).filter(s => s !== null && !isNaN(s))
                         )].filter(s => !restoredAuto.includes(s)).sort((a, b) => a - b);
                     } else if (key === 'last_digit_sum') {
-                        // 끝수합: 직전 1회차 끝수합만
                         const latestDraw = this.state.allDraws[0];
                         let latestTailSum = null;
                         if (latestDraw) {
@@ -559,7 +896,6 @@ window.FilterDashboard = {
                         }
                         if (latestTailSum !== null && !restoredAuto.includes(latestTailSum)) systemExcluded = [latestTailSum];
                     } else if (key === 'ac_value') {
-                        // AC값: 최근 10회에서 6회 초과 AC값 자동 제외
                         const acCount = {};
                         this.state.allDraws.slice(0, 10).forEach(d => {
                             let ac = null;
@@ -572,13 +908,20 @@ window.FilterDashboard = {
                             .map(([ac]) => parseInt(ac))
                             .sort((a, b) => a - b);
                     }
+                } else {
+                    // recent10 비활성: 저장된 캐시로 폴백 (배지 영속 표시)
+                    const cacheKey = key === 'ac_value' ? 'cachedAutoAcExcluded' : 'cachedAutoExcluded';
+                    const cached = vals[cacheKey];
+                    if (Array.isArray(cached) && cached.length > 0) {
+                        systemExcluded = cached.filter(s => !restoredAuto.includes(s));
+                    }
                 }
 
                 const hasManual = manualExcluded.length > 0;
                 const hasSystem = systemExcluded.length > 0;
 
                 if (hasManual || hasSystem) {
-                    const label = key === 'last_digit_sum' ? '끝수합' : key === 'ac_value' ? 'AC값' : '합계';
+                    const label = key.includes('last_digit_sum') ? '끝수합' : key.includes('ac_value') ? 'AC값' : '합계';
                     html += `<div class="mt-4 pt-3 border-t border-slate-100 italic text-[10px] text-slate-400 font-bold mb-1">제외된 ${label}:</div>`;
                     html += `<div class="flex flex-wrap gap-1.5">`;
 
@@ -595,10 +938,10 @@ window.FilterDashboard = {
 
                     // 자동 제외 (Indigo)
                     if (hasSystem) {
-                        const displayFn = key === 'ac_value' ? (v => `AC${v}`) : (v => `${v}`);
+                        const displayFn = key.includes('ac_value') ? (v => `AC${v}`) : (v => `${v}`);
                         html += systemExcluded.map(sum => `
                             <button onclick="FilterDashboard.restoreAutoExcludedSum('${def.id}', ${sum})"
-                                class="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-600 text-white rounded-full text-[10px] font-black shadow-md hover:bg-indigo-700 transition-colors"
+                                class="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-600 text-white rounded-full text-[10px] font-black shadow-md hover:bg-blue-700 transition-colors"
                                 title="클릭 시 자동 제외 취소" style="background-color: #4f46e5 !important; color: #ffffff !important;">
                                 ${displayFn(sum)} <span style="font-size:11px;">✕</span>
                             </button>
@@ -630,14 +973,14 @@ window.FilterDashboard = {
                 for (let n = startNum; n <= endNum; n++) {
                     const isEx = this.state.basket.excluded.includes(n);
                     const isFi = this.state.basket.fixed.includes(n);
-                    let ballClass = "w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black text-white shadow-sm border ";
-                    // Colors based on lotto ball ranges
-                    let color = '#fbcfe8'; let border = '#f9a8d4'; // default pinkish
-                    if (n <= 10) { color = '#fbbf24'; border = '#f59e0b'; } // yellow
-                    else if (n <= 20) { color = '#60a5fa'; border = '#3b82f6'; } // blue
-                    else if (n <= 30) { color = '#f87171'; border = '#ef4444'; } // red
-                    else if (n <= 40) { color = '#9ca3af'; border = '#6b7280'; } // gray
-                    else { color = '#34d399'; border = '#10b981'; } // green
+                    let ballClass = "w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-black text-white shadow-sm border ";
+                    // [수정] renderBalls() 기준 색상으로 통일
+                    let color = '#fbcfe8'; let border = '#f9a8d4';
+                    if (n <= 10) { color = '#F7C948'; border = '#eab308'; }
+                    else if (n <= 20) { color = '#4a90d9'; border = '#2563eb'; }
+                    else if (n <= 30) { color = '#E04A4A'; border = '#dc2626'; }
+                    else if (n <= 40) { color = '#6B7280'; border = '#4b5563'; }
+                    else { color = '#48B05A'; border = '#16a34a'; }
                     let style = `background-color: ${color}; border-color: ${border};`;
 
                     if (isFi) {
@@ -658,16 +1001,14 @@ window.FilterDashboard = {
                                 <span class="text-xs font-bold text-slate-700">${info.label}</span>
                                 <span class="text-[11px] font-black text-slate-400">(${info.count}개)</span>
                             </div>
-                            <div class="flex items-center gap-1.5 shrink-0">
-                                <span class="text-[10px] text-slate-400 font-bold uppercase">Min</span>
-                                <input type="number" value="${f.min}" 
+                            <div class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-1.5 shadow-sm focus-within:ring-2 focus-within:ring-blue-500 shrink-0">
+                                <input type="number" min="0" max="6" value="${f.min}" 
                                     onchange="FilterDashboard.updateNumberRangeFilter('${def.id}', '${type}', 'min', this.value)"
-                                    class="w-10 h-7 text-center text-[11px] font-black text-slate-700 bg-white border border-slate-200 rounded focus:ring-1 focus:ring-indigo-500 p-0">
+                                    class="w-12 text-center text-base font-black text-blue-600 bg-transparent border-none p-0 focus:ring-0">
                                 <span class="text-slate-300 font-bold">~</span>
-                                <span class="text-[10px] text-slate-400 font-bold uppercase">Max</span>
-                                <input type="number" value="${f.max}" 
+                                <input type="number" min="0" max="6" value="${f.max}" 
                                     onchange="FilterDashboard.updateNumberRangeFilter('${def.id}', '${type}', 'max', this.value)"
-                                    class="w-10 h-7 text-center text-[11px] font-black text-slate-700 bg-white border border-slate-200 rounded focus:ring-1 focus:ring-indigo-500 p-0">
+                                    class="w-12 text-center text-base font-black text-blue-600 bg-transparent border-none p-0 focus:ring-0">
                             </div>
                         </div>
                         <div class="flex flex-wrap gap-1 mt-1 pl-1">
@@ -680,17 +1021,15 @@ window.FilterDashboard = {
             const ent = ranges['entropy'] || { min: '0.00', max: '3.00' };
             html += `
                     <div class="flex items-center justify-between p-2 bg-slate-50 border border-slate-100 rounded-xl mt-1">
-                        <span class="text-[11px] font-black text-indigo-600 ml-1">엔트로피 (불확실성)</span>
-                        <div class="flex items-center gap-1.5 shrink-0">
-                            <span class="text-[10px] text-slate-400 font-bold uppercase">Min</span>
+                        <span class="text-[11px] font-black text-blue-600 ml-1">엔트로피 (불확실성)</span>
+                        <div class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-1.5 shadow-sm focus-within:ring-2 focus-within:ring-blue-500 shrink-0">
                             <input type="text" value="${parseFloat(ent.min || 0).toFixed(2)}" 
                                 onchange="this.value=parseFloat(this.value||0).toFixed(2); FilterDashboard.updateNumberRangeFilter('${def.id}', 'entropy', 'min', this.value)"
-                                class="w-12 h-7 text-center text-[11px] font-black text-slate-700 bg-white border border-slate-200 rounded focus:ring-1 focus:ring-indigo-500 p-0">
+                                class="w-12 text-center text-sm font-black text-blue-600 bg-transparent border-none p-0 focus:ring-0">
                             <span class="text-slate-300 font-bold">~</span>
-                            <span class="text-[10px] text-slate-400 font-bold uppercase">Max</span>
                             <input type="text" value="${parseFloat(ent.max || 3).toFixed(2)}" 
                                 onchange="this.value=parseFloat(this.value||0).toFixed(2); FilterDashboard.updateNumberRangeFilter('${def.id}', 'entropy', 'max', this.value)"
-                                class="w-12 h-7 text-center text-[11px] font-black text-slate-700 bg-white border border-slate-200 rounded focus:ring-1 focus:ring-indigo-500 p-0">
+                                class="w-12 text-center text-sm font-black text-blue-600 bg-transparent border-none p-0 focus:ring-0">
                         </div>
                     </div>`;
 
@@ -725,7 +1064,7 @@ window.FilterDashboard = {
             let btns = '';
             ratios.forEach(r => {
                 const isActive = selected.includes(r);
-                const bg = isActive ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-white text-slate-400 border-slate-200 hover:bg-slate-50';
+                const bg = isActive ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-white text-slate-400 border-slate-200 hover:bg-slate-50';
                 btns += `<button onclick="FilterDashboard.toggleDiscreteValue('${def.id}', 'selectedRatios', '${r}')" 
                                 class="w-9 h-9 flex items-center justify-center rounded-full border text-[9px] font-black transition-all ${bg}">${r}</button>`;
             });
@@ -751,7 +1090,7 @@ window.FilterDashboard = {
                 if (systemExcluded.length > 0) {
                     html += systemExcluded.map(r => `
                             <button onclick="FilterDashboard.restoreAutoExcludedSum('${def.id}', '${r}')"
-                                class="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-600 text-white rounded-full text-[10px] font-black shadow-md hover:bg-indigo-700 transition-colors"
+                                class="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-600 text-white rounded-full text-[10px] font-black shadow-md hover:bg-blue-700 transition-colors"
                                 title="클릭 시 자동 제외 취소">
                                 ${r} <span style="font-size:11px;">✕</span>
                             </button>
@@ -788,7 +1127,7 @@ window.FilterDashboard = {
             let btns = '';
             ratios.forEach(r => {
                 const isActive = selected.includes(r);
-                const bg = isActive ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-white text-slate-400 border-slate-200 hover:bg-slate-50';
+                const bg = isActive ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-white text-slate-400 border-slate-200 hover:bg-slate-50';
                 btns += `<button onclick="FilterDashboard.toggleDiscreteValue('${def.id}', 'selectedRatios', '${r}')" 
                                 class="w-9 h-9 flex items-center justify-center rounded-full border text-[9px] font-black transition-all ${bg}">${r}</button>`;
             });
@@ -814,7 +1153,7 @@ window.FilterDashboard = {
                 if (systemExcluded.length > 0) {
                     html += systemExcluded.map(r => `
                             <button onclick="FilterDashboard.restoreAutoExcludedSum('${def.id}', '${r}')"
-                                class="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-600 text-white rounded-full text-[10px] font-black shadow-md hover:bg-indigo-700 transition-colors"
+                                class="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-600 text-white rounded-full text-[10px] font-black shadow-md hover:bg-blue-700 transition-colors"
                                 title="클릭 시 자동 제외 취소">
                                 ${r} <span style="font-size:11px;">✕</span>
                             </button>
@@ -918,16 +1257,14 @@ window.FilterDashboard = {
                                 ${numbersHtml}
                             </div>
                         </div>
-                        <div class="flex items-center gap-1.5 ml-4 shrink-0">
-                            <span class="text-[10px] text-slate-400 font-bold uppercase">Min</span>
-                            <input type="number" value="${f.min}" 
-                                onchange="FilterDashboard.updateMultipleFilter('${def.id}', '${type}', 'min', this.value)"
-                                class="w-12 h-8 text-center text-xs font-black text-slate-700 bg-white border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 p-0">
+                        <div class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-1.5 shadow-sm focus-within:ring-2 focus-within:ring-blue-500 shrink-0 ml-4">
+                            <input type="number" min="0" max="6" value="${f.min}"
+                                oninput="FilterDashboard.updateMultipleFilter('${def.id}', '${type}', 'min', this.value)"
+                                class="w-12 text-center text-base font-black text-blue-600 bg-transparent border-none p-0 focus:ring-0">
                             <span class="text-slate-300 font-bold">~</span>
-                            <span class="text-[10px] text-slate-400 font-bold uppercase">Max</span>
-                            <input type="number" value="${f.max}" 
-                                onchange="FilterDashboard.updateMultipleFilter('${def.id}', '${type}', 'max', this.value)"
-                                class="w-12 h-8 text-center text-xs font-black text-slate-700 bg-white border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 p-0">
+                            <input type="number" min="0" max="6" value="${f.max}"
+                                oninput="FilterDashboard.updateMultipleFilter('${def.id}', '${type}', 'max', this.value)"
+                                class="w-12 text-center text-base font-black text-blue-600 bg-transparent border-none p-0 focus:ring-0">
                         </div>
                     </div>`;
             });
@@ -960,7 +1297,7 @@ window.FilterDashboard = {
                 const numbersHtml = gungDefinitions[type].map(n => {
                     const isEx = this.state.basket.excluded.includes(n);
                     const isFi = this.state.basket.fixed.includes(n);
-                    let ballClass = "w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black text-white shadow-sm border ";
+                    let ballClass = "w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-black text-white shadow-sm border ";
                     let style = `background-color: ${gungColors[type]}; border-color: transparent;`;
 
                     if (isFi) {
@@ -984,16 +1321,14 @@ window.FilterDashboard = {
                                 ${numbersHtml}
                             </div>
                         </div>
-                        <div class="flex items-center gap-1.5 ml-2 shrink-0">
-                            <span class="text-[10px] text-slate-400 font-bold uppercase">Min</span>
-                            <input type="number" value="${f.min}" 
-                                onchange="FilterDashboard.updateMagicSquareFilter('${def.id}', '${type}', 'min', this.value)"
-                                class="w-10 h-8 text-center text-xs font-black text-slate-700 bg-white border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 p-0 shadow-sm">
-                            <span class="text-slate-300 font-bold text-xs">~</span>
-                            <span class="text-[10px] text-slate-400 font-bold uppercase">Max</span>
-                            <input type="number" value="${f.max}" 
-                                onchange="FilterDashboard.updateMagicSquareFilter('${def.id}', '${type}', 'max', this.value)"
-                                class="w-10 h-8 text-center text-xs font-black text-slate-700 bg-white border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 p-0 shadow-sm">
+                        <div class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-1.5 shadow-sm focus-within:ring-2 focus-within:ring-blue-500 shrink-0 ml-2">
+                            <input type="number" min="0" max="6" value="${f.min}"
+                                oninput="FilterDashboard.updateMagicSquareFilter('${def.id}', '${type}', 'min', this.value)"
+                                class="w-12 text-center text-base font-black text-blue-600 bg-transparent border-none p-0 focus:ring-0">
+                            <span class="text-slate-300 font-bold">~</span>
+                            <input type="number" min="0" max="6" value="${f.max}"
+                                oninput="FilterDashboard.updateMagicSquareFilter('${def.id}', '${type}', 'max', this.value)"
+                                class="w-12 text-center text-base font-black text-blue-600 bg-transparent border-none p-0 focus:ring-0">
                         </div>
                     </div>`;
             });
@@ -1023,7 +1358,7 @@ window.FilterDashboard = {
                 const numbersHtml = nums.map(n => {
                     const isEx = this.state.basket.excluded.includes(n);
                     const isFi = this.state.basket.fixed.includes(n);
-                    let ballClass = "w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black text-white shadow-sm border ";
+                    let ballClass = "w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-black text-white shadow-sm border ";
                     const color = paperColors[type] || '#94a3b8';
                     let style = `background-color: ${color}; border-color: transparent;`;
                     if (isFi) { ballClass += "ball-fixed"; style = "background-color: #2563eb; border-color: #3b82f6;"; }
@@ -1040,16 +1375,14 @@ window.FilterDashboard = {
                                 ${numbersHtml}
                             </div>
                         </div>
-                        <div class="flex items-center gap-1.5 ml-2 shrink-0">
-                            <span class="text-[10px] text-slate-400 font-bold uppercase">Min</span>
-                            <input type="number" value="${f.min}"
+                        <div class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-1.5 shadow-sm focus-within:ring-2 focus-within:ring-blue-500 shrink-0 ml-2">
+                            <input type="number" min="0" max="6" value="${f.min}"
                                 onchange="FilterDashboard.updateLottoPaperFilter('${def.id}', '${type}', 'min', this.value)"
-                                class="w-10 h-8 text-center text-xs font-black text-slate-700 bg-white border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 p-0 shadow-sm">
-                            <span class="text-slate-300 font-bold text-xs">~</span>
-                            <span class="text-[10px] text-slate-400 font-bold uppercase">Max</span>
-                            <input type="number" value="${f.max}"
+                                class="w-12 text-center text-base font-black text-blue-600 bg-transparent border-none p-0 focus:ring-0">
+                            <span class="text-slate-300 font-bold">~</span>
+                            <input type="number" min="0" max="6" value="${f.max}"
                                 onchange="FilterDashboard.updateLottoPaperFilter('${def.id}', '${type}', 'max', this.value)"
-                                class="w-10 h-8 text-center text-xs font-black text-slate-700 bg-white border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 p-0 shadow-sm">
+                                class="w-12 text-center text-base font-black text-blue-600 bg-transparent border-none p-0 focus:ring-0">
                         </div>
                     </div>`;
             };
@@ -1106,20 +1439,22 @@ window.FilterDashboard = {
             }
 
             // 공 렌더 헬퍼
+            // [수정] renderBalls() 기준 색상으로 통일
             const ballColor = n => {
-                if (n <= 10) return '#fbbf24';
-                if (n <= 20) return '#60a5fa';
-                if (n <= 30) return '#f87171';
-                if (n <= 40) return '#9ca3af';
-                return '#34d399';
+                if (n <= 10) return '#F7C948';
+                if (n <= 20) return '#4a90d9';
+                if (n <= 30) return '#E04A4A';
+                if (n <= 40) return '#6B7280';
+                return '#48B05A';
             };
             const renderBallsList = (nums, borderColor) => nums.map(n => {
                 const isEx = this.state.basket.excluded.includes(n);
                 const isFi = this.state.basket.fixed.includes(n);
+                let ballClass = "w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-black text-white shadow-sm";
                 let style = `background-color:${ballColor(n)}; border:1px solid transparent;`;
-                if (isFi) style = 'background-color:#2563eb; border:1px solid #3b82f6;';
-                else if (isEx) style = 'background-color:#94a3b8; border:1px solid #64748b;';
-                return `<span class="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black text-white shadow-sm" style="${style}">${String(n).padStart(2, '0')}</span>`;
+                if (isFi) { ballClass += " ball-fixed"; style = 'background-color:#2563eb; border:1px solid #3b82f6;'; }
+                else if (isEx) { ballClass += " ball-excluded"; style = 'background-color:#94a3b8; border:1px solid #64748b;'; }
+                return `<span class="${ballClass}" style="${style}">${String(n).padStart(2, '0')}</span>`;
             }).join('');
 
             const rows = [
@@ -1134,16 +1469,14 @@ window.FilterDashboard = {
                     <div class="flex flex-col gap-2 p-3 rounded-xl border" style="background-color:${row.bgColor}; border-color: ${row.color}33;">
                         <div class="flex items-center justify-between">
                             <span class="text-xs font-black shrink-0" style="color:${row.color}">${row.label} <span class="text-[11px] font-black opacity-60">(${row.nums.length}개)</span></span>
-                            <div class="flex items-center gap-1.5 shrink-0">
-                                <span class="text-[10px] text-slate-400 font-bold uppercase">Min</span>
+                            <div class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-1.5 shadow-sm focus-within:ring-2 focus-within:ring-blue-500">
                                 <input type="number" min="0" max="6" value="${row.values[0]}"
                                     onchange="FilterDashboard.updateHotColdFilter('${def.id}', '${row.field}', 0, this.value)"
-                                    class="w-10 h-7 text-center text-xs font-black text-slate-700 bg-white border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 p-0 shadow-sm">
+                                    class="w-12 text-center text-base font-black text-blue-600 bg-transparent border-none p-0 focus:ring-0">
                                 <span class="text-slate-300 font-bold">~</span>
-                                <span class="text-[10px] text-slate-400 font-bold uppercase">Max</span>
                                 <input type="number" min="0" max="6" value="${row.values[1]}"
                                     onchange="FilterDashboard.updateHotColdFilter('${def.id}', '${row.field}', 1, this.value)"
-                                    class="w-10 h-7 text-center text-xs font-black text-slate-700 bg-white border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 p-0 shadow-sm">
+                                    class="w-12 text-center text-base font-black text-blue-600 bg-transparent border-none p-0 focus:ring-0">
                             </div>
                         </div>
                         <div class="flex flex-wrap gap-1 pt-1 border-t" style="border-color:${row.color}22;">
@@ -1184,20 +1517,22 @@ window.FilterDashboard = {
                 else groupNums[4].push(n);
             }
 
+            // [수정] renderBalls() 기준 색상으로 통일
             const ballColor = n => {
-                if (n <= 10) return '#fbbf24';
-                if (n <= 20) return '#60a5fa';
-                if (n <= 30) return '#f87171';
-                if (n <= 40) return '#9ca3af';
-                return '#34d399';
+                if (n <= 10) return '#F7C948';
+                if (n <= 20) return '#4a90d9';
+                if (n <= 30) return '#E04A4A';
+                if (n <= 40) return '#6B7280';
+                return '#48B05A';
             };
             const renderMissBalls = nums => nums.map(n => {
                 const isEx = this.state.basket?.excluded?.includes(n);
                 const isFi = this.state.basket?.fixed?.includes(n);
+                let ballClass = "w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-black text-white shadow-sm";
                 let style = `background-color:${ballColor(n)}; border:1px solid transparent;`;
-                if (isFi) style = 'background-color:#2563eb; border:1px solid #3b82f6;';
-                else if (isEx) style = 'background-color:#94a3b8; border:1px solid #64748b;';
-                return `<span class="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black text-white shadow-sm" style="${style}">${String(n).padStart(2, '0')}</span>`;
+                if (isFi) { ballClass += " ball-fixed"; style = 'background-color:#2563eb; border:1px solid #3b82f6;'; }
+                else if (isEx) { ballClass += " ball-excluded"; style = 'background-color:#94a3b8; border:1px solid #64748b;'; }
+                return `<span class="${ballClass}" style="${style}">${String(n).padStart(2, '0')}</span>`;
             }).join('');
 
             const groupDefs = [
@@ -1217,16 +1552,14 @@ window.FilterDashboard = {
                     <div class="flex flex-col gap-2 p-3 rounded-xl border" style="background-color:${g.bgColor}; border-color:${g.color}33;">
                         <div class="flex items-center justify-between">
                             <span class="text-xs font-black shrink-0" style="color:${g.color}">${g.label} <span class="text-[11px] font-black opacity-60">(${nums.length}개)</span></span>
-                            <div class="flex items-center gap-1.5 shrink-0">
-                                <span class="text-[10px] text-slate-400 font-bold uppercase">Min</span>
+                            <div class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-1.5 shadow-sm focus-within:ring-2 focus-within:ring-blue-500">
                                 <input type="number" min="0" max="6" value="${minVal}"
                                     oninput="FilterDashboard.updateMissingPeriodFilter('${def.id}', '${g.minKey}', this.value)"
-                                    class="w-10 h-7 text-center text-xs font-black text-slate-700 bg-white border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 p-0 shadow-sm">
+                                    class="w-12 text-center text-base font-black text-blue-600 bg-transparent border-none p-0 focus:ring-0">
                                 <span class="text-slate-300 font-bold">~</span>
-                                <span class="text-[10px] text-slate-400 font-bold uppercase">Max</span>
                                 <input type="number" min="0" max="6" value="${maxVal}"
                                     oninput="FilterDashboard.updateMissingPeriodFilter('${def.id}', '${g.maxKey}', this.value)"
-                                    class="w-10 h-7 text-center text-xs font-black text-slate-700 bg-white border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 p-0 shadow-sm">
+                                    class="w-12 text-center text-base font-black text-blue-600 bg-transparent border-none p-0 focus:ring-0">
                             </div>
                         </div>
                         <div class="flex flex-wrap gap-1 pt-1 border-t" style="border-color:${g.color}22;">
@@ -1239,65 +1572,51 @@ window.FilterDashboard = {
 
 
         } else if (key === 'missing_custom_filter') {
-            // 그룹이 없으면 renderFoundationFilters()에서 카드 자체가 스킵되므로
-            // 여기에 도달할 때는 항상 실제 번호가 있는 그룹이 최소 1개 이상
             const savedFilters = (vals.filters || []).filter(f => f.numbers && f.numbers.length > 0);
-            const ballColor = n => n <= 10 ? '#fbbf24' : n <= 20 ? '#60a5fa' : n <= 30 ? '#f87171' : n <= 40 ? '#9ca3af' : '#34d399';
-            html += `<div class="flex flex-col gap-2.5">`;
-            savedFilters.forEach(f => {
-                const isEnabled = f.enabled || false;
-                const nums = [...new Set(f.numbers || [])].sort((a, b) => a - b);
-                const mn = f.minCount ?? 0;
-                const mx = f.maxCount ?? 6;
-                html += `
-                    <div class="flex flex-col gap-2 p-3 rounded-xl border ${isEnabled ? 'border-indigo-300 bg-indigo-50/30' : 'border-slate-200 bg-white opacity-60'}">
+            if (savedFilters.length === 0) {
+                html += `<div class="text-center py-3 text-slate-400 text-xs">
+                    <span class="material-symbols-outlined text-2xl block mb-1">group_work</span>
+                    미출현 커스텀 그룹이 없습니다.<br>
+                    <a href="missing.html" class="text-blue-500 font-black hover:underline mt-1 inline-block">미출현 페이지에서 그룹 추가 →</a>
+                </div>`;
+            } else {
+                // [수정] renderBalls() 기준 색상으로 통일
+                const ballColor = n => n <= 10 ? '#F7C948' : n <= 20 ? '#4a90d9' : n <= 30 ? '#E04A4A' : n <= 40 ? '#6B7280' : '#48B05A';
+                html += `<div class="flex flex-col gap-2.5">`;
+                savedFilters.forEach(f => {
+                    const isEnabled = f.enabled || false;
+                    const nums = [...new Set(f.numbers || [])].sort((a, b) => a - b);
+                    const mn = f.minCount ?? 0;
+                    const mx = f.maxCount ?? 0;
+                    html += `
+                    <div class="flex flex-col gap-2 p-3 rounded-xl border ${isEnabled ? 'border-blue-300 bg-blue-50/30' : 'border-slate-200 bg-white opacity-60'}">
                         <div class="flex items-center justify-between gap-2">
                             <span class="text-xs font-black text-slate-700 flex-1 min-w-0 truncate">${f.name || '미출현그룹'}</span>
-                            <div class="flex items-center gap-1.5 flex-shrink-0">
-                                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wide">MIN</span>
+                                <div class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-2 py-1 shadow-sm focus-within:ring-2 focus-within:ring-blue-500 shrink-0 ml-auto">
                                 <input type="number" min="0" max="6" value="${mn}"
-                                    class="w-9 h-6 text-center text-[12px] font-bold border border-slate-200 rounded-lg bg-white focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-200"
-                                    onchange="FilterDashboard.updateMissingCustomMinMax('${def.id}', '${f.id}', 'min', this.value)">
-                                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wide">MAX</span>
+                                    oninput="FilterDashboard.updateMissingCustomMinMax('${def.id}', '${f.id}', 'min', this.value)"
+                                    class="w-11 text-center text-[13px] font-black text-blue-600 bg-transparent border-none p-0 focus:ring-0">
+                                <span class="text-slate-300 font-bold text-xs">~</span>
                                 <input type="number" min="0" max="6" value="${mx}"
-                                    class="w-9 h-6 text-center text-[12px] font-bold border border-slate-200 rounded-lg bg-white focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-200"
-                                    onchange="FilterDashboard.updateMissingCustomMinMax('${def.id}', '${f.id}', 'max', this.value)">
+                                    oninput="FilterDashboard.updateMissingCustomMinMax('${def.id}', '${f.id}', 'max', this.value)"
+                                    class="w-11 text-center text-[13px] font-black text-blue-600 bg-transparent border-none p-0 focus:ring-0">
                             </div>
                         </div>
                         <div class="flex flex-wrap gap-1 pt-1.5 border-t border-slate-100">
-                            ${nums.map(n => `<span class="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black text-white" style="background-color:${ballColor(n)}">${String(n).padStart(2, '0')}</span>`).join('')}
+                            ${nums.map(n => {
+                        const isEx = this.state.basket?.excluded?.includes(n);
+                        const isFi = this.state.basket?.fixed?.includes(n);
+                        let ballClass = "w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-black text-white";
+                        let style = `background-color:${ballColor(n)};`;
+                        if (isFi) { ballClass += " ball-fixed"; style = "background-color:#2563eb; border-color:#3b82f6;"; }
+                        else if (isEx) { ballClass += " ball-excluded"; style = "background-color:#94a3b8; border-color:#64748b;"; }
+                        return `<span class="${ballClass}" style="${style}">${String(n).padStart(2, '0')}</span>`;
+                    }).join('')}
                         </div>
                     </div>`;
-            });
-            html += `</div>
-            <div class="mt-2 text-center">
-                <a href="missing.html" class="text-xs font-black text-indigo-500 hover:underline">미출현 페이지에서 편집 →</a>
-            </div>`;
-        } else if (key === 'magic_square_pattern') {
-            const filters = vals.filters || {};
-            html += `<div class="grid grid-cols-2 gap-2 text-[10px]">`;
-            for (let i = 1; i <= 9; i++) {
-                const gung = `${i}궁`;
-                const f = filters[gung] || { min: 0, max: 6 };
-                html += `
-                    <div class="flex items-center justify-between p-1.5 bg-slate-50 border border-slate-100 rounded-lg gap-1.5">
-                        <span class="font-bold text-slate-600 shrink-0 w-6">${gung}</span>
-                        <div class="flex items-center gap-1 shrink-0">
-                            <input type="number" value="${f.min}" 
-                                class="w-8 h-6 p-1 text-center border border-slate-200 rounded text-[10px]" 
-                                onchange="FilterDashboard.updateGungFilter('${def.id}', '${gung}', 'min', this.value)">
-                            <span class="text-slate-300">~</span>
-                            <input type="number" value="${f.max}" 
-                                class="w-8 h-6 p-1 text-center border border-slate-200 rounded text-[10px]" 
-                                onchange="FilterDashboard.updateGungFilter('${def.id}', '${gung}', 'max', this.value)">
-                        </div>
-                    </div>`;
-            }
-            html += `</div>
-            <div class="mt-2 text-center">
-                <a href="magic_square.html" class="text-xs font-black text-indigo-500 hover:underline">9궁 페이지에서 편집 →</a>
-            </div>`;
-
+                });
+                html += `</div>`;
+            } // end else (hasGroups)
         } else if (key === 'tail_digit_patterns') {
 
 
@@ -1319,18 +1638,28 @@ window.FilterDashboard = {
                 const ballHtml = tailTargets.map(n => {
                     const isEx = this.state.basket.excluded.includes(n);
                     const isFi = this.state.basket.fixed.includes(n);
-                    let ballClass = "w-6 h-6 flex-shrink-0 flex items-center justify-center rounded-full text-[10px] font-black text-white shadow-sm border ";
+                    let ballClass = "w-7 h-7 flex-shrink-0 flex items-center justify-center rounded-full text-[11px] font-black text-white shadow-sm border ";
+                    let inlineStyle = "";
 
-                    if (isFi) ballClass += "bg-blue-600 border-blue-400 ball-fixed";
-                    else if (isEx) ballClass += "bg-slate-400 border-slate-500 ball-excluded";
-                    else {
-                        if (n <= 10) ballClass += "bg-amber-400 border-amber-500";
-                        else if (n <= 20) ballClass += "bg-blue-500 border-blue-600";
-                        else if (n <= 30) ballClass += "bg-rose-500 border-rose-600";
-                        else if (n <= 40) ballClass += "bg-slate-500 border-slate-600";
-                        else ballClass += "bg-emerald-500 border-emerald-600";
+                    // [수정] 수동필터와 동일한 HEX 색상 체계로 통일
+                    const style = this.renderBalls && typeof this.getBallStyle === 'function' ? this.getBallStyle(n) : (() => {
+                        if (n <= 10) return { bg: '#F7C948', border: '#eab308' };
+                        if (n <= 20) return { bg: '#4a90d9', border: '#2563eb' };
+                        if (n <= 30) return { bg: '#E04A4A', border: '#dc2626' };
+                        if (n <= 40) return { bg: '#6B7280', border: '#4b5563' };
+                        return { bg: '#48B05A', border: '#16a34a' };
+                    })(n);
+
+                    if (isFi) {
+                        ballClass += "ball-fixed";
+                        inlineStyle = "background-color: #2563eb; border-color: #3b82f6;";
+                    } else if (isEx) {
+                        ballClass += "ball-excluded";
+                        inlineStyle = "background-color: #94a3b8; border-color: #64748b;";
+                    } else {
+                        inlineStyle = `background-color: ${style.bg}; border-color: ${style.border};`;
                     }
-                    return `<span class="${ballClass}">${String(n).padStart(2, '0')}</span>`;
+                    return `<span class="${ballClass}" style="${inlineStyle}">${String(n).padStart(2, '0')}</span>`;
                 }).join('');
 
                 html += `
@@ -1338,25 +1667,19 @@ window.FilterDashboard = {
                         <div class="flex items-center justify-between gap-2 overflow-hidden">
                             <div class="flex items-center gap-1.5 flex-1 min-w-0">
                                 <span class="w-7 h-7 flex-shrink-0 flex items-center justify-center rounded-full bg-slate-600 text-white text-[9px] font-black">${i}끝</span>
-                                <span class="text-[11px] font-black text-indigo-600 flex-shrink-0">(${tailTargets.length}개)</span>
+                                <span class="text-[11px] font-black text-blue-600 flex-shrink-0">(${tailTargets.length}개)</span>
                                 <div class="flex items-center gap-0.5 ml-4 overflow-x-auto no-scrollbar py-1">
                                     ${ballHtml}
                                 </div>
                             </div>
-                            <div class="flex items-center gap-1.5 shrink-0 px-1">
-                                <div class="flex items-center gap-1">
-                                    <span class="text-[10px] text-slate-400 font-bold lowercase">min</span>
-                                    <input type="number" value="${f.min}" 
-                                        onchange="FilterDashboard.updateTailDigitFilter('${def.id}', ${i}, 'min', this.value)"
-                                        class="w-9 h-7 text-center text-[10px] font-black text-slate-700 bg-white border border-slate-200 rounded focus:ring-1 focus:ring-indigo-500 p-0">
-                                </div>
-                                <span class="text-slate-300 font-bold text-[10px]">∼</span>
-                                <div class="flex items-center gap-1">
-                                    <span class="text-[10px] text-slate-400 font-bold lowercase">max</span>
-                                    <input type="number" value="${f.max}" 
-                                        onchange="FilterDashboard.updateTailDigitFilter('${def.id}', ${i}, 'max', this.value)"
-                                        class="w-9 h-7 text-center text-[10px] font-black text-slate-700 bg-white border border-slate-200 rounded focus:ring-1 focus:ring-indigo-500 p-0">
-                                </div>
+                            <div class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-2 py-1 shadow-sm focus-within:ring-2 focus-within:ring-blue-500 shrink-0 ml-auto">
+                                <input type="number" min="0" max="6" value="${f.min}" 
+                                    onchange="FilterDashboard.updateTailDigitFilter('${def.id}', ${i}, 'min', this.value)"
+                                    class="w-10 text-center text-[12px] font-black text-blue-600 bg-transparent border-none p-0 focus:ring-0">
+                                <span class="text-slate-300 font-bold text-xs">~</span>
+                                <input type="number" min="0" max="6" value="${f.max}" 
+                                    onchange="FilterDashboard.updateTailDigitFilter('${def.id}', ${i}, 'max', this.value)"
+                                    class="w-10 text-center text-[12px] font-black text-blue-600 bg-transparent border-none p-0 focus:ring-0">
                             </div>
                         </div>
                     </div>`;
@@ -1369,7 +1692,7 @@ window.FilterDashboard = {
             let btns = '';
             for (let i = 0; i <= 5; i++) {
                 const isActive = selectedCounts.includes(i);
-                const bg = isActive ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-400 border-slate-200 hover:bg-slate-50';
+                const bg = isActive ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-400 border-slate-200 hover:bg-slate-50';
                 btns += `<button onclick="FilterDashboard.toggleDiscreteValue('${def.id}', 'selectedCounts', ${i})" class="flex-1 py-1.5 text-center rounded-lg border text-[10px] font-black transition-colors ${bg}">${i}</button>`;
             }
 
@@ -1379,30 +1702,33 @@ window.FilterDashboard = {
                     <label class="flex items-center gap-1.5 cursor-pointer hover:bg-slate-50 p-1 rounded transition-colors">
                         <input type="checkbox" ${runFilters.run3 ? 'checked' : ''} 
                             onchange="FilterDashboard.toggleRunFilter('${def.id}', 'run3', this.checked)"
-                            class="w-3.5 h-3.5 text-indigo-600 rounded border-gray-300 focus:ring-0">
+                            class="w-3.5 h-3.5 text-blue-600 rounded border-gray-300 focus:ring-0">
                         <span class="text-[11px] font-bold text-slate-600">2연번(3수)</span>
                     </label>
                     <label class="flex items-center gap-1.5 cursor-pointer hover:bg-slate-50 p-1 rounded transition-colors">
                         <input type="checkbox" ${runFilters.run4 ? 'checked' : ''} 
                             onchange="FilterDashboard.toggleRunFilter('${def.id}', 'run4', this.checked)"
-                            class="w-3.5 h-3.5 text-indigo-600 rounded border-gray-300 focus:ring-0">
+                            class="w-3.5 h-3.5 text-blue-600 rounded border-gray-300 focus:ring-0">
                         <span class="text-[11px] font-bold text-slate-600">3연번(4수)</span>
                     </label>
                     <label class="flex items-center gap-1.5 cursor-pointer hover:bg-slate-50 p-1 rounded transition-colors">
                         <input type="checkbox" ${runFilters.run5 ? 'checked' : ''} 
                             onchange="FilterDashboard.toggleRunFilter('${def.id}', 'run5', this.checked)"
-                            class="w-3.5 h-3.5 text-indigo-600 rounded border-gray-300 focus:ring-0">
+                            class="w-3.5 h-3.5 text-blue-600 rounded border-gray-300 focus:ring-0">
                         <span class="text-[11px] font-bold text-slate-600">4연번(5수)</span>
                     </label>
                     <label class="flex items-center gap-1.5 cursor-pointer hover:bg-slate-50 p-1 rounded transition-colors">
                         <input type="checkbox" ${runFilters.run6 ? 'checked' : ''} 
                             onchange="FilterDashboard.toggleRunFilter('${def.id}', 'run6', this.checked)"
-                            class="w-3.5 h-3.5 text-indigo-600 rounded border-gray-300 focus:ring-0">
+                            class="w-3.5 h-3.5 text-blue-600 rounded border-gray-300 focus:ring-0">
                         <span class="text-[11px] font-bold text-slate-600">5연번(6수)</span>
                     </label>
                 </div>`;
         } else {
-            const activeArrName = vals.activeCounts ? 'activeCounts' : (vals.selectedCounts ? 'selectedCounts' : 'selectedValues');
+            // composite_count / prime_number_patterns은 항상 selectedCounts 사용 (분석페이지 저장 필드 통일)
+            const activeArrName = (key === 'composite_count' || key === 'prime_number_patterns')
+                ? 'selectedCounts'
+                : (vals.activeCounts ? 'activeCounts' : (vals.selectedCounts ? 'selectedCounts' : 'selectedValues'));
             const activeArr = vals[activeArrName] || [];
             const maxBtn = (key === 'twin_number_patterns') ? 4 : 6;
 
@@ -1429,7 +1755,7 @@ window.FilterDashboard = {
             let btns = '';
             for (let i = 0; i <= maxBtn; i++) {
                 const isActive = activeArr.includes(i);
-                const bg = isActive ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-400 border-slate-200 hover:bg-slate-50';
+                const bg = isActive ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-400 border-slate-200 hover:bg-slate-50';
                 btns += `<button onclick="FilterDashboard.toggleDiscreteValue('${def.id}', '${activeArrName}', ${i})" class="flex-1 py-2 text-center rounded-lg border text-xs font-black transition-colors ${bg}">${i}</button>`;
             }
             html += `
@@ -1442,7 +1768,7 @@ window.FilterDashboard = {
                 html += `<div class="flex flex-wrap gap-1.5">`;
                 html += systemExcluded.map(c => `
                         <button onclick="FilterDashboard.restoreAutoExcludedSum('${def.id}', ${c})"
-                            class="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-600 text-white rounded-full text-[10px] font-black shadow-md hover:bg-indigo-700 transition-colors"
+                            class="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-600 text-white rounded-full text-[10px] font-black shadow-md hover:bg-blue-700 transition-colors"
                             title="클릭 시 자동 제외 취소">
                             ${c}개 <span style="font-size:11px;">✕</span>
                         </button>
@@ -1465,19 +1791,17 @@ window.FilterDashboard = {
         let html = '';
         let activeCount = 0;
 
-        const targetKeys = ['total_sum', 'last_digit_sum', 'tail_digit_patterns', 'ac_value', 'odd_even_pattern', 'high_low_pattern', 'prime_number_patterns', 'composite_count', 'square_number_patterns', 'triangular_number_patterns', 'twin_number_patterns', 'neighbor_number_patterns', 'carryover_count', 'consecutive_count', 'multiple_3_count', 'number_range_patterns', 'magic_square_pattern', 'lotto_paper_pattern', 'hot_cold_5', 'hot_cold_10', 'hot_cold_15', 'hot_cold_20', 'missing_period', 'missing_custom_filter'];
+        const targetKeys = ['total_sum', 'last_digit_sum', 'ac_value', 'odd_even_pattern', 'high_low_pattern', 'consecutive_count', 'neighbor_number_patterns', 'carryover_count', 'prime_number_patterns', 'composite_count', 'triangular_number_patterns', 'square_number_patterns', 'twin_number_patterns', 'tail_digit_patterns', 'multiple_3_count', 'number_range_patterns', 'magic_square_pattern', 'lotto_paper_pattern', 'hot_cold_5', 'hot_cold_10', 'hot_cold_15', 'hot_cold_20', 'missing_period', 'missing_custom_filter'];
         const orderedFilters = targetKeys.map(key => this.state.foundationFilters.find(def => def.filter_key === key)).filter(Boolean);
 
         orderedFilters.forEach(def => {
             const userSet = this.state.userSettings[def.id] || { enabled: false, settings: {} };
 
-            // missing_custom_filter는 번호가 실제로 있는 그룹이 없으면 카드 자체를 렌더링하지 않음
-            // (numbers.length > 0 조건으로 빈 껍데기 그룹도 걸러냄)
             const isMissingCustom = def.filter_key === 'missing_custom_filter';
             const hasGroups = isMissingCustom
                 ? (userSet.settings?.filters || []).some(f => f.numbers && f.numbers.length > 0)
                 : true;
-            if (isMissingCustom && !hasGroups) return; // 그룹 없으면 카드 통째로 스킵
+            // missing_custom_filter는 그룹이 없어도 카드 표시 (편집 링크 노출)
 
             if (userSet.enabled && hasGroups) activeCount++;
 
@@ -1499,38 +1823,163 @@ window.FilterDashboard = {
             if (def.filter_key === 'hot_cold_15') displayName = '핫/콜드 15회';
             if (def.filter_key === 'hot_cold_20') displayName = '핫/콜드 20회';
             if (def.filter_key === 'missing_period') displayName = '미출현 그룹';
-            if (def.filter_key === 'missing_custom_filter') displayName = '미출현 커스텀';
+            if (def.filter_key === 'missing_custom_filter') {
+                const _mcGroups = (userSet.settings?.filters || []).filter(f => f.numbers && f.numbers.length > 0);
+                if (_mcGroups.length === 1 && _mcGroups[0].name) {
+                    displayName = _mcGroups[0].name; // 그룹 1개면 그 이름 사용
+                } else if (_mcGroups.length > 1) {
+                    displayName = `미출현 커스텀 (${_mcGroups.length}개)`;
+                } else {
+                    displayName = '미출현 커스텀';
+                }
+            }
 
-            const themeClass = isCarryover ? 'border-blue-500 ring-blue-100 shadow-md ring-1' : 'border-indigo-500 shadow-md ring-1 ring-indigo-100';
-            const titleColor = isCarryover ? 'text-blue-700' : 'text-indigo-700';
-            const toggleColor = isCarryover ? 'peer-checked:bg-blue-600' : 'peer-checked:bg-indigo-600';
-            const editIconColor = isCarryover ? 'group-hover:text-blue-500' : 'group-hover:text-indigo-500';
+            // [수정] 전문적이고 대조가 뚜렷한(Bolder) 카드 테마
+            const isActive = userSet.enabled;
+            const themeClass = isActive
+                ? 'bg-white shadow-md ring-1 ring-slate-900/5 border-l-4 border-l-indigo-500 scale-[1.01]'
+                : 'bg-slate-50/50 border border-slate-200/60 opacity-80 hover:opacity-100 hover:border-slate-300';
+            const titleColor = isActive ? 'text-slate-900' : 'text-slate-500';
+            const toggleColor = isActive ? 'peer-checked:bg-indigo-600' : 'peer-checked:bg-indigo-600';
+            const editIconColor = isActive ? 'group-hover:text-indigo-600 text-slate-400' : 'group-hover:text-slate-600 text-slate-300';
+
+            // [수정] 끝수부터 미출현 커스텀 필터까지 동일한 크기로 맞추기 위한 로직
+            const complexKeys = ['tail_digit_patterns', 'multiple_3_count', 'number_range_patterns', 'magic_square_pattern', 'lotto_paper_pattern', 'hot_cold_5', 'hot_cold_10', 'hot_cold_15', 'hot_cold_20', 'missing_period', 'missing_custom_filter'];
+            const isComplex = complexKeys.includes(def.filter_key);
+            const ctrlContainerClass = isComplex ? 'h-[360px] overflow-y-auto custom-scrollbar pr-2' : '';
 
             html += `
-            <div id="filter-${def.filter_key}" class="bg-white rounded-2xl border ${userSet.enabled ? themeClass : 'border-slate-200 opacity-70'} p-6 transition-all relative w-full">
-                <div class="flex items-center justify-between mb-2">
-                    <a href="${this.getFilterLink(def.filter_key)}" class="group flex items-center gap-1.5 cursor-pointer">
-                        <h3 class="text-lg font-black ${userSet.enabled ? titleColor : 'text-slate-800'} group-hover:underline decoration-indigo-400 underline-offset-4">${displayName}</h3>
-                        <span class="material-symbols-outlined text-[16px] text-slate-400 ${editIconColor}">edit_square</span>
+            <div id="filter-${def.filter_key}" class="rounded-2xl p-6 transition-all duration-300 relative w-full flex flex-col ${themeClass}">
+                <div class="flex items-center justify-between mb-3 border-b border-slate-100 pb-3">
+                    <a href="${this.getFilterLink(def.filter_key)}" class="group flex items-center gap-2 cursor-pointer">
+                        <h3 class="text-[17px] font-black tracking-tight ${titleColor} group-hover:underline decoration-indigo-300 underline-offset-4">${displayName}</h3>
+                        <span class="material-symbols-outlined text-[16px] ${editIconColor} transition-colors">edit_square</span>
                     </a>
                     <div class="flex items-center gap-2">
+                        <span id="indep-count-${def.filter_key}" class="hidden text-[11px] text-blue-500 ml-2 font-medium"></span>
+                        ${def.filter_key !== 'missing_custom_filter' ? `<button onclick="FilterDashboard.toggleRecent10Filter('${def.id}')"
+                            title="최근 10회차 필터 자동 설정 (클릭 시 토글)"
+                            class="px-2 py-0.5 text-[9px] font-black rounded-md border transition-colors ${userSet.settings?.recent10FilterActive ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-200 text-slate-400 hover:border-blue-400 hover:text-blue-500'}">
+                            최근10</button>` : ''}
                         <button onclick="FilterDashboard.loadDataFromDB().then(()=>FilterDashboard.renderUI())"
                             title="데이터 수동 동기화"
-                            class="p-1 text-slate-300 hover:text-indigo-500 transition-colors">
+                            class="p-1 text-slate-300 hover:text-blue-500 transition-colors">
                             <span class="material-symbols-outlined text-[18px]">sync</span>
                         </button>
                         <label class="relative inline-flex items-center cursor-pointer">
                             <input type="checkbox" class="sr-only peer" ${userSet.enabled ? 'checked' : ''} onchange="FilterDashboard.toggleSetting('${def.id}', this.checked)">
-                            <div class="w-10 h-5 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-4 after:w-4 transition-all peer-checked:bg-indigo-600"></div>
+                            <div class="w-10 h-5 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-4 after:w-4 transition-all peer-checked:bg-blue-600"></div>
                         </label>
                     </div>
                 </div>
-                ${this.buildFilterControl(def, userSet)}
+                <!-- [수정] 스크롤 영역 적용 -->
+                <div id="filter-ctrl-${def.filter_key}" class="flex-1 ${ctrlContainerClass}">${this.buildFilterControl(def, userSet)}</div>
             </div>`;
         });
         container.innerHTML = html;
         document.getElementById('foundationActiveCount').textContent = `${activeCount}개 적용중`;
         if (this.state.totalActiveCount !== undefined) this.state.totalActiveCount += activeCount;
+        // 배지 복원: renderUI 재실행 시 hidden 초기화되므로 캐시된 값으로 복원
+        if (window.applyIndepCountBadges) window.applyIndepCountBadges();
+    },
+
+    /**
+     * 단일 필터 카드 컨트롤 영역만 업데이트 (성능 최적화)
+     * toggleDiscreteValue / toggleRunFilter 등 내부 값 변경 시 사용
+     */
+    _renderOneCardCtrl(id) {
+        const def = this.state.foundationFilters.find(d => d.id === id);
+        if (!def) return this.renderFoundationFilters();
+        const ctrlEl = document.getElementById(`filter-ctrl-${def.filter_key}`);
+        if (!ctrlEl) return this.renderFoundationFilters();
+        const userSet = this.state.userSettings[def.id] || { enabled: false, settings: {} };
+        ctrlEl.innerHTML = this.buildFilterControl(def, userSet);
+        // 최근10 배지 업데이트
+        const badgeEl = ctrlEl.closest(`[id="filter-${def.filter_key}"]`)
+            ?.querySelector(`button[onclick*="toggleRecent10Filter"]`);
+        if (badgeEl) {
+            const r10Active = userSet.settings?.recent10FilterActive;
+            badgeEl.className = `px-2 py-0.5 text-[9px] font-black rounded-md border transition-colors ${r10Active
+                ? 'bg-blue-600 border-blue-600 text-white'
+                : 'bg-white border-slate-200 text-slate-400 hover:border-blue-400 hover:text-blue-500'}`;
+        }
+    },
+
+    /**
+     * 단일 필터 카드 전체(헤더+컨트롤) 업데이트 (toggleSetting 등 enabled 상태 변경 시)
+     */
+    _renderOneCard(id) {
+        const def = this.state.foundationFilters.find(d => d.id === id);
+        if (!def) return this.renderFoundationFilters();
+        const cardEl = document.getElementById(`filter-${def.filter_key}`);
+        if (!cardEl) return this.renderFoundationFilters();
+        const userSet = this.state.userSettings[def.id] || { enabled: false, settings: {} };
+
+        const isCarryover = def.filter_key === 'carryover_count';
+        let displayName = def.filter_name.replace(' 패턴', '').replace('패턴', '').replace(' 개수', '').replace('개수', '').replace('(전체)', '').replace('(당번)', '').trim();
+        const nameMap = {
+            odd_even_pattern: '홀짝', tail_digit_patterns: '끝수', multiple_3_count: '배수',
+            high_low_pattern: '저고', prime_number_patterns: '소수', composite_count: '합성수',
+            twin_number_patterns: '동형수', square_number_patterns: '제곱수', triangular_number_patterns: '삼각수',
+            magic_square_pattern: '9궁', lotto_paper_pattern: '로또용지', hot_cold_5: '핫/콜드 5회',
+            hot_cold_10: '핫/콜드 10회', hot_cold_15: '핫/콜드 15회', hot_cold_20: '핫/콜드 20회', missing_period: '미출현 그룹'
+        };
+        if (nameMap[def.filter_key]) displayName = nameMap[def.filter_key];
+
+        // [수정] 전문적이고 대조가 뚜렷한(Bolder) 카드 테마
+        const isActive = userSet.enabled;
+        const themeClass = isActive
+            ? 'bg-white shadow-md ring-1 ring-slate-900/5 border-l-4 border-l-indigo-500 scale-[1.01]'
+            : 'bg-slate-50/50 border border-slate-200/60 opacity-80 hover:opacity-100 hover:border-slate-300';
+        const titleColor = isActive ? 'text-slate-900' : 'text-slate-500';
+        const toggleColor = isActive ? 'peer-checked:bg-indigo-600' : 'peer-checked:bg-indigo-600';
+        const editIconColor = isActive ? 'group-hover:text-indigo-600 text-slate-400' : 'group-hover:text-slate-600 text-slate-300';
+
+        // [수정] 끝수부터 미출현 커스텀 필터까지 동일한 크기로 맞추기 위한 로직
+        const complexKeys = ['tail_digit_patterns', 'multiple_3_count', 'number_range_patterns', 'magic_square_pattern', 'lotto_paper_pattern', 'hot_cold_5', 'hot_cold_10', 'hot_cold_15', 'hot_cold_20', 'missing_period', 'missing_custom_filter'];
+        const isComplex = complexKeys.includes(def.filter_key);
+        const ctrlContainerClass = isComplex ? 'h-[360px] overflow-y-auto custom-scrollbar pr-2' : '';
+
+        const newHtml = `
+            <div class="flex items-center justify-between mb-3 border-b border-slate-100 pb-3">
+                <a href="${this.getFilterLink(def.filter_key)}" class="group flex items-center gap-2 cursor-pointer">
+                    <h3 class="text-[17px] font-black tracking-tight ${titleColor} group-hover:underline decoration-indigo-300 underline-offset-4">${displayName}</h3>
+                    <span class="material-symbols-outlined text-[16px] ${editIconColor} transition-colors">edit_square</span>
+                </a>
+                <div class="flex items-center gap-2">
+                    <span id="indep-count-${def.filter_key}" class="hidden text-[11px] text-indigo-500 ml-2 font-black tracking-wide bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100"></span>
+                    ${def.filter_key !== 'missing_custom_filter' ? `<button onclick="FilterDashboard.toggleRecent10Filter('${def.id}')"
+                        title="최근 10회차 필터 자동 설정 (클릭 시 토글)"
+                        class="px-2 py-0.5 text-[9px] font-black rounded-md border transition-colors ${userSet.settings?.recent10FilterActive ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-200 text-slate-400 hover:border-blue-400 hover:text-blue-500'}">
+                        최근10</button>` : ''}
+                    <button onclick="FilterDashboard.loadDataFromDB().then(()=>FilterDashboard.renderUI())"
+                        title="데이터 수동 동기화"
+                        class="p-1 text-slate-300 hover:text-blue-500 transition-colors">
+                        <span class="material-symbols-outlined text-[18px]">sync</span>
+                    </button>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" class="sr-only peer" ${userSet.enabled ? 'checked' : ''} onchange="FilterDashboard.toggleSetting('${def.id}', this.checked)">
+                        <div class="w-10 h-5 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-4 after:w-4 transition-all ${toggleColor}"></div>
+                    </label>
+                </div>
+            </div>
+            <!-- [수정] 스크롤 영역 적용 -->
+            <div id="filter-ctrl-${def.filter_key}" class="flex-1 ${ctrlContainerClass}">${this.buildFilterControl(def, userSet)}</div>`;
+
+        // 카드 border 클래스 등 통합 업데이트
+        cardEl.className = `rounded-2xl p-6 transition-all duration-300 relative w-full flex flex-col ${themeClass}`;
+        cardEl.innerHTML = newHtml;
+
+        // 활성 카드 수 업데이트
+        const activeCountEl = document.getElementById('foundationActiveCount');
+        if (activeCountEl) {
+            const activeCount = this.state.foundationFilters.filter(d => {
+                const us = this.state.userSettings[d.id];
+                return us && us.enabled;
+            }).length;
+            activeCountEl.textContent = `${activeCount}개 적용중`;
+        }
+        if (window.applyIndepCountBadges) window.applyIndepCountBadges();
     },
 
     // 🔥 핵심 변경점: 회귀 분석 렌더링 (입력창 추가 및 텍스트 수정)
@@ -1542,7 +1991,8 @@ window.FilterDashboard = {
 
         for (let i = 2; i <= 200; i++) {
             const masterOn = this.state.regressionEnabled !== false;
-            const rData = this.state.regressionSettings[i] || { enabled: false, min: 0, max: 2 };
+            // [수정] 기본 범위를 0~3으로 상향 조정
+            const rData = this.state.regressionSettings[i] || { enabled: false, min: 0, max: 3 };
             const isActuallyEnabled = masterOn && rData.enabled;
             if (isActuallyEnabled) activeCount++;
 
@@ -1561,13 +2011,14 @@ window.FilterDashboard = {
                 <div class="flex items-center justify-center gap-1">
                     ${this.renderBalls(targetNums)}
                 </div>
-                <div class="flex items-center justify-end">
+                <div class="flex items-center justify-end gap-3">
+                    <span id="indep-count-regression_${i}" class="hidden text-[10px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full whitespace-nowrap"></span>
                     <div class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-1.5 shadow-sm focus-within:ring-2 focus-within:ring-emerald-500">
-                        <input type="number" value="${rData.min}" 
+                        <input type="number" id="reg-${i}-min" min="0" max="6" value="${Math.max(0, Math.min(6, rData.min))}"
                             oninput="FilterDashboard.updateRegressionRange(${i}, 'min', this.value)"
                             class="w-12 text-center font-black text-emerald-600 bg-transparent border-none p-0 focus:ring-0 text-base">
                         <span class="text-slate-300 font-bold">~</span>
-                        <input type="number" value="${rData.max}" 
+                        <input type="number" id="reg-${i}-max" min="0" max="6" value="${Math.max(0, Math.min(6, rData.max))}"
                             oninput="FilterDashboard.updateRegressionRange(${i}, 'max', this.value)"
                             class="w-12 text-center font-black text-emerald-600 bg-transparent border-none p-0 focus:ring-0 text-base">
                     </div>
@@ -1577,6 +2028,7 @@ window.FilterDashboard = {
         container.innerHTML = html;
         document.getElementById('regressionActiveCount').textContent = `${activeCount}개 적용중`;
         if (this.state.totalActiveCount !== undefined) this.state.totalActiveCount += activeCount;
+        if (window.applyIndepCountBadges) window.applyIndepCountBadges();
     },
 
     renderCustomFilters() {
@@ -1638,19 +2090,17 @@ window.FilterDashboard = {
                         </label>
                     </div>
                     <div class="p-3 bg-slate-50 border border-slate-100 rounded-xl mb-3">${targetHtml}</div>
-                    <div class="flex items-center gap-3">
-                        <div class="flex-1 bg-white border border-slate-200 rounded-lg flex items-center px-3 py-2 shadow-sm">
-                            <span class="text-xs font-black text-slate-400 uppercase w-8">Min</span>
-                            <input type="number" value="${config.min || 0}" 
+                    <div class="flex items-center justify-end">
+                        <span id="indep-count-custom_${custom.id}" class="hidden text-[10px] font-black text-pink-600 bg-pink-50 px-2 py-0.5 rounded-full whitespace-nowrap flex-shrink-0 mr-3"></span>
+                        <div class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-1.5 shadow-sm focus-within:ring-2 focus-within:ring-pink-500">
+                            <!-- [수정] 0~6 범위 제한 추가 및 회귀분석 스타일로 통일 -->
+                            <input type="number" min="0" max="6" value="${config.values?.length > 0 ? Math.min(...config.values) : (config.min ?? 0)}"
                                 oninput="FilterDashboard.updateCustomMinMax('${custom.id}', 'min', this.value)"
-                                class="w-full text-right font-black text-slate-700 bg-transparent border-none p-0 focus:ring-0">
-                        </div>
-                        <span class="text-slate-300 font-bold">~</span>
-                        <div class="flex-1 bg-white border border-slate-200 rounded-lg flex items-center px-3 py-2 shadow-sm">
-                            <span class="text-xs font-black text-slate-400 uppercase w-8">Max</span>
-                            <input type="number" value="${config.max || 6}" 
+                                class="w-12 text-center font-black text-pink-600 bg-transparent border-none p-0 focus:ring-0 text-base">
+                            <span class="text-slate-300 font-bold">~</span>
+                            <input type="number" min="0" max="6" value="${config.values?.length > 0 ? Math.max(...config.values) : (config.max ?? 3)}"
                                 oninput="FilterDashboard.updateCustomMinMax('${custom.id}', 'max', this.value)"
-                                class="w-full text-right font-black text-slate-700 bg-transparent border-none p-0 focus:ring-0">
+                                class="w-12 text-center font-black text-pink-600 bg-transparent border-none p-0 focus:ring-0 text-base">
                         </div>
                     </div>
                 </div>`;
@@ -1661,24 +2111,47 @@ window.FilterDashboard = {
         container.innerHTML = html;
         if (document.getElementById('customActiveCount')) document.getElementById('customActiveCount').textContent = `${activeCount}개 적용중`;
         if (this.state.totalActiveCount !== undefined) this.state.totalActiveCount += activeCount;
+        if (window.applyIndepCountBadges) window.applyIndepCountBadges();
+    },
+
+    /**
+     * 대시보드 전용 저장 헬퍼
+     * - IS NULL 행 저장 (분석페이지 StorageEvent sync용)
+     * - round-specific 행 저장 (대시보드 재로드 시 정합성 유지)
+     * - _dashSelfSaving 플래그로 자체 StorageEvent → renderUI() 재진입 방지
+     */
+    async _saveDashboardFilter(defKey, settings, enabled) {
+        this._dashSelfSaving = true;
+        try {
+            // IS NULL 행: Utils.saveFilter → StorageEvent 브로드캐스트 포함
+            if (window.Utils && window.Utils.saveFilter) {
+                await window.Utils.saveFilter(defKey, settings, enabled); // 4th arg 없음 → finalTargetRound=null
+            }
+            // round-specific 행: 대시보드 재로드 시 일치 유지
+            if (this.state.targetRound && window.filterService?.initialized) {
+                try {
+                    await window.filterService.saveSetting(defKey, settings, enabled, this.state.targetRound);
+                } catch (e) { /* 무시 */ }
+            }
+        } finally {
+            this._dashSelfSaving = false;
+        }
     },
 
     async toggleSetting(id, isEnabled) {
         if (this.state.userSettings[id]) {
             this.state.userSettings[id].enabled = isEnabled;
+
+            // [성능] 해당 카드 전체만 업데이트 (enabled 상태 변경 → border/header 색상 포함)
+            this._renderOneCard(id);
+            this.updateNeonCounter();
+
             const def = this.state.foundationFilters.find(d => d.id === id);
             if (def) {
                 const settings = this.state.userSettings[id].settings || {};
-                // [수정] Utils.saveFilter 사용 → DB + localStorage 동시 저장으로 실시간 동기화
-                if (window.Utils && window.Utils.saveFilter) {
-                    await window.Utils.saveFilter(def.filter_key, { ...settings, enabled: isEnabled });
-                } else if (window.filterService?.initialized) {
-                    await window.filterService.saveSetting(def.filter_key, settings, isEnabled);
-                }
+                await this._saveDashboardFilter(def.filter_key, settings, isEnabled);
             }
         }
-        this.renderFoundationFilters();
-        this.updateNeonCounter();
     },
 
     // 미출현 커스텀 그룹별 min/max 인라인 수정
@@ -1697,8 +2170,8 @@ window.FilterDashboard = {
         if (this._mcSaveTimer) clearTimeout(this._mcSaveTimer);
         this._mcSaveTimer = setTimeout(async () => {
             const def = this.state.foundationFilters.find(d => d.id === defId);
-            if (def && window.Utils && window.Utils.saveFilter) {
-                await window.Utils.saveFilter(def.filter_key, userSet.settings, userSet.enabled);
+            if (def) {
+                await this._saveDashboardFilter(def.filter_key, userSet.settings, userSet.enabled);
             }
             this.updateNeonCounter();
         }, 400);
@@ -1706,20 +2179,26 @@ window.FilterDashboard = {
 
     async updateFilterValue(id, type, value) {
         if (this.state.userSettings[id]) {
-            const val = parseInt(value);
+            // [수정] 합계 필터 등을 제외한 갯수 필터의 0~6 제한 적용 여부 결정
+            const def = this.state.foundationFilters.find(d => d.id === id);
+            const isCountFilter = def && (def.filter_key.includes('count') || def.filter_key.includes('number_patterns') || def.filter_key.includes('missing_period'));
+            let val = parseInt(value);
+            if (isCountFilter) val = Math.max(0, Math.min(6, val || 0));
+
             if (isNaN(val)) return;
             this.state.userSettings[id].settings[type] = val;
+
+            // 최근10 활성 상태에서 수동 변경 → 즉시 비활성화 + UI 갱신
+            if (this.state.userSettings[id].settings.recent10FilterActive) {
+                this.state.userSettings[id].settings.recent10FilterActive = false;
+                this.renderFoundationFilters(); // 버튼 · 인디고 배지 즉시 비활성화
+            }
 
             if (this._saveTimer) clearTimeout(this._saveTimer);
             this._saveTimer = setTimeout(async () => {
                 const def = this.state.foundationFilters.find(d => d.id === id);
                 if (def) {
-                    // [수정] window.Utils.saveFilter 사용 (DB + localStorage 동시 저장 및 타 탭 동기화 유도)
-                    if (window.Utils && window.Utils.saveFilter) {
-                        await window.Utils.saveFilter(def.filter_key, this.state.userSettings[id].settings, this.state.userSettings[id].enabled);
-                    } else if (window.filterService?.initialized) {
-                        await window.filterService.saveSetting(def.filter_key, this.state.userSettings[id].settings, this.state.userSettings[id].enabled);
-                    }
+                    await this._saveDashboardFilter(def.filter_key, this.state.userSettings[id].settings, this.state.userSettings[id].enabled);
                 }
                 this.updateNeonCounter();
             }, 500);
@@ -1736,17 +2215,16 @@ window.FilterDashboard = {
                 arr.sort((a, b) => a - b);
             }
             this.state.userSettings[id].settings[arrayName] = arr;
+            this.state.userSettings[id].settings.recent10FilterActive = false; // 수동 변경 시 최근 10회차 버튼 비활성화
+
+            // [성능] 해당 카드 컨트롤만 즉시 업데이트 (전체 재빌드 불필요)
+            this._renderOneCardCtrl(id);
+            this.updateNeonCounter();
 
             const def = this.state.foundationFilters.find(d => d.id === id);
             if (def) {
-                if (window.Utils && window.Utils.saveFilter) {
-                    await window.Utils.saveFilter(def.filter_key, this.state.userSettings[id].settings, this.state.userSettings[id].enabled);
-                } else if (window.filterService?.initialized) {
-                    await window.filterService.saveSetting(def.filter_key, this.state.userSettings[id].settings, this.state.userSettings[id].enabled);
-                }
+                await this._saveDashboardFilter(def.filter_key, this.state.userSettings[id].settings, this.state.userSettings[id].enabled);
             }
-            this.renderFoundationFilters();
-            this.updateNeonCounter();
         }
     },
 
@@ -1756,6 +2234,12 @@ window.FilterDashboard = {
                 this.state.userSettings[id].settings.runFilters = { run3: false, run4: false, run5: false, run6: false };
             }
             this.state.userSettings[id].settings.runFilters[runKey] = isChecked;
+            // 수동 변경 시 최근 10회차 버튼 비활성화
+            this.state.userSettings[id].settings.recent10FilterActive = false;
+
+            // [성능] 해당 카드 컨트롤만 즉시 업데이트
+            this._renderOneCardCtrl(id);
+            this.updateNeonCounter();
 
             const def = this.state.foundationFilters.find(d => d.id === id);
             if (def) {
@@ -1765,8 +2249,6 @@ window.FilterDashboard = {
                     await window.filterService.saveSetting(def.filter_key, this.state.userSettings[id].settings, this.state.userSettings[id].enabled);
                 }
             }
-            this.renderFoundationFilters();
-            this.updateNeonCounter();
         }
     },
 
@@ -1779,7 +2261,8 @@ window.FilterDashboard = {
         if (typeName === 'entropy') {
             userSet.settings.ranges[typeName][boundType] = parseFloat(value).toFixed(2);
         } else {
-            userSet.settings.ranges[typeName][boundType] = parseInt(value);
+            // [수정] 0~6 범위 제한
+            userSet.settings.ranges[typeName][boundType] = Math.max(0, Math.min(6, parseInt(value) || 0));
         }
 
         userSet.settings.recent10FilterActive = false;
@@ -1798,12 +2281,15 @@ window.FilterDashboard = {
         if (!userSet.settings.filters) userSet.settings.filters = {};
         if (!userSet.settings.filters[typeName]) userSet.settings.filters[typeName] = { min: 0, max: 6 };
 
-        userSet.settings.filters[typeName][boundType] = parseInt(value);
+        // [수정] 0~6 범위 제한
+        userSet.settings.filters[typeName][boundType] = Math.max(0, Math.min(6, parseInt(value) || 0));
         userSet.settings.recent10FilterActive = false;
 
         const def = this.state.foundationFilters.find(f => f.id === id);
-        if (def && window.filterService?.initialized) {
-            await window.Utils.saveFilter(def.filter_key, userSet.settings, userSet.enabled);
+        if (def) {
+            // [Fix] filterService?.initialized 가드 제거 → 항상 Utils.saveFilter 호출
+            // Utils.saveFilter는 localStorage 저장 + StorageEvent 브로드캐스트 포함
+            await this._saveDashboardFilter(def.filter_key, userSet.settings, userSet.enabled);
         }
         this.renderFoundationFilters();
         this.updateNeonCounter();
@@ -1815,15 +2301,21 @@ window.FilterDashboard = {
         if (!userSet.settings.filters) userSet.settings.filters = {};
         if (!userSet.settings.filters[typeName]) userSet.settings.filters[typeName] = { min: 0, max: 5 };
 
-        userSet.settings.filters[typeName][boundType] = parseInt(value);
+        // [수정] 0~6 범위 제한
+        userSet.settings.filters[typeName][boundType] = Math.max(0, Math.min(6, parseInt(value) || 0));
         userSet.settings.targetRound = this.state.allDraws && this.state.allDraws.length > 0 ? this.state.allDraws[0].round : null;
+        userSet.settings.recent10FilterActive = false;
 
-        const def = this.state.foundationFilters.find(f => f.id === id);
-        if (def && window.filterService?.initialized) {
-            await window.Utils.saveFilter(def.filter_key, userSet.settings, userSet.enabled);
-        }
-        this.renderFoundationFilters();
-        this.updateNeonCounter();
+        // 디바운스 저장 (500ms) — 포커스 유지를 위해 renderFoundationFilters 호출 안 함
+        if (this._msqSaveTimer) clearTimeout(this._msqSaveTimer);
+        this._msqSaveTimer = setTimeout(async () => {
+            const def = this.state.foundationFilters.find(f => f.id === id);
+            if (def) {
+                // IS NULL + round-specific 행 모두 저장 → 분석페이지 로드 시 반영
+                await this._saveDashboardFilter(def.filter_key, userSet.settings, userSet.enabled);
+            }
+            this.updateNeonCounter();
+        }, 500);
     },
 
     async updateLottoPaperFilter(id, typeName, boundType, value) {
@@ -1832,8 +2324,10 @@ window.FilterDashboard = {
         if (!userSet.settings.groups) userSet.settings.groups = {};
         if (!userSet.settings.groups[typeName]) userSet.settings.groups[typeName] = { min: 0, max: 6 };
 
-        userSet.settings.groups[typeName][boundType] = parseInt(value);
+        // [수정] 0~6 범위 제한
+        userSet.settings.groups[typeName][boundType] = Math.max(0, Math.min(6, parseInt(value) || 0));
         userSet.settings.targetRound = this.state.allDraws && this.state.allDraws.length > 0 ? this.state.allDraws[0].round : null;
+        userSet.settings.recent10FilterActive = false; // 수동 변경 시 최근 10회차 버튼 비활성화
 
         const def = this.state.foundationFilters.find(f => f.id === id);
         if (def) {
@@ -1853,7 +2347,8 @@ window.FilterDashboard = {
         if (!userSet.settings.filters) userSet.settings.filters = {};
         if (!userSet.settings.filters[digit]) userSet.settings.filters[digit] = { min: 0, max: 6 };
 
-        userSet.settings.filters[digit][type] = parseInt(value);
+        // [수정] 0~6 범위 제한
+        userSet.settings.filters[digit][type] = Math.max(0, Math.min(6, parseInt(value) || 0));
         userSet.settings.recent10FilterActive = false;
 
         const def = this.state.foundationFilters.find(f => f.id === id);
@@ -1872,9 +2367,12 @@ window.FilterDashboard = {
         const userSet = this.state.userSettings[id];
         if (!userSet) return;
 
+        // [수정] 0~6 범위 제한
+        const v = Math.max(0, Math.min(6, parseInt(value) || 0));
+
         // 배열 포맷 업데이트 (대시보드 저장형)
         if (!userSet.settings[field]) userSet.settings[field] = [0, 6];
-        userSet.settings[field][index] = parseInt(value);
+        userSet.settings[field][index] = v;
 
         // periodFilter flat 포맷도 함께 저장 (hot_cold.html 호환성)
         const hr = userSet.settings.hotRange || [0, 6];
@@ -1885,6 +2383,9 @@ window.FilterDashboard = {
             neutralMin: wr[0], neutralMax: wr[1],
             coldMin: cr[0], coldMax: cr[1]
         };
+
+        // 수동 변경 시 최근 10회차 버튼 비활성화
+        userSet.settings.recent10FilterActive = false;
 
         const def = this.state.foundationFilters.find(f => f.id === id);
         if (def) {
@@ -1942,19 +2443,198 @@ window.FilterDashboard = {
         this.updateNeonCounter();
     },
 
+    // ── 범용 최근 10회차 필터 토글 ────────────────────────────────────────────────
+    async toggleRecent10Filter(defId) {
+        const userSet = this.state.userSettings[defId];
+        if (!userSet) return;
+
+        const def = this.state.foundationFilters.find(f => f.id === defId);
+        if (!def) return;
+
+        const key = def.filter_key;
+
+        // tail_digit는 기존 전용 함수 위임
+        if (key === 'tail_digit_patterns') {
+            return this.toggleRecent10TailDigits(defId);
+        }
+
+        const isActivating = !userSet.settings.recent10FilterActive;
+        userSet.settings.recent10FilterActive = isActivating;
+
+        // flag-only 필터: buildFilterControl의 표시 로직이 자동 제외 처리
+        const flagOnlyKeys = ['total_sum', 'last_digit_sum', 'ac_value',
+            'odd_even_pattern', 'high_low_pattern',
+            'prime_number_patterns', 'composite_count', 'missing_period'];
+
+        if (isActivating && this.state.allDraws && this.state.allDraws.length >= 10) {
+            const recent10 = this.state.allDraws.slice(0, 10);
+            if (!flagOnlyKeys.includes(key)) {
+                this._calcAndApplyRecent10(key, userSet, recent10);
+            }
+        }
+
+        // [성능] 해당 카드만 즉시 업데이트
+        this._renderOneCardCtrl(defId);
+        this.updateNeonCounter();
+
+        if (window.Utils && window.Utils.saveFilter) {
+            await window.Utils.saveFilter(key, userSet.settings, userSet.enabled, this.state.targetRound);
+        } else if (window.filterService?.initialized) {
+            await window.filterService.saveSetting(key, userSet.settings, userSet.enabled, this.state.targetRound);
+        }
+    },
+
+    // 최근 10회차 기반 필터 값 계산 (flag-only 제외 모든 타입)
+    _calcAndApplyRecent10(key, userSet, recent10) {
+        const vals = userSet.settings;
+
+        // ── 연속수 ──────────────────────────────────────────────────────────────
+        if (key === 'consecutive_count') {
+            const counts = recent10.map(d => {
+                const nums = [...(d.numbers || [])].sort((a, b) => a - b);
+                let cnt = 0;
+                for (let i = 0; i < nums.length - 1; i++) if (nums[i + 1] - nums[i] === 1) cnt++;
+                return cnt;
+            });
+            vals.selectedCounts = [...new Set(counts)].sort((a, b) => a - b);
+            return;
+        }
+
+        // ── 동형수 ──────────────────────────────────────────────────────────────
+        if (key === 'twin_number_patterns') {
+            const counts = recent10.map(d => {
+                const digitFreq = {};
+                (d.numbers || []).forEach(n => { const dig = n % 10; digitFreq[dig] = (digitFreq[dig] || 0) + 1; });
+                return Object.values(digitFreq).filter(c => c >= 2).length;
+            });
+            vals.selectedCounts = [...new Set(counts)].sort((a, b) => a - b);
+            return;
+        }
+
+        // ── 제곱수 / 삼각수 ─────────────────────────────────────────────────────
+        if (key === 'square_number_patterns' || key === 'triangular_number_patterns') {
+            const targetSet = new Set(this.state.staticTargets[key] || []);
+            const counts = recent10.map(d => (d.numbers || []).filter(n => targetSet.has(n)).length);
+            vals.selectedCounts = [...new Set(counts)].sort((a, b) => a - b);
+            return;
+        }
+
+        // ── 이월수 ──────────────────────────────────────────────────────────────
+        if (key === 'carryover_count') {
+            const counts = [];
+            for (let i = 0; i < Math.min(recent10.length - 1, 9); i++) {
+                const curSet = new Set(recent10[i].numbers || []);
+                counts.push((recent10[i + 1].numbers || []).filter(n => curSet.has(n)).length);
+            }
+            vals.selectedCounts = [...new Set(counts)].sort((a, b) => a - b);
+            return;
+        }
+
+        // ── 배수 ────────────────────────────────────────────────────────────────
+        if (key === 'multiple_3_count') {
+            const multiDefs = {
+                '3배수': [3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45],
+                '4배수': [4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44],
+                '5배수': [5, 10, 15, 20, 25, 30, 35, 40, 45]
+            };
+            if (!vals.filters) vals.filters = {};
+            Object.entries(multiDefs).forEach(([typeName, mNums]) => {
+                const mSet = new Set(mNums);
+                const counts = recent10.map(d => (d.numbers || []).filter(n => mSet.has(n)).length);
+                vals.filters[typeName] = { min: Math.min(...counts), max: Math.max(...counts) };
+            });
+            return;
+        }
+
+        // ── 번호 구간 ───────────────────────────────────────────────────────────
+        if (key === 'number_range_patterns') {
+            const rangeDefs = { '1_10': [1, 10], '11_20': [11, 20], '21_30': [21, 30], '31_40': [31, 40], '41_45': [41, 45] };
+            if (!vals.ranges) vals.ranges = {};
+            Object.entries(rangeDefs).forEach(([rKey, [lo, hi]]) => {
+                const counts = recent10.map(d => (d.numbers || []).filter(n => n >= lo && n <= hi).length);
+                vals.ranges[rKey] = { min: Math.min(...counts), max: Math.max(...counts) };
+            });
+            return;
+        }
+
+        // ── 9궁 ─────────────────────────────────────────────────────────────────
+        if (key === 'magic_square_pattern') {
+            const gungDefs = {
+                '1궁': [1, 2, 3, 4, 5], '2궁': [6, 7, 8, 9, 10], '3궁': [11, 12, 13, 14, 15],
+                '4궁': [16, 17, 18, 19, 20], '5궁': [21, 22, 23, 24, 25], '6궁': [26, 27, 28, 29, 30],
+                '7궁': [31, 32, 33, 34, 35], '8궁': [36, 37, 38, 39, 40], '9궁': [41, 42, 43, 44, 45]
+            };
+            if (!vals.filters) vals.filters = {};
+            Object.entries(gungDefs).forEach(([gName, gNums]) => {
+                const gSet = new Set(gNums);
+                const counts = recent10.map(d => (d.numbers || []).filter(n => gSet.has(n)).length);
+                vals.filters[gName] = { min: Math.min(...counts), max: Math.max(...counts) };
+            });
+            return;
+        }
+
+        // ── 로또용지 ────────────────────────────────────────────────────────────
+        if (key === 'lotto_paper_pattern') {
+            const paperDefs = {
+                '가로1': [1, 2, 3, 4, 5, 6, 7], '가로2': [8, 9, 10, 11, 12, 13, 14],
+                '가로3': [15, 16, 17, 18, 19, 20, 21], '가로4': [22, 23, 24, 25, 26, 27, 28],
+                '가로5': [29, 30, 31, 32, 33, 34, 35], '가로6': [36, 37, 38, 39, 40, 41, 42],
+                '가로7': [43, 44, 45],
+                '세로1': [1, 8, 15, 22, 29, 36, 43], '세로2': [2, 9, 16, 23, 30, 37, 44],
+                '세로3': [3, 10, 17, 24, 31, 38, 45], '세로4': [4, 11, 18, 25, 32, 39],
+                '세로5': [5, 12, 19, 26, 33, 40], '세로6': [6, 13, 20, 27, 34, 41],
+                '세로7': [7, 14, 21, 28, 35, 42]
+            };
+            if (!vals.groups) vals.groups = {};
+            Object.entries(paperDefs).forEach(([gName, gNums]) => {
+                const gSet = new Set(gNums);
+                const counts = recent10.map(d => (d.numbers || []).filter(n => gSet.has(n)).length);
+                vals.groups[gName] = { min: Math.min(...counts), max: Math.max(...counts) };
+            });
+            return;
+        }
+
+        // ── 핫/콜드 ─────────────────────────────────────────────────────────────
+        if (key.startsWith('hot_cold_')) {
+            const period = parseInt(key.split('_')[2]);
+            const refDraws = this.state.allDraws.slice(0, period);
+            const numFreq = {};
+            refDraws.forEach(d => (d.numbers || []).forEach(n => { numFreq[n] = (numFreq[n] || 0) + 1; }));
+            const sortedFreq = Object.entries(numFreq).sort(([, a], [, b]) => b - a);
+            const hotCount = Math.max(1, Math.round(sortedFreq.length * 0.4));
+            const hotSet = new Set(sortedFreq.slice(0, hotCount).map(([n]) => parseInt(n)));
+            const hotCounts = recent10.map(d => (d.numbers || []).filter(n => hotSet.has(n)).length);
+            vals.min = Math.min(...hotCounts);
+            vals.max = Math.max(...hotCounts);
+            return;
+        }
+
+        // ── 이웃수 ──────────────────────────────────────────────────────────────
+        if (key === 'neighbor_number_patterns') {
+            const neighborSet = new Set(this.state.dynamicTargets['neighbor_number_patterns'] || []);
+            if (neighborSet.size > 0) {
+                const counts = recent10.map(d => (d.numbers || []).filter(n => neighborSet.has(n)).length);
+                vals.min = Math.min(...counts);
+                vals.max = Math.max(...counts);
+            }
+            return;
+        }
+    },
+    // ── 범용 최근 10회차 필터 토글 (끝)) ─────────────────────────────────────────
+
     async updateMissingPeriodFilter(id, rangeKey, value) {
         const userSet = this.state.userSettings[id];
         if (!userSet) return;
         if (!userSet.settings.ranges) userSet.settings.ranges = {};
-        userSet.settings.ranges[rangeKey] = parseInt(value);
+        // [수정] 0~6 범위 제한
+        userSet.settings.ranges[rangeKey] = Math.max(0, Math.min(6, parseInt(value) || 0));
+        // 수동 변경 시 최근 10회차 버튼 비활성화
+        userSet.settings.recent10FilterActive = false;
 
         const def = this.state.foundationFilters.find(f => f.id === id);
         if (def) {
-            if (window.Utils && window.Utils.saveFilter) {
-                await window.Utils.saveFilter(def.filter_key, userSet.settings, userSet.enabled);
-            } else if (window.filterService?.initialized) {
-                await window.filterService.saveSetting(def.filter_key, userSet.settings, userSet.enabled);
-            }
+            // [Fix] _saveDashboardFilter 사용: IS NULL + 특정 회차 행 모두 저장 (대시보드↔분석페이지 동기화)
+            await this._saveDashboardFilter(def.filter_key, userSet.settings, userSet.enabled);
         }
         this.renderFoundationFilters();
         this.updateNeonCounter();
@@ -1968,7 +2648,7 @@ window.FilterDashboard = {
         this.state.regressionEnabled = true;
 
         if (window.Utils && window.Utils.saveFilter) {
-            await window.Utils.saveFilter('regression_analysis', this.state.regressionSettings, true, { targetRound: this.state.targetRound });
+            await window.Utils.saveFilter('regression_analysis', this.state.regressionSettings, true, this.state.targetRound);
         } else if (window.filterService?.initialized) {
             await window.filterService.saveSetting('regression_analysis', this.state.regressionSettings, true, this.state.targetRound);
         }
@@ -1979,14 +2659,16 @@ window.FilterDashboard = {
     // 🔥 추가: 회귀분석 Min/Max 입력 시 즉시 DB 저장
     async updateRegressionRange(step, type, value) {
         if (!this.state.regressionSettings[step]) this.state.regressionSettings[step] = { enabled: false, min: 0, max: 2 };
-        this.state.regressionSettings[step][type] = parseInt(value);
+        // [수정] 0~6 범위 제한
+        const v = Math.max(0, Math.min(6, parseInt(value) || 0));
+        this.state.regressionSettings[step][type] = v;
 
         if (this._regSaveTimer) clearTimeout(this._regSaveTimer);
         this._regSaveTimer = setTimeout(async () => {
             const isOn = this.state.regressionEnabled !== false;
             // [수정] Utils.saveFilter를 사용하여 실시간 동기화(storage 이벤트) 트리거
             if (window.Utils && window.Utils.saveFilter) {
-                await window.Utils.saveFilter('regression_analysis', this.state.regressionSettings, isOn, { targetRound: this.state.targetRound });
+                await window.Utils.saveFilter('regression_analysis', this.state.regressionSettings, isOn, this.state.targetRound);
             } else if (window.filterService?.initialized) {
                 await window.filterService.saveSetting('regression_analysis', this.state.regressionSettings, isOn, this.state.targetRound);
             }
@@ -1999,13 +2681,15 @@ window.FilterDashboard = {
         if (custom) {
             let conf = typeof custom.filter_config === 'string' ? JSON.parse(custom.filter_config) : custom.filter_config;
             conf.enabled = isEnabled;
+            // [추가] 저장 시 target_round 포함 (검증 페이지용)
+            if (this.state.targetRound) conf.target_round = this.state.targetRound;
             custom.filter_config = conf;
             if (window.supabaseClient) {
                 await window.supabaseClient.from('ai_custom_analyses').update({ filter_config: conf, updated_at: new Date().toISOString() }).eq('id', id);
             }
-            // [수정] 실시간 동기화를 위한 Utils.saveFilter 사용 (표준화)
+            // [수정] 실시간 동기화를 위한 Utils.saveFilter 사용 (enabled 명시 전달)
             if (window.Utils && window.Utils.saveFilter) {
-                await window.Utils.saveFilter(`custom_filter_${id}`, conf);
+                await window.Utils.saveFilter(`custom_filter_${id}`, conf, conf.enabled);
             }
             this.renderCustomFilters();
             this.updateNeonCounter();
@@ -2018,7 +2702,13 @@ window.FilterDashboard = {
         if (!custom) return;
 
         let conf = typeof custom.filter_config === 'string' ? JSON.parse(custom.filter_config) : custom.filter_config;
-        conf[type] = parseInt(value) || 0;
+        // [수정] 0~6 범위 제한
+        conf[type] = Math.max(0, Math.min(6, parseInt(value) || 0));
+        // [Fix] min/max 직접 변경 시 values 배열 초기화 → min-max 모드로 통일
+        // values가 남아있으면 custom_analysis.html에서 버튼 표시가 values 우선 → min/max 변경이 무시됨
+        delete conf.values;
+        // [추가] 저장 시 target_round 포함 (검증 페이지용)
+        if (this.state.targetRound) conf.target_round = this.state.targetRound;
         custom.filter_config = conf;
 
         // DB Update
@@ -2026,11 +2716,19 @@ window.FilterDashboard = {
             await window.supabaseClient.from('ai_custom_analyses').update({ filter_config: conf }).eq('id', id);
         }
 
-        // localStorage 저장 (실시간 동기화용)
+        // localStorage 저장 (실시간 동기화용, enabled 명시 전달)
+        // [Fix] _dashSelfSaving=true로 자체 StorageEvent 재진입 방지 후 renderCustomFilters 직접 호출
+        // → storage 핸들러 경유 시 conf.enabled가 undefined인 경우 토글이 꺼지는 버그 방지
         if (window.Utils && window.Utils.saveFilter) {
-            await window.Utils.saveFilter(`custom_filter_${id}`, conf);
+            this._dashSelfSaving = true;
+            try {
+                await window.Utils.saveFilter(`custom_filter_${id}`, conf, conf.enabled);
+            } finally {
+                this._dashSelfSaving = false;
+            }
         }
 
+        this.renderCustomFilters();
         this.updateNeonCounter();
     },
 
@@ -2041,7 +2739,7 @@ window.FilterDashboard = {
             else this.state.regressionSettings[i].enabled = isOn;
         }
         if (window.Utils && window.Utils.saveFilter) {
-            await window.Utils.saveFilter('regression_analysis', this.state.regressionSettings, isOn, { targetRound: this.state.targetRound });
+            await window.Utils.saveFilter('regression_analysis', this.state.regressionSettings, isOn, this.state.targetRound);
         } else if (window.filterService?.initialized) {
             await window.filterService.saveSetting('regression_analysis', this.state.regressionSettings, isOn, this.state.targetRound);
         }
@@ -2058,7 +2756,7 @@ window.FilterDashboard = {
         let targetArray = null;
         let arrayName = null;
 
-        if (key === 'ac_value') {
+        if (key.includes('ac_value')) {
             arrayName = 'excludedAcValues';
             targetArray = record.settings.excludedAcValues;
         } else if (key === 'odd_even_pattern') {
@@ -2089,6 +2787,9 @@ window.FilterDashboard = {
                 }
             }
 
+            // [수정] 수동 조작 시 최근 10회차 모드 비활성화
+            record.settings.recent10FilterActive = false;
+
             if (key) {
                 // [수정] window.Utils.saveFilter 사용 (DB + localStorage 동시 저장 및 실시간 동기화)
                 if (window.Utils && window.Utils.saveFilter) {
@@ -2114,7 +2815,7 @@ window.FilterDashboard = {
         const key = def ? def.filter_key : null;
 
         let arrayName = 'restoredAutoSums';
-        if (key === 'ac_value') arrayName = 'restoredAutoAcValues';
+        if (key.includes('ac_value')) arrayName = 'restoredAutoAcValues';
         else if (key === 'odd_even_pattern') arrayName = 'restoredAutoOddEvens';
         else if (key === 'high_low_pattern') arrayName = 'restoredAutoHighLows';
         else if (key === 'prime_number_patterns') arrayName = 'restoredAutoPrimes';
@@ -2131,6 +2832,9 @@ window.FilterDashboard = {
                     record.settings.selectedRatios.push(sumValue);
                 }
             }
+
+            // [수정] 수동 조작 시 최근 10회차 모드 비활성화
+            record.settings.recent10FilterActive = false;
 
             if (key) {
                 // [수정] window.Utils.saveFilter 사용 (DB + localStorage 동시 저장 및 실시간 동기화)
@@ -2149,6 +2853,19 @@ window.FilterDashboard = {
     },
 
     updateNeonCounter() {
+        // 1) 즉시 "계산 중..." 표시
+        const obj = document.getElementById('neonCounter');
+        if (obj) {
+            obj.innerHTML = '<span class="opacity-40 text-2xl">계산 중...</span>';
+            obj.classList.add('opacity-50', 'animate-pulse');
+        }
+        // 2) 워커 전수조사 즉시 트리거 (DOM 이벤트 없이도 항상 정확한 값 갱신)
+        if (typeof window.triggerFilterCount === 'function') {
+            window.triggerFilterCount();
+        }
+    },
+
+    _updateNeonCounterLegacy() {
         try {
             // 1. 상태값 Null 방어
             const state = this.state || {};
@@ -2259,44 +2976,7 @@ window.FilterDashboard = {
         }
     },
 
-    // [추가] 대시보드에서 미출현 그룹 필터(Min/Max)를 변경하면 저장 및 동기화
-    async updateMissingPeriodFilter(defId, rangeKey, value) {
-        const setting = this.state.userSettings[defId];
-        if (!setting) return;
-
-        if (!setting.settings.ranges) setting.settings.ranges = {};
-        setting.settings.ranges[rangeKey] = parseInt(value) || 0;
-
-        // Utils.saveFilter 를 통해 DB + localStorage 동시 저장 → missing.html의 storage 이벤트 트리거
-        if (window.Utils && window.Utils.saveFilter) {
-            await window.Utils.saveFilter('missing_period', {
-                useRangeFilter: true,
-                ranges: setting.settings.ranges
-            }, setting.enabled !== false);
-        }
-
-        console.log(`✅ [Dashboard] missing_period 저장: ${rangeKey} = ${value}`);
-    },
-
-    // [추가] 대시보드에서 미출현 커스텀 필터(Min/Max)를 변경하면 저장 및 동기화
-    async updateMissingCustomMinMax(defId, filterId, type, value) {
-        const setting = this.state.userSettings[defId];
-        if (!setting || !setting.settings.filters) return;
-
-        const filter = setting.settings.filters.find(f => String(f.id) === String(filterId));
-        if (!filter) return;
-
-        if (type === 'min') filter.minCount = parseInt(value) || 0;
-        else filter.maxCount = parseInt(value) || 0;
-
-        if (window.Utils && window.Utils.saveFilter) {
-            await window.Utils.saveFilter('missing_custom_filter', {
-                filters: setting.settings.filters
-            }, setting.enabled !== false);
-        }
-
-        console.log(`✅ [Dashboard] missing_custom_filter 저장: filterId=${filterId}, ${type}=${value}`);
-    },
+    // [중복 제거] updateMissingCustomMinMax는 line 1835의 버전(디바운스 포함)만 사용
 
     async updateGungFilter(defId, gungType, type, value) {
         const userSet = this.state.userSettings[defId];
@@ -2308,16 +2988,17 @@ window.FilterDashboard = {
         if (isNaN(val)) return;
         userSet.settings.filters[gungType][type] = val;
 
+        // [수정] 수동 조작 시 최근 10회차 모드 비활성화
+        userSet.settings.recent10FilterActive = false;
+
         if (this._saveTimer) clearTimeout(this._saveTimer);
         this._saveTimer = setTimeout(async () => {
-            // [핵심] Utils.saveFilter 를 통해 DB + localStorage 동시 저장 → magic_square.html의 storage 이벤트 트리거
             const def = this.state.foundationFilters.find(d => d.id === defId);
             if (def) {
-                if (window.Utils && window.Utils.saveFilter) {
-                    await window.Utils.saveFilter(def.filter_key, userSet.settings, userSet.enabled !== false);
-                }
+                // IS NULL + round-specific 행 모두 저장 → 분석페이지 로드 시 대시보드 변경값 반영
+                await this._saveDashboardFilter(def.filter_key, userSet.settings, userSet.enabled !== false);
             }
-            // filter_counter_patch.js의 triggerCount는 'change' 이벤트로 자동 호출됨
         }, 500);
     }
 };
+

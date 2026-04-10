@@ -3,45 +3,45 @@
 
     <a href="index.html" class="flex items-center gap-3 group flex-shrink-0">
         <div
-            class="flex items-center justify-center w-9 h-9 bg-gradient-to-br from-[#4c1d95] to-[#1e1b4b] rounded-xl shadow-lg shadow-indigo-900/15 group-hover:shadow-indigo-900/25 transition-all duration-300">
+            class="flex items-center justify-center w-9 h-9 bg-gradient-to-br from-[#1d4ed8] to-[#1e3a8a] rounded-xl shadow-lg shadow-blue-900/15 group-hover:shadow-blue-900/25 transition-all duration-300">
             <span class="material-symbols-outlined text-white text-[18px] filled">account_balance_wallet</span>
         </div>
         <div class="flex flex-col leading-none">
             <span class="text-[17px] font-black tracking-tight text-slate-900">Lotto <span
-                    class="text-[#4c1d95]">Lab</span></span>
+                    class="text-[#1d4ed8]">Lab</span></span>
             <span class="text-[9px] font-semibold text-slate-400 tracking-[0.15em] uppercase mt-0.5">AI Analysis</span>
         </div>
     </a>
 
     <nav class="flex items-center gap-0.5 overflow-x-auto no-scrollbar">
-        <a href="#" class="gnb-link">대시보드</a>
+        <a href="dashboard.html" class="gnb-link">대시보드</a>
         <a href="winning-numbers.html" class="gnb-link">당첨번호</a>
         <a href="properties_matrix.html" class="gnb-link">기초분석</a>
         <a href="custom_analysis.html" class="gnb-link">커스텀분석</a>
         <a href="ai_deep_learning.html" class="gnb-link">딥러닝 분석</a>
         <a href="filter.html" class="gnb-link">필터</a>
-        <a href="#" class="gnb-link">조합</a>
-        <a href="#" class="gnb-link">AI 조합</a>
-        <a href="#" class="gnb-link">출력</a>
-        <a href="#" class="gnb-link">검증</a>
+        <a href="combination_generator.html" class="gnb-link">조합</a>
+        <a href="ai_combination.html" class="gnb-link">AI 조합</a>
+        <a href="output.html" class="gnb-link">출력</a>
+        <a href="verification.html" class="gnb-link">검증</a>
     </nav>
 
     <div class="flex items-center gap-2 flex-shrink-0">
 
         <!-- ── 새 분석 버튼 ── -->
         <button onclick="GlobalModal.openNewAnalysis()" title="새 분석"
-            class="flex items-center justify-center w-9 h-9 rounded-full text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition-all mr-1">
+            class="flex items-center justify-center w-9 h-9 rounded-full text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition-all mr-1">
             <span class="material-symbols-outlined text-[22px]">post_add</span>
         </button>
 
         <!-- ── 바스켓 트리거 ── -->
         <div class="relative">
             <button id="basket-trigger" onclick="BasketUI.toggle()" title="번호 바스켓"
-                class="relative flex items-center justify-center w-9 h-9 rounded-full text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition-all">
+                class="relative flex items-center justify-center w-9 h-9 rounded-full text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition-all">
                 <span class="material-symbols-outlined text-[22px]">shopping_bag</span>
                 <!-- 고정수 뱃지 -->
                 <span id="basket-fixed-badge"
-                    class="hidden absolute -top-0.5 -right-0.5 items-center justify-center min-w-[16px] h-[16px] px-1 rounded-full bg-indigo-500 text-white text-[9px] font-bold leading-none"></span>
+                    class="hidden absolute -top-0.5 -right-0.5 items-center justify-center min-w-[16px] h-[16px] px-1 rounded-full bg-blue-500 text-white text-[9px] font-bold leading-none"></span>
                 <!-- 제외수 뱃지 (고정수 없을 때만 표시) -->
                 <span id="basket-exclude-badge"
                     class="hidden absolute -top-0.5 -right-0.5 items-center justify-center min-w-[16px] h-[16px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-bold leading-none"></span>
@@ -63,7 +63,7 @@
                 <div class="px-4 py-3 border-b border-slate-100">
                     <div class="flex items-center justify-between mb-2">
                         <div class="flex items-center gap-1.5">
-                            <span class="w-2 h-2 rounded-full bg-indigo-500"></span>
+                            <span class="w-2 h-2 rounded-full bg-blue-500"></span>
                             <span class="text-[12px] font-bold text-slate-700">고정수</span>
                             <span class="text-[11px] text-slate-400">반드시 포함</span>
                         </div>
@@ -75,10 +75,10 @@
                     </div>
                     <div class="flex gap-1.5">
                         <input id="basket-fixed-input" type="text" placeholder="번호 입력 (예: 7 14 27)"
-                            class="flex-1 text-[12px] px-2.5 py-1.5 rounded-lg border border-slate-200 focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-200 placeholder-slate-300"
+                            class="flex-1 text-[12px] px-2.5 py-1.5 rounded-lg border border-slate-200 focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-200 placeholder-slate-300"
                             onkeydown="if(event.key==='Enter') BasketUI.handleInput('fixed','basket-fixed-input')">
                         <button onclick="BasketUI.handleInput('fixed','basket-fixed-input')"
-                            class="px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white text-[12px] font-semibold rounded-lg transition-colors">추가</button>
+                            class="px-3 py-1.5 bg-blue-500 hover:bg-blue-600 text-white text-[12px] font-semibold rounded-lg transition-colors">추가</button>
                     </div>
                 </div>
 
@@ -107,11 +107,71 @@
             </div>
         </div>
 
-        <div id="loginBtn" class="flex items-center justify-center">
-            <button onclick="signInWithGoogle()" title="구글로 로그인"
-                class="flex items-center justify-center w-9 h-9 rounded-full text-slate-400 hover:text-[#4c1d95] transition-colors">
+        <!-- ── 계정 / 텔레그램 설정 트리거 ── -->
+        <div class="relative" id="loginBtn">
+            <button id="acct-trigger" onclick="AcctPanel.toggle()" title="계정 및 설정"
+                class="relative flex items-center justify-center w-9 h-9 rounded-full text-slate-400 hover:text-[#1d4ed8] hover:bg-blue-50 transition-all">
                 <span class="material-symbols-outlined text-[24px]">account_circle</span>
+                <!-- 텔레그램 등록 뱃지 -->
+                <span id="tg-badge"
+                    class="hidden absolute -top-0.5 -right-0.5 w-[10px] h-[10px] rounded-full bg-sky-400 border-2 border-white"></span>
             </button>
+
+            <!-- ── 계정 패널 ── -->
+            <div id="acct-panel"
+                class="hidden absolute right-0 top-[calc(100%+8px)] w-[300px] bg-white rounded-2xl border border-slate-200 shadow-2xl shadow-slate-900/10 z-[9999] opacity-0 scale-95 transition-all duration-150 origin-top-right overflow-hidden">
+
+                <!-- 헤더 -->
+                <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+                    <span class="text-[13px] font-bold text-slate-700">계정 설정</span>
+                </div>
+
+                <!-- 구글 로그인 섹션 -->
+                <div class="px-4 py-3 border-b border-slate-100">
+                    <div class="flex items-center gap-1.5 mb-2">
+                        <span class="w-2 h-2 rounded-full bg-blue-500"></span>
+                        <span class="text-[12px] font-bold text-slate-700">로그인</span>
+                    </div>
+                    <div id="acct-login-area">
+                        <button onclick="signInWithGoogle()"
+                            class="w-full flex items-center justify-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-xl text-[12px] font-semibold text-slate-700 hover:border-blue-400 hover:text-blue-600 transition-all">
+                            <svg width="16" height="16" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.08 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.36-8.16 2.36-6.26 0-11.57-3.59-13.46-8.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+                            Google 계정으로 로그인
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 텔레그램 설정 섹션 -->
+                <div class="px-4 py-3">
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="flex items-center gap-1.5">
+                            <span class="w-2 h-2 rounded-full bg-sky-500"></span>
+                            <span class="text-[12px] font-bold text-slate-700">텔레그램 알림</span>
+                        </div>
+                        <span id="tg-status-badge" class="hidden text-[10px] font-bold px-2 py-0.5 bg-sky-100 text-sky-600 rounded-full">등록됨</span>
+                    </div>
+                    <!-- Chat ID 현재값 표시 -->
+                    <div id="tg-current" class="hidden mb-2 flex items-center gap-2 bg-sky-50 rounded-lg px-3 py-2">
+                        <span class="material-symbols-outlined text-sky-500" style="font-size:14px;">check_circle</span>
+                        <span class="text-[11px] text-sky-700 font-semibold flex-1 truncate" id="tg-current-val"></span>
+                        <button onclick="AcctPanel.clearTg()" class="text-[10px] text-rose-400 hover:text-rose-600 font-bold flex-shrink-0">삭제</button>
+                    </div>
+                    <!-- [수정] 입력 영역 wrapper 추가 (등록 시 숨기기 위함) -->
+                    <div id="tg-input-area">
+                        <div class="flex gap-1.5">
+                            <input id="tg-chat-input" type="text" placeholder="Chat ID 입력 (예: 123456789)"
+                                class="flex-1 text-[12px] px-2.5 py-1.5 rounded-lg border border-slate-200 focus:outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-200 placeholder-slate-300">
+                            <button onclick="AcctPanel.saveTg()"
+                                class="px-3 py-1.5 bg-sky-500 hover:bg-sky-600 text-white text-[12px] font-semibold rounded-lg transition-colors flex-shrink-0">저장</button>
+                        </div>
+                        <!-- 도움말 -->
+                        <div class="mt-2 text-[10px] text-slate-400 leading-relaxed">
+                            <strong class="text-slate-500">Chat ID 확인 방법:</strong><br>
+                            Telegram에서 <strong>@userinfobot</strong>에 /start 메시지 전송 후 표시되는 ID를 입력하세요.
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -144,14 +204,14 @@
             left: 14px;
             right: 14px;
             height: 2px;
-            background: #4c1d95;
+            background: #1d4ed8;
             border-radius: 2px 2px 0 0;
             transform: scaleX(0);
             transition: transform 0.2s ease;
         }
 
         .gnb-link:hover {
-            color: #4c1d95;
+            color: #1d4ed8;
         }
 
         .gnb-link:hover::after {
@@ -159,7 +219,7 @@
         }
 
         .gnb-link.active {
-            color: #4c1d95;
+            color: #1d4ed8;
             font-weight: 600;
         }
 

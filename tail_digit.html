@@ -1,11 +1,11 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html class="light" lang="ko">
 
 <head>
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>Lotto Lab - 끝수 (Supabase AI)</title>
-    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="css/tailwind.css" rel="stylesheet" />
 
     <link rel="icon" href="data:,">
 
@@ -24,6 +24,7 @@
     <script src="js/common_v2.js"></script>
     <script src="js/filter/FilterService.js"></script>
     <script src="js/layout.js"></script>
+    <script src="js/deep_insight_panel.js"></script>
     <script src="js/aiProxy.js"></script>
     <script src="js/NLPInputComponent.js"></script>
     <script src="js/NLPProcessor.js"></script>
@@ -36,6 +37,7 @@
             currentRange: 100,
             highlightTargetRound: null,
             selectedHighlight: { col: null, val: null },
+            selectedColumn: null, // 열 하이라이트 (0~9끝 헤더 클릭)
             digitFilters: {
                 0: { min: 0, max: 4 }, 1: { min: 0, max: 5 }, 2: { min: 0, max: 5 },
                 3: { min: 0, max: 5 }, 4: { min: 0, max: 5 }, 5: { min: 0, max: 5 },
@@ -47,7 +49,7 @@
             isRecentTenFilter: false
         };
 
-        tailwind.config = {
+        if(typeof tailwind !== "undefined") tailwind.config = {
             darkMode: "class",
             theme: {
                 extend: {
@@ -63,6 +65,14 @@
                     },
                 },
             },
+        }
+
+        // [표준] 수동 조작 마킹
+        function markManual() {
+            localStorage.setItem('tail_digit_filter_isManual', 'true');
+            if (AppState.isRecentTenFilter) {
+                deactivateRecent10IfActive();
+            }
         }
 
         // [핵심] DB 팩토리 기본값(모든 max=6) 또는 비필터 상태를 감지
@@ -82,107 +92,77 @@
 
         // 전역 로딩 플래그 (무한 루프 방지)
         window.isLoadingSettings = false;
+        let _tailSelfSaving = false;     // 자체 저장 StorageEvent 루프 방지
+        let _filterSettingsLoaded = false; // loadFilterSettings 완료 전 빈 상태 저장 방지
 
-        // [추가됨] 필터 설정 저장 함수
-        // [수정] 필터 설정 저장 함수 (DB 저장)
+        // [표준화] 필터 설정 저장 함수 (Utils.saveFilter 사용)
         async function saveFilterSettings() {
-            if (window.isLoadingSettings) return; // 로드 중 저장 차단 (무한 루프 방지)
-            console.log('--- saveFilterSettings CALLED ---');
-            const filterEnabled = document.getElementById('filterEnabled').checked;
-            const settings = {
-                // enabled: filterEnabled, // enabled는 별도 아규먼트로 전달
-                filters: AppState.digitFilters
-            };
-
-            console.log('Settings to save:', settings, 'Enabled:', filterEnabled);
-
-            // [0-6 사이클 방지] 모든 필터가 기본값이면 저장하지 않음
-            if (isAllDefaultFilters(AppState.digitFilters)) {
-                console.log('[tail_digit] Skipping save: all filters are at default (no customization)');
-                return;
-            }
-
-            // ✅ filter_dashboard.js가 읽는 키로 항상 localStorage에 저장 (키 불일치 방지)
+            if (window.isLoadingSettings) return;
+            if (!_filterSettingsLoaded) return; // 초기 로드 완료 전 빈 상태 덮어쓰기 방지
             try {
-                localStorage.setItem('tail_digit_patterns', JSON.stringify(settings));
-            } catch (e) { }
+                const latestRound = (AppState.allDrawData && AppState.allDrawData[0]) ? AppState.allDrawData[0].round : null;
+                const targetRound = latestRound ? latestRound + 1 : null;
+                if (!targetRound) return;
 
-            // DB 저장 (FilterService 사용)
-            if (window.filterService && window.filterService.initialized) {
-                console.log('Saving via filterService...');
-                const res = await window.filterService.saveSetting('tail_digit_patterns', settings, filterEnabled);
-                console.log('filterService save result:', res);
-                // DB 저장 실패 시에도 Utils를 통해 localStorage 백업 (이중 보호)
-                if (!res) {
-                    console.warn('[tail_digit] DB save failed, saving to localStorage backup');
-                    if (window.Utils && window.Utils.saveFilter) {
-                        window.Utils.saveFilter('tail_digit_filter', { ...settings, enabled: filterEnabled });
-                    } else {
-                        localStorage.setItem('lottoDigitFilters', JSON.stringify({ ...settings, enabled: filterEnabled }));
+                const filterEnabled = document.getElementById('filterEnabled').checked;
+
+                const data = {
+                    filters: AppState.digitFilters,
+                    recent10FilterActive: AppState.isRecentTenFilter
+                    // targetRound는 data에 포함하지 않음 (대시보드 fast-path sync 오염 방지)
+                };
+
+                // [0-6 사이클 방지] 모든 필터가 기본값이면 저장하지 않음
+                if (isAllDefaultFilters(AppState.digitFilters)) {
+                    console.log('[tail_digit] Skipping save: all filters are at default (no customization)');
+                    return;
+                }
+
+                const storageKey = 'tail_digit_patterns';
+                if (window.Utils && window.Utils.saveFilter) {
+                    try {
+                        _tailSelfSaving = true;
+                        // [1] NULL 행 저장 (localStorage + 크로스탭 sync)
+                        await window.Utils.saveFilter(storageKey, data, filterEnabled);
+                        // [2] 회차 특정 행 저장 (대시보드는 targetRound 행을 우선 읽음)
+                        if (window.filterService && window.filterService.initialized && targetRound) {
+                            await window.filterService.saveSetting(storageKey, data, filterEnabled, targetRound);
+                        }
+                    } finally {
+                        _tailSelfSaving = false;
                     }
                 }
-            } else if (window.Utils && window.Utils.saveFilter) {
-                console.log('Saving via Utils.saveFilter...');
-                // Fallback: localStorage via Utils
-                window.Utils.saveFilter('tail_digit_filter', { ...settings, enabled: filterEnabled });
-            } else {
-                console.log('Saving direct to localStorage...');
-                // Fallback: localStorage direct
-                localStorage.setItem('lottoDigitFilters', JSON.stringify({ ...settings, enabled: filterEnabled }));
+            } catch (error) {
+                console.error('❌ 필터 저장 오류:', error);
             }
         }
 
-        // [추가됨] 필터 설정 불러오기 함수
-        // [수정] 필터 설정 불러오기 함수 (DB + localStorage 병합)
+        // [표준화] 필터 설정 불러오기 함수 (Utils.loadFilter 사용)
         async function loadFilterSettings() {
             window.isLoadingSettings = true;
+            const storageKey = 'tail_digit_patterns';
             try {
                 let saved = null;
-                let localSaved = null;
 
-                // ① localStorage['tail_digit_patterns'] 항상 먼저 읽기
-                //    (saveFilterSettings가 항상 이 키에 저장하므로 가장 최신 값)
-                try {
-                    const local = localStorage.getItem('tail_digit_patterns');
-                    if (local) localSaved = JSON.parse(local);
-                } catch (e) { }
-
-                // ② DB에서 로드 (FilterService 사용)
-                if (window.filterService && window.filterService.initialized) {
-                    const data = await window.filterService.loadSetting('tail_digit_patterns');
-                    if (data) {
-                        saved = { ...data.settings, enabled: data.enabled };
-                        // [핵심 병합] localStorage가 있으면 filters를 항상 덮어씀
-                        // (filter.html과 동일한 merge 전략 – localStorage가 항상 최신)
-                        if (localSaved && localSaved.filters) {
-                            console.log('[tail_digit] Merging localStorage filters over DB data');
-                            saved.filters = localSaved.filters;
-                        }
+                // Utils.loadFilter 우선 (DB + localStorage 통합)
+                if (window.Utils && window.Utils.loadFilter) {
+                    const latestRound = (AppState.allDrawData && AppState.allDrawData.length > 0) ? AppState.allDrawData[0].round : null;
+                    const raw = await window.Utils.loadFilter(storageKey, latestRound);
+                    if (raw) {
+                        saved = (raw.settings !== undefined) ? { ...raw.settings, enabled: raw.enabled } : raw;
                     }
                 }
 
-                // ③ DB 데이터가 없으면 localStorage 사용
-                if (!saved && localSaved) {
-                    saved = localSaved;
-                }
-
-                // ④ Fallback: localStorage via Utils
-                if (!saved && window.Utils && window.Utils.loadFilter) {
-                    saved = window.Utils.loadFilter('tail_digit_filter');
-                }
-
-                // ⑤ Fallback: localStorage direct
+                // Fallback: localStorage 직접 읽기
                 if (!saved) {
-                    const local = localStorage.getItem('lottoDigitFilters');
-                    if (local) saved = JSON.parse(local);
+                    const local = localStorage.getItem(storageKey) || localStorage.getItem('tail_digit_filter') || localStorage.getItem('lottoDigitFilters');
+                    if (local) try { saved = JSON.parse(local); } catch (e) { }
                 }
 
                 if (saved) {
                     try {
                         const toggle = document.getElementById('filterEnabled');
-                        if (toggle && saved.enabled !== undefined) {
-                            toggle.checked = saved.enabled;
-                        }
+                        if (toggle && saved.enabled !== undefined) toggle.checked = saved.enabled;
 
                         // [0-6 사이클 방지] 실제로 좁혀진 필터가 있을 때만 AppState에 적용
                         if (saved.filters && !isAllDefaultFilters(saved.filters)) {
@@ -196,6 +176,22 @@
                         } else {
                             console.log('[tail_digit] 로드된 필터가 기본값 → AppState 적용 스킵 (0-6 사이클 차단)');
                         }
+
+                        // recent10 버튼 상태 복원
+                        const r10Btn = document.getElementById('recent10FilterBtn');
+                        const r10BtnText = document.getElementById('recent10BtnText');
+                        if (r10Btn && r10BtnText && saved.recent10FilterActive !== undefined) {
+                            AppState.isRecentTenFilter = saved.recent10FilterActive;
+                            if (saved.recent10FilterActive) {
+                                r10Btn.classList.add('from-purple-500', 'to-purple-700', 'shadow-purple-200');
+                                r10Btn.classList.remove('from-blue-500', 'to-blue-600', 'shadow-blue-200');
+                                r10BtnText.textContent = '필터 해제';
+                            } else {
+                                r10Btn.classList.remove('from-purple-500', 'to-purple-700', 'shadow-purple-200');
+                                r10Btn.classList.add('from-blue-500', 'to-blue-600', 'shadow-blue-200');
+                                r10BtnText.textContent = '최근 10회차 필터 적용';
+                            }
+                        }
                     } catch (e) {
                         console.error('Failed to load filter settings:', e);
                     }
@@ -204,30 +200,60 @@
                 return false;
             } finally {
                 window.isLoadingSettings = false;
+                _filterSettingsLoaded = true; // 이 시점부터 saveFilterSettings 허용
             }
         }
 
         // [추가] 필터 On/Off 토글 처리 함수
         function toggleFilter(checkbox) {
+            markManual(); // [표준] 수동 조작 마킹
             saveFilterSettings();
             renderList();
             updateFilterBadgeColors();
         }
 
-        // [추가] 대시보드 실시간 동기화 (Storage Event)
+        // 로그아웃 시 필터 UI 초기화
+        function resetFilterUI() {
+            const defaults = { 0:4, 1:5, 2:5, 3:5, 4:5, 5:5, 6:4, 7:4, 8:4, 9:4 };
+            for (let i = 0; i <= 9; i++) {
+                const minEl = document.getElementById(`filter${i}Min`);
+                const maxEl = document.getElementById(`filter${i}Max`);
+                if (minEl) minEl.value = 0;
+                if (maxEl) maxEl.value = defaults[i];
+                AppState.digitFilters[i] = { min: 0, max: defaults[i] };
+            }
+            AppState.isRecentTenFilter = false;
+            const btn = document.getElementById('recent10FilterBtn');
+            const btnText = document.getElementById('recent10BtnText');
+            if (btn) {
+                btn.classList.remove('from-purple-500', 'to-purple-700', 'shadow-purple-200');
+                btn.classList.add('from-blue-500', 'to-blue-600');
+            }
+            if (btnText) btnText.textContent = '최근 10회차 필터 적용';
+            renderList();
+        }
+
+        // [표준화] 대시보드 실시간 동기화 (Storage Event)
         window.addEventListener('storage', async function (e) {
+            if (_tailSelfSaving) return;
             if (!e.key) return;
-            const keysToWatch = [
-                'tail_digit_filter',
-                'tail_digit_patterns',
-                'tail_digit_patterns_filter',
-                'lottoDigitFilters'
-            ];
-            if (keysToWatch.includes(e.key)) {
-                console.log(`[tail_digit] Storage event detected for: ${e.key}, reloading...`);
-                await loadFilterSettings();
-                renderList();
-                updateFilterBadgeColors();
+            const storageKey = 'tail_digit_patterns';
+            if (e.key === storageKey || e.key === 'tail_digit_filter' || e.key === 'tail_digit_patterns_filter') {
+                // 로그아웃 감지
+                if (e.newValue) {
+                    try {
+                        const _p = JSON.parse(e.newValue);
+                        if (_p.enabled === false && !_p.settings && !_p.filters) {
+                            resetFilterUI(); return;
+                        }
+                    } catch(_) {}
+                }
+                const loaded = await loadFilterSettings();
+                if (loaded) {
+                    renderList();
+                    updateFilterBadgeColors();
+                    updateStats();
+                }
             }
         });
     </script>
@@ -323,8 +349,8 @@
             background-color: #FFFBEB;
         }
 
-        input[type=number]::-webkit-inner-spin-button,
-        input[type=number]::-webkit-outer-spin-button {
+        input[type=number]:not(.digit-filter-input)::-webkit-inner-spin-button,
+        input[type=number]:not(.digit-filter-input)::-webkit-outer-spin-button {
             -webkit-appearance: none;
             margin: 0;
         }
@@ -348,6 +374,28 @@
         .row-highlight-selected td {
             background-color: #E9D5FF !important;
             /* Slightly Darker Purple */
+        }
+
+        /* 열 하이라이트 */
+        td.col-highlight-cell {
+            background-color: #FEF9C3 !important; /* yellow-100 */
+        }
+        .ball-col-highlight {
+            background-color: #D97706 !important; /* amber-600 진한 노란 */
+            color: #FFFFFF !important;
+        }
+
+        /* 숫자 입력 스피너: 평소엔 숨김, hover/focus 시에만 표시 */
+        .digit-filter-input::-webkit-inner-spin-button,
+        .digit-filter-input::-webkit-outer-spin-button {
+            opacity: 0;
+            transition: opacity 0.15s;
+        }
+        .digit-filter-input:hover::-webkit-inner-spin-button,
+        .digit-filter-input:hover::-webkit-outer-spin-button,
+        .digit-filter-input:focus::-webkit-inner-spin-button,
+        .digit-filter-input:focus::-webkit-outer-spin-button {
+            opacity: 1;
         }
 
         /* 값 하이라이트 (다크그레이 원형) */
@@ -456,118 +504,15 @@
                     </div>
 
                     <!-- [표준화] AI Insight 섹션 -->
-                    <div class="ai-section p-8 pb-10 mb-6">
-                        <div class="flex items-center justify-between mb-6">
-                            <div class="flex items-baseline gap-2">
-                                <h3 class="text-2xl font-extrabold text-gray-900 tracking-tight">AI Insight</h3>
-                                <span id="aiTargetInfo" class="text-sm text-gray-500 font-medium"></span>
-                            </div>
-                            <button onclick="window.AIAnalysis.openPromptLibraryModal('tail_digit', event)"
-                                class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors">
-                                <span class="material-symbols-outlined text-lg">library_books</span>
-                                프롬프트 라이브러리
-                            </button>
-                        </div>
-
-                        <!-- 3-Section AI Analysis Content -->
-                        <div id="aiAnalysisContent"
-                            class="hidden min-h-[200px] bg-white rounded-xl p-0 border-none overflow-hidden">
-                            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                <div class="bg-blue-50/30 p-5 rounded-2xl border border-blue-50 shadow-sm">
-                                    <h4 class="flex items-center gap-2 text-blue-900 font-bold mb-4">
-                                        <span class="material-symbols-outlined text-sm">trending_up</span>시스템 흐름 진단
-                                    </h4>
-                                    <div id="analysis-step-1"
-                                        class="text-lg text-gray-700 leading-relaxed min-h-[100px]"></div>
-                                </div>
-                                <div class="bg-indigo-50/30 p-5 rounded-2xl border border-indigo-50 shadow-sm">
-                                    <h4 class="flex items-center gap-2 text-indigo-900 font-bold mb-4">
-                                        <span class="material-symbols-outlined text-sm">grid_view</span>끝수 패턴 정밀 분석
-                                    </h4>
-                                    <div id="analysis-step-2"
-                                        class="text-lg text-gray-700 leading-relaxed min-h-[100px]"></div>
-                                </div>
-                                <div class="bg-green-50/30 p-5 rounded-2xl border border-green-50 shadow-sm">
-                                    <h4 class="flex items-center gap-2 text-green-900 font-bold mb-4">
-                                        <span class="material-symbols-outlined text-sm">auto_awesome</span>최종 전략 가이드
-                                    </h4>
-                                    <div id="analysis-step-3"
-                                        class="text-lg text-gray-700 leading-relaxed min-h-[100px]"></div>
+                        <div class="ai-section p-8 pb-10 mb-6 font-sans">
+                            <h3 class="text-lg font-bold text-gray-900 mb-4">딥러닝 Insight</h3>
+                            <div id="dlInsightContainer">
+                                <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
+                                    <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
+                                    <span class="text-sm">딥러닝 모델 분석 중 (7개 모델)...</span>
                                 </div>
                             </div>
                         </div>
-
-                        <div id="aiLoadingIndicator"
-                            class="flex items-center justify-center p-12 bg-gray-50/50 rounded-xl border border-dashed border-gray-200">
-                            <div class="flex flex-col items-center gap-3 text-gray-400">
-                                <div
-                                    class="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin">
-                                </div>
-                                <span class="text-sm font-medium">AI가 실시간 끝수 데이터를 정밀 분석 중입니다...</span>
-                            </div>
-                        </div>
-
-                        <!-- 퀵 버튼 10개 및 NLP 입력창 -->
-                        <div class="mt-8 border-t border-gray-100 pt-8">
-                            <div class="flex flex-col gap-4">
-                                <div class="flex gap-2 overflow-x-auto pb-4 scrollbar-hide" id="aiQuickButtons">
-                                    <button
-                                        onclick="document.getElementById('aiUserPrompt').value='최근 끝수 출현 패턴 및 규칙 상세 분석'; submitCustomAIAnalysis()"
-                                        class="px-3 py-1.5 text-xs font-medium bg-blue-50 text-blue-600 rounded-full hover:bg-blue-100 transition-colors whitespace-nowrap">
-                                        ✨ 끝수 출현 종합 진단
-                                    </button>
-                                    <button
-                                        onclick="document.getElementById('aiUserPrompt').value='특정 끝수(0~9)의 연속 출현 빈도 분석'; submitCustomAIAnalysis()"
-                                        class="px-3 py-1.5 text-xs font-medium bg-indigo-50 text-indigo-600 rounded-full hover:bg-indigo-100 transition-colors whitespace-nowrap">
-                                        📊 끝수 연속성 분석
-                                    </button>
-                                    <button
-                                        onclick="document.getElementById('aiUserPrompt').value='이번 회차에 출현 가능성이 높은 끝수 그룹 추천'; submitCustomAIAnalysis()"
-                                        class="px-3 py-1.5 text-xs font-medium bg-purple-50 text-purple-600 rounded-full hover:bg-purple-100 transition-colors whitespace-nowrap">
-                                        🔍 유망 끝수 그룹
-                                    </button>
-                                    <button
-                                        onclick="document.getElementById('aiUserPrompt').value='장기 미출현 끝수의 반등 시점 예측'; submitCustomAIAnalysis()"
-                                        class="px-3 py-1.5 text-xs font-medium bg-red-50 text-red-600 rounded-full hover:bg-red-100 transition-colors whitespace-nowrap">
-                                        🚫 미출현 끝수 추적
-                                    </button>
-                                    <button
-                                        onclick="document.getElementById('aiUserPrompt').value='끝수 합(Tail Sum)의 추이 및 적정 범위 분석'; submitCustomAIAnalysis()"
-                                        class="px-3 py-1.5 text-xs font-medium bg-teal-50 text-teal-600 rounded-full hover:bg-teal-100 transition-colors whitespace-nowrap">
-                                        📈 끝수 합 흐름 진단
-                                    </button>
-                                    <button
-                                        onclick="document.getElementById('aiUserPrompt').value='동일 끝수(동끝)의 동반 출현 가능성 분석'; submitCustomAIAnalysis()"
-                                        class="px-3 py-1.5 text-xs font-medium bg-orange-50 text-orange-600 rounded-full hover:bg-orange-100 transition-colors whitespace-nowrap">
-                                        🔄 동끝 동반 패턴
-                                    </button>
-                                    <button
-                                        onclick="document.getElementById('aiUserPrompt').value='최근 10회차 기준 가장 안정적인 끝수 개수 조합 추천'; submitCustomAIAnalysis()"
-                                        class="px-3 py-1.5 text-xs font-medium bg-green-50 text-green-600 rounded-full hover:bg-green-100 transition-colors whitespace-nowrap">
-                                        🎯 최적 끝수 조합
-                                    </button>
-                                    <button
-                                        onclick="document.getElementById('aiUserPrompt').value='특정 끝수 구간의 과출현 경보 및 제외 추천'; submitCustomAIAnalysis()"
-                                        class="px-3 py-1.5 text-xs font-medium bg-yellow-50 text-yellow-600 rounded-full hover:bg-yellow-100 transition-colors whitespace-nowrap">
-                                        ⚠️ 과출현 끝수 관리
-                                    </button>
-                                    <button
-                                        onclick="document.getElementById('aiUserPrompt').value='끝수 데이터를 반영한 최적의 필터 설정값 제안'; submitCustomAIAnalysis()"
-                                        class="px-3 py-1.5 text-xs font-medium bg-slate-50 text-slate-600 rounded-full hover:bg-slate-100 transition-colors whitespace-nowrap">
-                                        🧼 필터 최적화 전략
-                                    </button>
-                                    <button
-                                        onclick="document.getElementById('aiUserPrompt').value='이번 회차 이월될 가능성이 높은 끝수 예측'; submitCustomAIAnalysis()"
-                                        class="px-3 py-1.5 text-xs font-medium bg-pink-50 text-pink-600 rounded-full hover:bg-pink-100 transition-colors whitespace-nowrap">
-                                        💡 끝수 이월 진단
-                                    </button>
-                                </div>
-                                <div id="nlp-main-input-container" class="relative">
-                                    <!-- NLPInputComponent가 여기에 주입됩니다 -->
-                                </div>
-                            </div>
-                        </div>
-                    </div>
 
                     <!-- [추가] 끝수 분석 그래프 섹션 -->
                     <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm mb-6">
@@ -612,143 +557,53 @@
                         <div class="col-span-12 bg-white rounded-xl p-6 border border-gray-200 shadow-sm flex flex-col">
                             <div class="flex items-center justify-between mb-4">
                                 <h3 class="text-lg font-bold text-gray-900">조합 필터</h3>
-                                <a href="filter.html#filter-tail_digit_patterns"
-                                    class="text-sm font-medium text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
+                                <a href="filter.html#filter-tail_digit_patterns" target="_blank"
+                                    class="text-sm font-medium text-slate-500 hover:text-blue-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
                                     <span class="material-symbols-outlined text-[18px]">tune</span>
                                     필터 페이지 가기
                                 </a>
                             </div>
                             <div class="grid grid-cols-5 gap-3 flex-1 mb-4">
                                 <!-- 0~9 Ends Filter Inputs -->
-                                <div
-                                    class="flex flex-col items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
-                                    <span id="filter-badge-0"
-                                        class="flex items-center justify-center w-8 h-8 bg-green-800 text-white rounded-full text-xs font-bold mb-2 shadow-sm">0끝</span>
-                                    <div class="flex items-center gap-1"><input type="number" id="filter0Min" min="0"
-                                            max="4" value="0"
-                                            class="w-8 h-7 text-center border-gray-200 rounded text-xs p-0 focus:ring-blue-500 transition-all"
-                                            onchange="updateDigitFilter(0)"><span
-                                            class="text-gray-400 text-[10px]">~</span><input type="number"
-                                            id="filter0Max" min="0" max="4" value="4"
-                                            class="w-8 h-7 text-center border-gray-200 rounded text-xs p-0 focus:ring-blue-500 transition-all"
-                                            onchange="updateDigitFilter(0)"></div>
+                                <div class="flex flex-col items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                    <span id="filter-badge-0" class="filter-badge-label text-sm font-bold text-green-800 mb-2 pb-0.5 border-b-2 border-green-500">0끝</span>
+                                    <div class="flex items-center gap-1"><input type="number" id="filter0Min" min="0" max="4" value="0" class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500" onchange="updateDigitFilter(0)"><span class="text-gray-400 text-xs">∽</span><input type="number" id="filter0Max" min="0" max="4" value="4" class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500" onchange="updateDigitFilter(0)"></div>
                                 </div>
-                                <div
-                                    class="flex flex-col items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
-                                    <span id="filter-badge-1"
-                                        class="flex items-center justify-center w-8 h-8 bg-green-800 text-white rounded-full text-xs font-bold mb-2 shadow-sm">1끝</span>
-                                    <div class="flex items-center gap-1"><input type="number" id="filter1Min" min="0"
-                                            max="5" value="0"
-                                            class="w-8 h-7 text-center border-gray-200 rounded text-xs p-0 focus:ring-blue-500 transition-all"
-                                            onchange="updateDigitFilter(1)"><span
-                                            class="text-gray-400 text-[10px]">~</span><input type="number"
-                                            id="filter1Max" min="0" max="5" value="5"
-                                            class="w-8 h-7 text-center border-gray-200 rounded text-xs p-0 focus:ring-blue-500 transition-all"
-                                            onchange="updateDigitFilter(1)"></div>
+                                <div class="flex flex-col items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                    <span id="filter-badge-1" class="filter-badge-label text-sm font-bold text-green-800 mb-2 pb-0.5 border-b-2 border-green-500">1끝</span>
+                                    <div class="flex items-center gap-1"><input type="number" id="filter1Min" min="0" max="5" value="0" class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500" onchange="updateDigitFilter(1)"><span class="text-gray-400 text-xs">∽</span><input type="number" id="filter1Max" min="0" max="5" value="5" class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500" onchange="updateDigitFilter(1)"></div>
                                 </div>
-                                <div
-                                    class="flex flex-col items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
-                                    <span id="filter-badge-2"
-                                        class="flex items-center justify-center w-8 h-8 bg-green-800 text-white rounded-full text-xs font-bold mb-2 shadow-sm">2끝</span>
-                                    <div class="flex items-center gap-1"><input type="number" id="filter2Min" min="0"
-                                            max="5" value="0"
-                                            class="w-8 h-7 text-center border-gray-200 rounded text-xs p-0 focus:ring-blue-500 transition-all"
-                                            onchange="updateDigitFilter(2)"><span
-                                            class="text-gray-400 text-[10px]">~</span><input type="number"
-                                            id="filter2Max" min="0" max="5" value="5"
-                                            class="w-8 h-7 text-center border-gray-200 rounded text-xs p-0 focus:ring-blue-500 transition-all"
-                                            onchange="updateDigitFilter(2)"></div>
+                                <div class="flex flex-col items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                    <span id="filter-badge-2" class="filter-badge-label text-sm font-bold text-green-800 mb-2 pb-0.5 border-b-2 border-green-500">2끝</span>
+                                    <div class="flex items-center gap-1"><input type="number" id="filter2Min" min="0" max="5" value="0" class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500" onchange="updateDigitFilter(2)"><span class="text-gray-400 text-xs">∽</span><input type="number" id="filter2Max" min="0" max="5" value="5" class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500" onchange="updateDigitFilter(2)"></div>
                                 </div>
-                                <div
-                                    class="flex flex-col items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
-                                    <span id="filter-badge-3"
-                                        class="flex items-center justify-center w-8 h-8 bg-green-800 text-white rounded-full text-xs font-bold mb-2 shadow-sm">3끝</span>
-                                    <div class="flex items-center gap-1"><input type="number" id="filter3Min" min="0"
-                                            max="5" value="0"
-                                            class="w-8 h-7 text-center border-gray-200 rounded text-xs p-0 focus:ring-blue-500 transition-all"
-                                            onchange="updateDigitFilter(3)"><span
-                                            class="text-gray-400 text-[10px]">~</span><input type="number"
-                                            id="filter3Max" min="0" max="5" value="5"
-                                            class="w-8 h-7 text-center border-gray-200 rounded text-xs p-0 focus:ring-blue-500 transition-all"
-                                            onchange="updateDigitFilter(3)"></div>
+                                <div class="flex flex-col items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                    <span id="filter-badge-3" class="filter-badge-label text-sm font-bold text-green-800 mb-2 pb-0.5 border-b-2 border-green-500">3끝</span>
+                                    <div class="flex items-center gap-1"><input type="number" id="filter3Min" min="0" max="5" value="0" class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500" onchange="updateDigitFilter(3)"><span class="text-gray-400 text-xs">∽</span><input type="number" id="filter3Max" min="0" max="5" value="5" class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500" onchange="updateDigitFilter(3)"></div>
                                 </div>
-                                <div
-                                    class="flex flex-col items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
-                                    <span id="filter-badge-4"
-                                        class="flex items-center justify-center w-8 h-8 bg-green-800 text-white rounded-full text-xs font-bold mb-2 shadow-sm">4끝</span>
-                                    <div class="flex items-center gap-1"><input type="number" id="filter4Min" min="0"
-                                            max="5" value="0"
-                                            class="w-8 h-7 text-center border-gray-200 rounded text-xs p-0 focus:ring-blue-500 transition-all"
-                                            onchange="updateDigitFilter(4)"><span
-                                            class="text-gray-400 text-[10px]">~</span><input type="number"
-                                            id="filter4Max" min="0" max="5" value="5"
-                                            class="w-8 h-7 text-center border-gray-200 rounded text-xs p-0 focus:ring-blue-500 transition-all"
-                                            onchange="updateDigitFilter(4)"></div>
+                                <div class="flex flex-col items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                    <span id="filter-badge-4" class="filter-badge-label text-sm font-bold text-green-800 mb-2 pb-0.5 border-b-2 border-green-500">4끝</span>
+                                    <div class="flex items-center gap-1"><input type="number" id="filter4Min" min="0" max="5" value="0" class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500" onchange="updateDigitFilter(4)"><span class="text-gray-400 text-xs">∽</span><input type="number" id="filter4Max" min="0" max="5" value="5" class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500" onchange="updateDigitFilter(4)"></div>
                                 </div>
-                                <div
-                                    class="flex flex-col items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
-                                    <span id="filter-badge-5"
-                                        class="flex items-center justify-center w-8 h-8 bg-green-800 text-white rounded-full text-xs font-bold mb-2 shadow-sm">5끝</span>
-                                    <div class="flex items-center gap-1"><input type="number" id="filter5Min" min="0"
-                                            max="5" value="0"
-                                            class="w-8 h-7 text-center border-gray-200 rounded text-xs p-0 focus:ring-blue-500 transition-all"
-                                            onchange="updateDigitFilter(5)"><span
-                                            class="text-gray-400 text-[10px]">~</span><input type="number"
-                                            id="filter5Max" min="0" max="5" value="5"
-                                            class="w-8 h-7 text-center border-gray-200 rounded text-xs p-0 focus:ring-blue-500 transition-all"
-                                            onchange="updateDigitFilter(5)"></div>
+                                <div class="flex flex-col items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                    <span id="filter-badge-5" class="filter-badge-label text-sm font-bold text-green-800 mb-2 pb-0.5 border-b-2 border-green-500">5끝</span>
+                                    <div class="flex items-center gap-1"><input type="number" id="filter5Min" min="0" max="5" value="0" class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500" onchange="updateDigitFilter(5)"><span class="text-gray-400 text-xs">∽</span><input type="number" id="filter5Max" min="0" max="5" value="5" class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500" onchange="updateDigitFilter(5)"></div>
                                 </div>
-                                <div
-                                    class="flex flex-col items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
-                                    <span id="filter-badge-6"
-                                        class="flex items-center justify-center w-8 h-8 bg-green-800 text-white rounded-full text-xs font-bold mb-2 shadow-sm">6끝</span>
-                                    <div class="flex items-center gap-1"><input type="number" id="filter6Min" min="0"
-                                            max="4" value="0"
-                                            class="w-8 h-7 text-center border-gray-200 rounded text-xs p-0 focus:ring-blue-500 transition-all"
-                                            onchange="updateDigitFilter(6)"><span
-                                            class="text-gray-400 text-[10px]">~</span><input type="number"
-                                            id="filter6Max" min="0" max="4" value="4"
-                                            class="w-8 h-7 text-center border-gray-200 rounded text-xs p-0 focus:ring-blue-500 transition-all"
-                                            onchange="updateDigitFilter(6)"></div>
+                                <div class="flex flex-col items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                    <span id="filter-badge-6" class="filter-badge-label text-sm font-bold text-green-800 mb-2 pb-0.5 border-b-2 border-green-500">6끝</span>
+                                    <div class="flex items-center gap-1"><input type="number" id="filter6Min" min="0" max="4" value="0" class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500" onchange="updateDigitFilter(6)"><span class="text-gray-400 text-xs">∽</span><input type="number" id="filter6Max" min="0" max="4" value="4" class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500" onchange="updateDigitFilter(6)"></div>
                                 </div>
-                                <div
-                                    class="flex flex-col items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
-                                    <span id="filter-badge-7"
-                                        class="flex items-center justify-center w-8 h-8 bg-green-800 text-white rounded-full text-xs font-bold mb-2 shadow-sm">7끝</span>
-                                    <div class="flex items-center gap-1"><input type="number" id="filter7Min" min="0"
-                                            max="4" value="0"
-                                            class="w-8 h-7 text-center border-gray-200 rounded text-xs p-0 focus:ring-blue-500 transition-all"
-                                            onchange="updateDigitFilter(7)"><span
-                                            class="text-gray-400 text-[10px]">~</span><input type="number"
-                                            id="filter7Max" min="0" max="4" value="4"
-                                            class="w-8 h-7 text-center border-gray-200 rounded text-xs p-0 focus:ring-blue-500 transition-all"
-                                            onchange="updateDigitFilter(7)"></div>
+                                <div class="flex flex-col items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                    <span id="filter-badge-7" class="filter-badge-label text-sm font-bold text-green-800 mb-2 pb-0.5 border-b-2 border-green-500">7끝</span>
+                                    <div class="flex items-center gap-1"><input type="number" id="filter7Min" min="0" max="4" value="0" class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500" onchange="updateDigitFilter(7)"><span class="text-gray-400 text-xs">∽</span><input type="number" id="filter7Max" min="0" max="4" value="4" class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500" onchange="updateDigitFilter(7)"></div>
                                 </div>
-                                <div
-                                    class="flex flex-col items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
-                                    <span id="filter-badge-8"
-                                        class="flex items-center justify-center w-8 h-8 bg-green-800 text-white rounded-full text-xs font-bold mb-2 shadow-sm">8끝</span>
-                                    <div class="flex items-center gap-1"><input type="number" id="filter8Min" min="0"
-                                            max="4" value="0"
-                                            class="w-8 h-7 text-center border-gray-200 rounded text-xs p-0 focus:ring-blue-500 transition-all"
-                                            onchange="updateDigitFilter(8)"><span
-                                            class="text-gray-400 text-[10px]">~</span><input type="number"
-                                            id="filter8Max" min="0" max="4" value="4"
-                                            class="w-8 h-7 text-center border-gray-200 rounded text-xs p-0 focus:ring-blue-500 transition-all"
-                                            onchange="updateDigitFilter(8)"></div>
+                                <div class="flex flex-col items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                    <span id="filter-badge-8" class="filter-badge-label text-sm font-bold text-green-800 mb-2 pb-0.5 border-b-2 border-green-500">8끝</span>
+                                    <div class="flex items-center gap-1"><input type="number" id="filter8Min" min="0" max="4" value="0" class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500" onchange="updateDigitFilter(8)"><span class="text-gray-400 text-xs">∽</span><input type="number" id="filter8Max" min="0" max="4" value="4" class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500" onchange="updateDigitFilter(8)"></div>
                                 </div>
-                                <div
-                                    class="flex flex-col items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
-                                    <span id="filter-badge-9"
-                                        class="flex items-center justify-center w-8 h-8 bg-green-800 text-white rounded-full text-xs font-bold mb-2 shadow-sm">9끝</span>
-                                    <div class="flex items-center gap-1"><input type="number" id="filter9Min" min="0"
-                                            max="4" value="0"
-                                            class="w-8 h-7 text-center border-gray-200 rounded text-xs p-0 focus:ring-blue-500 transition-all"
-                                            onchange="updateDigitFilter(9)"><span
-                                            class="text-gray-400 text-[10px]">~</span><input type="number"
-                                            id="filter9Max" min="0" max="4" value="4"
-                                            class="w-8 h-7 text-center border-gray-200 rounded text-xs p-0 focus:ring-blue-500 transition-all"
-                                            onchange="updateDigitFilter(9)"></div>
+                                <div class="flex flex-col items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                    <span id="filter-badge-9" class="filter-badge-label text-sm font-bold text-green-800 mb-2 pb-0.5 border-b-2 border-green-500">9끝</span>
+                                    <div class="flex items-center gap-1"><input type="number" id="filter9Min" min="0" max="4" value="0" class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500" onchange="updateDigitFilter(9)"><span class="text-gray-400 text-xs">∽</span><input type="number" id="filter9Max" min="0" max="4" value="4" class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500" onchange="updateDigitFilter(9)"></div>
                                 </div>
                             </div>
 
@@ -760,7 +615,7 @@
                             <div class="flex items-center justify-between gap-3 mt-4 pt-4 border-t border-gray-100">
                                 <button onclick="applyRecent10Filters()" id="recent10FilterBtn"
                                     style="min-width: 210px;"
-                                    class="flex items-center justify-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 transition-all active:scale-95 text-sm font-black mr-2">
+                                    class="flex items-center justify-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 transition-all active:scale-95 text-sm font-black mr-2">
                                     <span class="material-symbols-outlined text-[18px]">auto_fix_high</span>
                                     <span id="recent10BtnText">최근 10회차 필터 적용</span>
                                 </button>
@@ -831,16 +686,16 @@
                                         <th class="py-3 px-2 text-center w-20">보너스</th>
                                         <th class="py-3 px-2 text-center w-20">이월</th>
                                         <th class="py-3 px-2 text-center w-20">보끝이월</th>
-                                        <th class="py-3 px-2 text-center w-12">0끝</th>
-                                        <th class="py-3 px-2 text-center w-12">1끝</th>
-                                        <th class="py-3 px-2 text-center w-12">2끝</th>
-                                        <th class="py-3 px-2 text-center w-12">3끝</th>
-                                        <th class="py-3 px-2 text-center w-12">4끝</th>
-                                        <th class="py-3 px-2 text-center w-12">5끝</th>
-                                        <th class="py-3 px-2 text-center w-12">6끝</th>
-                                        <th class="py-3 px-2 text-center w-12">7끝</th>
-                                        <th class="py-3 px-2 text-center w-12">8끝</th>
-                                        <th class="py-3 px-2 text-center w-12">9끝</th>
+                                        <th id="col-header-0" onclick="toggleColumnHighlight(0)" class="py-3 px-2 text-center w-12 cursor-pointer select-none transition-colors hover:bg-[#334155]">0끝</th>
+                                        <th id="col-header-1" onclick="toggleColumnHighlight(1)" class="py-3 px-2 text-center w-12 cursor-pointer select-none transition-colors hover:bg-[#334155]">1끝</th>
+                                        <th id="col-header-2" onclick="toggleColumnHighlight(2)" class="py-3 px-2 text-center w-12 cursor-pointer select-none transition-colors hover:bg-[#334155]">2끝</th>
+                                        <th id="col-header-3" onclick="toggleColumnHighlight(3)" class="py-3 px-2 text-center w-12 cursor-pointer select-none transition-colors hover:bg-[#334155]">3끝</th>
+                                        <th id="col-header-4" onclick="toggleColumnHighlight(4)" class="py-3 px-2 text-center w-12 cursor-pointer select-none transition-colors hover:bg-[#334155]">4끝</th>
+                                        <th id="col-header-5" onclick="toggleColumnHighlight(5)" class="py-3 px-2 text-center w-12 cursor-pointer select-none transition-colors hover:bg-[#334155]">5끝</th>
+                                        <th id="col-header-6" onclick="toggleColumnHighlight(6)" class="py-3 px-2 text-center w-12 cursor-pointer select-none transition-colors hover:bg-[#334155]">6끝</th>
+                                        <th id="col-header-7" onclick="toggleColumnHighlight(7)" class="py-3 px-2 text-center w-12 cursor-pointer select-none transition-colors hover:bg-[#334155]">7끝</th>
+                                        <th id="col-header-8" onclick="toggleColumnHighlight(8)" class="py-3 px-2 text-center w-12 cursor-pointer select-none transition-colors hover:bg-[#334155]">8끝</th>
+                                        <th id="col-header-9" onclick="toggleColumnHighlight(9)" class="py-3 px-2 text-center w-12 cursor-pointer select-none transition-colors hover:bg-[#334155]">9끝</th>
                                     </tr>
                                 </thead>
                                 <tbody id="drawsList"></tbody>
@@ -956,36 +811,14 @@
         // ==========================================
         function changeGraphType(type) {
             if (AppState.selectedGraphType !== type) {
+                markManual(); // [표준] 수동 조작 마킹
                 AppState.selectedGraphType = type;
                 const displayData = AppState.allDrawData.slice(0, AppState.currentRange);
                 updateCharts(displayData);
-                refreshAIAnalysis();
+                initDeepInsight();
             }
         }
 
-        function setChartTab(tab) {
-            if (AppState.chartTab !== tab) {
-                AppState.chartTab = tab;
-
-                const tabRate = document.getElementById('tabRate');
-                const tabTrend = document.getElementById('tabTrend');
-                const rateContainer = document.getElementById('rateChartContainer');
-                const trendContainer = document.getElementById('trendChartContainer');
-
-                if (tab === 'rate') {
-                    tabRate.className = "px-4 py-1.5 text-sm font-bold bg-white text-blue-600 rounded-md shadow-sm transition-all";
-                    tabTrend.className = "px-4 py-1.5 text-sm font-bold text-gray-500 hover:text-gray-700 transition-all";
-                    rateContainer.classList.remove('hidden');
-                    trendContainer.classList.add('hidden');
-                } else {
-                    tabRate.className = "px-4 py-1.5 text-sm font-bold text-gray-500 hover:text-gray-700 transition-all";
-                    tabTrend.className = "px-4 py-1.5 text-sm font-bold bg-white text-blue-600 rounded-md shadow-sm transition-all";
-                    rateContainer.classList.add('hidden');
-                    trendContainer.classList.remove('hidden');
-                    updateTrendChart();
-                }
-            }
-        }
 
         function updateCharts(data) {
             updateRateChart(data);
@@ -1088,127 +921,40 @@
             });
         }
 
-        async function refreshAIAnalysis() {
-            if (!AppState.allDrawData || AppState.allDrawData.length === 0) return;
+        // 딥러닝 인사이트 패널 초기화
+        function initDeepInsight() {
+            if (window.DeepInsightPanel) {
+                DeepInsightPanel.renderGroup('dlInsightContainer', 'tail_digit');
+            }
+        }
 
-            const loading = document.getElementById('aiLoadingIndicator');
-            const content = document.getElementById('aiAnalysisContent');
-            const targetInfo = document.getElementById('aiTargetInfo');
+        function setChartTab(tab) {
+            if (AppState.chartTab !== tab) {
+                markManual(); // [표준] 수동 조작 마킹
+                AppState.chartTab = tab;
 
-            if (loading) loading.classList.remove('hidden');
-            if (content) content.classList.add('hidden');
+                const tabRate = document.getElementById('tabRate');
+                const tabTrend = document.getElementById('tabTrend');
+                const rateContainer = document.getElementById('rateChartContainer');
+                const trendContainer = document.getElementById('trendChartContainer');
 
-            try {
-                const latestDraw = AppState.allDrawData[0];
-                const subjectRound = latestDraw.round;
-                const targetRound = subjectRound + 1;
-
-                // if (targetInfo) targetInfo.textContent = `| ${targetRound}회차 심층 분석 리포트`;
-
-                // [심화 데이터 추출]
-                // 가장 많이 나온 끝수(Top Frequency)의 Gap과 Streak
-                const totalCounts = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-                AppState.allDrawData.slice(0, AppState.currentRange).forEach(d => {
-                    d.numbers.forEach(n => totalCounts[n % 10]++);
-                });
-                const topDigit = totalCounts.indexOf(Math.max(...totalCounts));
-
-                let topDigitGap = 0;
-                let topDigitStreak = 0;
-
-                // Gap 계산
-                for (let i = 0; i < AppState.allDrawData.length; i++) {
-                    if (AppState.allDrawData[i].numbers.some(n => n % 10 === topDigit)) break;
-                    topDigitGap++;
+                if (tab === 'rate') {
+                    tabRate.className = "px-4 py-1.5 text-sm font-bold bg-white text-blue-600 rounded-md shadow-sm transition-all";
+                    tabTrend.className = "px-4 py-1.5 text-sm font-bold text-gray-500 hover:text-gray-700 transition-all";
+                    rateContainer.classList.remove('hidden');
+                    trendContainer.classList.add('hidden');
+                } else {
+                    tabRate.className = "px-4 py-1.5 text-sm font-bold text-gray-500 hover:text-gray-700 transition-all";
+                    tabTrend.className = "px-4 py-1.5 text-sm font-bold bg-white text-blue-600 rounded-md shadow-sm transition-all";
+                    rateContainer.classList.add('hidden');
+                    trendContainer.classList.remove('hidden');
+                    updateTrendChart();
                 }
-
-                // Streak 계산
-                for (let i = 0; i < AppState.allDrawData.length; i++) {
-                    if (!AppState.allDrawData[i].numbers.some(n => n % 10 === topDigit)) break;
-                    topDigitStreak++;
-                }
-                // [Rich Statistical Analysis]
-                const rangeData = AppState.allDrawData.slice(0, AppState.currentRange);
-                const allValues = rangeData.map(d => {
-                    const counts = new Array(10).fill(0);
-                    d.numbers.forEach(n => counts[n % 10]++);
-                    return counts;
-                });
-
-                // 1. Averages & Distribution
-                const digitStats = [];
-                for (let i = 0; i < 10; i++) {
-                    const occurrences = allValues.map(v => v[i]);
-                    const avgOccur = occurrences.reduce((a, b) => a + b, 0) / occurrences.length;
-                    const variance = occurrences.reduce((s, v) => s + Math.pow(v - avgOccur, 2), 0) / occurrences.length;
-                    const stdDev = Math.sqrt(variance);
-                    digitStats.push({ digit: i, avg: avgOccur, stdDev: stdDev });
-                }
-                const distributionText = digitStats.map(s => `${s.digit}끝:${(s.avg * 100 / 6).toFixed(1)}%`).join(', ');
-
-                // 2. Trend (5 vs 10 Moving Average)
-                const recent5Counts = allValues.slice(0, 5).reduce((acc, curr) => acc.map((v, i) => v + curr[i]), new Array(10).fill(0));
-                const recent10Counts = allValues.slice(0, 10).reduce((acc, curr) => acc.map((v, i) => v + curr[i]), new Array(10).fill(0));
-                const trendText = recent5Counts.map((v, i) => {
-                    const r5 = v / 5;
-                    const r10 = recent10Counts[i] / 10;
-                    return `${i}끝(${r5 > r10 ? '↑' : r5 < r10 ? '↓' : '-'})`;
-                }).join(', ');
-
-                const recent5Summary = AppState.allDrawData.slice(0, 5).map(d => `[${d.round}회:${d.numbers.map(n => n % 10).sort().join(',')}]`).join(', ');
-
-                if (window.AIAnalysis) {
-                    await window.AIAnalysis.executeAnalysis({
-                        containerId: 'aiAnalysisContent',
-                        analysisType: 'tail_digit',
-                        subjectRound: subjectRound,
-                        targetRound: targetRound,
-                        customData: `
-# [끝수 통계 데이터 리포트]
-- 분석 범위: 최근 ${AppState.currentRange}회차
-- 최근 5회차 상세: ${recent5Summary}
-- 끝수별 평균 출현율: ${distributionText}
-- 최근 추세(5MA vs 10MA): ${trendText}
-- 최다 빈도(${topDigit}끝) 현황: 미출현(Gap) ${topDigitGap}회차 / 연속(Streak) ${topDigitStreak}회차
-                        `,
-                        customRules: `
-# [분석 규칙: 데이터 기반 통계 진단]
-1. "에너지", "기운", "운세" 등 비과학적 표현을 절대 금지하고 "통계적 흐름", "과열/침체" 등으로 대체하십시오.
-2. 반드시 상기 제공된 [끝수 통계 데이터 리포트]의 구체적 수치(출현율, MA 추세, Gap)를 인용하여 논리적으로 설명하시오.
-3. [통계 진단]: 최근 끝수합의 흐름이 평균(23.0) 대비 어느 방향으로 편중되고 있는지, 특정 끝수의 추세(↑/↓)가 반전될 가능성을 진단하시오.
-4. [전략 제안]: ${targetRound}회차에서 데이터 근거가 가장 확실한 추천 끝수 2개와 제외 권장 끝수 1개를 데이터와 함께 제안하시오.
-5. 절대 금지어: 에너지, 기운, 파동, 운세, 소액 투자, 분산 투자, 투자 전략, 100% 보장, 참고용, 재미로, 행운, 대박, 직감.
-                        `
-                    });
-
-                    // 3단계 섹션에 데이터 주입 (getLastAnalysis가 없으면 스킵)
-                    if (typeof window.AIAnalysis.getLastAnalysis === 'function') {
-                        const analysisData = window.AIAnalysis.getLastAnalysis();
-                        if (analysisData) {
-                            const step1 = document.getElementById('analysis-step-1');
-                            const step2 = document.getElementById('analysis-step-2');
-                            const step3 = document.getElementById('analysis-step-3');
-
-                            const formatFn = window.AIAnalysis.formatText || (t => t);
-                            if (step1) step1.innerHTML = formatFn(analysisData.trend || "데이터 수집 중...");
-                            if (step2) step2.innerHTML = formatFn(analysisData.pattern || "데이터 수집 중...");
-                            if (step3) step3.innerHTML = formatFn(analysisData.recommendation || "데이터 수집 중...");
-                        }
-                    }
-                }
-
-                if (loading) loading.classList.add('hidden');
-                if (content) content.classList.remove('hidden');
-
-                generateAiQuickButtons();
-
-            } catch (err) {
-                console.error('Initial AI Report Error:', err);
-                if (loading) loading.innerHTML = '<div class="text-xs text-red-100 bg-red-500/10 p-4 rounded-xl">AI 분석 엔진 연동 실패. 잠시 후 다시 시도해 주세요.</div>';
             }
         }
 
         function toggleDigitCard(digit) {
+            markManual(); // [표준] 수동 조작 마킹
             const card = document.getElementById(`card-digit${digit}`);
             if (card.classList.contains('bg-white')) {
                 card.classList.remove('bg-white', 'border-gray-200');
@@ -1264,7 +1010,10 @@
             data.forEach((draw, index) => {
                 const tr = document.createElement('tr');
                 tr.className = 'border-b border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer';
-                tr.onclick = function () { highlightRecent10(draw.round); };
+                tr.onclick = function () { 
+                    markManual(); // [표준] 수동 조작 마킹
+                    highlightRecent10(draw.round); 
+                };
 
                 if (AppState.highlightTargetRound && draw.round <= AppState.highlightTargetRound && draw.round > AppState.highlightTargetRound - 10) {
                     tr.className = 'row-highlight text-gray-900 font-medium transition-colors hover:bg-gray-100 cursor-pointer';
@@ -1299,7 +1048,9 @@
                         innerContent = `<span>${ten}</span><span class="text-red-600 font-bold">${unit}</span>`;
                     }
 
-                    return `<div class="ball-simple">${innerContent}</div>`;
+                    // 열 하이라이트: 선택된 끝수와 일치하는 번호 강조
+                    const isColMatch = AppState.selectedColumn !== null && n % 10 === AppState.selectedColumn;
+                    return `<div class="${isColMatch ? 'ball-simple ball-col-highlight' : 'ball-simple'}">${innerContent}</div>`;
                 }).join('');
 
                 const bonusHtml = draw.bonus ? `<div class="ball-simple ball-bonus">${String(draw.bonus).padStart(2, '0')}</div>` : '-';
@@ -1338,7 +1089,8 @@
                         badgeClass += "text-gray-400 font-bold text-xs";
                         content = missedCount > 0 ? missedCount : '-';
                     }
-                    return `<td class="py-3 px-2 text-center"><div class="flex justify-center"><span class="${badgeClass}">${content}</span></div></td>`;
+                    const colHighlight = AppState.selectedColumn === digit ? ' col-highlight-cell' : '';
+            return `<td class="py-3 px-2 text-center${colHighlight}"><div class="flex justify-center"><span class="${badgeClass}">${content}</span></div></td>`;
                 }).join('');
 
                 tr.id = `row-${draw.round}`;
@@ -1379,6 +1131,7 @@
         }
 
         function updateRange(value) {
+            markManual(); // [표준] 최근10 해제 및 수동 조작 마킹
             const maxVal = AppState.allDrawData.length || 1203;
             AppState.currentRange = parseInt(value);
             if (AppState.currentRange >= maxVal) {
@@ -1390,7 +1143,33 @@
             updatePresetButtons(value);
             updateStats();
             renderList();
-            refreshAIAnalysis();
+            initDeepInsight();
+        }
+
+        // [표준화] 최근 10회차 필터를 비활성화하고 UI를 초기화하는 함수
+        function deactivateRecent10IfActive() {
+            if (AppState.isRecentTenFilter) {
+                AppState.isRecentTenFilter = false;
+                AppState.highlightTargetRound = null;
+                
+                const btn = document.getElementById('recent10FilterBtn');
+                const btnText = document.getElementById('recent10BtnText');
+                if (btn) {
+                    btn.classList.remove('from-purple-500', 'to-purple-700', 'shadow-purple-200');
+                    btn.classList.add('from-blue-500', 'to-blue-600', 'shadow-blue-200');
+                    if (btnText) btnText.textContent = '최근 10회차 필터 적용';
+                }
+                
+                const toggle = document.getElementById('filterEnabled');
+                if (toggle) toggle.checked = true;
+
+                // 하이라이트 즉시 해제
+                const currentRows = document.querySelectorAll('.row-highlight');
+                currentRows.forEach(el => el.classList.remove('row-highlight'));
+                
+                saveFilterSettings();
+                renderList();
+            }
         }
 
         // [표준화] 최근 10회차 필터 자동 적용 (missing.html 기준)
@@ -1400,14 +1179,15 @@
 
             // 토글: 이미 켜져있으면 끄기 (보라색 클래스 존재 여부로 판단)
             if (btn.classList.contains('from-purple-500')) {
-                btn.classList.remove('from-purple-500', 'to-purple-700');
-                btn.classList.add('from-blue-500', 'to-indigo-600');
+                // 버튼 먼저 파란색으로 초기화
+                btn.classList.remove('from-purple-500', 'to-purple-700', 'shadow-purple-200');
+                btn.classList.add('from-blue-500', 'to-blue-600', 'shadow-blue-200');
                 btnText.textContent = '최근 10회차 필터 적용';
 
                 AppState.isRecentTenFilter = false;
                 AppState.highlightTargetRound = null;
 
-                // [수정] 이전 저장된 커스텀 설정 복원 (0-6 하드 리셋 대신)
+                // 이전 저장된 커스텀 설정 복원
                 const restored = await loadFilterSettings();
                 if (!restored) {
                     // 저장된 설정 없음 → HTML input 기본값(max 속성 기준)으로 리셋
@@ -1421,9 +1201,20 @@
                         AppState.digitFilters[i] = { min: 0, max: htmlMax };
                     }
                 }
+                // loadFilterSettings가 recent10 상태를 복원했을 수 있으므로 강제 비활성화
+                AppState.isRecentTenFilter = false;
+                AppState.highlightTargetRound = null;
+                btn.classList.remove('from-purple-500', 'to-purple-700', 'shadow-purple-200');
+                btn.classList.add('from-blue-500', 'to-blue-600', 'shadow-blue-200');
+                btnText.textContent = '최근 10회차 필터 적용';
+                
+                localStorage.removeItem('tail_digit_filter_isManual');
+                await saveFilterSettings(); // 해제 상태 저장
                 renderList();
                 return;
             }
+
+            localStorage.removeItem('tail_digit_filter_isManual');
 
             if (!AppState.allDrawData || AppState.allDrawData.length < 10) return;
 
@@ -1462,8 +1253,8 @@
             }
 
             // 4. UI 및 필터 활성화
-            btn.classList.remove('from-blue-500', 'to-indigo-600');
-            btn.classList.add('from-purple-500', 'to-purple-700');
+            btn.classList.remove('from-blue-500', 'to-blue-600', 'shadow-blue-200');
+            btn.classList.add('from-purple-500', 'to-purple-700', 'shadow-purple-200');
             btnText.textContent = '필터 해제';
 
             const toggle = document.getElementById('filterEnabled');
@@ -1511,7 +1302,26 @@
             updateRange(safeValue);
         }
 
+        // 끝수 열 하이라이트 토글
+        function toggleColumnHighlight(digit) {
+            markManual(); // [표준] 수동 조작 마킹
+            AppState.selectedColumn = (AppState.selectedColumn === digit) ? null : digit;
+            for (let i = 0; i < 10; i++) {
+                const th = document.getElementById(`col-header-${i}`);
+                if (!th) continue;
+                if (AppState.selectedColumn === i) {
+                    th.style.backgroundColor = '#F59E0B';
+                    th.style.color = '#fff';
+                } else {
+                    th.style.backgroundColor = '';
+                    th.style.color = '';
+                }
+            }
+            renderList();
+        }
+
         function updateDigitFilter(digit) {
+            markManual(); // [표준] 수동 조작 마킹
             const min = parseInt(document.getElementById(`filter${digit}Min`).value);
             const max = parseInt(document.getElementById(`filter${digit}Max`).value);
             if (min > max) {
@@ -1521,6 +1331,7 @@
                 AppState.digitFilters[digit].min = min;
                 AppState.digitFilters[digit].max = max;
             }
+
             saveFilterSettings();
         }
 
@@ -1535,9 +1346,9 @@
                 const badge = document.getElementById(`filter-badge-${i}`);
                 if (badge) {
                     if (counts[i] > 0) {
-                        badge.className = "flex items-center justify-center w-8 h-8 bg-green-800 text-white rounded-full text-xs font-bold mb-2 shadow-sm";
+                        badge.className = "filter-badge-label text-sm font-bold text-green-800 mb-2 pb-0.5 border-b-2 border-green-500";
                     } else {
-                        badge.className = "flex items-center justify-center w-8 h-8 bg-gray-400 text-white rounded-full text-xs font-bold mb-2 shadow-sm";
+                        badge.className = "filter-badge-label text-sm font-bold text-gray-400 mb-2 pb-0.5 border-b-2 border-gray-300";
                     }
                 }
             }
@@ -1612,21 +1423,23 @@
                     await window.filterService.initialize();
                 }
 
-                await loadFilterSettings();
+                const currentRound = AppState.allDrawData && AppState.allDrawData.length > 0 ? AppState.allDrawData[0].round : null;
+                await loadFilterSettings(currentRound);
 
                 // [토요일 자동 업데이트] 새 회차가 감지되면 최근 10회차 필터 자동 적용
-                const latestRound = AppState.allDrawData[0]?.round || 0;
+                const latestRoundNum = AppState.allDrawData[0]?.round || 0;
                 const lastAutoRound = parseInt(localStorage.getItem('tail_digit_recent10_auto_round') || '0');
-                if (latestRound > lastAutoRound && AppState.allDrawData.length >= 10) {
-                    console.log(`[tail_digit] 새 회차 감지 (${lastAutoRound} → ${latestRound}), 최근 10회차 필터 자동 적용`);
+                if (latestRoundNum > lastAutoRound && AppState.allDrawData.length >= 10) {
+                    console.log(`[tail_digit] 새 회차 감지 (${lastAutoRound} → ${latestRoundNum}), 필터 자동 갱신`);
                     await applyRecent10Filters();
-                    localStorage.setItem('tail_digit_recent10_auto_round', String(latestRound));
+                    await saveFilterSettings(latestRoundNum + 1);
+                    localStorage.setItem('tail_digit_recent10_auto_round', String(latestRoundNum));
                 }
 
                 updateStats();
                 renderList();
                 updateFilterBadgeColors();
-                refreshAIAnalysis();
+                initDeepInsight();
 
                 setTimeout(() => {
                     const slider = document.getElementById('rangeSlider');
@@ -1954,3 +1767,4 @@ ${contextData}
 </body>
 
 </html>
+

@@ -154,7 +154,9 @@ function parseFilters(raw) {
 
     // ── 합성수 ──
     if (raw.compositeFilter) {
-        F.compositeCounts = raw.compositeFilter.selectedValues ? new Set(raw.compositeFilter.selectedValues) : null;
+        // selectedCounts(분석페이지 저장) 또는 selectedValues(대시보드 기본값) 모두 수용
+        const _compArr = raw.compositeFilter.selectedCounts || raw.compositeFilter.selectedValues;
+        F.compositeCounts = (_compArr && _compArr.length > 0) ? new Set(_compArr) : null;
         F.compositeExcludedLUT = makeLUT(raw.compositeFilter.excludedComposites);
     }
 
@@ -233,6 +235,7 @@ function parseFilters(raw) {
     // ── 커스텀 분석 필터 (ai_custom_analyses) ──
     if (raw.customAnalysisFilters && raw.customAnalysisFilters.length > 0) {
         F.customAnalysis = raw.customAnalysisFilters.map(cf => ({
+            id: cf.id,
             lut: makeLUT(cf.targetNums),
             min: cf.min !== undefined ? cf.min : 0,
             max: cf.max !== undefined ? cf.max : 6,
@@ -244,9 +247,21 @@ function parseFilters(raw) {
     if (raw.regressionFilters && raw.regressionFilters.length > 0) {
         // regressionFilters = [{drawNums:[...], min, max}, ...]
         F.regressionFilters = raw.regressionFilters.map(rf => ({
+            step: rf.step,
             lut: makeLUT(rf.drawNums),
             min: rf.min,
             max: rf.max
+        }));
+    }
+
+    // ── 수동 필터 (manual_filters) ──
+    if (raw.manualFilters && raw.manualFilters.length > 0) {
+        F.manualFilters = raw.manualFilters.map(mf => ({
+            id: mf.id,
+            title: mf.title || '수동필터',
+            lut: makeLUT(mf.selectedNums),
+            min: mf.min !== undefined ? mf.min : 1,
+            max: mf.max !== undefined ? mf.max : 6
         }));
     }
 
@@ -318,18 +333,53 @@ function checkFilters(a, b, c, d, e, f, F) {
         if (F.highLowExcluded && F.highLowExcluded.has(ratio)) return false;
     }
 
-    // ── 끝수 패턴 (0~9 끝자리 개수 범위) ──
-    if (F.tailDigitRanges) {
-        // 끝수 카운트 (0~9)
-        const td = new Uint8Array(10);
-        td[a % 10]++; td[b % 10]++; td[c % 10]++; td[d % 10]++; td[e % 10]++; td[f % 10]++;
-        const ranges = F.tailDigitRanges;
-        for (const digit in ranges) {
-            const r = ranges[digit];
-            if (r.min === undefined && r.max === undefined) continue;
-            const cnt = td[parseInt(digit)];
-            if (r.min !== undefined && cnt < r.min) return false;
-            if (r.max !== undefined && cnt > r.max) return false;
+    // ── 연번 ──
+    if (F.consecutiveCounts !== undefined || F.runFilters) {
+        // 정렬된 입력(a<b<c<d<e<f) 기준으로 연속 런 계산
+        const arr6 = [a, b, c, d, e, f];
+        let maxRun = 1, curRun = 1;
+        let run3 = false, run4 = false, run5 = false, run6 = false;
+
+        for (let i = 1; i < 6; i++) {
+            if (arr6[i] === arr6[i - 1] + 1) {
+                curRun++;
+                if (curRun === 3) run3 = true;
+                if (curRun === 4) run4 = true;
+                if (curRun === 5) run5 = true;
+                if (curRun === 6) run6 = true;
+                if (curRun > maxRun) maxRun = curRun;
+            } else {
+                curRun = 1;
+            }
+        }
+        if (F.consecutiveCounts && !F.consecutiveCounts.has(maxRun < 2 ? 0 : maxRun - 1)) return false;
+        if (F.runFilters) {
+            const rf = F.runFilters;
+            if (rf.run3 && rf.run3.enabled !== undefined) { if (rf.run3.enabled && !run3) return false; }
+            if (rf.run4 && rf.run4.enabled !== undefined) { if (rf.run4.enabled && !run4) return false; }
+            if (rf.run5 && rf.run5.enabled !== undefined) { if (rf.run5.enabled && !run5) return false; }
+            if (rf.run6 && rf.run6.enabled !== undefined) { if (rf.run6.enabled && !run6) return false; }
+        }
+    }
+
+    // ── 이웃수 ──
+    if (F.neighborCounts && F.neighborLUT) {
+        const lut = F.neighborLUT;
+        const cnt = (lut[a] || 0) + (lut[b] || 0) + (lut[c] || 0) + (lut[d] || 0) + (lut[e] || 0) + (lut[f] || 0);
+        if (!F.neighborCounts.has(cnt)) return false;
+    }
+
+    // ── 이월수 ──
+    if (F.carryoverCounts !== undefined || F.carryoverBonusCounts !== undefined) {
+        if (F.carryoverCounts && F.carryoverLUT) {
+            const lut = F.carryoverLUT;
+            const cnt = (lut[a] || 0) + (lut[b] || 0) + (lut[c] || 0) + (lut[d] || 0) + (lut[e] || 0) + (lut[f] || 0);
+            if (!F.carryoverCounts.has(cnt)) return false;
+        }
+        if (F.carryoverBonusCounts && F.carryoverBonusLUT) {
+            const lut = F.carryoverBonusLUT;
+            const cnt = (lut[a] || 0) + (lut[b] || 0) + (lut[c] || 0) + (lut[d] || 0) + (lut[e] || 0) + (lut[f] || 0);
+            if (!F.carryoverBonusCounts.has(cnt)) return false;
         }
     }
 
@@ -339,7 +389,6 @@ function checkFilters(a, b, c, d, e, f, F) {
         if (el && (el[a] || el[b] || el[c] || el[d] || el[e] || el[f])) return false;
         if (F.primeCounts) {
             let cnt = PRIME_LUT[a] + PRIME_LUT[b] + PRIME_LUT[c] + PRIME_LUT[d] + PRIME_LUT[e] + PRIME_LUT[f];
-            // 제외된 소수를 보정: 제외수에 해당하는 번호가 소수라면 카운트에서 제외
             if (el) {
                 if (el[a] && PRIME_LUT[a]) cnt--;
                 if (el[b] && PRIME_LUT[b]) cnt--;
@@ -349,60 +398,6 @@ function checkFilters(a, b, c, d, e, f, F) {
                 if (el[f] && PRIME_LUT[f]) cnt--;
             }
             if (!F.primeCounts.has(cnt)) return false;
-        }
-    }
-
-    // ── 제곱수 ──
-    if (F.squareCounts || F.squareExcludedLUT) {
-        const el = F.squareExcludedLUT;
-        if (el && (el[a] || el[b] || el[c] || el[d] || el[e] || el[f])) return false;
-        if (F.squareCounts) {
-            let cnt = SQUARE_LUT[a] + SQUARE_LUT[b] + SQUARE_LUT[c] + SQUARE_LUT[d] + SQUARE_LUT[e] + SQUARE_LUT[f];
-            if (el) {
-                if (el[a] && SQUARE_LUT[a]) cnt--;
-                if (el[b] && SQUARE_LUT[b]) cnt--;
-                if (el[c] && SQUARE_LUT[c]) cnt--;
-                if (el[d] && SQUARE_LUT[d]) cnt--;
-                if (el[e] && SQUARE_LUT[e]) cnt--;
-                if (el[f] && SQUARE_LUT[f]) cnt--;
-            }
-            if (!F.squareCounts.has(cnt)) return false;
-        }
-    }
-
-    // ── 삼각수 ──
-    if (F.triCounts || F.triExcludedLUT) {
-        const el = F.triExcludedLUT;
-        if (el && (el[a] || el[b] || el[c] || el[d] || el[e] || el[f])) return false;
-        if (F.triCounts) {
-            let cnt = TRI_LUT[a] + TRI_LUT[b] + TRI_LUT[c] + TRI_LUT[d] + TRI_LUT[e] + TRI_LUT[f];
-            if (el) {
-                if (el[a] && TRI_LUT[a]) cnt--;
-                if (el[b] && TRI_LUT[b]) cnt--;
-                if (el[c] && TRI_LUT[c]) cnt--;
-                if (el[d] && TRI_LUT[d]) cnt--;
-                if (el[e] && TRI_LUT[e]) cnt--;
-                if (el[f] && TRI_LUT[f]) cnt--;
-            }
-            if (!F.triCounts.has(cnt)) return false;
-        }
-    }
-
-    // ── 쌍수(동형수: 11,22,33,44) ──
-    if (F.twinCounts || F.twinExcludedLUT) {
-        const el = F.twinExcludedLUT;
-        if (el && (el[a] || el[b] || el[c] || el[d] || el[e] || el[f])) return false;
-        if (F.twinCounts) {
-            let cnt = TWIN_LUT[a] + TWIN_LUT[b] + TWIN_LUT[c] + TWIN_LUT[d] + TWIN_LUT[e] + TWIN_LUT[f];
-            if (el) {
-                if (el[a] && TWIN_LUT[a]) cnt--;
-                if (el[b] && TWIN_LUT[b]) cnt--;
-                if (el[c] && TWIN_LUT[c]) cnt--;
-                if (el[d] && TWIN_LUT[d]) cnt--;
-                if (el[e] && TWIN_LUT[e]) cnt--;
-                if (el[f] && TWIN_LUT[f]) cnt--;
-            }
-            if (!F.twinCounts.has(cnt)) return false;
         }
     }
 
@@ -424,71 +419,108 @@ function checkFilters(a, b, c, d, e, f, F) {
         }
     }
 
-    // ── 연번 ──
-    if (F.consecutiveCounts !== undefined || F.runFilters) {
-        // 정렬된 입력(a<b<c<d<e<f) 기준으로 연속 런 계산
-        const arr6 = [a, b, c, d, e, f];
-        let maxRun = 1, curRun = 1, totalConsec = 0;
-        let run3 = false, run4 = false, run5 = false, run6 = false;
-
-        for (let i = 1; i < 6; i++) {
-            if (arr6[i] === arr6[i - 1] + 1) {
-                curRun++;
-                if (curRun === 3) { totalConsec = Math.max(totalConsec, curRun); run3 = true; }
-                if (curRun === 4) { run4 = true; }
-                if (curRun === 5) { run5 = true; }
-                if (curRun === 6) { run6 = true; }
-                if (curRun > maxRun) maxRun = curRun;
-            } else {
-                curRun = 1;
+    // ── 삼각수 ──
+    if (F.triCounts || F.triExcludedLUT) {
+        const el = F.triExcludedLUT;
+        if (el && (el[a] || el[b] || el[c] || el[d] || el[e] || el[f])) return false;
+        if (F.triCounts) {
+            let cnt = TRI_LUT[a] + TRI_LUT[b] + TRI_LUT[c] + TRI_LUT[d] + TRI_LUT[e] + TRI_LUT[f];
+            if (el) {
+                if (el[a] && TRI_LUT[a]) cnt--;
+                if (el[b] && TRI_LUT[b]) cnt--;
+                if (el[c] && TRI_LUT[c]) cnt--;
+                if (el[d] && TRI_LUT[d]) cnt--;
+                if (el[e] && TRI_LUT[e]) cnt--;
+                if (el[f] && TRI_LUT[f]) cnt--;
             }
+            if (!F.triCounts.has(cnt)) return false;
         }
-        // 연번 개수: 최장 런 길이 기준
-        if (F.consecutiveCounts && !F.consecutiveCounts.has(maxRun < 2 ? 0 : maxRun)) return false;
+    }
 
-        // run 개별 필터
-        if (F.runFilters) {
-            const rf = F.runFilters;
-            if (rf.run3 && rf.run3.enabled !== undefined) {
-                if (rf.run3.enabled && !run3) return false;
-                // allowed=false: run3 허용 안 함 → run3가 있으면 제거
+    // ── 제곱수 ──
+    if (F.squareCounts || F.squareExcludedLUT) {
+        const el = F.squareExcludedLUT;
+        if (el && (el[a] || el[b] || el[c] || el[d] || el[e] || el[f])) return false;
+        if (F.squareCounts) {
+            let cnt = SQUARE_LUT[a] + SQUARE_LUT[b] + SQUARE_LUT[c] + SQUARE_LUT[d] + SQUARE_LUT[e] + SQUARE_LUT[f];
+            if (el) {
+                if (el[a] && SQUARE_LUT[a]) cnt--;
+                if (el[b] && SQUARE_LUT[b]) cnt--;
+                if (el[c] && SQUARE_LUT[c]) cnt--;
+                if (el[d] && SQUARE_LUT[d]) cnt--;
+                if (el[e] && SQUARE_LUT[e]) cnt--;
+                if (el[f] && SQUARE_LUT[f]) cnt--;
             }
-            if (rf.run4 && rf.run4.enabled !== undefined) {
-                if (rf.run4.enabled && !run4) return false;
-            }
-            if (rf.run5 && rf.run5.enabled !== undefined) {
-                if (rf.run5.enabled && !run5) return false;
-            }
-            if (rf.run6 && rf.run6.enabled !== undefined) {
-                if (rf.run6.enabled && !run6) return false;
-            }
+            if (!F.squareCounts.has(cnt)) return false;
         }
+    }
+
+    // ── 동형수(쌍수: 11,22,33,44) ──
+    if (F.twinCounts || F.twinExcludedLUT) {
+        const el = F.twinExcludedLUT;
+        if (el && (el[a] || el[b] || el[c] || el[d] || el[e] || el[f])) return false;
+        if (F.twinCounts) {
+            let cnt = TWIN_LUT[a] + TWIN_LUT[b] + TWIN_LUT[c] + TWIN_LUT[d] + TWIN_LUT[e] + TWIN_LUT[f];
+            if (el) {
+                if (el[a] && TWIN_LUT[a]) cnt--;
+                if (el[b] && TWIN_LUT[b]) cnt--;
+                if (el[c] && TWIN_LUT[c]) cnt--;
+                if (el[d] && TWIN_LUT[d]) cnt--;
+                if (el[e] && TWIN_LUT[e]) cnt--;
+                if (el[f] && TWIN_LUT[f]) cnt--;
+            }
+            if (!F.twinCounts.has(cnt)) return false;
+        }
+    }
+
+    // ── 끝수 패턴 (0~9 끝자리 개수 범위) ──
+    if (F.tailDigitRanges) {
+        const td = new Uint8Array(10);
+        td[a % 10]++; td[b % 10]++; td[c % 10]++; td[d % 10]++; td[e % 10]++; td[f % 10]++;
+        const ranges = F.tailDigitRanges;
+        for (const digit in ranges) {
+            const r = ranges[digit];
+            if (r.min === undefined && r.max === undefined) continue;
+            const cnt = td[parseInt(digit)];
+            if (r.min !== undefined && cnt < r.min) return false;
+            if (r.max !== undefined && cnt > r.max) return false;
+        }
+    }
+
+    // ── 배수 패턴 ──
+    if (F.multipleRanges) {
+        const mr = F.multipleRanges;
+        const m3a = M3_LUT[a], m3b = M3_LUT[b], m3c = M3_LUT[c], m3d = M3_LUT[d], m3e = M3_LUT[e], m3f = M3_LUT[f];
+        const m4a = M4_LUT[a], m4b = M4_LUT[b], m4c = M4_LUT[c], m4d = M4_LUT[d], m4e = M4_LUT[e], m4f = M4_LUT[f];
+        const m5a = M5_LUT[a], m5b = M5_LUT[b], m5c = M5_LUT[c], m5d = M5_LUT[d], m5e = M5_LUT[e], m5f = M5_LUT[f];
+        const cnt3 = m3a + m3b + m3c + m3d + m3e + m3f;
+        const cnt4 = m4a + m4b + m4c + m4d + m4e + m4f;
+        const cnt5 = m5a + m5b + m5c + m5d + m5e + m5f;
+        const r3 = mr['3배수']; if (r3 && r3.min !== undefined) { if (cnt3 < r3.min || cnt3 > r3.max) return false; }
+        const r4 = mr['4배수']; if (r4 && r4.min !== undefined) { if (cnt4 < r4.min || cnt4 > r4.max) return false; }
+        const r5 = mr['5배수']; if (r5 && r5.min !== undefined) { if (cnt5 < r5.min || cnt5 > r5.max) return false; }
+        const cnt34 = (m3a && m4a ? 1 : 0) + (m3b && m4b ? 1 : 0) + (m3c && m4c ? 1 : 0) + (m3d && m4d ? 1 : 0) + (m3e && m4e ? 1 : 0) + (m3f && m4f ? 1 : 0);
+        const r34 = mr['3·4배수']; if (r34 && r34.min !== undefined) { if (cnt34 < r34.min || cnt34 > r34.max) return false; }
+        const cnt35 = (m3a && m5a ? 1 : 0) + (m3b && m5b ? 1 : 0) + (m3c && m5c ? 1 : 0) + (m3d && m5d ? 1 : 0) + (m3e && m5e ? 1 : 0) + (m3f && m5f ? 1 : 0);
+        const r35 = mr['3·5배수']; if (r35 && r35.min !== undefined) { if (cnt35 < r35.min || cnt35 > r35.max) return false; }
+        const cnt45 = (m4a && m5a ? 1 : 0) + (m4b && m5b ? 1 : 0) + (m4c && m5c ? 1 : 0) + (m4d && m5d ? 1 : 0) + (m4e && m5e ? 1 : 0) + (m4f && m5f ? 1 : 0);
+        const r45b = mr['4·5배수']; if (r45b && r45b.min !== undefined) { if (cnt45 < r45b.min || cnt45 > r45b.max) return false; }
+        const cntOther = (!m3a && !m4a && !m5a ? 1 : 0) + (!m3b && !m4b && !m5b ? 1 : 0) + (!m3c && !m4c && !m5c ? 1 : 0) +
+            (!m3d && !m4d && !m5d ? 1 : 0) + (!m3e && !m4e && !m5e ? 1 : 0) + (!m3f && !m4f && !m5f ? 1 : 0);
+        const rOther = mr['배수외']; if (rOther && rOther.min !== undefined) { if (cntOther < rOther.min || cntOther > rOther.max) return false; }
     }
 
     // ── 번호대 (1_10 / 11_20 / 21_30 / 31_40 / 41_45) ──
     if (F.numRanges) {
         const ranges = F.numRanges;
-        // 각 번호대 카운트
         let c1 = 0, c2 = 0, c3 = 0, c4 = 0, c5 = 0;
-        const cnt = (n) => {
-            if (n <= 10) c1++;
-            else if (n <= 20) c2++;
-            else if (n <= 30) c3++;
-            else if (n <= 40) c4++;
-            else c5++;
-        };
+        const cnt = (n) => { if (n <= 10) c1++; else if (n <= 20) c2++; else if (n <= 30) c3++; else if (n <= 40) c4++; else c5++; };
         cnt(a); cnt(b); cnt(c); cnt(d); cnt(e); cnt(f);
-
-        const r10 = ranges['1_10'];
-        if (r10 && (r10.min !== undefined)) { if (c1 < r10.min || c1 > r10.max) return false; }
-        const r20 = ranges['11_20'];
-        if (r20 && (r20.min !== undefined)) { if (c2 < r20.min || c2 > r20.max) return false; }
-        const r30 = ranges['21_30'];
-        if (r30 && (r30.min !== undefined)) { if (c3 < r30.min || c3 > r30.max) return false; }
-        const r40 = ranges['31_40'];
-        if (r40 && (r40.min !== undefined)) { if (c4 < r40.min || c4 > r40.max) return false; }
-        const r45 = ranges['41_45'];
-        if (r45 && (r45.min !== undefined)) { if (c5 < r45.min || c5 > r45.max) return false; }
+        const r10 = ranges['1_10'];  if (r10 && r10.min !== undefined) { if (c1 < r10.min || c1 > r10.max) return false; }
+        const r20 = ranges['11_20']; if (r20 && r20.min !== undefined) { if (c2 < r20.min || c2 > r20.max) return false; }
+        const r30 = ranges['21_30']; if (r30 && r30.min !== undefined) { if (c3 < r30.min || c3 > r30.max) return false; }
+        const r40 = ranges['31_40']; if (r40 && r40.min !== undefined) { if (c4 < r40.min || c4 > r40.max) return false; }
+        const r45 = ranges['41_45']; if (r45 && r45.min !== undefined) { if (c5 < r45.min || c5 > r45.max) return false; }
     }
 
     // ── 엔트로피 ──
@@ -496,27 +528,13 @@ function checkFilters(a, b, c, d, e, f, F) {
         const eMin = parseFloat(F.entropyRange.min);
         const eMax = parseFloat(F.entropyRange.max);
         if (!isNaN(eMin) || !isNaN(eMax)) {
-            // Shannon entropy of number ranges (번호대 분포 기준)
             let c1 = 0, c2 = 0, c3 = 0, c4 = 0, c5 = 0;
-            const cnt = (n) => {
-                if (n <= 10) c1++;
-                else if (n <= 20) c2++;
-                else if (n <= 30) c3++;
-                else if (n <= 40) c4++;
-                else c5++;
-            };
+            const cnt = (n) => { if (n <= 10) c1++; else if (n <= 20) c2++; else if (n <= 30) c3++; else if (n <= 40) c4++; else c5++; };
             cnt(a); cnt(b); cnt(c); cnt(d); cnt(e); cnt(f);
-
-            const ranges = [c1, c2, c3, c4, c5];
+            const bins = [c1, c2, c3, c4, c5];
             let ent = 0;
-            for (let i = 0; i < 5; i++) {
-                if (ranges[i] > 0) {
-                    const p = ranges[i] / 6;
-                    ent -= p * Math.log2(p);
-                }
-            }
+            for (let i = 0; i < 5; i++) { if (bins[i] > 0) { const p = bins[i] / 6; ent -= p * Math.log2(p); } }
             ent = Math.round(ent * 100) / 100;
-
             if (!isNaN(eMin) && ent < eMin) return false;
             if (!isNaN(eMax) && ent > eMax) return false;
         }
@@ -525,14 +543,11 @@ function checkFilters(a, b, c, d, e, f, F) {
     // ── 9궁 (마방진) ──
     if (F.palaceRanges) {
         const pr = F.palaceRanges;
-        // 각 궁 카운트
         const pc = new Uint8Array(10);
         pc[PALACE_LUT[a]]++; pc[PALACE_LUT[b]]++; pc[PALACE_LUT[c]]++;
         pc[PALACE_LUT[d]]++; pc[PALACE_LUT[e]]++; pc[PALACE_LUT[f]]++;
         for (let g = 1; g <= 9; g++) {
-            const key = `${g}궁`;
-            const r = pr[key];
-            if (!r) continue;
+            const r = pr[`${g}궁`]; if (!r) continue;
             if (r.min !== undefined && pc[g] < r.min) return false;
             if (r.max !== undefined && pc[g] > r.max) return false;
         }
@@ -541,90 +556,22 @@ function checkFilters(a, b, c, d, e, f, F) {
     // ── 로또용지 (가로/세로) ──
     if (F.paperGroups) {
         const pg = F.paperGroups;
-        // 가로 행 카운트 (1~7)
         const gc = new Uint8Array(8);
         gc[GARO_LUT[a]]++; gc[GARO_LUT[b]]++; gc[GARO_LUT[c]]++;
         gc[GARO_LUT[d]]++; gc[GARO_LUT[e]]++; gc[GARO_LUT[f]]++;
         for (let row = 1; row <= 7; row++) {
-            const key = `가로${row}`;
-            const r = pg[key];
-            if (!r) continue;
+            const r = pg[`가로${row}`]; if (!r) continue;
             if (r.min !== undefined && gc[row] < r.min) return false;
             if (r.max !== undefined && gc[row] > r.max) return false;
         }
-        // 세로 열 카운트 (1~7)
         const sc = new Uint8Array(8);
         sc[SERO_LUT[a]]++; sc[SERO_LUT[b]]++; sc[SERO_LUT[c]]++;
         sc[SERO_LUT[d]]++; sc[SERO_LUT[e]]++; sc[SERO_LUT[f]]++;
         for (let col = 1; col <= 7; col++) {
-            const key = `세로${col}`;
-            const r = pg[key];
-            if (!r) continue;
+            const r = pg[`세로${col}`]; if (!r) continue;
             if (r.min !== undefined && sc[col] < r.min) return false;
             if (r.max !== undefined && sc[col] > r.max) return false;
         }
-    }
-
-    // ── 배수 패턴 ──
-    if (F.multipleRanges) {
-        const mr = F.multipleRanges;
-
-        const m3a = M3_LUT[a], m3b = M3_LUT[b], m3c = M3_LUT[c], m3d = M3_LUT[d], m3e = M3_LUT[e], m3f = M3_LUT[f];
-        const m4a = M4_LUT[a], m4b = M4_LUT[b], m4c = M4_LUT[c], m4d = M4_LUT[d], m4e = M4_LUT[e], m4f = M4_LUT[f];
-        const m5a = M5_LUT[a], m5b = M5_LUT[b], m5c = M5_LUT[c], m5d = M5_LUT[d], m5e = M5_LUT[e], m5f = M5_LUT[f];
-
-        const cnt3 = m3a + m3b + m3c + m3d + m3e + m3f;
-        const cnt4 = m4a + m4b + m4c + m4d + m4e + m4f;
-        const cnt5 = m5a + m5b + m5c + m5d + m5e + m5f;
-
-        const r3 = mr['3배수'];
-        if (r3 && r3.min !== undefined) { if (cnt3 < r3.min || cnt3 > r3.max) return false; }
-        const r4 = mr['4배수'];
-        if (r4 && r4.min !== undefined) { if (cnt4 < r4.min || cnt4 > r4.max) return false; }
-        const r5 = mr['5배수'];
-        if (r5 && r5.min !== undefined) { if (cnt5 < r5.min || cnt5 > r5.max) return false; }
-
-        // 3·4배수 (3과 4의 공배수: 12,24,36)
-        const cnt34 = (m3a && m4a ? 1 : 0) + (m3b && m4b ? 1 : 0) + (m3c && m4c ? 1 : 0) + (m3d && m4d ? 1 : 0) + (m3e && m4e ? 1 : 0) + (m3f && m4f ? 1 : 0);
-        const r34 = mr['3·4배수'];
-        if (r34 && r34.min !== undefined) { if (cnt34 < r34.min || cnt34 > r34.max) return false; }
-
-        // 3·5배수 (3과 5의 공배수: 15,30,45)
-        const cnt35 = (m3a && m5a ? 1 : 0) + (m3b && m5b ? 1 : 0) + (m3c && m5c ? 1 : 0) + (m3d && m5d ? 1 : 0) + (m3e && m5e ? 1 : 0) + (m3f && m5f ? 1 : 0);
-        const r35 = mr['3·5배수'];
-        if (r35 && r35.min !== undefined) { if (cnt35 < r35.min || cnt35 > r35.max) return false; }
-
-        // 4·5배수 (4와 5의 공배수: 20,40)
-        const cnt45 = (m4a && m5a ? 1 : 0) + (m4b && m5b ? 1 : 0) + (m4c && m5c ? 1 : 0) + (m4d && m5d ? 1 : 0) + (m4e && m5e ? 1 : 0) + (m4f && m5f ? 1 : 0);
-        const r45b = mr['4·5배수'];
-        if (r45b && r45b.min !== undefined) { if (cnt45 < r45b.min || cnt45 > r45b.max) return false; }
-
-        // 배수외 (3/4/5 배수 아닌 번호 수)
-        const cntOther = (!m3a && !m4a && !m5a ? 1 : 0) + (!m3b && !m4b && !m5b ? 1 : 0) + (!m3c && !m4c && !m5c ? 1 : 0) +
-            (!m3d && !m4d && !m5d ? 1 : 0) + (!m3e && !m4e && !m5e ? 1 : 0) + (!m3f && !m4f && !m5f ? 1 : 0);
-        const rOther = mr['배수외'];
-        if (rOther && rOther.min !== undefined) { if (cntOther < rOther.min || cntOther > rOther.max) return false; }
-    }
-
-    // ── 이월수 ──
-    if (F.carryoverCounts !== undefined || F.carryoverBonusCounts !== undefined) {
-        if (F.carryoverCounts && F.carryoverLUT) {
-            const lut = F.carryoverLUT;
-            const cnt = (lut[a] || 0) + (lut[b] || 0) + (lut[c] || 0) + (lut[d] || 0) + (lut[e] || 0) + (lut[f] || 0);
-            if (!F.carryoverCounts.has(cnt)) return false;
-        }
-        if (F.carryoverBonusCounts && F.carryoverBonusLUT) {
-            const lut = F.carryoverBonusLUT;
-            const cnt = (lut[a] || 0) + (lut[b] || 0) + (lut[c] || 0) + (lut[d] || 0) + (lut[e] || 0) + (lut[f] || 0);
-            if (!F.carryoverBonusCounts.has(cnt)) return false;
-        }
-    }
-
-    // ── 이웃수 ──
-    if (F.neighborCounts && F.neighborLUT) {
-        const lut = F.neighborLUT;
-        const cnt = (lut[a] || 0) + (lut[b] || 0) + (lut[c] || 0) + (lut[d] || 0) + (lut[e] || 0) + (lut[f] || 0);
-        if (!F.neighborCounts.has(cnt)) return false;
     }
 
     // ── Hot/Cold 5/10/15/20 ──
@@ -633,9 +580,8 @@ function checkFilters(a, b, c, d, e, f, F) {
         if (!hc) continue;
 
         const lh = hc.hotLUT, lw = hc.warmLUT, lc = hc.coldLUT;
-        if (!lh) continue;
 
-        const hotCnt = (lh[a] || 0) + (lh[b] || 0) + (lh[c] || 0) + (lh[d] || 0) + (lh[e] || 0) + (lh[f] || 0);
+        const hotCnt = lh ? (lh[a] || 0) + (lh[b] || 0) + (lh[c] || 0) + (lh[d] || 0) + (lh[e] || 0) + (lh[f] || 0) : 0;
         const warmCnt = lw ? (lw[a] || 0) + (lw[b] || 0) + (lw[c] || 0) + (lw[d] || 0) + (lw[e] || 0) + (lw[f] || 0) : 0;
         const coldCnt = lc ? (lc[a] || 0) + (lc[b] || 0) + (lc[c] || 0) + (lc[d] || 0) + (lc[e] || 0) + (lc[f] || 0) : 0;
 
@@ -676,6 +622,18 @@ function checkFilters(a, b, c, d, e, f, F) {
         }
     }
 
+    // ── 회귀 분석 ──
+    if (F.regressionFilters) {
+        const rf = F.regressionFilters;
+        for (let ri = 0; ri < rf.length; ri++) {
+            const r = rf[ri];
+            if (!r.lut) continue;
+            const lut = r.lut;
+            const cnt = (lut[a] || 0) + (lut[b] || 0) + (lut[c] || 0) + (lut[d] || 0) + (lut[e] || 0) + (lut[f] || 0);
+            if (cnt < r.min || cnt > r.max) return false;
+        }
+    }
+
     // ── 커스텀 분석 필터 (ai_custom_analyses) ──
     if (F.customAnalysis) {
         const ca = F.customAnalysis;
@@ -688,15 +646,15 @@ function checkFilters(a, b, c, d, e, f, F) {
         }
     }
 
-    // ── 회귀 분석 ──
-    if (F.regressionFilters) {
-        const rf = F.regressionFilters;
-        for (let ri = 0; ri < rf.length; ri++) {
-            const r = rf[ri];
-            if (!r.lut) continue;
-            const lut = r.lut;
+    // ── 수동 필터 (manual_filters) ──
+    if (F.manualFilters) {
+        const mf = F.manualFilters;
+        for (let mi = 0; mi < mf.length; mi++) {
+            const m = mf[mi];
+            if (!m.lut) continue;
+            const lut = m.lut;
             const cnt = (lut[a] || 0) + (lut[b] || 0) + (lut[c] || 0) + (lut[d] || 0) + (lut[e] || 0) + (lut[f] || 0);
-            if (cnt < r.min || cnt > r.max) return false;
+            if (cnt < m.min || cnt > m.max) return false;
         }
     }
 
@@ -811,7 +769,7 @@ function checkFiltersGetStage(a, b, c, d, e, f, F) {
         for (let i = 1; i < 6; i++) {
             if (arr6[i] === arr6[i - 1] + 1) { curRun++; if (curRun >= 3) run3 = true; if (curRun >= 4) run4 = true; if (curRun >= 5) run5 = true; if (curRun === 6) run6 = true; if (curRun > maxRun) maxRun = curRun; } else curRun = 1;
         }
-        if (F.consecutiveCounts && !F.consecutiveCounts.has(maxRun < 2 ? 0 : maxRun)) return '연번 개수';
+        if (F.consecutiveCounts && !F.consecutiveCounts.has(maxRun < 2 ? 0 : maxRun - 1)) return '연번 개수';
         if (F.runFilters) {
             const rf = F.runFilters;
             if (rf.run3 && rf.run3.enabled && !run3) return '연번(3연속)';
@@ -897,9 +855,9 @@ function checkFiltersGetStage(a, b, c, d, e, f, F) {
         if (!F.neighborCounts.has(cnt)) return '이웃수';
     }
     for (const period of [5, 10, 15, 20]) {
-        const hc = F[`hc${period}`]; if (!hc || !hc.hotLUT) continue;
+        const hc = F[`hc${period}`]; if (!hc) continue;
         const lh = hc.hotLUT, lw = hc.warmLUT, lc = hc.coldLUT;
-        const hCnt = (lh[a] || 0) + (lh[b] || 0) + (lh[c] || 0) + (lh[d] || 0) + (lh[e] || 0) + (lh[f] || 0);
+        const hCnt = lh ? (lh[a] || 0) + (lh[b] || 0) + (lh[c] || 0) + (lh[d] || 0) + (lh[e] || 0) + (lh[f] || 0) : 0;
         const wCnt = lw ? (lw[a] || 0) + (lw[b] || 0) + (lw[c] || 0) + (lw[d] || 0) + (lw[e] || 0) + (lw[f] || 0) : 0;
         const cCnt = lc ? (lc[a] || 0) + (lc[b] || 0) + (lc[c] || 0) + (lc[d] || 0) + (lc[e] || 0) + (lc[f] || 0) : 0;
         const hr = hc.hotRange, wr = hc.warmRange, cr = hc.coldRange;
@@ -923,6 +881,13 @@ function checkFiltersGetStage(a, b, c, d, e, f, F) {
             if (cnt < g.min || cnt > g.max) return `미출현커스텀(${gi + 1})`;
         }
     }
+    if (F.regressionFilters) {
+        for (let ri = 0; ri < F.regressionFilters.length; ri++) {
+            const r = F.regressionFilters[ri]; if (!r.lut) continue;
+            const cnt = (r.lut[a] || 0) + (r.lut[b] || 0) + (r.lut[c] || 0) + (r.lut[d] || 0) + (r.lut[e] || 0) + (r.lut[f] || 0);
+            if (cnt < r.min || cnt > r.max) return `회귀분석(step${r.step})`;
+        }
+    }
     if (F.customAnalysis) {
         for (let ci = 0; ci < F.customAnalysis.length; ci++) {
             const cf = F.customAnalysis[ci]; if (!cf.lut) continue;
@@ -930,11 +895,11 @@ function checkFiltersGetStage(a, b, c, d, e, f, F) {
             if (cnt < cf.min || cnt > cf.max) return `커스텀분석:${cf.title || ci}`;
         }
     }
-    if (F.regressionFilters) {
-        for (let ri = 0; ri < F.regressionFilters.length; ri++) {
-            const r = F.regressionFilters[ri]; if (!r.lut) continue;
-            const cnt = (r.lut[a] || 0) + (r.lut[b] || 0) + (r.lut[c] || 0) + (r.lut[d] || 0) + (r.lut[e] || 0) + (r.lut[f] || 0);
-            if (cnt < r.min || cnt > r.max) return `회귀분석(step${r.step})`;
+    if (F.manualFilters) {
+        for (let mi = 0; mi < F.manualFilters.length; mi++) {
+            const m = F.manualFilters[mi]; if (!m.lut) continue;
+            const cnt = (m.lut[a] || 0) + (m.lut[b] || 0) + (m.lut[c] || 0) + (m.lut[d] || 0) + (m.lut[e] || 0) + (m.lut[f] || 0);
+            if (cnt < m.min || cnt > m.max) return `수동필터:${m.title || mi}`;
         }
     }
     return null; // 모든 필터 통과
@@ -1019,6 +984,11 @@ function diagnoseFilters(rawFilters) {
             failMap[`회귀분석(step${F.regressionFilters[ri].step})`] = 0;
         }
     }
+    if (F.manualFilters) {
+        for (let mi = 0; mi < F.manualFilters.length; mi++) {
+            failMap[`수동필터:${F.manualFilters[mi].title || mi}`] = 0;
+        }
+    }
 
     for (let i = 0; i < TOTAL_COMBINATIONS; i++) {
         const o = i * 6;
@@ -1047,7 +1017,7 @@ function buildStages(F) {
     if (F.fixedArr && F.fixedArr.length > 0) {
         const fa = F.fixedArr;
         stages.push({
-            name: '바스켓 고정수', fn(a, b, c, d, e, f) {
+            name: '바스켓 고정수', key: 'basket', fn(a, b, c, d, e, f) {
                 for (let i = 0; i < fa.length; i++) {
                     const n = fa[i];
                     if (a !== n && b !== n && c !== n && d !== n && e !== n && f !== n) return false;
@@ -1059,7 +1029,7 @@ function buildStages(F) {
     if (F.excludedLUT) {
         const lut = F.excludedLUT;
         stages.push({
-            name: '바스켓 제외수', fn(a, b, c, d, e, f) {
+            name: '바스켓 제외수', key: 'basket', fn(a, b, c, d, e, f) {
                 return !(lut[a] || lut[b] || lut[c] || lut[d] || lut[e] || lut[f]);
             }
         });
@@ -1068,7 +1038,7 @@ function buildStages(F) {
     // ── 총합 ────────────────────────────────────────
     if (F.sumMin !== undefined) {
         stages.push({
-            name: '총합', fn(a, b, c, d, e, f) {
+            name: '총합', key: 'total_sum', fn(a, b, c, d, e, f) {
                 const s = a + b + c + d + e + f;
                 if (s < F.sumMin || s > F.sumMax) return false;
                 if (F.sumExcluded && F.sumExcluded.has(s)) return false;
@@ -1080,7 +1050,7 @@ function buildStages(F) {
     // ── 끝수합 ──────────────────────────────────────
     if (F.tailSumMin !== undefined) {
         stages.push({
-            name: '끝수합', fn(a, b, c, d, e, f) {
+            name: '끝수합', key: 'last_digit_sum', fn(a, b, c, d, e, f) {
                 const ts = (a % 10) + (b % 10) + (c % 10) + (d % 10) + (e % 10) + (f % 10);
                 if (ts < F.tailSumMin || ts > F.tailSumMax) return false;
                 if (F.tailSumExcluded && F.tailSumExcluded.has(ts)) return false;
@@ -1092,7 +1062,7 @@ function buildStages(F) {
     // ── AC값 ────────────────────────────────────────
     if (F.acMin !== undefined) {
         stages.push({
-            name: 'AC값', fn(a, b, c, d, e, f) {
+            name: 'AC값', key: 'ac_value', fn(a, b, c, d, e, f) {
                 const nums = [a, b, c, d, e, f];
                 const gaps = new Set();
                 for (let i = 0; i < 6; i++) for (let j = i + 1; j < 6; j++) gaps.add(Math.abs(nums[i] - nums[j]));
@@ -1108,7 +1078,7 @@ function buildStages(F) {
     if (F.oddEvenSet) {
         const oes = F.oddEvenSet, oex = F.oddEvenExcluded;
         stages.push({
-            name: '홀짝 패턴', fn(a, b, c, d, e, f) {
+            name: '홀짝 패턴', key: 'odd_even_pattern', fn(a, b, c, d, e, f) {
                 const odd = (a % 2) + (b % 2) + (c % 2) + (d % 2) + (e % 2) + (f % 2);
                 const r = `${odd}:${6 - odd}`;
                 if (!oes.has(r)) return false;
@@ -1122,7 +1092,7 @@ function buildStages(F) {
     if (F.highLowSet) {
         const hls = F.highLowSet, hlx = F.highLowExcluded;
         stages.push({
-            name: '고저 패턴', fn(a, b, c, d, e, f) {
+            name: '고저 패턴', key: 'high_low_pattern', fn(a, b, c, d, e, f) {
                 let low = 0;
                 if (a <= 22) low++; if (b <= 22) low++; if (c <= 22) low++;
                 if (d <= 22) low++; if (e <= 22) low++; if (f <= 22) low++;
@@ -1134,104 +1104,11 @@ function buildStages(F) {
         });
     }
 
-    // ── 끝수 패턴 ───────────────────────────────────
-    if (F.tailDigitRanges) {
-        const tdr = F.tailDigitRanges;
-        stages.push({
-            name: '끝수 패턴', fn(a, b, c, d, e, f) {
-                const td = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-                td[a % 10]++; td[b % 10]++; td[c % 10]++; td[d % 10]++; td[e % 10]++; td[f % 10]++;
-                for (const digit in tdr) {
-                    const r = tdr[digit], cnt = td[parseInt(digit)];
-                    if (r.min !== undefined && cnt < r.min) return false;
-                    if (r.max !== undefined && cnt > r.max) return false;
-                }
-                return true;
-            }
-        });
-    }
-
-    // ── 소수 ────────────────────────────────────────
-    if (F.primeCounts || F.primeExcludedLUT) {
-        const el = F.primeExcludedLUT, pc = F.primeCounts;
-        stages.push({
-            name: '소수', fn(a, b, c, d, e, f) {
-                if (el && (el[a] || el[b] || el[c] || el[d] || el[e] || el[f])) return false;
-                if (pc) {
-                    let cnt = PRIME_LUT[a] + PRIME_LUT[b] + PRIME_LUT[c] + PRIME_LUT[d] + PRIME_LUT[e] + PRIME_LUT[f];
-                    if (el) { if (el[a] && PRIME_LUT[a]) cnt--; if (el[b] && PRIME_LUT[b]) cnt--; if (el[c] && PRIME_LUT[c]) cnt--; if (el[d] && PRIME_LUT[d]) cnt--; if (el[e] && PRIME_LUT[e]) cnt--; if (el[f] && PRIME_LUT[f]) cnt--; }
-                    if (!pc.has(cnt)) return false;
-                }
-                return true;
-            }
-        });
-    }
-
-    // ── 제곱수 ──────────────────────────────────────
-    if (F.squareCounts || F.squareExcludedLUT) {
-        const el = F.squareExcludedLUT, sc = F.squareCounts;
-        stages.push({
-            name: '제곱수', fn(a, b, c, d, e, f) {
-                if (el && (el[a] || el[b] || el[c] || el[d] || el[e] || el[f])) return false;
-                if (sc) {
-                    let cnt = SQUARE_LUT[a] + SQUARE_LUT[b] + SQUARE_LUT[c] + SQUARE_LUT[d] + SQUARE_LUT[e] + SQUARE_LUT[f];
-                    if (!sc.has(cnt)) return false;
-                }
-                return true;
-            }
-        });
-    }
-
-    // ── 삼각수 ──────────────────────────────────────
-    if (F.triCounts || F.triExcludedLUT) {
-        const el = F.triExcludedLUT, tc = F.triCounts;
-        stages.push({
-            name: '삼각수', fn(a, b, c, d, e, f) {
-                if (el && (el[a] || el[b] || el[c] || el[d] || el[e] || el[f])) return false;
-                if (tc) {
-                    let cnt = TRI_LUT[a] + TRI_LUT[b] + TRI_LUT[c] + TRI_LUT[d] + TRI_LUT[e] + TRI_LUT[f];
-                    if (!tc.has(cnt)) return false;
-                }
-                return true;
-            }
-        });
-    }
-
-    // ── 쌍수 ────────────────────────────────────────
-    if (F.twinCounts || F.twinExcludedLUT) {
-        const el = F.twinExcludedLUT, twc = F.twinCounts;
-        stages.push({
-            name: '쌍수(동형수)', fn(a, b, c, d, e, f) {
-                if (el && (el[a] || el[b] || el[c] || el[d] || el[e] || el[f])) return false;
-                if (twc) {
-                    let cnt = TWIN_LUT[a] + TWIN_LUT[b] + TWIN_LUT[c] + TWIN_LUT[d] + TWIN_LUT[e] + TWIN_LUT[f];
-                    if (!twc.has(cnt)) return false;
-                }
-                return true;
-            }
-        });
-    }
-
-    // ── 합성수 ──────────────────────────────────────
-    if (F.compositeCounts || F.compositeExcludedLUT) {
-        const el = F.compositeExcludedLUT, cc = F.compositeCounts;
-        stages.push({
-            name: '합성수', fn(a, b, c, d, e, f) {
-                if (el && (el[a] || el[b] || el[c] || el[d] || el[e] || el[f])) return false;
-                if (cc) {
-                    let cnt = COMPOS_LUT[a] + COMPOS_LUT[b] + COMPOS_LUT[c] + COMPOS_LUT[d] + COMPOS_LUT[e] + COMPOS_LUT[f];
-                    if (!cc.has(cnt)) return false;
-                }
-                return true;
-            }
-        });
-    }
-
     // ── 연번 ────────────────────────────────────────
     if (F.consecutiveCounts !== undefined || F.runFilters) {
         const cons = F.consecutiveCounts, rf = F.runFilters;
         stages.push({
-            name: '연번', fn(a, b, c, d, e, f) {
+            name: '연번', key: 'consecutive_count', fn(a, b, c, d, e, f) {
                 const arr6 = [a, b, c, d, e, f];
                 let maxRun = 1, cur = 1, run3 = false, run4 = false, run5 = false, run6 = false;
                 for (let i = 1; i < 6; i++) {
@@ -1244,7 +1121,7 @@ function buildStages(F) {
                         if (cur > maxRun) maxRun = cur;
                     } else { cur = 1; }
                 }
-                if (cons && !cons.has(maxRun < 2 ? 0 : maxRun)) return false;
+                if (cons && !cons.has(maxRun < 2 ? 0 : maxRun - 1)) return false;
                 if (rf) {
                     if (rf.run3 && rf.run3.enabled && !run3) return false;
                     if (rf.run4 && rf.run4.enabled && !run4) return false;
@@ -1256,69 +1133,125 @@ function buildStages(F) {
         });
     }
 
-    // ── 번호대 ──────────────────────────────────────
-    if (F.numRanges) {
-        const ranges = F.numRanges;
+    // ── 이웃수 ──────────────────────────────────────
+    if (F.neighborCounts && F.neighborLUT) {
+        const lut = F.neighborLUT, nc = F.neighborCounts;
         stages.push({
-            name: '번호대', fn(a, b, c, d, e, f) {
-                let c1 = 0, c2 = 0, c3 = 0, c4 = 0, c5 = 0;
-                const cnt = n => { if (n <= 10) c1++; else if (n <= 20) c2++; else if (n <= 30) c3++; else if (n <= 40) c4++; else c5++; };
-                cnt(a); cnt(b); cnt(c); cnt(d); cnt(e); cnt(f);
-                const r10 = ranges['1_10'], r20 = ranges['11_20'], r30 = ranges['21_30'], r40 = ranges['31_40'], r45 = ranges['41_45'];
-                if (r10 && r10.min !== undefined && (c1 < r10.min || c1 > r10.max)) return false;
-                if (r20 && r20.min !== undefined && (c2 < r20.min || c2 > r20.max)) return false;
-                if (r30 && r30.min !== undefined && (c3 < r30.min || c3 > r30.max)) return false;
-                if (r40 && r40.min !== undefined && (c4 < r40.min || c4 > r40.max)) return false;
-                if (r45 && r45.min !== undefined && (c5 < r45.min || c5 > r45.max)) return false;
-                return true;
+            name: '이웃수', key: 'neighbor_number_patterns', fn(a, b, c, d, e, f) {
+                const cnt = (lut[a] || 0) + (lut[b] || 0) + (lut[c] || 0) + (lut[d] || 0) + (lut[e] || 0) + (lut[f] || 0);
+                return nc.has(cnt);
             }
         });
     }
 
-    // ── 엔트로피 ────────────────────────────────────
-    if (F.entropyRange) {
-        const eMin = parseFloat(F.entropyRange.min), eMax = parseFloat(F.entropyRange.max);
+    // ── 이월수 ──────────────────────────────────────
+    if (F.carryoverCounts && F.carryoverLUT) {
+        const lut = F.carryoverLUT, cc = F.carryoverCounts;
         stages.push({
-            name: '엔트로피', fn(a, b, c, d, e, f) {
-                const td = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-                td[a % 10]++; td[b % 10]++; td[c % 10]++; td[d % 10]++; td[e % 10]++; td[f % 10]++;
-                let ent = 0;
-                for (let i = 0; i < 10; i++) { if (td[i] > 0) { const p = td[i] / 6; ent -= p * Math.log2(p); } }
-                if (!isNaN(eMin) && ent < eMin) return false;
-                if (!isNaN(eMax) && ent > eMax) return false;
-                return true;
+            name: '이월수', key: 'carryover_count', fn(a, b, c, d, e, f) {
+                const cnt = (lut[a] || 0) + (lut[b] || 0) + (lut[c] || 0) + (lut[d] || 0) + (lut[e] || 0) + (lut[f] || 0);
+                return cc.has(cnt);
+            }
+        });
+    }
+    if (F.carryoverBonusCounts && F.carryoverBonusLUT) {
+        const lut = F.carryoverBonusLUT, cc = F.carryoverBonusCounts;
+        stages.push({
+            name: '이월수(보너스포함)', key: 'carryover_count', fn(a, b, c, d, e, f) {
+                const cnt = (lut[a] || 0) + (lut[b] || 0) + (lut[c] || 0) + (lut[d] || 0) + (lut[e] || 0) + (lut[f] || 0);
+                return cc.has(cnt);
             }
         });
     }
 
-    // ── 9궁 ─────────────────────────────────────────
-    if (F.palaceRanges) {
-        const pr = F.palaceRanges;
+    // ── 소수 ────────────────────────────────────────
+    if (F.primeCounts || F.primeExcludedLUT) {
+        const el = F.primeExcludedLUT, pc = F.primeCounts;
         stages.push({
-            name: '9궁(마방진)', fn(a, b, c, d, e, f) {
-                const pc = new Uint8Array(10);
-                pc[PALACE_LUT[a]]++; pc[PALACE_LUT[b]]++; pc[PALACE_LUT[c]]++;
-                pc[PALACE_LUT[d]]++; pc[PALACE_LUT[e]]++; pc[PALACE_LUT[f]]++;
-                for (let g = 1; g <= 9; g++) {
-                    const r = pr[`${g}궁`]; if (!r) continue;
-                    if (r.min !== undefined && pc[g] < r.min) return false;
-                    if (r.max !== undefined && pc[g] > r.max) return false;
+            name: '소수', key: 'prime_number_patterns', fn(a, b, c, d, e, f) {
+                if (el && (el[a] || el[b] || el[c] || el[d] || el[e] || el[f])) return false;
+                if (pc) {
+                    let cnt = PRIME_LUT[a] + PRIME_LUT[b] + PRIME_LUT[c] + PRIME_LUT[d] + PRIME_LUT[e] + PRIME_LUT[f];
+                    if (el) { if (el[a] && PRIME_LUT[a]) cnt--; if (el[b] && PRIME_LUT[b]) cnt--; if (el[c] && PRIME_LUT[c]) cnt--; if (el[d] && PRIME_LUT[d]) cnt--; if (el[e] && PRIME_LUT[e]) cnt--; if (el[f] && PRIME_LUT[f]) cnt--; }
+                    if (!pc.has(cnt)) return false;
                 }
                 return true;
             }
         });
     }
 
-    // ── 로또용지 ────────────────────────────────────
-    if (F.paperGroups) {
-        const pg = F.paperGroups;
+    // ── 합성수 ──────────────────────────────────────
+    if (F.compositeCounts || F.compositeExcludedLUT) {
+        const el = F.compositeExcludedLUT, cc = F.compositeCounts;
         stages.push({
-            name: '로또용지', fn(a, b, c, d, e, f) {
-                const gc = new Uint8Array(8), sc = new Uint8Array(8);
-                gc[GARO_LUT[a]]++; gc[GARO_LUT[b]]++; gc[GARO_LUT[c]]++; gc[GARO_LUT[d]]++; gc[GARO_LUT[e]]++; gc[GARO_LUT[f]]++;
-                sc[SERO_LUT[a]]++; sc[SERO_LUT[b]]++; sc[SERO_LUT[c]]++; sc[SERO_LUT[d]]++; sc[SERO_LUT[e]]++; sc[SERO_LUT[f]]++;
-                for (let row = 1; row <= 7; row++) { const r = pg[`가로${row}`]; if (!r) continue; if (r.min !== undefined && gc[row] < r.min) return false; if (r.max !== undefined && gc[row] > r.max) return false; }
-                for (let col = 1; col <= 7; col++) { const r = pg[`세로${col}`]; if (!r) continue; if (r.min !== undefined && sc[col] < r.min) return false; if (r.max !== undefined && sc[col] > r.max) return false; }
+            name: '합성수', key: 'composite_count', fn(a, b, c, d, e, f) {
+                if (el && (el[a] || el[b] || el[c] || el[d] || el[e] || el[f])) return false;
+                if (cc) {
+                    let cnt = COMPOS_LUT[a] + COMPOS_LUT[b] + COMPOS_LUT[c] + COMPOS_LUT[d] + COMPOS_LUT[e] + COMPOS_LUT[f];
+                    if (!cc.has(cnt)) return false;
+                }
+                return true;
+            }
+        });
+    }
+
+    // ── 삼각수 ──────────────────────────────────────
+    if (F.triCounts || F.triExcludedLUT) {
+        const el = F.triExcludedLUT, tc = F.triCounts;
+        stages.push({
+            name: '삼각수', key: 'triangular_number_patterns', fn(a, b, c, d, e, f) {
+                if (el && (el[a] || el[b] || el[c] || el[d] || el[e] || el[f])) return false;
+                if (tc) {
+                    let cnt = TRI_LUT[a] + TRI_LUT[b] + TRI_LUT[c] + TRI_LUT[d] + TRI_LUT[e] + TRI_LUT[f];
+                    if (!tc.has(cnt)) return false;
+                }
+                return true;
+            }
+        });
+    }
+
+    // ── 제곱수 ──────────────────────────────────────
+    if (F.squareCounts || F.squareExcludedLUT) {
+        const el = F.squareExcludedLUT, sc = F.squareCounts;
+        stages.push({
+            name: '제곱수', key: 'square_number_patterns', fn(a, b, c, d, e, f) {
+                if (el && (el[a] || el[b] || el[c] || el[d] || el[e] || el[f])) return false;
+                if (sc) {
+                    let cnt = SQUARE_LUT[a] + SQUARE_LUT[b] + SQUARE_LUT[c] + SQUARE_LUT[d] + SQUARE_LUT[e] + SQUARE_LUT[f];
+                    if (!sc.has(cnt)) return false;
+                }
+                return true;
+            }
+        });
+    }
+
+    // ── 동형수(쌍수) ────────────────────────────────
+    if (F.twinCounts || F.twinExcludedLUT) {
+        const el = F.twinExcludedLUT, twc = F.twinCounts;
+        stages.push({
+            name: '쌍수(동형수)', key: 'twin_number_patterns', fn(a, b, c, d, e, f) {
+                if (el && (el[a] || el[b] || el[c] || el[d] || el[e] || el[f])) return false;
+                if (twc) {
+                    let cnt = TWIN_LUT[a] + TWIN_LUT[b] + TWIN_LUT[c] + TWIN_LUT[d] + TWIN_LUT[e] + TWIN_LUT[f];
+                    if (!twc.has(cnt)) return false;
+                }
+                return true;
+            }
+        });
+    }
+
+    // ── 끝수 패턴 ───────────────────────────────────
+    if (F.tailDigitRanges) {
+        const tdr = F.tailDigitRanges;
+        stages.push({
+            name: '끝수 패턴', key: 'tail_digit_patterns', fn(a, b, c, d, e, f) {
+                const td = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+                td[a % 10]++; td[b % 10]++; td[c % 10]++; td[d % 10]++; td[e % 10]++; td[f % 10]++;
+                for (const digit in tdr) {
+                    const r = tdr[digit], cnt = td[parseInt(digit)];
+                    if (r.min !== undefined && cnt < r.min) return false;
+                    if (r.max !== undefined && cnt > r.max) return false;
+                }
                 return true;
             }
         });
@@ -1328,7 +1261,7 @@ function buildStages(F) {
     if (F.multipleRanges) {
         const mr = F.multipleRanges;
         stages.push({
-            name: '배수 패턴', fn(a, b, c, d, e, f) {
+            name: '배수 패턴', key: 'multiple_3_count', fn(a, b, c, d, e, f) {
                 const m3a = M3_LUT[a], m3b = M3_LUT[b], m3c = M3_LUT[c], m3d = M3_LUT[d], m3e = M3_LUT[e], m3f = M3_LUT[f];
                 const m4a = M4_LUT[a], m4b = M4_LUT[b], m4c = M4_LUT[c], m4d = M4_LUT[d], m4e = M4_LUT[e], m4f = M4_LUT[f];
                 const m5a = M5_LUT[a], m5b = M5_LUT[b], m5c = M5_LUT[c], m5d = M5_LUT[d], m5e = M5_LUT[e], m5f = M5_LUT[f];
@@ -1352,33 +1285,76 @@ function buildStages(F) {
         });
     }
 
-    // ── 이월수 ──────────────────────────────────────
-    if (F.carryoverCounts && F.carryoverLUT) {
-        const lut = F.carryoverLUT, cc = F.carryoverCounts;
+    // ── 번호대 ──────────────────────────────────────
+    if (F.numRanges) {
+        const ranges = F.numRanges;
         stages.push({
-            name: '이월수', fn(a, b, c, d, e, f) {
-                const cnt = (lut[a] || 0) + (lut[b] || 0) + (lut[c] || 0) + (lut[d] || 0) + (lut[e] || 0) + (lut[f] || 0);
-                return cc.has(cnt);
-            }
-        });
-    }
-    if (F.carryoverBonusCounts && F.carryoverBonusLUT) {
-        const lut = F.carryoverBonusLUT, cc = F.carryoverBonusCounts;
-        stages.push({
-            name: '이월수(보너스포함)', fn(a, b, c, d, e, f) {
-                const cnt = (lut[a] || 0) + (lut[b] || 0) + (lut[c] || 0) + (lut[d] || 0) + (lut[e] || 0) + (lut[f] || 0);
-                return cc.has(cnt);
+            name: '번호대', key: 'number_range_patterns', fn(a, b, c, d, e, f) {
+                let c1 = 0, c2 = 0, c3 = 0, c4 = 0, c5 = 0;
+                const cnt = n => { if (n <= 10) c1++; else if (n <= 20) c2++; else if (n <= 30) c3++; else if (n <= 40) c4++; else c5++; };
+                cnt(a); cnt(b); cnt(c); cnt(d); cnt(e); cnt(f);
+                const r10 = ranges['1_10'], r20 = ranges['11_20'], r30 = ranges['21_30'], r40 = ranges['31_40'], r45 = ranges['41_45'];
+                if (r10 && r10.min !== undefined && (c1 < r10.min || c1 > r10.max)) return false;
+                if (r20 && r20.min !== undefined && (c2 < r20.min || c2 > r20.max)) return false;
+                if (r30 && r30.min !== undefined && (c3 < r30.min || c3 > r30.max)) return false;
+                if (r40 && r40.min !== undefined && (c4 < r40.min || c4 > r40.max)) return false;
+                if (r45 && r45.min !== undefined && (c5 < r45.min || c5 > r45.max)) return false;
+                return true;
             }
         });
     }
 
-    // ── 이웃수 ──────────────────────────────────────
-    if (F.neighborCounts && F.neighborLUT) {
-        const lut = F.neighborLUT, nc = F.neighborCounts;
+    // ── 엔트로피 ────────────────────────────────────
+    if (F.entropyRange) {
+        const eMin = parseFloat(F.entropyRange.min), eMax = parseFloat(F.entropyRange.max);
         stages.push({
-            name: '이웃수', fn(a, b, c, d, e, f) {
-                const cnt = (lut[a] || 0) + (lut[b] || 0) + (lut[c] || 0) + (lut[d] || 0) + (lut[e] || 0) + (lut[f] || 0);
-                return nc.has(cnt);
+            name: '엔트로피', key: 'entropy', fn(a, b, c, d, e, f) {
+                let c1 = 0, c2 = 0, c3 = 0, c4 = 0, c5 = 0;
+                if (a <= 10) c1++; else if (a <= 20) c2++; else if (a <= 30) c3++; else if (a <= 40) c4++; else c5++;
+                if (b <= 10) c1++; else if (b <= 20) c2++; else if (b <= 30) c3++; else if (b <= 40) c4++; else c5++;
+                if (c <= 10) c1++; else if (c <= 20) c2++; else if (c <= 30) c3++; else if (c <= 40) c4++; else c5++;
+                if (d <= 10) c1++; else if (d <= 20) c2++; else if (d <= 30) c3++; else if (d <= 40) c4++; else c5++;
+                if (e <= 10) c1++; else if (e <= 20) c2++; else if (e <= 30) c3++; else if (e <= 40) c4++; else c5++;
+                if (f <= 10) c1++; else if (f <= 20) c2++; else if (f <= 30) c3++; else if (f <= 40) c4++; else c5++;
+                const bins = [c1, c2, c3, c4, c5];
+                let ent = 0;
+                for (let i = 0; i < 5; i++) { if (bins[i] > 0) { const p = bins[i] / 6; ent -= p * Math.log2(p); } }
+                if (!isNaN(eMin) && ent < eMin) return false;
+                if (!isNaN(eMax) && ent > eMax) return false;
+                return true;
+            }
+        });
+    }
+
+    // ── 9궁 ─────────────────────────────────────────
+    if (F.palaceRanges) {
+        const pr = F.palaceRanges;
+        stages.push({
+            name: '9궁(마방진)', key: 'magic_square_pattern', fn(a, b, c, d, e, f) {
+                const pc = new Uint8Array(10);
+                pc[PALACE_LUT[a]]++; pc[PALACE_LUT[b]]++; pc[PALACE_LUT[c]]++;
+                pc[PALACE_LUT[d]]++; pc[PALACE_LUT[e]]++; pc[PALACE_LUT[f]]++;
+                for (let g = 1; g <= 9; g++) {
+                    const r = pr[`${g}궁`]; if (!r) continue;
+                    if (r.min !== undefined && pc[g] < r.min) return false;
+                    if (r.max !== undefined && pc[g] > r.max) return false;
+                }
+                return true;
+            }
+        });
+    }
+
+    // ── 로또용지 ────────────────────────────────────
+    if (F.paperGroups) {
+        const pg = F.paperGroups;
+        stages.push({
+            name: '로또용지', key: 'lotto_paper_pattern', fn(a, b, c, d, e, f) {
+                const gc = new Uint8Array(8), sc = new Uint8Array(8);
+                gc[GARO_LUT[a]]++; gc[GARO_LUT[b]]++; gc[GARO_LUT[c]]++; gc[GARO_LUT[d]]++; gc[GARO_LUT[e]]++; gc[GARO_LUT[f]]++;
+                sc[SERO_LUT[a]]++; sc[SERO_LUT[b]]++; sc[SERO_LUT[c]]++; sc[SERO_LUT[d]]++; sc[SERO_LUT[e]]++; sc[SERO_LUT[f]]++;
+                for (let row = 1; row <= 7; row++) { const r = pg[`가로${row}`]; if (!r) continue; if (r.min !== undefined && gc[row] < r.min) return false; if (r.max !== undefined && gc[row] > r.max) return false; }
+                for (let col = 1; col <= 7; col++) { const r = pg[`세로${col}`]; if (!r) continue; if (r.min !== undefined && sc[col] < r.min) return false; if (r.max !== undefined && sc[col] > r.max) return false; }
+                return true;
             }
         });
     }
@@ -1386,12 +1362,12 @@ function buildStages(F) {
     // ── Hot/Cold ─────────────────────────────────────
     for (const period of [5, 10, 15, 20]) {
         const hc = F[`hc${period}`];
-        if (!hc || !hc.hotLUT) continue;
+        if (!hc) continue;
         const lh = hc.hotLUT, lw = hc.warmLUT, lc = hc.coldLUT;
         const hr = hc.hotRange, wr = hc.warmRange, cr = hc.coldRange;
         stages.push({
-            name: `핫콜드(${period}회)`, fn(a, b, c, d, e, f) {
-                const hCnt = (lh[a] || 0) + (lh[b] || 0) + (lh[c] || 0) + (lh[d] || 0) + (lh[e] || 0) + (lh[f] || 0);
+            name: `핫콜드(${period}회)`, key: `hot_cold_${period}`, fn(a, b, c, d, e, f) {
+                const hCnt = lh ? (lh[a] || 0) + (lh[b] || 0) + (lh[c] || 0) + (lh[d] || 0) + (lh[e] || 0) + (lh[f] || 0) : 0;
                 const wCnt = lw ? (lw[a] || 0) + (lw[b] || 0) + (lw[c] || 0) + (lw[d] || 0) + (lw[e] || 0) + (lw[f] || 0) : 0;
                 const cCnt = lc ? (lc[a] || 0) + (lc[b] || 0) + (lc[c] || 0) + (lc[d] || 0) + (lc[e] || 0) + (lc[f] || 0) : 0;
                 if (hCnt < hr[0] || hCnt > hr[1]) return false;
@@ -1406,7 +1382,7 @@ function buildStages(F) {
     if (F.missingPeriodGroups) {
         const mpg = F.missingPeriodGroups;
         stages.push({
-            name: '미출현 기간', fn(a, b, c, d, e, f) {
+            name: '미출현 기간', key: 'missing_period', fn(a, b, c, d, e, f) {
                 for (let gi = 0; gi < mpg.length; gi++) {
                     const g = mpg[gi]; if (!g.nums || g.nums.length === 0) continue;
                     const nums = g.nums; let cnt = 0;
@@ -1423,7 +1399,7 @@ function buildStages(F) {
     if (F.missingCustomGroups) {
         const mcg = F.missingCustomGroups;
         stages.push({
-            name: '미출현 커스텀', fn(a, b, c, d, e, f) {
+            name: '미출현 커스텀', key: 'missing_custom_filter', fn(a, b, c, d, e, f) {
                 for (let gi = 0; gi < mcg.length; gi++) {
                     const g = mcg[gi]; if (!g.lut) continue;
                     const cnt = (g.lut[a] || 0) + (g.lut[b] || 0) + (g.lut[c] || 0) + (g.lut[d] || 0) + (g.lut[e] || 0) + (g.lut[f] || 0);
@@ -1434,13 +1410,13 @@ function buildStages(F) {
         });
     }
 
-    // ── 커스텀 분석 필터 (각각 개별 단계) ────────────
-    if (F.customAnalysis) {
-        F.customAnalysis.forEach(cf => {
-            if (!cf.lut) return;
-            const lut = cf.lut, mn = cf.min, mx = cf.max, name = cf.title || '커스텀';
+    // ── 회귀 분석 필터 (각각 개별 단계) ─────────────
+    if (F.regressionFilters) {
+        F.regressionFilters.forEach(rf => {
+            if (!rf.lut) return;
+            const lut = rf.lut, mn = rf.min, mx = rf.max, step = rf.step;
             stages.push({
-                name: `커스텀:${name}`, fn(a, b, c, d, e, f) {
+                name: `회귀분석(step${step})`, key: `regression_${step}`, fn(a, b, c, d, e, f) {
                     const cnt = (lut[a] || 0) + (lut[b] || 0) + (lut[c] || 0) + (lut[d] || 0) + (lut[e] || 0) + (lut[f] || 0);
                     return cnt >= mn && cnt <= mx;
                 }
@@ -1448,13 +1424,27 @@ function buildStages(F) {
         });
     }
 
-    // ── 회귀 분석 필터 (각각 개별 단계) ─────────────
-    if (F.regressionFilters) {
-        F.regressionFilters.forEach(rf => {
-            if (!rf.lut) return;
-            const lut = rf.lut, mn = rf.min, mx = rf.max, step = rf.step;
+    // ── 커스텀 분석 필터 (각각 개별 단계) ────────────
+    if (F.customAnalysis) {
+        F.customAnalysis.forEach(cf => {
+            if (!cf.lut) return;
+            const lut = cf.lut, mn = cf.min, mx = cf.max, name = cf.title || '커스텀', cfId = cf.id;
             stages.push({
-                name: `회귀분석(step${step})`, fn(a, b, c, d, e, f) {
+                name: `커스텀:${name}`, key: `custom_${cfId}`, fn(a, b, c, d, e, f) {
+                    const cnt = (lut[a] || 0) + (lut[b] || 0) + (lut[c] || 0) + (lut[d] || 0) + (lut[e] || 0) + (lut[f] || 0);
+                    return cnt >= mn && cnt <= mx;
+                }
+            });
+        });
+    }
+
+    // ── 수동 필터 (각각 개별 단계) ───────────────────
+    if (F.manualFilters) {
+        F.manualFilters.forEach(mf => {
+            const lut = mf.lut, mn = mf.min, mx = mf.max, name = mf.title || '수동필터', mfId = mf.id;
+            stages.push({
+                name: `수동:${name}`, key: `manual_${mfId}`, fn(a, b, c, d, e, f) {
+                    if (!lut) return mn <= 0; // 번호 미선택 시: min이 0이면 통과
                     const cnt = (lut[a] || 0) + (lut[b] || 0) + (lut[c] || 0) + (lut[d] || 0) + (lut[e] || 0) + (lut[f] || 0);
                     return cnt >= mn && cnt <= mx;
                 }
@@ -1494,6 +1484,7 @@ function stepCountFilters(rawFilters) {
         survivors -= elim;
         steps.push({
             name: stages[i].name,
+            key: stages[i].key,
             survivors,
             eliminated: elim,
             cumElim: TOTAL_COMBINATIONS - survivors
@@ -1504,7 +1495,387 @@ function stepCountFilters(rawFilters) {
 }
 
 // ──────────────────────────────────────────────────
-// 5. 카운팅 / 생성
+// 5. 독립 카운팅 — 각 필터를 단독으로 적용했을 때 통과 수
+// ──────────────────────────────────────────────────
+function countIndependent(rawFilters) {
+    if (!combinations) return {};
+    const F = parseFilters(rawFilters);
+    const counts = {};
+
+    // 활성 필터별 카운터 초기화
+    if (rawFilters.sumRange) counts.sumRange = 0;
+    if (rawFilters.tailSumRange) counts.tailSumRange = 0;
+    if (rawFilters.acRange) counts.acRange = 0;
+    if (rawFilters.oddEvenPatterns && rawFilters.oddEvenPatterns.length > 0) counts.oddEvenPatterns = 0;
+    if (rawFilters.highLowPatterns && rawFilters.highLowPatterns.length > 0) counts.highLowPatterns = 0;
+    if (rawFilters.tailDigitRanges) counts.tailDigitRanges = 0;
+    if (rawFilters.primeFilter) counts.primeFilter = 0;
+    if (rawFilters.squareFilter) counts.squareFilter = 0;
+    if (rawFilters.triangularFilter) counts.triangularFilter = 0;
+    if (rawFilters.twinFilter) counts.twinFilter = 0;
+    if (rawFilters.compositeFilter) counts.compositeFilter = 0;
+    if (rawFilters.consecutiveFilter) counts.consecutiveFilter = 0;
+    if (rawFilters.numberRangeFilter) counts.numberRangeFilter = 0;
+    if (rawFilters.magicSquareFilter) counts.magicSquareFilter = 0;
+    if (rawFilters.lottoPaperFilter) counts.lottoPaperFilter = 0;
+    if (rawFilters.multipleFilter) counts.multipleFilter = 0;
+    if (rawFilters.carryoverFilter) counts.carryoverFilter = 0;
+    if (rawFilters.neighborFilter) counts.neighborFilter = 0;
+    for (const period of [5, 10, 15, 20]) {
+        if (rawFilters[`hotCold${period}`]) counts[`hotCold${period}`] = 0;
+    }
+    if (rawFilters.missingPeriodFilter) counts.missingPeriodFilter = 0;
+    if (rawFilters.missingCustomFilter && rawFilters.missingCustomFilter.length > 0) counts.missingCustomFilter = 0;
+
+    // 회귀: step별 LUT 사전 파싱
+    const regrParsed = (rawFilters.regressionFilters || []).map(r => ({
+        key: `regression_${r.step}`,
+        lut: makeLUT(r.drawNums),
+        min: r.min,
+        max: r.max
+    }));
+    regrParsed.forEach(r => { counts[r.key] = 0; });
+
+    // 커스텀 분석: id별 LUT 사전 파싱
+    const customParsed = (rawFilters.customAnalysisFilters || []).map(c => ({
+        key: `custom_${c.id}`,
+        lut: makeLUT(c.targetNums),
+        min: c.min,
+        max: c.max
+    }));
+    customParsed.forEach(c => { counts[c.key] = 0; });
+
+    // 수동 필터: id별 LUT 사전 파싱
+    const manualParsed = (rawFilters.manualFilters || []).map(m => ({
+        key: `manual_${m.id}`,
+        lut: makeLUT(m.selectedNums),
+        min: m.min !== undefined ? m.min : 1,
+        max: m.max !== undefined ? m.max : 6
+    }));
+    manualParsed.forEach(m => { counts[m.key] = 0; });
+
+    for (let i = 0; i < TOTAL_COMBINATIONS; i++) {
+        const o = i * 6;
+        const a = combinations[o], b = combinations[o+1], c = combinations[o+2];
+        const d = combinations[o+3], e = combinations[o+4], f = combinations[o+5];
+
+        // 총합
+        if (counts.sumRange !== undefined) {
+            const sum = a + b + c + d + e + f;
+            if (sum >= F.sumMin && sum <= F.sumMax && (!F.sumExcluded || !F.sumExcluded.has(sum))) counts.sumRange++;
+        }
+
+        // 끝수합
+        if (counts.tailSumRange !== undefined) {
+            const ts = (a%10)+(b%10)+(c%10)+(d%10)+(e%10)+(f%10);
+            if (ts >= F.tailSumMin && ts <= F.tailSumMax && (!F.tailSumExcluded || !F.tailSumExcluded.has(ts))) counts.tailSumRange++;
+        }
+
+        // AC값
+        if (counts.acRange !== undefined) {
+            const gaps = new Set();
+            gaps.add(Math.abs(a-b)); gaps.add(Math.abs(a-c)); gaps.add(Math.abs(a-d)); gaps.add(Math.abs(a-e)); gaps.add(Math.abs(a-f));
+            gaps.add(Math.abs(b-c)); gaps.add(Math.abs(b-d)); gaps.add(Math.abs(b-e)); gaps.add(Math.abs(b-f));
+            gaps.add(Math.abs(c-d)); gaps.add(Math.abs(c-e)); gaps.add(Math.abs(c-f));
+            gaps.add(Math.abs(d-e)); gaps.add(Math.abs(d-f));
+            gaps.add(Math.abs(e-f));
+            const acVal = gaps.size - 5;
+            if (acVal >= F.acMin && acVal <= F.acMax && (!F.acExcluded || !F.acExcluded.has(acVal))) counts.acRange++;
+        }
+
+        // 홀짝
+        if (counts.oddEvenPatterns !== undefined) {
+            const odd = (a%2)+(b%2)+(c%2)+(d%2)+(e%2)+(f%2);
+            const ratio = `${odd}:${6-odd}`;
+            if (F.oddEvenSet.has(ratio) && (!F.oddEvenExcluded || !F.oddEvenExcluded.has(ratio))) counts.oddEvenPatterns++;
+        }
+
+        // 고저
+        if (counts.highLowPatterns !== undefined) {
+            let low = 0;
+            if (a<=22) low++; if (b<=22) low++; if (c<=22) low++;
+            if (d<=22) low++; if (e<=22) low++; if (f<=22) low++;
+            const ratio = `${low}:${6-low}`;
+            if (F.highLowSet.has(ratio) && (!F.highLowExcluded || !F.highLowExcluded.has(ratio))) counts.highLowPatterns++;
+        }
+
+        // 끝수 패턴
+        if (counts.tailDigitRanges !== undefined) {
+            const td = new Uint8Array(10);
+            td[a%10]++; td[b%10]++; td[c%10]++; td[d%10]++; td[e%10]++; td[f%10]++;
+            let pass = true;
+            const ranges = F.tailDigitRanges;
+            for (const digit in ranges) {
+                const r = ranges[digit];
+                if (r.min === undefined && r.max === undefined) continue;
+                const cnt = td[parseInt(digit)];
+                if ((r.min !== undefined && cnt < r.min) || (r.max !== undefined && cnt > r.max)) { pass = false; break; }
+            }
+            if (pass) counts.tailDigitRanges++;
+        }
+
+        // 소수
+        if (counts.primeFilter !== undefined) {
+            const el = F.primeExcludedLUT;
+            if (!el || (!el[a]&&!el[b]&&!el[c]&&!el[d]&&!el[e]&&!el[f])) {
+                if (F.primeCounts) {
+                    let cnt = PRIME_LUT[a]+PRIME_LUT[b]+PRIME_LUT[c]+PRIME_LUT[d]+PRIME_LUT[e]+PRIME_LUT[f];
+                    if (el) { if(el[a]&&PRIME_LUT[a])cnt--; if(el[b]&&PRIME_LUT[b])cnt--; if(el[c]&&PRIME_LUT[c])cnt--; if(el[d]&&PRIME_LUT[d])cnt--; if(el[e]&&PRIME_LUT[e])cnt--; if(el[f]&&PRIME_LUT[f])cnt--; }
+                    if (F.primeCounts.has(cnt)) counts.primeFilter++;
+                } else { counts.primeFilter++; }
+            }
+        }
+
+        // 제곱수
+        if (counts.squareFilter !== undefined) {
+            const el = F.squareExcludedLUT;
+            if (!el || (!el[a]&&!el[b]&&!el[c]&&!el[d]&&!el[e]&&!el[f])) {
+                if (F.squareCounts) {
+                    let cnt = SQUARE_LUT[a]+SQUARE_LUT[b]+SQUARE_LUT[c]+SQUARE_LUT[d]+SQUARE_LUT[e]+SQUARE_LUT[f];
+                    if (el) { if(el[a]&&SQUARE_LUT[a])cnt--; if(el[b]&&SQUARE_LUT[b])cnt--; if(el[c]&&SQUARE_LUT[c])cnt--; if(el[d]&&SQUARE_LUT[d])cnt--; if(el[e]&&SQUARE_LUT[e])cnt--; if(el[f]&&SQUARE_LUT[f])cnt--; }
+                    if (F.squareCounts.has(cnt)) counts.squareFilter++;
+                } else { counts.squareFilter++; }
+            }
+        }
+
+        // 삼각수
+        if (counts.triangularFilter !== undefined) {
+            const el = F.triExcludedLUT;
+            if (!el || (!el[a]&&!el[b]&&!el[c]&&!el[d]&&!el[e]&&!el[f])) {
+                if (F.triCounts) {
+                    let cnt = TRI_LUT[a]+TRI_LUT[b]+TRI_LUT[c]+TRI_LUT[d]+TRI_LUT[e]+TRI_LUT[f];
+                    if (el) { if(el[a]&&TRI_LUT[a])cnt--; if(el[b]&&TRI_LUT[b])cnt--; if(el[c]&&TRI_LUT[c])cnt--; if(el[d]&&TRI_LUT[d])cnt--; if(el[e]&&TRI_LUT[e])cnt--; if(el[f]&&TRI_LUT[f])cnt--; }
+                    if (F.triCounts.has(cnt)) counts.triangularFilter++;
+                } else { counts.triangularFilter++; }
+            }
+        }
+
+        // 쌍수
+        if (counts.twinFilter !== undefined) {
+            const el = F.twinExcludedLUT;
+            if (!el || (!el[a]&&!el[b]&&!el[c]&&!el[d]&&!el[e]&&!el[f])) {
+                if (F.twinCounts) {
+                    let cnt = TWIN_LUT[a]+TWIN_LUT[b]+TWIN_LUT[c]+TWIN_LUT[d]+TWIN_LUT[e]+TWIN_LUT[f];
+                    if (el) { if(el[a]&&TWIN_LUT[a])cnt--; if(el[b]&&TWIN_LUT[b])cnt--; if(el[c]&&TWIN_LUT[c])cnt--; if(el[d]&&TWIN_LUT[d])cnt--; if(el[e]&&TWIN_LUT[e])cnt--; if(el[f]&&TWIN_LUT[f])cnt--; }
+                    if (F.twinCounts.has(cnt)) counts.twinFilter++;
+                } else { counts.twinFilter++; }
+            }
+        }
+
+        // 합성수
+        if (counts.compositeFilter !== undefined) {
+            const el = F.compositeExcludedLUT;
+            if (!el || (!el[a]&&!el[b]&&!el[c]&&!el[d]&&!el[e]&&!el[f])) {
+                if (F.compositeCounts) {
+                    let cnt = COMPOS_LUT[a]+COMPOS_LUT[b]+COMPOS_LUT[c]+COMPOS_LUT[d]+COMPOS_LUT[e]+COMPOS_LUT[f];
+                    if (el) { if(el[a]&&COMPOS_LUT[a])cnt--; if(el[b]&&COMPOS_LUT[b])cnt--; if(el[c]&&COMPOS_LUT[c])cnt--; if(el[d]&&COMPOS_LUT[d])cnt--; if(el[e]&&COMPOS_LUT[e])cnt--; if(el[f]&&COMPOS_LUT[f])cnt--; }
+                    if (F.compositeCounts.has(cnt)) counts.compositeFilter++;
+                } else { counts.compositeFilter++; }
+            }
+        }
+
+        // 연번
+        if (counts.consecutiveFilter !== undefined) {
+            const arr6 = [a, b, c, d, e, f];
+            let maxRun = 1, curRun = 1;
+            let run3 = false, run4 = false, run5 = false, run6 = false;
+            for (let ii = 1; ii < 6; ii++) {
+                if (arr6[ii] === arr6[ii-1]+1) {
+                    curRun++;
+                    if (curRun === 3) run3 = true;
+                    if (curRun === 4) run4 = true;
+                    if (curRun === 5) run5 = true;
+                    if (curRun === 6) run6 = true;
+                    if (curRun > maxRun) maxRun = curRun;
+                } else { curRun = 1; }
+            }
+            let pass = true;
+            if (F.consecutiveCounts && !F.consecutiveCounts.has(maxRun < 2 ? 0 : maxRun - 1)) pass = false;
+            if (pass && F.runFilters) {
+                const rf = F.runFilters;
+                if (rf.run3 && rf.run3.enabled !== undefined && rf.run3.enabled && !run3) pass = false;
+                if (pass && rf.run4 && rf.run4.enabled !== undefined && rf.run4.enabled && !run4) pass = false;
+                if (pass && rf.run5 && rf.run5.enabled !== undefined && rf.run5.enabled && !run5) pass = false;
+                if (pass && rf.run6 && rf.run6.enabled !== undefined && rf.run6.enabled && !run6) pass = false;
+            }
+            if (pass) counts.consecutiveFilter++;
+        }
+
+        // 번호대 + 엔트로피
+        if (counts.numberRangeFilter !== undefined) {
+            let c1=0, c2=0, c3=0, c4=0, c5=0;
+            const cntN = (n) => { if(n<=10)c1++; else if(n<=20)c2++; else if(n<=30)c3++; else if(n<=40)c4++; else c5++; };
+            cntN(a); cntN(b); cntN(c); cntN(d); cntN(e); cntN(f);
+            let pass = true;
+            const ranges = F.numRanges;
+            if (ranges) {
+                const r10=ranges['1_10']; if (r10&&r10.min!==undefined&&(c1<r10.min||c1>r10.max)) pass=false;
+                if (pass) { const r20=ranges['11_20']; if (r20&&r20.min!==undefined&&(c2<r20.min||c2>r20.max)) pass=false; }
+                if (pass) { const r30=ranges['21_30']; if (r30&&r30.min!==undefined&&(c3<r30.min||c3>r30.max)) pass=false; }
+                if (pass) { const r40=ranges['31_40']; if (r40&&r40.min!==undefined&&(c4<r40.min||c4>r40.max)) pass=false; }
+                if (pass) { const r45=ranges['41_45']; if (r45&&r45.min!==undefined&&(c5<r45.min||c5>r45.max)) pass=false; }
+            }
+            if (pass && F.entropyRange) {
+                const eMin=parseFloat(F.entropyRange.min), eMax=parseFloat(F.entropyRange.max);
+                if (!isNaN(eMin)||!isNaN(eMax)) {
+                    let ent = 0;
+                    [c1,c2,c3,c4,c5].forEach(x => { if(x>0){const p=x/6; ent-=p*Math.log2(p);} });
+                    ent = Math.round(ent*100)/100;
+                    if (!isNaN(eMin)&&ent<eMin) pass=false;
+                    if (!isNaN(eMax)&&ent>eMax) pass=false;
+                }
+            }
+            if (pass) counts.numberRangeFilter++;
+        }
+
+        // 9궁
+        if (counts.magicSquareFilter !== undefined) {
+            const pc = new Uint8Array(10);
+            pc[PALACE_LUT[a]]++; pc[PALACE_LUT[b]]++; pc[PALACE_LUT[c]]++;
+            pc[PALACE_LUT[d]]++; pc[PALACE_LUT[e]]++; pc[PALACE_LUT[f]]++;
+            let pass = true;
+            const pr = F.palaceRanges;
+            for (let g = 1; g <= 9; g++) {
+                const r = pr[`${g}궁`];
+                if (!r) continue;
+                if ((r.min!==undefined&&pc[g]<r.min)||(r.max!==undefined&&pc[g]>r.max)) { pass=false; break; }
+            }
+            if (pass) counts.magicSquareFilter++;
+        }
+
+        // 로또용지
+        if (counts.lottoPaperFilter !== undefined) {
+            const gc = new Uint8Array(8), sc = new Uint8Array(8);
+            gc[GARO_LUT[a]]++; gc[GARO_LUT[b]]++; gc[GARO_LUT[c]]++;
+            gc[GARO_LUT[d]]++; gc[GARO_LUT[e]]++; gc[GARO_LUT[f]]++;
+            sc[SERO_LUT[a]]++; sc[SERO_LUT[b]]++; sc[SERO_LUT[c]]++;
+            sc[SERO_LUT[d]]++; sc[SERO_LUT[e]]++; sc[SERO_LUT[f]]++;
+            let pass = true;
+            const pg = F.paperGroups;
+            for (let row=1; row<=7&&pass; row++) { const r=pg[`가로${row}`]; if(r&&((r.min!==undefined&&gc[row]<r.min)||(r.max!==undefined&&gc[row]>r.max))) pass=false; }
+            for (let col=1; col<=7&&pass; col++) { const r=pg[`세로${col}`]; if(r&&((r.min!==undefined&&sc[col]<r.min)||(r.max!==undefined&&sc[col]>r.max))) pass=false; }
+            if (pass) counts.lottoPaperFilter++;
+        }
+
+        // 배수
+        if (counts.multipleFilter !== undefined) {
+            const m3a=M3_LUT[a],m3b=M3_LUT[b],m3c=M3_LUT[c],m3d=M3_LUT[d],m3e=M3_LUT[e],m3f=M3_LUT[f];
+            const m4a=M4_LUT[a],m4b=M4_LUT[b],m4c=M4_LUT[c],m4d=M4_LUT[d],m4e=M4_LUT[e],m4f=M4_LUT[f];
+            const m5a=M5_LUT[a],m5b=M5_LUT[b],m5c=M5_LUT[c],m5d=M5_LUT[d],m5e=M5_LUT[e],m5f=M5_LUT[f];
+            const cnt3=m3a+m3b+m3c+m3d+m3e+m3f, cnt4=m4a+m4b+m4c+m4d+m4e+m4f, cnt5=m5a+m5b+m5c+m5d+m5e+m5f;
+            const mr=F.multipleRanges;
+            let pass=true;
+            const r3=mr['3배수']; if(r3&&r3.min!==undefined&&(cnt3<r3.min||cnt3>r3.max)) pass=false;
+            if(pass){const r4=mr['4배수']; if(r4&&r4.min!==undefined&&(cnt4<r4.min||cnt4>r4.max)) pass=false;}
+            if(pass){const r5=mr['5배수']; if(r5&&r5.min!==undefined&&(cnt5<r5.min||cnt5>r5.max)) pass=false;}
+            if(pass){const cnt34=(m3a&&m4a?1:0)+(m3b&&m4b?1:0)+(m3c&&m4c?1:0)+(m3d&&m4d?1:0)+(m3e&&m4e?1:0)+(m3f&&m4f?1:0); const r34=mr['3·4배수']; if(r34&&r34.min!==undefined&&(cnt34<r34.min||cnt34>r34.max)) pass=false;}
+            if(pass){const cnt35=(m3a&&m5a?1:0)+(m3b&&m5b?1:0)+(m3c&&m5c?1:0)+(m3d&&m5d?1:0)+(m3e&&m5e?1:0)+(m3f&&m5f?1:0); const r35=mr['3·5배수']; if(r35&&r35.min!==undefined&&(cnt35<r35.min||cnt35>r35.max)) pass=false;}
+            if(pass){const cnt45=(m4a&&m5a?1:0)+(m4b&&m5b?1:0)+(m4c&&m5c?1:0)+(m4d&&m5d?1:0)+(m4e&&m5e?1:0)+(m4f&&m5f?1:0); const r45b=mr['4·5배수']; if(r45b&&r45b.min!==undefined&&(cnt45<r45b.min||cnt45>r45b.max)) pass=false;}
+            if(pass){const cntO=(!m3a&&!m4a&&!m5a?1:0)+(!m3b&&!m4b&&!m5b?1:0)+(!m3c&&!m4c&&!m5c?1:0)+(!m3d&&!m4d&&!m5d?1:0)+(!m3e&&!m4e&&!m5e?1:0)+(!m3f&&!m4f&&!m5f?1:0); const rO=mr['배수외']; if(rO&&rO.min!==undefined&&(cntO<rO.min||cntO>rO.max)) pass=false;}
+            if(pass) counts.multipleFilter++;
+        }
+
+        // 이월수
+        if (counts.carryoverFilter !== undefined) {
+            let pass = true;
+            if (F.carryoverCounts && F.carryoverLUT) {
+                const lut=F.carryoverLUT;
+                const cnt=(lut[a]||0)+(lut[b]||0)+(lut[c]||0)+(lut[d]||0)+(lut[e]||0)+(lut[f]||0);
+                if (!F.carryoverCounts.has(cnt)) pass=false;
+            }
+            if (pass && F.carryoverBonusCounts && F.carryoverBonusLUT) {
+                const lut=F.carryoverBonusLUT;
+                const cnt=(lut[a]||0)+(lut[b]||0)+(lut[c]||0)+(lut[d]||0)+(lut[e]||0)+(lut[f]||0);
+                if (!F.carryoverBonusCounts.has(cnt)) pass=false;
+            }
+            if (pass) counts.carryoverFilter++;
+        }
+
+        // 이웃수
+        if (counts.neighborFilter !== undefined && F.neighborCounts && F.neighborLUT) {
+            const lut=F.neighborLUT;
+            const cnt=(lut[a]||0)+(lut[b]||0)+(lut[c]||0)+(lut[d]||0)+(lut[e]||0)+(lut[f]||0);
+            if (F.neighborCounts.has(cnt)) counts.neighborFilter++;
+        }
+
+        // Hot/Cold
+        for (const period of [5, 10, 15, 20]) {
+            const key = `hotCold${period}`;
+            if (counts[key] !== undefined) {
+                const hc = F[`hc${period}`];
+                if (hc) {
+                    const lh=hc.hotLUT, lw=hc.warmLUT, lc=hc.coldLUT;
+                    const hotCnt=lh?(lh[a]||0)+(lh[b]||0)+(lh[c]||0)+(lh[d]||0)+(lh[e]||0)+(lh[f]||0):0;
+                    const warmCnt=lw?(lw[a]||0)+(lw[b]||0)+(lw[c]||0)+(lw[d]||0)+(lw[e]||0)+(lw[f]||0):0;
+                    const coldCnt=lc?(lc[a]||0)+(lc[b]||0)+(lc[c]||0)+(lc[d]||0)+(lc[e]||0)+(lc[f]||0):0;
+                    const hr=hc.hotRange, wr=hc.warmRange, cr=hc.coldRange;
+                    if (hotCnt>=hr[0]&&hotCnt<=hr[1]&&warmCnt>=wr[0]&&warmCnt<=wr[1]&&coldCnt>=cr[0]&&coldCnt<=cr[1]) counts[key]++;
+                }
+            }
+        }
+
+        // 미출현 기간
+        if (counts.missingPeriodFilter !== undefined && F.missingPeriodGroups) {
+            const groups=F.missingPeriodGroups;
+            let pass=true;
+            for (let gi=0; gi<groups.length&&pass; gi++) {
+                const g=groups[gi];
+                if (!g.nums||g.nums.length===0) continue;
+                const nums=g.nums;
+                let cnt=0;
+                for (let ni=0; ni<nums.length; ni++) { const n=nums[ni]; if(n===a||n===b||n===c||n===d||n===e||n===f) cnt++; }
+                if ((g.min!==undefined&&cnt<g.min)||(g.max!==undefined&&cnt>g.max)) pass=false;
+            }
+            if (pass) counts.missingPeriodFilter++;
+        }
+
+        // 미출현 커스텀
+        if (counts.missingCustomFilter !== undefined && F.missingCustomGroups) {
+            const groups=F.missingCustomGroups;
+            let pass=true;
+            for (let gi=0; gi<groups.length&&pass; gi++) {
+                const g=groups[gi];
+                if (!g.lut) continue;
+                const lut=g.lut;
+                const cnt=(lut[a]||0)+(lut[b]||0)+(lut[c]||0)+(lut[d]||0)+(lut[e]||0)+(lut[f]||0);
+                if (cnt<g.min||cnt>g.max) pass=false;
+            }
+            if (pass) counts.missingCustomFilter++;
+        }
+
+        // 회귀
+        for (let ri=0; ri<regrParsed.length; ri++) {
+            const r=regrParsed[ri];
+            if (!r.lut) continue;
+            const lut=r.lut;
+            const cnt=(lut[a]||0)+(lut[b]||0)+(lut[c]||0)+(lut[d]||0)+(lut[e]||0)+(lut[f]||0);
+            if (cnt>=r.min&&cnt<=r.max) counts[r.key]++;
+        }
+
+        // 커스텀 분석
+        for (let ci=0; ci<customParsed.length; ci++) {
+            const cp=customParsed[ci];
+            if (!cp.lut) continue;
+            const lut=cp.lut;
+            const cnt=(lut[a]||0)+(lut[b]||0)+(lut[c]||0)+(lut[d]||0)+(lut[e]||0)+(lut[f]||0);
+            if (cnt>=cp.min&&cnt<=cp.max) counts[cp.key]++;
+        }
+
+        // 수동 필터
+        for (let mi=0; mi<manualParsed.length; mi++) {
+            const mp=manualParsed[mi];
+            if (!mp.lut) continue;
+            const lut=mp.lut;
+            const cnt=(lut[a]||0)+(lut[b]||0)+(lut[c]||0)+(lut[d]||0)+(lut[e]||0)+(lut[f]||0);
+            if (cnt>=mp.min&&cnt<=mp.max) counts[mp.key]++;
+        }
+    }
+
+    return counts;
+}
+
+// ──────────────────────────────────────────────────
+// 6. 카운팅 / 생성
 // ──────────────────────────────────────────────────
 function countCombinations(rawFilters) {
     if (!combinations) return 0;
@@ -1559,5 +1930,18 @@ self.onmessage = function (e) {
     } else if (data.type === 'STEPCNT') {
         const result = stepCountFilters(data.filters);
         self.postMessage({ type: 'STEPCNT_RESULT', result });
+    } else if (data.type === 'INDEP_COUNT') {
+        const counts = countIndependent(data.filters);
+        self.postMessage({ type: 'INDEP_COUNT_RESULT', counts });
+    } else if (data.type === 'CUMUL_BADGES') {
+        const result = stepCountFilters(data.filters);
+        if (!result) { self.postMessage({ type: 'CUMUL_BADGES_RESULT', badges: {} }); return; }
+        const badges = {};
+        for (const step of result.steps) {
+            if (step.key && step.key !== 'basket' && step.key !== 'entropy') {
+                badges[step.key] = step.survivors;
+            }
+        }
+        self.postMessage({ type: 'CUMUL_BADGES_RESULT', badges });
     }
 };

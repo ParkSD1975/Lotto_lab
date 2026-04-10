@@ -1,11 +1,11 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html class="light" lang="ko">
 
 <head>
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>Lotto Lab - 커스텀 분석</title>
-    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="css/tailwind.css" rel="stylesheet" />
 
     <link rel="icon" href="data:,">
 
@@ -27,6 +27,11 @@
     <script src="js/layout.js"></script>
 
     <script src="js/customAnalysis.js"></script>
+
+    <!-- NLP Modules -->
+    <script src="js/NLPProcessor.js"></script>
+    <script src="js/NLPInputComponent.js"></script>
+    <script src="js/BasicAnalysisNLP.js"></script>
 </head>
 
 <body class="bg-[#F9FAFB] font-sans antialiased">
@@ -46,10 +51,10 @@
                         <div class="flex flex-col md:flex-row md:items-start justify-between gap-4">
                             <div>
                                 <span
-                                    class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800 mb-2">
+                                    class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-normal bg-purple-100 text-purple-800 mb-2">
                                     ✨ AI Custom Analysis
                                 </span>
-                                <h1 id="analysisTitle" class="text-3xl font-extrabold text-gray-900 tracking-tight">분석
+                                <h1 id="analysisTitle" class="text-3xl font-normal text-gray-900 tracking-tight">분석
                                     로딩
                                     중...</h1>
                                 <p id="analysisDesc" class="text-sm text-gray-500 mt-2 max-w-2xl">데이터를 불러오고 있습니다.</p>
@@ -63,12 +68,12 @@
                                 <!-- 버튼 그룹 -->
                                 <div class="flex gap-3">
                                     <button onclick="editTitle()"
-                                        class="flex items-center gap-1 text-gray-500 hover:text-blue-600 text-sm font-medium transition-colors">
+                                        class="flex items-center gap-1 text-gray-500 hover:text-blue-600 text-sm font-normal transition-colors">
                                         <span class="material-symbols-outlined text-[18px] leading-none">edit</span>
                                         <span class="leading-none">수정</span>
                                     </button>
                                     <button onclick="deleteAnalysis()"
-                                        class="flex items-center gap-1 text-gray-500 hover:text-red-500 text-sm font-medium transition-colors">
+                                        class="flex items-center gap-1 text-gray-500 hover:text-red-500 text-sm font-normal transition-colors">
                                         <span class="material-symbols-outlined text-[18px] leading-none">delete</span>
                                         <span class="leading-none">삭제</span>
                                     </button>
@@ -85,18 +90,18 @@
                                     class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
                                     <span class="material-symbols-outlined text-7xl text-blue-500">trending_up</span>
                                 </div>
-                                <h4 class="text-gray-400 text-xs font-bold uppercase tracking-wider mb-4">현재 상태 분석
+                                <h4 class="text-gray-400 text-xs font-normal uppercase tracking-wider mb-4">현재 상태 분석
                                 </h4>
                                 <div class="flex justify-between items-end mb-2">
-                                    <span class="text-sm text-gray-600 font-medium">현재 미출현 (Gap)</span>
+                                    <span class="text-sm text-gray-600 font-normal">현재 미출현 (Gap)</span>
                                     <div class="text-right">
-                                        <span class="text-3xl font-black text-blue-600" id="currGap">-</span>
+                                        <span class="text-3xl font-normal text-blue-600" id="currGap">-</span>
                                         <span class="text-xs text-gray-400 block">회 연속 미출현</span>
                                     </div>
                                 </div>
                                 <div class="flex justify-between items-end border-t border-gray-100 pt-2 mt-2">
-                                    <span class="text-sm text-gray-600 font-medium">현재 연속출현</span>
-                                    <span class="text-xl font-bold text-green-600" id="currStraight">-</span>
+                                    <span class="text-sm text-gray-600 font-normal">현재 연속출현</span>
+                                    <span class="text-xl font-normal text-green-600" id="currStraight">-</span>
                                 </div>
                             </div>
 
@@ -107,20 +112,20 @@
                                     class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
                                     <span class="material-symbols-outlined text-7xl text-red-500">history</span>
                                 </div>
-                                <h4 class="text-gray-400 text-xs font-bold uppercase tracking-wider mb-4">역대 기록 통계
+                                <h4 class="text-gray-400 text-xs font-normal uppercase tracking-wider mb-4">역대 기록 통계
                                 </h4>
                                 <div class="space-y-1">
                                     <div class="flex justify-between items-center">
                                         <span class="text-sm text-gray-600">최장 미출현 (Max Gap)</span>
-                                        <span class="text-lg font-bold text-gray-800" id="maxGap">-</span>
+                                        <span class="text-lg font-normal text-gray-800" id="maxGap">-</span>
                                     </div>
                                     <div class="flex justify-between items-center">
                                         <span class="text-sm text-gray-600">최장 연속출현 (Max Str)</span>
-                                        <span class="text-lg font-bold text-gray-800" id="maxStraight">-</span>
+                                        <span class="text-lg font-normal text-gray-800" id="maxStraight">-</span>
                                     </div>
                                     <div class="flex justify-between items-center border-t border-gray-50 pt-1 mt-1">
                                         <span class="text-sm text-gray-600">한 회차 최다 적중</span>
-                                        <span class="text-lg font-bold text-blue-600" id="maxHitCount">-</span>
+                                        <span class="text-lg font-normal text-blue-600" id="maxHitCount">-</span>
                                     </div>
                                 </div>
                             </div>
@@ -128,22 +133,22 @@
                             <!-- Card 3: Probability & Imminence -->
                             <div
                                 class="bg-white p-6 rounded-xl border border-gray-200 shadow-sm relative overflow-hidden group hover:shadow-md transition-all">
-                                <h4 class="text-gray-400 text-xs font-bold uppercase tracking-wider mb-4">출현 확률 및 임박도
+                                <h4 class="text-gray-400 text-xs font-normal uppercase tracking-wider mb-4">출현 확률 및 임박도
                                 </h4>
                                 <div class="flex items-center justify-between mb-4">
                                     <div>
-                                        <div class="text-3xl font-black text-gray-900" id="totalHitRate">0%</div>
+                                        <div class="text-3xl font-normal text-gray-900" id="totalHitRate">0%</div>
                                         <div class="text-xs text-gray-500 mt-1">전체 당첨 확률</div>
                                     </div>
                                     <div class="text-right">
-                                        <div class="text-lg font-bold text-gray-800" id="avgHitCount">0.0</div>
+                                        <div class="text-lg font-normal text-gray-800" id="avgHitCount">0.0</div>
                                         <div class="text-xs text-gray-500">평균 적중 개수</div>
                                     </div>
                                 </div>
                                 <div class="mt-2 text-center border-t border-gray-50 pt-3">
-                                    <div class="flex justify-between text-xs mb-1 font-medium">
-                                        <span class="text-gray-700 font-bold">출현 임박 지수 (Imminence Index)</span>
-                                        <span class="text-slate-600 font-bold" id="riskScore">0%</span>
+                                    <div class="flex justify-between text-xs mb-1 font-normal">
+                                        <span class="text-gray-700 font-normal">출현 임박 지수 (Imminence Index)</span>
+                                        <span class="text-slate-600 font-normal" id="riskScore">0%</span>
                                     </div>
                                     <div class="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
                                         <div id="riskBar"
@@ -158,20 +163,20 @@
 
                     </div>
 
-                    <!-- AI Analysis Insight Section (Situational) -->
-                    <div id="aiAnalysisSection" class="hidden mb-4 animate-in fade-in zoom-in-95 duration-700">
+                    <!-- AI Analysis Insight Section -->
+                    <div id="aiAnalysisSection" class="mb-4">
                         <div
-                            class="bg-white rounded-[2rem] border border-indigo-50 shadow-xl shadow-indigo-100/20 overflow-hidden">
+                            class="bg-white rounded-[2rem] border border-blue-50 shadow-xl shadow-blue-100/20 overflow-hidden">
                             <div
-                                class="px-8 py-5 bg-gradient-to-r from-indigo-600 via-indigo-500 to-indigo-600 flex items-center justify-between">
+                                class="px-8 py-5 bg-gradient-to-r from-blue-600 via-blue-500 to-blue-600 flex items-center justify-between">
                                 <div class="flex items-center gap-3 text-white">
                                     <div
                                         class="w-8 h-8 bg-white/20 backdrop-blur-md rounded-lg flex items-center justify-center">
                                         <span class="material-symbols-outlined text-[20px]">auto_awesome</span>
                                     </div>
                                     <div>
-                                        <span class="text-base font-black tracking-tight">AI 맞춤형 분석 리포트</span>
-                                        <p class="text-[9px] text-white/60 font-medium uppercase tracking-wider">Dynamic
+                                        <span class="text-base font-normal tracking-tight">AI 맞춤형 분석 리포트</span>
+                                        <p class="text-[9px] text-white/60 font-normal uppercase tracking-wider">Dynamic
                                             Strategic Insight</p>
                                     </div>
                                 </div>
@@ -181,8 +186,14 @@
                                 </button>
                             </div>
                             <div id="aiAnalysisContent"
-                                class="p-8 prose prose-indigo max-w-none text-slate-600 leading-relaxed font-semibold">
-                                <!-- AI Result -->
+                                class="p-8 prose prose-indigo max-w-none text-slate-600 leading-relaxed font-normal min-h-[120px]">
+                                <!-- AI 로딩 skeleton -->
+                                <div id="aiSkeletonLoader" class="animate-pulse space-y-3">
+                                    <div class="h-4 bg-slate-100 rounded-full w-3/4"></div>
+                                    <div class="h-4 bg-slate-100 rounded-full w-full"></div>
+                                    <div class="h-4 bg-slate-100 rounded-full w-5/6"></div>
+                                    <div class="h-4 bg-slate-100 rounded-full w-2/3"></div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -195,12 +206,12 @@
                     <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm border-l-4 border-l-blue-600">
                         <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
                             <div>
-                                <h3 class="text-xl font-bold text-gray-900 mb-1">조합 필터</h3>
+                                <h3 class="text-xl font-normal text-gray-900 mb-1">조합 필터</h3>
                                 <p class="text-sm text-gray-600 mt-1">이 분석의 번호가 포함될 개수를 설정하세요.</p>
                             </div>
 
                             <a href="javascript:void(0)" onclick="event.preventDefault(); goToFilterPage();"
-                                class="text-sm font-medium text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
+                                class="text-sm font-normal text-slate-500 hover:text-blue-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
                                 <span class="material-symbols-outlined text-[18px]">tune</span>
                                 필터 페이지 가기
                             </a>
@@ -211,18 +222,22 @@
                             <div
                                 class="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 border border-gray-100 rounded-xl mb-4 bg-slate-50">
                                 <div class="flex-1">
-                                    <div class="text-xs font-bold text-gray-500 mb-2">현재 선택된 필터 대상 번호</div>
+                                    <div class="text-xs font-normal text-gray-500 mb-2">현재 선택된 필터 대상 번호</div>
                                     <div class="flex flex-wrap gap-2" id="targetBallContainerFilter"></div>
                                 </div>
                             </div>
                             <div
                                 class="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 border border-gray-100 rounded-xl">
                                 <div class="flex-1">
-                                    <div class="flex items-center justify-between mb-3">
-                                        <span class="text-sm font-bold text-gray-700">포함 개수 범위 (<span
-                                                id="filterRangeDisplay" class="text-blue-600">1 ~ 3개</span>)</span>
+                                    <div class="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-4 py-2 shadow-sm focus-within:ring-2 focus-within:ring-blue-500 w-fit">
+                                        <input type="number" id="customFilterMin" min="0" max="6" value="1"
+                                            oninput="updateCustomRange('min', this.value)"
+                                            class="w-14 text-center font-black text-blue-600 bg-transparent border-none p-0 focus:ring-0 text-lg">
+                                        <span class="text-slate-300 font-bold text-lg">~</span>
+                                        <input type="number" id="customFilterMax" min="0" max="6" value="3"
+                                            oninput="updateCustomRange('max', this.value)"
+                                            class="w-14 text-center font-black text-blue-600 bg-transparent border-none p-0 focus:ring-0 text-lg">
                                     </div>
-                                    <div class="flex flex-wrap gap-2" id="filterBtnContainer"></div>
                                 </div>
 
                                 <div class="md:border-l md:pl-6 flex items-center">
@@ -233,7 +248,7 @@
                                             class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600 transition-colors">
                                         </div>
                                         <span
-                                            class="ml-2 text-sm font-bold text-gray-700 group-hover:text-blue-600 transition-colors">필터
+                                            class="ml-2 text-sm font-normal text-gray-700 group-hover:text-blue-600 transition-colors">필터
                                             적용</span>
                                     </label>
                                 </div>
@@ -250,8 +265,8 @@
                                     <span class="material-symbols-outlined text-xl">history_edu</span>
                                 </div>
                                 <div>
-                                    <h3 class="text-xl font-black text-slate-900">분석 데이터 히스토리</h3>
-                                    <p class="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mt-1">
+                                    <h3 class="text-xl font-normal text-slate-900">분석 데이터 히스토리</h3>
+                                    <p class="text-[10px] font-normal text-slate-400 uppercase tracking-[0.2em] mt-1">
                                         상세 데이터 분석 기록</p>
                                 </div>
                             </div>
@@ -261,7 +276,7 @@
                                 <!-- Range Slider -->
                                 <div
                                     class="flex items-center gap-3 bg-slate-50 px-4 py-2 rounded-xl border border-slate-100">
-                                    <span class="text-xs font-bold text-slate-500">조회 범위: <span id="historyRangeVal"
+                                    <span class="text-xs font-normal text-slate-500">조회 범위: <span id="historyRangeVal"
                                             class="text-blue-600">100</span>회</span>
                                     <input type="range" min="50" max="2000" step="50" value="100"
                                         class="w-32 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
@@ -270,7 +285,7 @@
 
                                 <div id="statsBtnContainer" class="hidden">
                                     <button onclick="openStatsModal()"
-                                        class="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-black transition-all shadow-lg shadow-blue-200">
+                                        class="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-normal transition-all shadow-lg shadow-blue-200">
                                         <span class="material-symbols-outlined text-lg">bar_chart</span>
                                         통계 보기
                                     </button>
@@ -282,7 +297,7 @@
                             style="max-height: 1200px;">
                             <table class="w-full text-sm">
                                 <thead id="historyHeader"
-                                    class="sticky top-0 bg-slate-900 text-white font-semibold border-b border-[#334155] z-30">
+                                    class="sticky top-0 bg-slate-900 text-white font-normal border-b border-[#334155] z-30">
                                     <!-- JS에서 동적으로 생성 (가변 컬럼 대응) -->
                                 </thead>
                                 <tbody id="historyTableBody" class="divide-y divide-gray-100">
@@ -295,62 +310,61 @@
 
                 <div id="aiStatusContainer" class="hidden my-4 px-2">
                     <div
-                        class="bg-indigo-900/5 backdrop-blur-md border border-indigo-200/50 rounded-2xl p-4 flex items-start gap-4 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                        class="bg-blue-900/5 backdrop-blur-md border border-blue-200/50 rounded-2xl p-4 flex items-start gap-4 animate-in fade-in slide-in-from-bottom-2 duration-500">
                         <div
-                            class="w-10 h-10 bg-indigo-600 rounded-full flex items-center justify-center flex-shrink-0 shadow-lg shadow-indigo-100">
+                            class="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0 shadow-lg shadow-blue-100">
                             <span class="material-symbols-outlined text-white text-xl animate-pulse">psychology</span>
                         </div>
                         <div class="flex-1">
                             <div class="flex items-center justify-between mb-1">
-                                <span class="text-xs font-black text-indigo-600 uppercase tracking-widest">AI Agent
+                                <span class="text-xs font-normal text-blue-600 uppercase tracking-widest">AI Agent
                                     Feedback</span>
-                                <span class="text-[10px] text-indigo-400 font-medium" id="aiStatusTime">Just
+                                <span class="text-[10px] text-blue-400 font-normal" id="aiStatusTime">Just
                                     now</span>
                             </div>
-                            <p id="aiStatusMessage" class="text-sm text-slate-700 font-medium leading-relaxed italic">
+                            <p id="aiStatusMessage" class="text-sm text-slate-700 font-normal leading-relaxed italic">
                             </p>
                         </div>
                     </div>
                 </div>
 
-        </div>
-
-        <!-- Zone: Mode Containers with Premium Transitions -->
-        <div id="mode-regression-scan" class="hidden space-y-6 transition-all duration-300">
-            <div class="bg-white rounded-[2rem] border border-indigo-100 shadow-xl overflow-hidden">
-                <div class="px-8 py-6 border-b border-indigo-50 bg-indigo-50/30 flex justify-between items-center">
-                    <div>
-                        <span
-                            class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800 mb-2">
-                            ✨ AI 회귀 전수조사
-                        </span>
-                        <h2 class="text-2xl font-black text-gray-900">회귀 전수조사 결과</h2>
-                        <p class="text-sm text-gray-500 mt-1">2~200회귀 중 직전 회차 적중 패턴을 분석합니다.</p>
+                <!-- Zone: Mode Containers with Premium Transitions -->
+                <div id="mode-regression-scan" class="hidden space-y-6 transition-all duration-300">
+                    <div class="bg-white rounded-[2rem] border border-blue-100 shadow-xl overflow-hidden">
+                        <div class="px-8 py-6 border-b border-blue-50 bg-blue-50/30 flex justify-between items-center">
+                            <div>
+                                <span
+                                    class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-normal bg-blue-100 text-blue-800 mb-2">
+                                    ✨ AI 회귀 전수조사
+                                </span>
+                                <h2 class="text-2xl font-normal text-gray-900">회귀 전수조사 결과</h2>
+                                <p class="text-sm text-gray-500 mt-1">2~200회귀 중 직전 회차 적중 패턴을 분석합니다.</p>
+                            </div>
+                            <button onclick="switchMode('number')"
+                                class="px-4 py-2 bg-white border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 text-sm font-normal shadow-sm transition-all">
+                                돌아가기
+                            </button>
+                        </div>
+                        <div class="p-0">
+                            <table class="w-full text-left border-collapse">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-6 py-4 text-xs font-normal text-gray-500 uppercase">회귀 Step</th>
+                                        <th class="px-6 py-4 text-xs font-normal text-gray-500 uppercase text-center">당첨 번호</th>
+                                        <th class="px-6 py-4 text-xs font-normal text-gray-500 uppercase text-center">적중 수</th>
+                                        <th class="px-6 py-4 text-xs font-normal text-gray-500 uppercase text-right">작업</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="regression-scan-results" class="divide-y divide-gray-100 bg-white">
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
-                    <button onclick="switchMode('number')"
-                        class="px-4 py-2 bg-white border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 text-sm font-bold shadow-sm transition-all">
-                        돌아가기
-                    </button>
                 </div>
-                <div class="p-0">
-                    <table class="w-full text-left border-collapse">
-                        <thead class="bg-gray-50">
-                            <tr>
-                                <th class="px-6 py-4 text-xs font-bold text-gray-500 uppercase">회귀 Step</th>
-                                <th class="px-6 py-4 text-xs font-bold text-gray-500 uppercase text-center">당첨 번호</th>
-                                <th class="px-6 py-4 text-xs font-bold text-gray-500 uppercase text-center">적중 수</th>
-                                <th class="px-6 py-4 text-xs font-bold text-gray-500 uppercase text-right">작업</th>
-                            </tr>
-                        </thead>
-                        <tbody id="regression-scan-results" class="divide-y divide-gray-100 bg-white">
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
+            </div> <!-- End of max-w-7xl -->
         </main>
-    </div>
-    </div>
+    </div> <!-- End of flex flex-1 -->
+</div> <!-- End of flex flex-col h-screen -->
 
     <!-- [New] 통계 상세 모달 -->
     <div id="statsModal"
@@ -364,8 +378,8 @@
                         <span class="material-symbols-outlined text-xl">analytics</span>
                     </div>
                     <div>
-                        <h2 class="text-xl font-black text-slate-900">번호대별 상세 통계</h2>
-                        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">회차별 적중 상세 분석</p>
+                        <h2 class="text-xl font-normal text-slate-900">번호대별 상세 통계</h2>
+                        <p class="text-[10px] font-normal text-slate-400 uppercase tracking-widest mt-1">회차별 적중 상세 분석</p>
                     </div>
                 </div>
                 <button onclick="closeStatsModal()"
@@ -376,8 +390,8 @@
 
             <div class="px-8 py-6 bg-slate-50/50 border-b border-slate-100">
                 <div class="flex items-center justify-between mb-4">
-                    <span class="text-xs font-black text-slate-400 uppercase tracking-widest">분석 범위 설정</span>
-                    <div id="statsRangeText" class="text-sm font-black text-blue-600 bg-blue-50 px-3 py-1 rounded-full">
+                    <span class="text-xs font-normal text-slate-400 uppercase tracking-widest">분석 범위 설정</span>
+                    <div id="statsRangeText" class="text-sm font-normal text-blue-600 bg-blue-50 px-3 py-1 rounded-full">
                         최근 100회 분석</div>
                 </div>
                 <input type="range" id="statsRangeSlider" min="20" max="1200" value="100" step="10"
@@ -400,7 +414,7 @@
 
             <div class="px-8 py-6 border-t border-slate-50 flex items-center justify-end bg-white">
                 <button onclick="closeStatsModal()"
-                    class="px-6 py-2.5 bg-slate-900 text-white rounded-xl text-sm font-black hover:bg-slate-800 transition-all shadow-lg shadow-slate-200">
+                    class="px-6 py-2.5 bg-slate-900 text-white rounded-xl text-sm font-normal hover:bg-slate-800 transition-all shadow-lg shadow-slate-200">
                     확인 및 닫기
                 </button>
             </div>
@@ -414,18 +428,18 @@
             opacity: 0;
             transform: translateY(20px);
             pointer-events: none;
-            position: absolute;
+            position: relative; /* [수정] absolute에서 relative로 변경 */
+            display: none;    /* [추가] relative 시 겹침 방지를 위해 평소엔 숨김 */
             width: 100%;
             top: 0;
             left: 0;
-            visibility: hidden;
         }
 
         .mode-container.active {
             opacity: 1;
             transform: translateY(0);
             pointer-events: auto;
-            position: relative;
+            display: block;    /* [추가] 활성화 시 표시 */
             visibility: visible;
         }
 
@@ -495,3 +509,4 @@
 </body>
 
 </html>
+

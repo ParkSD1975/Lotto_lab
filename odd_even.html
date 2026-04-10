@@ -1,11 +1,11 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html class="light" lang="ko">
 
 <head>
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>Lotto Lab - 홀짝 (AI)</title>
-    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="css/tailwind.css" rel="stylesheet" />
 
     <link rel="icon" href="data:,">
 
@@ -25,6 +25,7 @@
     <script src="js/common_v2.js"></script>
     <script src="js/filter/FilterService.js"></script>
     <script src="js/layout.js"></script>
+    <script src="js/deep_insight_panel.js"></script>
     <script src="js/aiProxy.js"></script>
 
     <!-- NLP Modules -->
@@ -53,6 +54,8 @@
         let excludedOddEvens = [];     // 수동 제외 항목
 
         window.isLoadingSettings = false; // [추가] 설정 로딩 중 플래그
+        let _oddEvenSelfSaving = false;   // 자체 저장 StorageEvent 루프 방지
+        let _filterSettingsLoaded = false; // loadFilterSettings 완료 전 save 차단
 
         // 🔹 [Optimized] Debounce mechanism for heavy updates
         let rangeDebounceTimer = null;
@@ -203,20 +206,19 @@
             // 토글: 이미 켜져있으면 끄기 (보라색 클래스 존재 여부로 판단)
             if (btn.classList.contains('from-purple-500')) {
                 btn.classList.remove('from-purple-500', 'to-purple-700');
-                btn.classList.add('from-blue-500', 'to-indigo-600');
+                btn.classList.add('from-blue-500', 'to-blue-600');
                 btnText.textContent = '최근 10회차 필터 적용';
 
-                // 필터 초기화
-                activeFilters.clear();
-                if (chk) chk.checked = false;
+                // [Fix] 값 유지 + 토글 ON 유지 (해제 시 필터값/토글 초기화 안 함)
                 isRecentTenFilter = false;
                 highlightStartRound = null;
+                if (chk) chk.checked = true;
 
-                // 수동 모드로 리셋할지 여부: 유저가 직접 껐다면 수동 상태라고 보기 애매할 수 있으므로
-                localStorage.setItem('odd_even_is_manual', 'false');
+                localStorage.setItem('odd_even_is_manual', 'true');
 
                 updateUIState();
-                applyFilter(); // Filter logic will handle the reset
+                applyFilter();
+                saveFilterSettings();
                 return;
             }
 
@@ -230,7 +232,7 @@
             recent10Data.forEach(d => activeFilters.add(d.ratio));
 
             // 3. UI 업데이트 (보라색 토글)
-            btn.classList.remove('from-blue-500', 'to-indigo-600');
+            btn.classList.remove('from-blue-500', 'to-blue-600');
             btn.classList.add('from-purple-500', 'to-purple-700');
             btnText.textContent = '필터 해제';
 
@@ -244,7 +246,7 @@
             applyFilter();
 
             // AI 분석 갱신 (Optional)
-            refreshAIAnalysis();
+            initDeepInsight();
 
             // 최근 10회차 버튼을 사용자가 직접 클릭한 경우는 '자동 세팅'을 스스로 켠 것과 같음. 수동 상태 해제.
             localStorage.setItem('odd_even_is_manual', 'false');
@@ -252,89 +254,44 @@
             console.log('최근 10회차 홀짝 필터 적용 완료');
         }
 
-        // [표준화] 새 회차 감지 시 초기화 로직 (Saturdays/Mondays)
+        // [수정] 새 회차 감지 시 초기화 로직 (표준화 적용)
         async function checkAndResetOnNewDraw() {
             if (!allDrawData || allDrawData.length === 0) return;
             const latestRound = allDrawData[0].round;
-            const lastProcessed = parseInt(localStorage.getItem('odd_even_last_processed_round') || '0');
+            const targetRound = latestRound + 1;
 
-            if (latestRound > lastProcessed) {
-                const isManual = localStorage.getItem('odd_even_is_manual') === 'true';
+            // 새 회차 감지 (localStorage 비교)
+            const lastStoredRound = parseInt(localStorage.getItem('odd_even_last_round') || '0');
+            const isNewRound = latestRound > lastStoredRound;
 
-                if (isManual) {
-                    console.log(`🆕 회차 갱신 감지 (${latestRound}회). 수동 필터 설정 유지.`);
-                } else {
-                    console.log(`🆕 회차 갱신 감지 (${latestRound}회). 필터 자동 적용(버튼 비활성화) 및 수동 제외 초기화.`);
+            // [표준] loadFilterSettings 결과가 false이면 새 회차로 간주하여 초기화
+            const isLoaded = await loadFilterSettings(targetRound);
 
-                    // 1. 수동 제외 리스트 초기화 
-                    excludedOddEvens = [];
-                    restoredAutoOddEvens = [];
+            if (!isLoaded || isNewRound) {
+                console.log(`✨ 신규 회차 감지 (${targetRound}회) - 필터 자동 초기화 및 최근 10회차 적용`);
 
-                    // 2. 최근 10회차 필터 수치만 자동 계산하여 활성화 (버튼은 끄기)
-                    const recent10Data = allDrawData.slice(0, 10);
-                    activeFilters.clear();
-                    recent10Data.forEach(d => activeFilters.add(d.ratio));
+                // 1. 수동 제외 리스트 초기화
+                excludedOddEvens = [];
+                restoredAutoOddEvens = [];
 
-                    const btn = document.getElementById('recent10FilterBtn');
-                    const btnText = document.getElementById('recent10BtnText');
-                    const chk = document.getElementById('applyFilterCheck');
+                // 2. 최근 10회차 필터 적용
+                applyRecent10Filters();
 
-                    if (btn && btnText) {
-                        btn.classList.remove('from-purple-500', 'to-purple-700');
-                        btn.classList.add('from-blue-500', 'to-indigo-600');
-                        btnText.textContent = '최근 10회차 필터 적용';
-                    }
+                // 초기화된 값 저장
+                await saveFilterSettings(targetRound);
 
-                    if (chk) {
-                        chk.checked = true;
-                    }
-
-                    isRecentTenFilter = false; // 버튼 효과(연속 하이라이트 등)이 켜진 게 아니므로
-                    highlightStartRound = null;
-
-                    updateRecentTenFilterFlag();
-                    updateUIState();
-                    applyFilter();
-
-                    // 자동 업데이트이므로 계속 false
-                    localStorage.setItem('odd_even_is_manual', 'false');
-                }
-
-                // 3. 처리된 회차 기록
-                localStorage.setItem('odd_even_last_processed_round', latestRound.toString());
-                saveFilterSettings();
-            }
-        }
-
-        async function initializeRecentTenFilter() {
-            const loaded = await loadFilterSettings();
-            const isManual = localStorage.getItem('odd_even_is_manual') === 'true';
-
-            // [수정] 수동 설정이 없거나, 로컬 스토리지 필터 로드 자체를 실패했을 때
-            if (!loaded || !isManual) {
-                const recent10Data = allDrawData.slice(0, 10);
-                activeFilters.clear();
-                recent10Data.forEach(d => activeFilters.add(d.ratio));
-
-                // 초기 로드 시 자동 필터는 값을 채워주지만 (ac_value.html 방식) 
-                // 버튼은 활성화 하지 않고, 수동이 아니라는 명시
+                // 자동 업데이트이므로 manual=false 설정
                 localStorage.setItem('odd_even_is_manual', 'false');
 
-                const chk = document.getElementById('applyFilterCheck');
-                if (chk) chk.checked = true;
-
-                isRecentTenFilter = false;
-                highlightStartRound = null; // 초기 강제 로드 시 하이라이트 트리거 제거
-
-                updateUIState();
-
-                // applyFilterWithHighlight(); 대신에 일반 리스트 렌더링 호출 (초기 하이라이트 방지)
-                applyFilter(true);
+                console.log(`✅ ${targetRound}회차 필터 초기 설정 완료`);
             } else {
-                updateRecentTenFilterFlag();
-                // highlightRecentTenRows(); // [삭제] 자동 하이라이트 방지
+                console.log(`ℹ️ ${targetRound}회차 기존 필터 로드 완료`);
             }
+
+            localStorage.setItem('odd_even_last_round', latestRound.toString());
         }
+
+
 
         // ==================== AI 분석 엔진 ====================
 
@@ -364,105 +321,167 @@
             localStorage.setItem('odd_even_is_manual', 'true');
         }
 
-        // [수정] 필터 설정 저장 함수 (DB 저장)
-        async function saveFilterSettings() {
-            if (window.isLoadingSettings) return; // [추가] 로딩 중에는 저장하지 않음
+        // [추가] 수동 조작 시 최근 10회차 모드 자동 해제
+        function deactivateRecent10IfActive() {
+            if (isRecentTenFilter) {
+                console.log("수동 필터 조작 감지: 최근 10회차 모드 해제");
+                isRecentTenFilter = false;
+                highlightStartRound = null;
+                
+                const btn = document.getElementById('recent10FilterBtn');
+                const btnText = document.getElementById('recent10BtnText');
+                if (btn) {
+                    btn.classList.remove('from-purple-500', 'to-purple-700');
+                    btn.classList.add('from-blue-500', 'to-blue-600');
+                }
+                if (btnText) btnText.textContent = '최근 10회차 필터 적용';
+                
+                saveFilterSettings(); // 상태 저장 및 동기화
+            }
+        }
+
+        // [수정] 필터 설정 저장 함수 (표준화 적용)
+        async function saveFilterSettings(targetRoundOverride = null) {
+            if (window.isLoadingSettings) return;
+            if (!_filterSettingsLoaded) return; // 로드 완료 전 빈값 저장 방지
+
+            const latestRound = (allDrawData && allDrawData.length > 0) ? allDrawData[0].round : null;
+            const targetRound = targetRoundOverride || (latestRound ? latestRound + 1 : null);
+            if (!targetRound) return;
 
             const toggle = document.getElementById('applyFilterCheck');
             const btn = document.getElementById('recent10FilterBtn');
             const recent10FilterActive = btn && btn.classList.contains('from-purple-500');
 
-            const data = {
+            const settings = {
                 selectedRatios: Array.from(activeFilters),
                 excludedOddEvens: excludedOddEvens || [],
                 restoredAutoOddEvens: restoredAutoOddEvens || [],
                 recent10FilterActive: recent10FilterActive,
-                isManual: localStorage.getItem('odd_even_is_manual') === 'true' // 저장 시점의 수동 여부
+                isManual: localStorage.getItem('odd_even_is_manual') === 'true'
+                // targetRound는 settings에 포함하지 않음 (회차 불일치 체크 오작동 방지)
             };
             const enabled = toggle ? toggle.checked : true;
-            const settingsWithEnabled = { ...data, enabled };
 
-            // DB 저장 (FilterService 사용)
-            if (window.filterService && window.filterService.initialized) {
-                await window.filterService.saveSetting('odd_even_pattern', data, enabled);
-            } else if (window.Utils && window.Utils.saveFilter) {
-                // Fallback: localStorage
-                window.Utils.saveFilter('odd_even_pattern', settingsWithEnabled);
+            console.log(`💾 홀짝 필터 저장: ${targetRound}회차, 활성=${enabled}`);
+
+            try {
+                _oddEvenSelfSaving = true;
+                // NULL row 저장 (크로스탭 실시간 동기화용)
+                if (window.Utils && window.Utils.saveFilter) {
+                    await window.Utils.saveFilter('odd_even_pattern', settings, enabled, targetRound);
+                }
+                // targetRound row 저장 (대시보드 연동용)
+                if (window.filterService && window.filterService.initialized && targetRound) {
+                    await window.filterService.saveSetting('odd_even_pattern', settings, enabled, targetRound);
+                }
+            } finally {
+                _oddEvenSelfSaving = false;
             }
-            // localStorage 동기화 (filter_dashboard.js 감지용)
-            localStorage.setItem('odd_even_pattern', JSON.stringify(settingsWithEnabled));
-            localStorage.setItem('odd_even_pattern_filter', JSON.stringify(settingsWithEnabled));
         }
 
-        // [추가] 대시보드 상호작용을 위한 storage 이벤트 리스너
-        window.addEventListener('storage', (event) => {
+        // 로그아웃 시 필터 UI 초기화
+        function resetFilterUI() {
+            activeFilters.clear();
+            excludedOddEvens = [];
+            isRecentTenFilter = false;
+            highlightStartRound = null;
+            const chk = document.getElementById('applyFilterCheck');
+            if (chk) chk.checked = false;
+            const btn = document.getElementById('recent10FilterBtn');
+            const btnText = document.getElementById('recent10BtnText');
+            if (btn) {
+                btn.classList.remove('from-purple-500', 'to-purple-700');
+                btn.classList.add('from-blue-500', 'to-blue-600');
+            }
+            if (btnText) btnText.textContent = '최근 10회차 필터 적용';
+            applyFilter(false);
+        }
+
+        // 대시보드 실시간 동기화 (Storage Event) - 단일 리스너
+        window.addEventListener('storage', async (event) => {
+            if (_oddEvenSelfSaving) return; // 자체 저장 이벤트 무시
             if (event.key === 'odd_even_pattern' || event.key === 'odd_even_pattern_filter' || event.key === 'odd_even_filter') {
+                // 로그아웃 감지
+                if (event.newValue) {
+                    try {
+                        const _p = JSON.parse(event.newValue);
+                        if (_p.enabled === false && !_p.settings && _p.min === undefined && !_p.selectedRatios) {
+                            resetFilterUI(); return;
+                        }
+                    } catch(_) {}
+                }
                 console.log('🔄 대시보드 필터 변경 감지: 홀짝 패턴 설정 동기화');
-                loadFilterSettings();
+                const loaded = await loadFilterSettings();
+                if (loaded) applyFilter(true);
             }
         });
 
-        // [수정] 필터 설정 불러오기 함수 (DB 로드)
-        async function loadFilterSettings() {
+        // [수정] 필터 설정 불러오기 함수 (표준화 적용)
+        async function loadFilterSettings(targetRoundOverride = null) {
             window.isLoadingSettings = true;
             try {
-                let saved = null;
+                const latestRound = (allDrawData && allDrawData.length > 0) ? allDrawData[0].round : null;
+                const currentRound = targetRoundOverride || (latestRound ? latestRound + 1 : null);
+                if (!currentRound) return false;
 
-                // DB에서 로드 (FilterService 사용)
-                if (window.filterService && window.filterService.initialized) {
-                    const data = await window.filterService.loadSetting('odd_even_pattern');
-                    if (data) {
-                        saved = { ...data.settings, enabled: data.enabled };
-                    }
+                let data = null;
+                // [표준] Utils.loadFilter를 통해 차기 회차 설정 우선 로드
+                if (window.Utils && window.Utils.loadFilter) {
+                    data = await window.Utils.loadFilter('odd_even_pattern', currentRound);
+                } else if (window.filterService && window.filterService.initialized) {
+                    data = await window.filterService.loadSetting('odd_even_pattern');
                 }
 
-                // Fallback: localStorage
-                if (!saved) {
-                    const raw = localStorage.getItem('odd_even_pattern') || localStorage.getItem('odd_even_pattern_filter') || localStorage.getItem('odd_even_filter');
-                    if (raw) try { saved = JSON.parse(raw); } catch (e) { }
-                }
-
-                if (saved) {
-
-                    // 수동 여부 복원 (없으면 false)
-                    if (saved.isManual !== undefined) {
-                        localStorage.setItem('odd_even_is_manual', saved.isManual ? 'true' : 'false');
+                // [Fix] Utils.loadFilter는 flat 구조 반환 ({selectedRatios, enabled, ...})
+                // data.settings가 아닌 data 자체를 사용
+                const s = (data && data.settings !== undefined) ? data.settings : data;
+                if (data && s) {
+                    // 수동 여부 복원
+                    if (s.isManual !== undefined) {
+                        localStorage.setItem('odd_even_is_manual', s.isManual ? 'true' : 'false');
                     } else {
                         localStorage.setItem('odd_even_is_manual', 'false');
                     }
 
-                    activeFilters = new Set(saved.selectedRatios || []);
-                    excludedOddEvens = saved.excludedOddEvens || [];
-                    restoredAutoOddEvens = saved.restoredAutoOddEvens || [];
+                    activeFilters = new Set(s.selectedRatios || []);
+                    excludedOddEvens = s.excludedOddEvens || [];
+                    restoredAutoOddEvens = s.restoredAutoOddEvens || [];
 
                     const toggle = document.getElementById('applyFilterCheck');
-                    if (toggle) toggle.checked = saved.enabled !== undefined ? saved.enabled : true;
+                    if (toggle) toggle.checked = data.enabled !== false;
 
-                    // [수정] 버튼 상태 자동 복원 로직 제거. 
-                    // 사용자가 명시적으로 클릭했을 때만 활성화 효과(하이라이팅 등)가 나타나야 하므로 초기화 시 버튼은 항상 Off 상태 유지
                     const btn = document.getElementById('recent10FilterBtn');
                     const btnText = document.getElementById('recent10BtnText');
-                    if (btn && btnText && btn.classList.contains('from-purple-500')) {
-                        btn.classList.remove('from-purple-500', 'to-purple-700');
-                        btn.classList.add('from-blue-500', 'to-indigo-600');
-                        btnText.textContent = '최근 10회차 필터 적용';
+                    if (btn && btnText) {
+                        if (s.recent10FilterActive) {
+                            btn.classList.add('from-purple-500', 'to-purple-700');
+                            btn.classList.remove('from-blue-500', 'to-blue-600');
+                            btnText.textContent = '필터 해제';
+                            isRecentTenFilter = true;
+                            highlightStartRound = allDrawData && allDrawData.length > 0 ? allDrawData[0].round : null;
+                        } else {
+                            btn.classList.remove('from-purple-500', 'to-purple-700');
+                            btn.classList.add('from-blue-500', 'to-blue-600');
+                            btnText.textContent = '최근 10회차 필터 적용';
+                            isRecentTenFilter = false;
+                            highlightStartRound = null;
+                        }
                     }
-                    isRecentTenFilter = false;
-                    highlightStartRound = null; // 초기 로드 시 하이라이트 강제 초기화
 
                     updateUIState();
                     applyFilter(true); // UI 갱신 (저장 스킵)
+                    
                     setTimeout(() => {
                         renderExcludedOddEvenBadges();
                     }, 0);
+                    
                     return true;
                 }
-
-                // 로드 실패 시
-                localStorage.setItem('odd_even_is_manual', 'false');
                 return false;
             } finally {
                 window.isLoadingSettings = false;
+                _filterSettingsLoaded = true; // 로드 완료 → 이후 save 허용
             }
         }
 
@@ -542,7 +561,7 @@
             if (hasAuto) {
                 html += autoExcluded.map(r => `
                     <button onclick="restoreAutoOddEven('${r}')" title="클릭 시 자동 제외 취소"
-                        class="inline-flex items-center gap-1 px-3 py-1 bg-indigo-500 hover:bg-indigo-600 text-white rounded-full text-[12px] font-bold transition-colors shadow-sm active:scale-95">
+                        class="inline-flex items-center gap-1 px-3 py-1 bg-blue-500 hover:bg-blue-600 text-white rounded-full text-[12px] font-bold transition-colors shadow-sm active:scale-95">
                         ${r} <span style="font-size:14px;line-height:1">&times;</span>
                     </button>
                 `).join('');
@@ -779,99 +798,12 @@
                             </div>
                         </div>
 
-                        <div class="ai-section p-8 pb-10 mb-6">
-                            <div class="flex items-center justify-between mb-6">
-                                <div class="flex items-center gap-2">
-                                    <h3 class="text-2xl font-extrabold text-gray-900 tracking-tight">AI Insight</h3>
-                                    <span id="aiTargetInfo" class="text-sm text-gray-500 font-medium"></span>
-                                </div>
-                                <button onclick="window.AIAnalysis.openPromptLibraryModal('odd_even', event)"
-                                    class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors">
-                                    <span class="material-symbols-outlined text-lg">library_books</span>
-                                    프롬프트 라이브러리
-                                </button>
-                            </div>
-
-                            <!-- [Standardized AI Loading UI] -->
-                            <div id="aiLoadingIndicator"
-                                class="hidden flex-col items-center justify-center py-10 transition-opacity duration-300 opacity-0">
-                                <div class="relative w-12 h-12 mb-4">
-                                    <div
-                                        class="absolute inset-0 border-4 border-blue-50 relative border-4 border-blue-100 rounded-full">
-                                    </div>
-                                    <div
-                                        class="absolute inset-0 border-4 border-blue-500 rounded-full border-t-transparent animate-spin">
-                                    </div>
-                                </div>
-                                <p class="text-sm font-medium text-gray-500 animate-pulse">AI가 데이터를 분석하고 있습니다...</p>
-                            </div>
-
-                            <div id="aiAnalysisContent" class="opacity-0 transition-opacity duration-300"></div>
-
-                            <div class="mt-6 border-t border-gray-100 pt-6">
-                                <div class="flex flex-col gap-3">
-                                    <div class="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='최근 홀수와 짝수의 출현 비율 및 규칙 상세 분석'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-blue-50 text-blue-600 rounded-full hover:bg-blue-100 transition-colors whitespace-nowrap">
-                                            ✨ 홀짝 출현 종합 진단
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='각 비율 패턴(3:3, 4:2 등)의 당첨 비중 통계 분석'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-indigo-50 text-indigo-600 rounded-full hover:bg-indigo-100 transition-colors whitespace-nowrap">
-                                            📊 패턴별 비중 분석
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='극단적 비율(6:0, 0:6) 출현 후의 평균 회귀 지점 진단'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-purple-50 text-purple-600 rounded-full hover:bg-purple-100 transition-colors whitespace-nowrap">
-                                            🔄 평균 회귀 분석
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='홀수 또는 짝수 중 특정 번호대가 전멸할 가능성 분석'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-red-50 text-red-600 rounded-full hover:bg-red-100 transition-colors whitespace-nowrap">
-                                            🚫 멸(Zero) 구간 예측
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='최근 10회차 홀짝 데이터의 상하 이동 추세 분석'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-teal-50 text-teal-600 rounded-full hover:bg-teal-100 transition-colors whitespace-nowrap">
-                                            📈 홀짝 추세 추적
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='최근 100회차 기준 가장 안정적인 홀짝 비율 범위 추천'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-orange-50 text-orange-600 rounded-full hover:bg-orange-100 transition-colors whitespace-nowrap">
-                                            🎯 최적 비율 범위 제안
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='동일한 비율 패턴이 연속으로 나올 확률 및 기록 분석'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-green-50 text-green-600 rounded-full hover:bg-green-100 transition-colors whitespace-nowrap">
-                                            ⚠️ 연속성 감지
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='단번대, 10번대 등 특정 구간에서의 홀짝 분포 분석'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-yellow-50 text-yellow-600 rounded-full hover:bg-yellow-100 transition-colors whitespace-nowrap">
-                                            🔍 특정 번호대 홀짝 분석
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='최근 통계상 출현 확률이 가장 낮은 홀짝 식별'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-slate-50 text-slate-600 rounded-full hover:bg-slate-100 transition-colors whitespace-nowrap">
-                                            🧼 제외 전략
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='분석된 홀짝 비중을 반영한 최적의 조합 필터링 전략 제안'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-pink-50 text-pink-600 rounded-full hover:bg-pink-100 transition-colors whitespace-nowrap">
-                                            💡 홀짝 최적화
-                                        </button>
-                                    </div>
-                                    <div class="relative">
-                                        <input type="text" id="aiUserPrompt"
-                                            class="w-full pl-4 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder-gray-400"
-                                            placeholder="홀짝 분석에 대해 궁금한 점을 물어보세요..."
-                                            onkeyup="if(event.key === 'Enter') submitCustomAIAnalysis()">
-                                        <button onclick="submitCustomAIAnalysis()"
-                                            class="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors">
-                                            <span class="material-symbols-outlined text-xl">send</span>
-                                        </button>
-                                    </div>
+                        <div class="ai-section p-8 pb-10 mb-6 font-sans">
+                            <h3 class="text-lg font-bold text-gray-900 mb-4">딥러닝 Insight</h3>
+                            <div id="dlInsightContainer">
+                                <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
+                                    <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
+                                    <span class="text-sm">딥러닝 모델 분석 중 (7개 모델)...</span>
                                 </div>
                             </div>
                         </div>
@@ -910,11 +842,12 @@
                         </div>
                     </div>
 
+
                     <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm" id="filter-patterns">
                         <div class="flex items-center justify-between mb-6">
                             <h3 class="text-xl font-bold text-gray-900">조합 필터</h3>
-                            <a href="filter.html#filter-odd_even_pattern"
-                                class="text-sm font-medium text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
+                            <a href="filter.html#filter-odd_even_pattern" target="_blank"
+                                class="text-sm font-medium text-slate-500 hover:text-blue-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
                                 <span class="material-symbols-outlined text-[18px]">tune</span>
                                 필터 페이지 가기
                             </a>
@@ -923,28 +856,24 @@
                             <div class="flex items-center justify-center gap-4 flex-wrap" id="ratioFilters"></div>
                         </div>
                         <div class="flex items-center justify-end gap-3 mt-6 pt-4 border-t border-gray-100">
-                            <!-- [Magic Square Style] Recent 10 Filters Button & Toggle -->
                             <div class="flex flex-col w-full gap-4">
                                 <div class="flex items-center gap-4 w-full justify-between">
                                     <div class="flex items-center gap-3">
                                         <label class="relative inline-flex items-center cursor-pointer">
                                             <input type="checkbox" id="applyFilterCheck"
-                                                onchange="applyFilterWithHighlight()" class="sr-only peer" checked>
+                                                onchange="applyFilter()" class="sr-only peer" checked>
                                             <div
                                                 class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500">
                                             </div>
                                         </label>
                                         <span class="text-sm font-medium text-gray-700">필터 적용</span>
                                     </div>
-
                                     <button onclick="applyRecent10Filters()" id="recent10FilterBtn"
-                                        class="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 transition-all text-sm font-black min-w-[240px] justify-center whitespace-nowrap">
+                                        class="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 transition-all text-sm font-black min-w-[240px] justify-center whitespace-nowrap">
                                         <span class="material-symbols-outlined text-[18px]">auto_fix_high</span>
                                         <span id="recent10BtnText">최근 10회차 필터 적용</span>
                                     </button>
                                 </div>
-
-                                <!-- 제외 홀짝 비율 배지 영역 (선택 컨트롤 아래) -->
                                 <div id="excludedOddEvenBadgeArea" class="hidden pt-3 border-t border-gray-100">
                                     <div class="text-xs font-bold text-gray-500 mb-2 flex items-center gap-1">
                                         <span class="material-symbols-outlined text-[14px]">block</span>
@@ -1095,16 +1024,12 @@
             try {
                 // 🔥 데이터 로딩 최적화: draws와 features를 병렬로 호출 (Promise.all)
                 const client = window.supabaseClient || supabaseClient;
+                if (!client) throw new Error("Supabase Client가 초기화되지 않았습니다.");
 
                 const [drawsResult, featuresResult] = await Promise.all([
                     client.from('lotto_draws').select('*').order('round', { ascending: false }).range(0, 5000),
                     client.from('lotto_features').select('*').range(0, 5000)
                 ]);
-
-                // FilterService 초기화 (DB 필터 저장용)
-                if (window.initFilterService) {
-                    await window.initFilterService();
-                }
 
                 if (drawsResult.error) throw drawsResult.error;
 
@@ -1125,16 +1050,10 @@
 
                 allDrawData = data.map(item => {
                     const numbers = item.numbers || [];
-
-                    // 기본 계산
                     let oe = calculateOddEven(numbers);
 
-                    // 🔥 [핵심] DB 데이터가 있으면 우선 사용 (데이터 무결성 강화)
                     if (featuresMap.has(item.round)) {
                         const feat = featuresMap.get(item.round);
-                        // DB 컬럼명이 명확하지 않으므로, 일반적인 경우를 가정하거나
-                        // 현재는 안전하게 클라이언트 계산값을 사용하되 구조만 잡아둡니다.
-                        // 만약 DB에 odd_count, even_count가 있다면 아래와 같이 사용:
                         if (feat.odd_count !== undefined && feat.even_count !== undefined) {
                             oe = {
                                 odd: feat.odd_count,
@@ -1143,7 +1062,6 @@
                             };
                         }
                     }
-
                     return { ...item, numbers, ...oe };
                 });
 
@@ -1151,22 +1069,31 @@
                 await preprocessOddEvenData();
 
                 const totalCount = allDrawData.length;
-                document.getElementById('rangeSlider').max = totalCount;
+                const rangeSlider = document.getElementById('rangeSlider');
+                if (rangeSlider) rangeSlider.max = totalCount;
                 document.getElementById('totalRangeDisplay').textContent = `최대 ${totalCount.toLocaleString()}회`;
-                document.getElementById('preset1203').setAttribute('onclick', `setRange(${totalCount})`);
-                document.getElementById('preset1203').innerText = "전체";
+                const p1203 = document.getElementById('preset1203');
+                if (p1203) p1203.setAttribute('onclick', `setRange(${totalCount})`);
+                if (p1203) p1203.innerText = "전체";
 
                 initUI();
 
-                // 🔥 [NEW] 최근 10회차 필터 초기화
-                await initializeRecentTenFilter();
-
-                // 🔥 [NEW] 새 회차 감지 시 초기화 로직 실행
-                await checkAndResetOnNewDraw();
+                // 필터 서비스 초기화 및 새 회차 감지 (내부에서 loadFilterSettings 포함)
+                if (window.initFilterService) {
+                    await window.initFilterService();
+                    await checkAndResetOnNewDraw();
+                } else {
+                    // filterService 없을 때만 직접 로드
+                    await loadFilterSettings();
+                }
 
                 updateRange(currentRange);
                 setTimeout(() => { updateSliderBackground(currentRange); }, 100);
-            } catch (err) { console.error('Data Load Error:', err); }
+            } catch (err) {
+                console.error('Data Load Error:', err);
+                const listEl = document.getElementById('drawsList');
+                if (listEl) listEl.innerHTML = `<tr><td colspan="8" class="p-10 text-center text-red-500">데이터 로드 실패<br>${err.message}</td></tr>`;
+            }
         });
 
         function initUI() {
@@ -1191,29 +1118,31 @@
             });
 
             const filterContainer = document.getElementById('ratioFilters');
-            filterContainer.innerHTML = '';
-            RATIOS.forEach(ratio => {
-                const btn = document.createElement('button');
-                btn.className = 'filter-btn shadow-sm text-sm';
-                btn.id = `btn-${ratio.replace(':', '_')}`;
-                btn.textContent = ratio;
-                btn.onclick = () => toggleFilter(ratio);
-                filterContainer.appendChild(btn);
-            });
+            if (filterContainer) {
+                filterContainer.innerHTML = '';
+                RATIOS.forEach(ratio => {
+                    const btn = document.createElement('button');
+                    btn.className = 'filter-btn shadow-sm text-sm';
+                    btn.id = `btn-${ratio.replace(':', '_')}`;
+                    btn.textContent = ratio;
+                    btn.onclick = () => toggleFilter(ratio);
+                    filterContainer.appendChild(btn);
+                });
+            }
 
             updateUIState();
             initChart();
         }
 
         function toggleFilter(ratio) {
-            markManual(); // [추가] 직접 패널 버튼이나 통계표를 눌렀을 때
+            markManual();
+            deactivateRecent10IfActive(); // [수정] 표준화된 비활성화 함수 사용
+
             if (activeFilters.has(ratio)) activeFilters.delete(ratio);
             else activeFilters.add(ratio);
 
             updateUIState();
-
-            // 🔥 [NEW] 필터 + 하이라이트 함께 처리
-            applyFilterWithHighlight();
+            applyFilter();
         }
 
         function updateUIState() {
@@ -1223,24 +1152,28 @@
                 const btn = document.getElementById(`btn-${safeId}`);
                 const isActive = activeFilters.has(ratio);
 
-                if (isActive) {
-                    card.classList.add('active'); card.classList.remove('hover:bg-gray-50');
-                    btn.classList.add('active');
-                } else {
-                    card.classList.remove('active'); card.classList.add('hover:bg-gray-50');
-                    btn.classList.remove('active');
+                if (card) {
+                    if (isActive) { card.classList.add('active'); card.classList.remove('hover:bg-gray-50'); }
+                    else { card.classList.remove('active'); card.classList.add('hover:bg-gray-50'); }
+                }
+                if (btn) {
+                    if (isActive) btn.classList.add('active');
+                    else btn.classList.remove('active');
                 }
             });
         }
 
         function updateRange(value) {
             currentRange = parseInt(value);
+            markManual(); // [추가] 수동 조작 마킹
+            deactivateRecent10IfActive(); // [추가] 범위 조정 시 최근 10회차 해제
+            
             document.getElementById('rangeDisplay').textContent = value + '회';
             updateSliderBackground(currentRange);
             updatePresetButtons(currentRange);
             updateStatistics();
             applyFilterWithHighlight();
-            refreshAIAnalysis();
+            initDeepInsight();
         }
 
         function updateStatistics() {
@@ -1288,15 +1221,8 @@
         }
 
         function applyFilter(skipSave = false) {
-            if (!skipSave) saveFilterSettings(); // [수정됨] 변경 시 자동 저장
-            const isFilterOn = document.getElementById('applyFilterCheck')?.checked ?? false;
-
+            // 필터링 기능 제거 - 항상 전체 데이터 표시
             let data = allDrawData.slice(0, currentRange);
-
-            // 필터가 켜져있고 activeFilters가 있으면 필터링 적용
-            if (isFilterOn && activeFilters.size > 0) {
-                data = data.filter(d => activeFilters.has(d.ratio));
-            }
 
             document.getElementById('displayedCount').textContent = data.length;
             renderDrawsList(data);
@@ -1305,6 +1231,8 @@
             RATIOS.forEach(r => counts[r] = 0);
             data.forEach(d => { if (counts[d.ratio] !== undefined) counts[d.ratio]++; });
             updateChart(counts, data.length);
+
+            if (!skipSave) saveFilterSettings(); // 수동 변경 시 저장
         }
 
         // 하이라이트 토글 (값 일치)
@@ -1421,15 +1349,8 @@
             }, 50);
         }
 
-        // [추가] 대시보드 실시간 동기화 (Storage Event)
-        window.addEventListener('storage', async function (e) {
-            if (e.key === 'odd_even_filter' || e.key === 'odd_even_pattern') {
-                console.log(`[odd_even] Storage event detected for: ${e.key}, reloading...`);
-                await loadFilterSettings();
-                applyFilter();
-                updateStatistics();
-            }
-        });
+        // [Fix] 두 번째 storage 리스너 제거 - line 349에 통합 (applyFilter() 호출 시 saveFilterSettings() → 무한루프 방지)
+        // loadFilterSettings() 내부에서 applyFilter(true) 호출하므로 별도 리스너 불필요
 
         // [New] AI & Drawer Functions
         function toggleDrawer(show) {
@@ -1448,7 +1369,7 @@
         function setPrompt(text) {
             document.getElementById('aiUserPrompt').value = text;
             toggleDrawer(false);
-            submitCustomAIAnalysis();
+            initDeepInsight();
         }
 
         function renderLibrary() {
@@ -1457,73 +1378,11 @@
             container.innerHTML = '<div class="p-4 text-center">프롬프트 라이브러리가 준비중입니다.</div>';
         }
 
-        async function submitCustomAIAnalysis() {
-            const inputEl = document.getElementById('aiUserPrompt');
-            const userPrompt = inputEl.value.trim();
-            if (!userPrompt) {
-                alert("질문을 입력하거나 퀵 버튼을 선택해주세요.");
-                return;
+        // 딥러닝 인사이트 패널 초기화
+        function initDeepInsight() {
+            if (window.DeepInsightPanel) {
+                DeepInsightPanel.render('dlInsightContainer', 'odd', '홀수 개수');
             }
-
-            if (window.nlpProcessor) {
-                const result = window.nlpProcessor.process(userPrompt);
-                if (result.intent === 'navigate') {
-                    highlightTenDraws(result.params.targetRound || allDrawData[0].round);
-                }
-            }
-
-            openQnaModal();
-            const qnaContent = document.getElementById('aiQnaContent');
-            if (!qnaContent) return;
-
-            // Add to Memory
-            chatHistory.push({ role: 'user', text: userPrompt });
-
-            qnaContent.innerHTML += `<div class="flex justify-end mb-4"><div class="bg-blue-600 text-white px-4 py-2 rounded-2xl shadow-sm text-sm">${userPrompt}</div></div>`;
-            const uniqueId = 'ai-res-' + Date.now();
-            qnaContent.innerHTML += `<div class="flex mb-4"><div class="w-7 h-7 rounded-full bg-blue-500 flex items-center justify-center text-white text-[10px] mr-2 flex-shrink-0">AI</div><div id="${uniqueId}" class="bg-white border text-gray-800 px-4 py-2 rounded-2xl shadow-sm text-sm min-h-[40px] flex-1"></div></div>`;
-
-            // [Modified] Rich Data Context for Custom Analysis
-            const subjectRound = allDrawData[0]?.round || 0;
-            const targetRound = subjectRound + 1;
-            const data = allDrawData.slice(0, currentRange);
-
-            // 1. Statistics
-            const counts = countOddEvenDistribution(data);
-            const total = data.length;
-            const distribution = Object.entries(counts).map(([r, c]) => `${r}(${(c / total * 100).toFixed(1)}%)`).join(', ');
-
-            // 2. Recent Trends (Last 10)
-            const recent10 = allDrawData.slice(0, 10).map(d => `${d.round}회:${d.ratio}`).join(', ');
-
-            // 3. Current State Specifics
-            let oddGap = 0;
-            for (let i = 0; i < allDrawData.length; i++) {
-                if (allDrawData[i].odd >= 4) break;
-                oddGap++;
-            }
-
-            const richContext = `
-# [홀짝 비율 성문화 데이터]
-- 분석 기준: ${currentRange}회차 범위
-- 분포 비율: ${distribution}
-- 최근 10회차 흐름: ${recent10}
-- 홀수 우세(4개 이상) 미출현(Gap): ${oddGap}회차 경과
-- 이론적 기대치 대비 편차: 3:3 비율이 이론상 31.2% 대비 실측 가동률 확인 필요
-            `;
-
-            const memoryStr = chatHistory.slice(-6).map(m => `${m.role.toUpperCase()}: ${m.text}`).join('\n');
-
-            await executeLocalAIAnalysis({
-                containerId: uniqueId,
-                subjectRound: subjectRound,
-                targetRound: targetRound,
-                userPrompt: userPrompt,
-                contextData: richContext + `\n\n[Chat History]\n${memoryStr}`
-            });
-
-            qnaContent.scrollTop = qnaContent.scrollHeight;
-            inputEl.value = '';
         }
 
         async function submitModalFollowUp() {
@@ -1551,6 +1410,26 @@
             });
 
             qnaContent.scrollTop = qnaContent.scrollHeight;
+        }
+
+        /**
+         * [표준화] AI 통합 분석 실행 함수
+         * @param {string} query - 사용자의 질문 또는 분석 명령
+         */
+        async function runAIAnalysis(query) {
+            if (!query) return;
+            
+            // 챗봇 모달 오픈
+            if (typeof openQnaModal === 'function') {
+                openQnaModal(query);
+            }
+        }
+
+        // 딥러닝 인사이트 패널 초기화
+        function initDeepInsight() {
+            if (window.DeepInsightPanel) {
+                DeepInsightPanel.render('dlInsightContainer', 'odd', '홀수 개수');
+            }
         }
 
         async function executeLocalAIAnalysis(params) {
@@ -1708,7 +1587,7 @@
                 tr.className = 'hover:bg-gray-50 transition-colors';
                 tr.innerHTML = `
                     <td class="py-3 px-4 text-center">
-                        <input type="checkbox" class="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500" 
+                        <input type="checkbox" class="w-4 h-4 text-blue-600 rounded focus:ring-blue-500" 
                             ${!isExcluded ? 'checked' : ''} 
                             onchange="toggleOddEvenFilter('${ratio}', this.checked)" />
                     </td>
@@ -1716,8 +1595,8 @@
                     <td class="py-3 px-4 text-center text-gray-600">${theo.count.toLocaleString()}</td>
                     <td class="py-3 px-4 text-center text-gray-600">${theo.percent}%</td>
                     <td class="py-3 px-4 text-center font-bold text-gray-900">${count}회</td>
-                    <td class="py-3 px-4 text-center font-bold text-indigo-600">${percent}%</td>
-                    <td class="py-3 px-4"><div class="w-full bg-gray-200 rounded-full h-2.5"><div class="bg-indigo-600 h-2.5 rounded-full" style="width: ${percent}%"></div></div></td>
+                    <td class="py-3 px-4 text-center font-bold text-blue-600">${percent}%</td>
+                    <td class="py-3 px-4"><div class="w-full bg-gray-200 rounded-full h-2.5"><div class="bg-blue-600 h-2.5 rounded-full" style="width: ${percent}%"></div></div></td>
                 `;
                 tbody.appendChild(tr);
             });
@@ -1749,95 +1628,6 @@
             });
         }
 
-        // ==========================================================
-        // [AI 분석 엔진] common_v2.js 기반 자동 분석
-        // ==========================================================
-        async function refreshAIAnalysis() {
-            if (!allDrawData || allDrawData.length === 0) return;
-
-            // [UI 준비] 로딩 표시 시작
-            const loader = document.getElementById('aiLoadingIndicator');
-            const content = document.getElementById('aiAnalysisContent');
-            if (loader) {
-                loader.style.display = 'flex';
-                loader.classList.remove('opacity-0');
-            }
-            if (content) {
-                content.classList.add('hidden');
-                content.classList.remove('opacity-100');
-            }
-
-            const subjectData = allDrawData[0];
-            const subjectRound = subjectData.round;
-            const targetRound = subjectRound + 1;
-
-            // [심화 데이터 추출]
-            // 구간별 이동평균 (Moving Average)
-            const getAvgOdd = (range) => allDrawData.slice(0, range).reduce((a, b) => a + b.odd, 0) / range;
-            const avg5 = getAvgOdd(5);
-            const avg10 = getAvgOdd(10);
-            const avg20 = getAvgOdd(20);
-
-            // 홀(Odd) 다출(4개 이상) Gap
-            let oddGap = 0;
-            for (let i = 0; i < allDrawData.length; i++) {
-                if (allDrawData[i].odd >= 4) break;
-                oddGap++;
-            }
-            // 짝(Even) 다출(4개 이상) Streak
-            let evenStreak = 0;
-            for (let i = 0; i < allDrawData.length; i++) {
-                if (allDrawData[i].even < 4) break;
-                evenStreak++;
-            }
-
-            // 표준 편차 (최근 20회)
-            const recent20 = allDrawData.slice(0, 20);
-            const mean20 = recent20.reduce((s, d) => s + d.odd, 0) / 20;
-            const variance = recent20.reduce((s, d) => s + Math.pow(d.odd - mean20, 2), 0) / 20;
-            const stdDev = Math.sqrt(variance);
-
-            const targetEl = document.getElementById('aiTargetInfo');
-            if (targetEl) targetEl.textContent = `Target ${targetRound}회차 (based on ${subjectRound}회)`;
-
-            const recentRatios = allDrawData.slice(0, 10).map(d => d.ratio).join(', ');
-
-            if (window.AIAnalysis) {
-                await window.AIAnalysis.executeAnalysis({
-                    containerId: 'aiAnalysisContent',
-                    analysisType: '홀짝 패턴 정밀 분석',
-                    subjectRound,
-                    targetRound,
-                    customData: `
-# [홀짝 정밀 상위 데이터]
-- 최근 10회차 비율 흐름: ${recentRatios}
-- 이동평균(5/10/20회): ${avg5.toFixed(2)} / ${avg10.toFixed(2)} / ${avg20.toFixed(2)}
-- 표준편차(20회): ${stdDev.toFixed(2)}
-- 홀(Odd) 다출(4개+) Gap: ${oddGap}회차 경과
-- 짝(Even) 다출(4개+) Streak: ${evenStreak}회차 연속
-- 분석 범위: 최근 ${currentRange}회차
-                    `,
-                    customRules: `
-# [분석 특명: 데이터 논리(Why)]
-1. 도덕책 같은 뻔한 소리, "운에 맡기라", "확률은 공평하다" 등은 절대 금지하며 즉각 폐기하시오.
-2. 반드시 "왜(Why)" 그런 예상치가 나왔는지 이동평균 추세(${avg5 < avg10 ? '하락세' : '상승세'})와 표준편차(${stdDev.toFixed(2)}) 데이터를 기반으로 논리적으로 설명하시오.
-3. [패턴 진단]: 홀짝 비율이 '평균(3:3)'으로 회귀할 타이밍인지, 아니면 특정 쪽으로의 '쏠림'이 지속될지 진단하시오.
-4. [구체적 전략]: ${targetRound}회차에서 추천하는 홀짝 비율 필터(권장 비율 범위)를 단호하게 제시하시오.
-5. 수치는 {{range:내용}}, 결론은 {{good:내용}}, 주의는 {{warn:내용}} 태그를 사용하시오. (한글 태그 사용)
-                    `
-                });
-            }
-
-            // [UI 갱신] 로딩 완료 후 결과 표시
-            if (loader) {
-                loader.style.display = 'none';
-                loader.classList.add('opacity-0');
-            }
-            if (content) {
-                content.classList.remove('hidden');
-                setTimeout(() => content.classList.add('opacity-100'), 50);
-            }
-        }
 
         function openQnaModal(initialPrompt = '') {
             const modal = document.getElementById('aiQnaModal');

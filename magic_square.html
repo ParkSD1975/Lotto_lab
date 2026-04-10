@@ -1,11 +1,11 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html class="light" lang="ko">
 
 <head>
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>Lotto Lab - 9궁 분석 (Supabase AI)</title>
-    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="css/tailwind.css" rel="stylesheet" />
 
     <link rel="icon" href="data:,">
 
@@ -24,6 +24,7 @@
     <script src="js/common_v2.js"></script>
     <script src="js/filter/FilterService.js"></script>
     <script src="js/layout.js"></script>
+    <script src="js/deep_insight_panel.js"></script>
 
     <!-- NLP Modules -->
     <script src="js/NLPProcessor.js"></script>
@@ -42,6 +43,8 @@
 
         // 셀 하이라이트 상태 관리 (컬럼명, 값)
         let selectedHighlight = { col: null, val: null };
+        let highlightStartRound = null;
+        let isRecentTenFilter = false; // [추가] '최근 10회차' 모드 상태값
 
         // 9궁 정의 (5개씩 끊음)
         const gungDefinitions = {
@@ -71,6 +74,32 @@
 
         // 필터 상태
         let filterState = {};
+        let _gungSelfSaving = false; // 자체 저장 StorageEvent 루프 방지
+
+        // [추가] 최근 10회차 필터를 비활성화하고 UI를 초기화하는 함수
+        function deactivateRecent10IfActive() {
+            if (isRecentTenFilter) {
+                isRecentTenFilter = false;
+                highlightStartRound = null;
+
+                const btn = document.getElementById('recent10FilterBtn');
+                const btnText = document.getElementById('recent10BtnText');
+                if (btn) {
+                    btn.classList.remove('from-purple-500', 'to-purple-700', 'shadow-purple-200');
+                    btn.classList.add('from-blue-500', 'to-blue-600', 'shadow-blue-200');
+                }
+                if (btnText) btnText.textContent = '최근 10회차 필터 적용';
+
+                localStorage.setItem('magic_square_filter_isManual', 'true');
+                saveFilterSettings();
+            }
+        }
+
+        // [추가] 수동 조작 마킹
+        function markManual() {
+            localStorage.setItem('magic_square_filter_isManual', 'true');
+            deactivateRecent10IfActive();
+        }
 
         // [수정] 필터 설정 저장 함수 (DB 저장 및 Local 방송)
         async function saveFilterSettings() {
@@ -86,66 +115,117 @@
                 }
             });
 
-            // [New] 현재 회차 함께 저장 (새 회차 갱신 시 자동 최근 10회차 필터 적용을 위함)
-            const targetRound = (allDrawData && allDrawData.length > 0) ? allDrawData[0].round : null;
+            // [Fix] 대시보드와 동일한 targetRound 규칙: round+1 (차기 회차)
+            const currentRound = (allDrawData && allDrawData.length > 0) ? allDrawData[0].round : null;
+            const dbTargetRound = currentRound ? currentRound + 1 : null;
 
-            const data = { filters: filters, targetRound: targetRound };
+            // settings 내 targetRound는 현재 회차 (새 회차 감지용)
+            const data = { filters: filters, targetRound: currentRound, recent10FilterActive: isRecentTenFilter };
             const enabled = document.getElementById('applyFilterCheck').checked;
 
-            // DB 및 localStorage 저장 (FilterService/Utils 사용)
+            // IS NULL 행 저장 + localStorage 방송 (self-saving 루프 방지)
             if (window.Utils && window.Utils.saveFilter) {
-                // Utils.saveFilter는 DB(filter_settings)와 localStorage('magic_square_pattern')에 동시 저장 및 방송함
-                await window.Utils.saveFilter('magic_square_pattern', data, enabled);
+                try {
+                    _gungSelfSaving = true;
+                    await window.Utils.saveFilter('magic_square_pattern', data, enabled);
+                } finally {
+                    _gungSelfSaving = false;
+                }
             } else if (window.filterService && window.filterService.initialized) {
                 await window.filterService.saveSetting('magic_square_pattern', data, enabled);
+            }
+            // [Fix] DB target_round = round+1 → 대시보드 loadAllSettings(round+1)과 일치
+            if (dbTargetRound && window.filterService?.initialized) {
+                try {
+                    await window.filterService.saveSetting('magic_square_pattern', data, enabled, dbTargetRound);
+                } catch (e) { /* 무시 */ }
             }
         }
 
         // [수정] 필터 설정 불러오기 함수 (DB 로드 및 외부 데이터 수용)
         async function loadFilterSettings(externalData = null) {
             let saved = externalData;
+            const currentRound = (allDrawData && allDrawData.length > 0) ? allDrawData[0].round : null;
 
             if (!saved) {
                 // DB에서 로드 (FilterService 사용)
                 if (window.filterService && window.filterService.initialized) {
-                    const data = await window.filterService.loadSetting('magic_square_pattern');
+                    // [Fix] 대시보드와 동일한 round+1로 조회 → 동기화 일치
+                    const dbTargetRound = currentRound ? currentRound + 1 : null;
+                    const data = await window.filterService.loadSetting('magic_square_pattern', dbTargetRound);
                     if (data) {
-                        saved = { ...data.settings, enabled: data.enabled };
+                        saved = data;
                     }
                 }
 
-                // Fallback: localStorage (DB 로드 실패 시)
                 if (!saved) {
                     const localData = localStorage.getItem('magic_square_pattern');
                     if (localData) {
                         try {
-                            const parsed = JSON.parse(localData);
-                            saved = { ...parsed, enabled: parsed.enabled };
+                            saved = JSON.parse(localData);
                         } catch (e) { }
                     }
                 }
             }
 
+            // [Unboxing] 다양한 구조 대응 (envelope vs flat)
+            let settings = null;
+            let enabled = true;
+
             if (saved) {
+                if (saved.settings) {
+                    // envelope 구조: { settings: { filters, targetRound }, enabled }
+                    settings = saved.settings;
+                    enabled = (saved.enabled !== undefined) ? saved.enabled : true;
+                } else if (saved.filters) {
+                    // 준-envelope 구조: { filters, targetRound, enabled }
+                    settings = saved;
+                    enabled = (saved.enabled !== undefined) ? saved.enabled : true;
+                } else {
+                    // 구 구조 (flat)
+                    settings = { filters: saved };
+                    enabled = true;
+                }
+            }
+
+            if (settings) {
                 // [New] 새 회차(토요일 업데이트) 인지 확인하여 다르면 기본값(최근 10회차) 적용 위해 false 반환
                 const currentRound = (allDrawData && allDrawData.length > 0) ? allDrawData[0].round : null;
-                if (saved.targetRound && currentRound && saved.targetRound !== currentRound) {
-                    console.log('🔄 새 회차 감지됨, 최근 10회차 기본값으로 초기화합니다.');
+                if (settings.targetRound && currentRound && parseInt(settings.targetRound) !== parseInt(currentRound)) {
+                    console.log('🔄 새 회차 감지됨, 최근 10회차 기본값으로 초기화 및 자동 저장합니다.');
+                    // [추가] 새 회차 시 초기화된 값을 즉시 DB에 저장하여 전체 동기화 유지
+                    setTimeout(() => saveFilterSettings(), 500);
                     return false;
                 }
 
-                if (saved.filters) {
-                    Object.keys(saved.filters).forEach(type => {
+                if (settings.filters) {
+                    Object.keys(settings.filters).forEach(type => {
                         const minInput = document.getElementById(`min_${type}`);
                         const maxInput = document.getElementById(`max_${type}`);
-                        if (minInput && maxInput && saved.filters[type]) {
-                            minInput.value = saved.filters[type].min;
-                            maxInput.value = saved.filters[type].max;
+                        if (minInput && maxInput && settings.filters[type]) {
+                            minInput.value = settings.filters[type].min;
+                            maxInput.value = settings.filters[type].max;
                         }
                     });
                 }
-                if (saved.enabled !== undefined) {
-                    document.getElementById('applyFilterCheck').checked = saved.enabled;
+
+                document.getElementById('applyFilterCheck').checked = enabled;
+                // [수정] isRecentTenFilter 상태 동기화
+                isRecentTenFilter = !!settings.recent10FilterActive;
+                const btn = document.getElementById('recent10FilterBtn');
+                const btnText = document.getElementById('recent10BtnText');
+                if (btn && btnText) {
+                    if (isRecentTenFilter) {
+                        btn.classList.remove('from-blue-500', 'to-blue-600', 'shadow-blue-200');
+                        btn.classList.add('from-purple-500', 'to-purple-700', 'shadow-purple-200');
+                        btnText.textContent = '필터 해제';
+                        highlightStartRound = allDrawData?.[0]?.round || null;
+                    } else {
+                        btn.classList.remove('from-purple-500', 'to-purple-700', 'shadow-purple-200');
+                        btn.classList.add('from-blue-500', 'to-blue-600', 'shadow-blue-200');
+                        btnText.textContent = '최근 10회차 필터 적용';
+                        highlightStartRound = null;
+                    }
                 }
                 return true;
             }
@@ -155,19 +235,7 @@
     <style>
         /* 페이지 전용 스타일 */
 
-        /* 입력창 화살표(스피너) 제거 및 표준 속성 추가 */
-        input[type=number]::-webkit-inner-spin-button,
-        input[type=number]::-webkit-outer-spin-button {
-            -webkit-appearance: none;
-            margin: 0;
-        }
-
-        input[type=number] {
-            -moz-appearance: textfield;
-            /* Firefox 구버전 */
-            appearance: textfield;
-            /* 표준 속성 (경고 해결) */
-        }
+        /* [수정] 불필요한 빈 CSS 규칙 제거 (IDE 경고 해결) */
 
         /* 동적 색상 공 (9궁 분석용) */
         .ball-custom {
@@ -358,86 +426,12 @@
                         <div class="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-9 gap-3 mb-6" id="statCards">
                         </div>
 
-                        <div class="ai-section p-8 pb-10 mb-6">
-                            <div class="flex items-center justify-between mb-6">
-                                <div class="flex items-center gap-2">
-                                    <h3 class="text-2xl font-extrabold text-gray-900 tracking-tight">AI Insight</h3>
-                                    <span id="aiTargetInfo" class="text-sm text-gray-500 font-medium"></span>
-                                </div>
-                                <button onclick="window.AIAnalysis.openPromptLibraryModal('magic_square', event)"
-                                    class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors">
-                                    <span class="material-symbols-outlined text-lg">library_books</span>
-                                    프롬프트 라이브러리
-                                </button>
-                            </div>
-
-                            <div id="aiAnalysisContent" class="min-h-[100px] flex items-center justify-center">
-                                <div class="flex items-center gap-2 text-gray-500">
-                                    <span
-                                        class="material-symbols-outlined text-lg animate-spin">progress_activity</span>
-                                    <span>AI가 9궁 데이터를 분석하고 있습니다...</span>
-                                </div>
-                            </div>
-
-                            <div class="mt-6 border-t border-gray-100 pt-6">
-                                <div class="flex flex-col gap-3">
-                                    <div class="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='다음 회차 추천 9궁 패턴과 집중 구간은?'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-blue-50 text-blue-600 rounded-full hover:bg-blue-100 transition-colors whitespace-nowrap">
-                                            ✨ 추천 9궁 패턴
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='최근 10회차 동안 가장 자주 나온(Hot) 궁은?'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-purple-50 text-purple-600 rounded-full hover:bg-purple-100 transition-colors whitespace-nowrap">
-                                            🔥 Hot 구간 분석
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='중심인 5궁(22,23,24,25,26)이 나올 차례인가?'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-green-50 text-green-600 rounded-full hover:bg-green-100 transition-colors whitespace-nowrap">
-                                            🎯 5궁(중심) 공략
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='이번에 전멸(0개)할 가능성이 높은 궁은?'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-red-50 text-red-600 rounded-full hover:bg-red-100 transition-colors whitespace-nowrap">
-                                            🧱 멸(Empty) 궁 예측
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='3개 이상 번호가 몰리는 쏠림 현상이 발생할까?'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-orange-50 text-orange-600 rounded-full hover:bg-orange-100 transition-colors whitespace-nowrap">
-                                            🌪️ 쏠림 현상 주의
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='가장자리(1,3,7,9궁) 위주로 공략하는 게 좋을까?'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-indigo-50 text-indigo-600 rounded-full hover:bg-indigo-100 transition-colors whitespace-nowrap">
-                                            🛡️ 가장자리 vs 중심
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='대각선(1-5-9, 3-5-7)이나 십자 패턴이 완성될까?'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-pink-50 text-pink-600 rounded-full hover:bg-pink-100 transition-colors whitespace-nowrap">
-                                            📉 대각선/십자 라인?
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='직전 회차에 나온 궁에서 또 번호가 나올 확률은 (이월 궁)?'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-cyan-50 text-cyan-600 rounded-full hover:bg-cyan-100 transition-colors whitespace-nowrap">
-                                            🔁 전회차 궁 반복?
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='역대 가장 당첨번호가 많이 나온 \'명당\' 궁은 어디야?'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-amber-50 text-amber-600 rounded-full hover:bg-amber-100 transition-colors whitespace-nowrap">
-                                            🏆 역대 최다 출현 궁
-                                        </button>
-                                    </div>
-                                    <div class="relative">
-                                        <input type="text" id="aiUserPrompt"
-                                            class="w-full pl-4 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder-gray-400"
-                                            placeholder="9궁 분석에 대해 궁금한 점을 물어보세요..."
-                                            onkeyup="if(event.key === 'Enter') submitCustomAIAnalysis()">
-                                        <button onclick="submitCustomAIAnalysis()"
-                                            class="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors">
-                                            <span class="material-symbols-outlined text-xl">send</span>
-                                        </button>
-                                    </div>
+                        <div class="ai-section p-8 pb-10 mb-6 font-sans">
+                            <h3 class="text-lg font-bold text-gray-900 mb-4">딥러닝 Insight</h3>
+                            <div id="dlInsightContainer">
+                                <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
+                                    <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
+                                    <span class="text-sm">딥러닝 모델 분석 중 (7개 모델)...</span>
                                 </div>
                             </div>
                         </div>
@@ -502,16 +496,15 @@
                     <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden" id="filter-page">
                         <div class="p-6 border-b border-gray-100 flex items-center justify-between">
                             <h3 class="text-xl font-bold text-gray-900">조합 필터</h3>
-                            <a href="filter.html?tab=foundation&id=magic_square_pattern"
-                                class="text-sm font-medium text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
+                            <a href="filter.html?tab=foundation&id=magic_square_pattern" target="_blank"
+                                class="text-sm font-medium text-slate-500 hover:text-blue-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
                                 <span class="material-symbols-outlined text-[18px]">tune</span>
                                 필터 페이지 가기
                             </a>
                         </div>
 
                         <div class="p-6">
-                            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-8 gap-y-4"
-                                id="filterContainer">
+                            <div class="space-y-1" id="filterContainer">
                             </div>
 
                             <div class="flex flex-col sm:flex-row items-center justify-between mt-8 gap-4 px-2">
@@ -527,7 +520,7 @@
                                 </div>
 
                                 <button onclick="applyRecent10Filters()" id="recent10FilterBtn"
-                                    class="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 transition-all text-sm font-black mb-[1px] min-w-[240px] justify-center whitespace-nowrap">
+                                    class="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 transition-all text-sm font-black mb-[1px] min-w-[240px] justify-center whitespace-nowrap">
                                     <span class="material-symbols-outlined text-[18px]">auto_fix_high</span>
                                     <span id="recent10BtnText">최근 10회차 필터 적용</span>
                                 </button>
@@ -598,25 +591,59 @@
                 // [필터 로드 로직] 저장된 값이 없으면 최근 10회차 기준 기본값 사용
                 if (!await loadFilterSettings()) {
                     // initFilters에서 이미 기본값이 설정되었으므로 적용만 수행
-                    applyFilter();
+                    const displayData = allDrawData?.[0] ? allDrawData.slice(0, currentRange) : [];
+                    renderDrawsList(displayData);
+                    updateCharts(displayData);
+                    updateStats(displayData);
+                }
+
+                // 로그아웃 시 필터 UI 초기화
+                function resetFilterUI() {
+                    Object.keys(gungDefinitions).forEach(type => {
+                        const minEl = document.getElementById(`min_${type}`);
+                        const maxEl = document.getElementById(`max_${type}`);
+                        if (minEl) minEl.value = 0;
+                        if (maxEl) maxEl.value = 0;
+                    });
+                    highlightStartRound = null;
+                    const chk = document.getElementById('applyFilterCheck');
+                    if (chk) chk.checked = false;
+                    const btn = document.getElementById('recent10FilterBtn');
+                    const btnText = document.getElementById('recent10BtnText');
+                    if (btn) {
+                        btn.classList.remove('from-purple-500', 'to-purple-700');
+                        btn.classList.add('from-blue-500', 'to-blue-600');
+                    }
+                    if (btnText) btnText.textContent = '최근 10회차 필터 적용';
+                    const displayData = allDrawData ? allDrawData.slice(0, currentRange) : [];
+                    renderDrawsList(displayData);
                 }
 
                 // [추가] 실시간 동기화: 다른 탭(대시보드 등)에서 필터 변경 시 즉시 반영
                 window.addEventListener('storage', async (e) => {
-                    if (e.key === 'magic_square_pattern' && e.newValue) {
+                    if (_gungSelfSaving) return; // 자체 저장 이벤트 무시
+                    if (e.key === 'magic_square_pattern' || e.key === 'magic_square_filter') {
+                        if (!e.newValue) return;
                         try {
                             const newData = JSON.parse(e.newValue);
-                            console.log('🔄 Magic Square Filter Sync Detected from other tab.');
+                            const fc = newData.settings !== undefined ? newData.settings : newData;
+
+                            // 로그아웃 감지
+                            if (newData.enabled === false && !fc.groups && !fc.filters) {
+                                resetFilterUI(); return;
+                            }
+                            console.log('🔄 [Sync] 마방진 필터 변경 감지:', newData);
                             const loaded = await loadFilterSettings(newData);
                             if (loaded) {
+                                console.log('✅ [Sync] 필터 값이 UI에 적용되었습니다.');
                                 // UI 갱신 (applyFilter와 유사하지만 saveFilterSettings는 호출 안 함)
                                 const displayData = allDrawData.slice(0, currentRange);
                                 renderDrawsList(displayData);
                                 updateCharts(displayData);
                                 updateStats(displayData);
-                                refreshAIAnalysis();
+                                initDeepInsight();
                             }
-                        } catch (err) { console.error('Sync Error:', err); }
+                        } catch (err) { console.error('🔄 [Sync] Error:', err); }
                     }
                 });
 
@@ -690,30 +717,30 @@
                 ).join('');
 
                 const div = document.createElement('div');
-                div.className = 'border-b border-gray-100 pb-3 last:border-0 md:border md:bg-gray-50 md:p-4 md:rounded-xl';
+                div.className = 'border-b border-gray-100 pb-4 last:border-0';
 
-                // [New Logic] 기본값 설정: 최근 10회 통계가 있으면 사용, 없으면 전체 범위(0~5)
                 const defMin = recentStats[type] ? recentStats[type].min : 0;
                 const defMax = recentStats[type] ? recentStats[type].max : 5;
 
-                // [수정됨] 숫자 스타일: text-sm, font-normal
                 div.innerHTML = `
-                    <div class="flex items-center justify-start gap-4">
-                        <div class="flex flex-col flex-1 pl-1">
-                            <div class="flex items-center gap-2 mb-1.5">
-                                <span class="font-bold text-slate-700 text-[11px]">${type}</span>
+                    <div class="flex items-center justify-between gap-4">
+                        <div class="flex-1">
+                            <div class="flex items-center gap-2 mb-2">
+                                <span class="font-bold text-gray-700 w-10">${type}</span>
+                                <span class="text-xs text-gray-400">(${gungDefinitions[type].length}개)</span>
                             </div>
-                            <div class="flex flex-nowrap gap-1"> 
+                            <div class="flex flex-wrap gap-1.5">
                                 ${numbersHtml}
                             </div>
                         </div>
-                        
-                        <div class="flex items-center gap-1.5 shrink-0 ml-auto md:ml-0">
-                            <span class="text-[10px] text-slate-400 font-bold uppercase">Min</span>
-                            <input type="number" id="min_${type}" onchange="applyFilter()" value="${defMin}" min="0" max="5" class="w-10 h-8 text-center text-xs font-black text-slate-700 bg-white border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 p-0 shadow-sm">
-                            <span class="text-slate-300 font-bold text-xs">~</span>
-                            <span class="text-[10px] text-slate-400 font-bold uppercase">Max</span>
-                            <input type="number" id="max_${type}" onchange="applyFilter()" value="${defMax}" min="0" max="5" class="w-10 h-8 text-center text-xs font-black text-slate-700 bg-white border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 p-0 shadow-sm">
+                        <div class="flex items-center gap-2">
+                            <span class="text-sm text-gray-500 font-bold">Min</span>
+                            <input type="number" id="min_${type}" oninput="applyFilterManual()" value="${defMin}" min="0" max="5"
+                                class="w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500">
+                            <span class="text-gray-400">~</span>
+                            <span class="text-sm text-gray-500 font-bold">Max</span>
+                            <input type="number" id="max_${type}" oninput="applyFilterManual()" value="${defMax}" min="0" max="5"
+                                class="w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500">
                         </div>
                     </div>
                 `;
@@ -741,6 +768,7 @@
         }
 
         function toggleStatCard(type) {
+            markManual(); // [추가] 수동 조작 마킹
             if (selectedGraphType === type) {
                 selectedGraphType = null;
             } else {
@@ -753,7 +781,7 @@
             const displayData = allDrawData.slice(0, currentRange);
             renderDrawsList(displayData);
             updateCharts(displayData);
-            refreshAIAnalysis();
+            initDeepInsight();
         }
 
         function updateStatCardStyles() {
@@ -780,6 +808,7 @@
         let rangeUpdateTimeout;
 
         function updateRange(value) {
+            markManual(); // [수정] markManual 공통 함수 사용
             const val = parseInt(value);
             currentRange = val;
 
@@ -793,8 +822,11 @@
             updateStats(displayData);
             renderDrawsList(displayData);
             updateCharts(displayData);
-            refreshAIAnalysis();
+            initDeepInsight();
         }
+
+        // [추가] 필터 초기화 함수 (Reset)
+        // ... (필요 시 내용 추가)
 
         // [New] Overlay Helpers
         function showLoadingOverlay() {
@@ -818,15 +850,7 @@
             });
         }
 
-        function toggleCellHighlight(col, val) {
-            if (selectedHighlight.col === col && selectedHighlight.val === val) {
-                selectedHighlight = { col: null, val: null };
-            } else {
-                selectedHighlight = { col: col, val: val };
-            }
-            const displayData = allDrawData.slice(0, currentRange);
-            renderDrawsList(displayData);
-        }
+        // (toggleCellHighlight redundant definition removed from here)
 
         function renderDrawsList(draws) {
             const thead = document.getElementById('drawsListHeader');
@@ -847,9 +871,40 @@
 
             const container = document.getElementById('drawsList');
             container.innerHTML = '';
-            document.getElementById('displayedCount').textContent = draws.length;
+
+            // [수정] 필터링 후 실제 표시 건수 계산을 위해 변수 선언
+            let displayedCount = 0;
+
+            const isFilterActive = document.getElementById('applyFilterCheck').checked;
+            const filterSettings = {};
+            if (isFilterActive) {
+                Object.keys(gungDefinitions).forEach(type => {
+                    const min = parseInt(document.getElementById(`min_${type}`).value);
+                    const max = parseInt(document.getElementById(`max_${type}`).value);
+                    filterSettings[type] = { min, max };
+                });
+            }
 
             draws.forEach((draw, index) => {
+                // [추가] 실시간 필터링 적용
+                let isMatch = true;
+                if (isFilterActive) {
+                    for (const type of Object.keys(filterSettings)) {
+                        const count = draw.counts[type];
+                        const { min, max } = filterSettings[type];
+                        if (count < min || count > max) {
+                            isMatch = false;
+                            break;
+                        }
+                    }
+                }
+
+                if (isMatch) {
+                    displayedCount++;
+                } else {
+                    return; // 필터 불일치 시 스킵
+                }
+
                 const tr = document.createElement('tr');
                 tr.setAttribute('data-round', draw.round);
 
@@ -929,10 +984,14 @@
                 `;
                 container.appendChild(tr);
             });
+
+            // [추가] 실제 필터링된 결과 건수 UI 반영
+            document.getElementById('displayedCount').textContent = displayedCount;
         }
 
         // 🔹 하이라이트 토글
         function toggleCellHighlight(col, val) {
+            markManual(); // [수정] markManual 공통 함수 사용
             if (selectedHighlight.col === col && selectedHighlight.val === val) {
                 selectedHighlight = { col: null, val: null };
             } else {
@@ -949,6 +1008,7 @@
         }
 
         function highlightRecent10Rows(round) {
+            markManual(); // [수정] markManual 공통 함수 사용
             // [New] 토글 기능: 동일 회차 재클릭 시 해제
             if (highlightStartRound === round) {
                 highlightStartRound = null;
@@ -957,14 +1017,11 @@
                 });
                 return;
             }
-
             // 기존 하이라이트 제거
             document.querySelectorAll('tr[data-round]').forEach(row => {
                 row.classList.remove('row-highlight');
             });
-
             highlightStartRound = round;
-
             // 클래스 직접 조작 (성능 최적화)
             const container = document.getElementById('drawsList');
             Array.from(container.children).forEach(row => {
@@ -998,6 +1055,7 @@
         }
 
         function changeGraphType(type) {
+            markManual(); // [수정] markManual 공통 함수 사용
             if (selectedGraphType !== type) {
                 selectedGraphType = type;
                 updateStatCardStyles();
@@ -1005,7 +1063,7 @@
                 const displayData = allDrawData.slice(0, currentRange);
                 renderDrawsList(displayData);
                 updateCharts(displayData);
-                refreshAIAnalysis();
+                initDeepInsight();
             }
         }
 
@@ -1122,42 +1180,33 @@
             });
         }
 
-        let highlightStartRound = null;
 
 
 
-        function applyFilter() {
-            saveFilterSettings();
+        function applyFilterManual() {
+            markManual(); // [수정] 수동 입력 시 최근10 해제
+            applyFilter();
+        }
+
+        async function applyFilter() {
+            await saveFilterSettings();
 
             const displayData = allDrawData.slice(0, currentRange);
 
             renderDrawsList(displayData);
             updateCharts(displayData);
             updateStats(displayData);
-            refreshAIAnalysis();
+            initDeepInsight();
         }
 
-        // [표준화] 최근 10회차 필터 자동 적용 (missing.html 기준)
+        // [표준화] 최근 10회차 필터 자동 적용
         function applyRecent10Filters() {
             const btn = document.getElementById('recent10FilterBtn');
             const btnText = document.getElementById('recent10BtnText');
 
-            // 토글: 이미 켜져있으면 끄기 (보라색 클래스 존재 여부로 판단)
-            if (btn.classList.contains('from-purple-500')) {
-                btn.classList.remove('from-purple-500', 'to-purple-700');
-                btn.classList.add('from-blue-500', 'to-indigo-600');
-                btnText.textContent = '최근 10회차 필터 적용';
-
-                // 필터 초기화
-                Object.keys(gungDefinitions).forEach(type => {
-                    const minInput = document.getElementById(`min_${type}`);
-                    const maxInput = document.getElementById(`max_${type}`);
-                    if (minInput) minInput.value = 0;
-                    if (maxInput) maxInput.value = 5;
-                });
-
-                highlightStartRound = null;
-                applyFilter();
+            // 토글: 이미 켜져있으면 끄기
+            if (isRecentTenFilter) {
+                deactivateRecent10IfActive(); // [수정] 공통 함수 사용
                 return;
             }
 
@@ -1179,7 +1228,8 @@
             });
 
             // 3. UI 업데이트 (보라색 토글)
-            btn.classList.remove('from-blue-500', 'to-indigo-600');
+            isRecentTenFilter = true; // [추가] 상태값 업데이트
+            btn.classList.remove('from-blue-500', 'to-blue-600');
             btn.classList.add('from-purple-500', 'to-purple-700');
             btnText.textContent = '필터 해제';
 
@@ -1260,43 +1310,10 @@
             qnaContent.scrollTop = qnaContent.scrollHeight;
         }
 
-        async function refreshAIAnalysis() {
-            if (!allDrawData || allDrawData.length === 0) return;
-
-            const subjectData = allDrawData[0];
-            const subjectRound = subjectData.round;
-            const targetRound = subjectRound + 1;
-
-            const targetEl = document.getElementById('aiTargetInfo');
-            if (targetEl) targetEl.textContent = '';
-
-            const targetType = selectedGraphType || '전체 9궁';
-            let summaryData = '';
-
-            if (selectedGraphType) {
-                const count = subjectData.counts[selectedGraphType];
-                summaryData = `- 분석 대상: ${selectedGraphType} (직전 ${count}개 출현)`;
-            } else {
-                const zeros = Object.keys(subjectData.counts).filter(k => subjectData.counts[k] === 0);
-                const hots = Object.keys(subjectData.counts).filter(k => subjectData.counts[k] >= 2);
-                summaryData = `- 직전 회차 멸(0개) 구간: ${zeros.join(', ') || '없음'}\n- 직전 회차 과열(2개+) 구간: ${hots.join(', ') || '없음'}`;
-            }
-
-            if (window.AIAnalysis) {
-                await window.AIAnalysis.executeAnalysis({
-                    containerId: 'aiAnalysisContent',
-                    analysisType: '9궁 패턴',
-                    subjectRound: subjectRound,
-                    targetRound: targetRound,
-                    userPrompt: `다음 회차 9궁 패턴을 예측하라`,
-                    contextData: `
-# [분석 데이터]
-- 기준 회차: ${subjectRound}회
-${summaryData}
-- 9궁 정의:
-  * 1궁(1~5), 2궁(6~10), 3궁(11~15) ... 9궁(41~45)
-                    `
-                });
+        // 딥러닝 인사이트 패널 초기화
+        function initDeepInsight() {
+            if (window.DeepInsightPanel) {
+                DeepInsightPanel.renderGroup('dlInsightContainer', 'magic_square');
             }
         }
 

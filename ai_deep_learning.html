@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html class="light" lang="ko">
 
 <head>
@@ -9,7 +9,7 @@
     <link rel="icon"
         href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎯</text></svg>">
 
-    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="css/tailwind.css" rel="stylesheet" />
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js"></script>
     <link rel="stylesheet"
@@ -21,20 +21,24 @@
     <style>
         body {
             font-family: 'Pretendard', sans-serif;
-            background-color: #F9FAFB; /* Dashboard style background */
+            background-color: #F9FAFB;
+            /* Dashboard style background */
             color: #111827;
         }
 
         .custom-scrollbar::-webkit-scrollbar {
             width: 5px;
         }
+
         .custom-scrollbar::-webkit-scrollbar-track {
             background: transparent;
         }
+
         .custom-scrollbar::-webkit-scrollbar-thumb {
             background-color: #D1D5DB;
             border-radius: 20px;
         }
+
         .custom-scrollbar::-webkit-scrollbar-thumb:hover {
             background-color: #9CA3AF;
         }
@@ -47,10 +51,12 @@
         .card {
             background: white;
             border-radius: 20px;
-            border: 1px solid #F3F4F6; /* 매우 연한 테두리 */
+            border: 1px solid #F3F4F6;
+            /* 매우 연한 테두리 */
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02), 0 2px 4px -1px rgba(0, 0, 0, 0.02);
             transition: transform 0.2s ease, box-shadow 0.2s ease;
         }
+
         .card:hover {
             transform: translateY(-2px);
             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.025);
@@ -64,9 +70,11 @@
             display: flex;
             align-items: center;
             gap: 10px;
-            background: white; /* 그라디언트 제거, 심플 화이트 */
+            background: white;
+            /* 그라디언트 제거, 심플 화이트 */
             border-radius: 20px 20px 0 0;
         }
+
         .card-header h3 {
             font-size: 1.05rem;
             font-weight: 700;
@@ -74,10 +82,13 @@
             letter-spacing: -0.01em;
             margin: 0;
         }
+
         .card-header .icon {
             font-size: 1.25rem;
-            color: #4B5563; /* 중립적인 아이콘 색상 */
+            color: #4B5563;
+            /* 중립적인 아이콘 색상 */
         }
+
         .card-body {
             padding: 24px;
         }
@@ -90,17 +101,45 @@
             border-radius: 50%;
             color: white;
             font-weight: 800;
-            text-shadow: 0px 1px 2px rgba(0,0,0,0.3);
-            box-shadow: inset -2px -2px 4px rgba(0,0,0,0.15), 2px 2px 4px rgba(0,0,0,0.1);
+            text-shadow: 0px 1px 2px rgba(0, 0, 0, 0.3);
+            box-shadow: inset -2px -2px 4px rgba(0, 0, 0, 0.15), 2px 2px 4px rgba(0, 0, 0, 0.1);
             transition: transform 0.2s;
         }
-        .ball-common:hover { transform: scale(1.1); }
 
-        .ball-yellow { background: radial-gradient(circle at 35% 35%, #FDE047 0%, #EAB308 100%); border: 1px solid #CA8A04; } /* 1-10 */
-        .ball-blue   { background: radial-gradient(circle at 35% 35%, #60A5FA 0%, #2563EB 100%); border: 1px solid #1D4ED8; } /* 11-20 */
-        .ball-red    { background: radial-gradient(circle at 35% 35%, #F87171 0%, #DC2626 100%); border: 1px solid #B91C1C; } /* 21-30 */
-        .ball-gray   { background: radial-gradient(circle at 35% 35%, #9CA3AF 0%, #4B5563 100%); border: 1px solid #374151; } /* 31-40 */
-        .ball-green  { background: radial-gradient(circle at 35% 35%, #4ADE80 0%, #16A34A 100%); border: 1px solid #15803D; } /* 41-45 */
+        .ball-common:hover {
+            transform: scale(1.1);
+        }
+
+        .ball-yellow {
+            background: radial-gradient(circle at 35% 35%, #FDE047 0%, #EAB308 100%);
+            border: 1px solid #CA8A04;
+        }
+
+        /* 1-10 */
+        .ball-blue {
+            background: radial-gradient(circle at 35% 35%, #60A5FA 0%, #2563EB 100%);
+            border: 1px solid #1D4ED8;
+        }
+
+        /* 11-20 */
+        .ball-red {
+            background: radial-gradient(circle at 35% 35%, #F87171 0%, #DC2626 100%);
+            border: 1px solid #B91C1C;
+        }
+
+        /* 21-30 */
+        .ball-gray {
+            background: radial-gradient(circle at 35% 35%, #9CA3AF 0%, #4B5563 100%);
+            border: 1px solid #374151;
+        }
+
+        /* 31-40 */
+        .ball-green {
+            background: radial-gradient(circle at 35% 35%, #4ADE80 0%, #16A34A 100%);
+            border: 1px solid #15803D;
+        }
+
+        /* 41-45 */
 
         /* 탭 네비게이션 (Pill Style) */
         .connected-tab {
@@ -117,12 +156,15 @@
             transition: all 0.2s;
             margin-right: 4px;
         }
+
         .connected-tab:hover {
             background-color: #F3F4F6;
             color: #1F2937;
         }
+
         .connected-tab-active {
-            background-color: #1F2937 !important; /* 진한 차콜 */
+            background-color: #1F2937 !important;
+            /* 진한 차콜 */
             color: white !important;
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
         }
@@ -139,9 +181,11 @@
             padding: 16px;
             background: #F9FAFB;
             border-radius: 16px;
-            border: 1px solid #E5E7EB; /* 테두리 추가로 깔끔하게 */
+            border: 1px solid #E5E7EB;
+            /* 테두리 추가로 깔끔하게 */
             /* border-left 제거하여 심플하게 */
         }
+
         .stat-label {
             font-size: 0.8rem;
             color: #6B7280;
@@ -158,11 +202,12 @@
             border-radius: 999px;
             overflow: hidden;
         }
+
         .gauge-fill {
             height: 100%;
             border-radius: 999px;
             /* 그라디언트 대신 단색 계열 사용으로 차분하게, 필요시 그라디언트 유지 */
-            background: linear-gradient(90deg, #6366F1, #8B5CF6); 
+            background: linear-gradient(90deg, #6366F1, #8B5CF6);
         }
 
         /* 테이블 스타일 */
@@ -175,18 +220,28 @@
             letter-spacing: 0.05em;
             border-bottom: 2px solid #E5E7EB;
         }
+
         table tbody tr:hover {
             background-color: #F9FAFB;
         }
+
         table td {
             color: #4B5563;
         }
 
         /* 애니메이션 */
         @keyframes fadeInUp {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
+
         .animate-fadeInUp {
             animation: fadeInUp 0.4s ease-out forwards;
         }
@@ -202,7 +257,8 @@
             <!-- 상단 타이틀 바 -->
             <div class="flex items-end justify-between mb-5">
                 <div class="flex items-center gap-3">
-                    <span class="material-symbols-outlined text-2xl text-blue-600">neurology</span> <!-- 아이콘 변경 및 색상 변경 -->
+                    <span class="material-symbols-outlined text-2xl text-blue-600">neurology</span>
+                    <!-- 아이콘 변경 및 색상 변경 -->
                     <div>
                         <h1 class="text-xl font-bold text-gray-900 leading-tight tracking-tight">
                             AI 딥러닝 분석
@@ -307,8 +363,8 @@
                         <div class="flex items-center gap-3 mb-4">
                             <span class="text-xs text-gray-500 font-semibold whitespace-nowrap">신뢰도</span>
                             <div class="flex-1 gauge-bar">
-                                <div id="confidenceBar"
-                                    class="gauge-fill bg-gradient-to-r from-blue-500 to-purple-500" style="width:0%">
+                                <div id="confidenceBar" class="gauge-fill bg-gradient-to-r from-blue-500 to-purple-500"
+                                    style="width:0%">
                                 </div>
                             </div>
                             <span class="text-base font-black text-purple-700 tabular-nums w-10 text-right"
@@ -371,7 +427,21 @@
                             <span style="font-size:10px;color:#9CA3AF;white-space:nowrap">정렬:</span>
                             <button id="sort-btn-total" onclick="DeepLearning.sortMatrix('total')"
                                 style="font-size:10px;padding:2px 8px;border-radius:6px;border:1px solid #4F46E5;background:#4F46E5;color:#fff;cursor:pointer;font-weight:700;white-space:nowrap">종합</button>
-                            <!-- 나머지 버튼은 JS에서 동적 렌더링 시 스타일 적용됨 -->
+                            <!-- [추가] 모델별 정렬 버튼 -->
+                            <button id="sort-btn-lstm" onclick="DeepLearning.sortMatrix('lstm')"
+                                style="font-size:10px;padding:2px 8px;border-radius:6px;border:1px solid #E5E7EB;background:#fff;color:#818cf8;cursor:pointer;font-weight:700;white-space:nowrap">LSTM</button>
+                            <button id="sort-btn-xgboost" onclick="DeepLearning.sortMatrix('xgboost')"
+                                style="font-size:10px;padding:2px 8px;border-radius:6px;border:1px solid #E5E7EB;background:#fff;color:#60a5fa;cursor:pointer;font-weight:700;white-space:nowrap">XGB</button>
+                            <button id="sort-btn-cnn" onclick="DeepLearning.sortMatrix('cnn')"
+                                style="font-size:10px;padding:2px 8px;border-radius:6px;border:1px solid #E5E7EB;background:#fff;color:#f472b6;cursor:pointer;font-weight:700;white-space:nowrap">CNN</button>
+                            <button id="sort-btn-transformer" onclick="DeepLearning.sortMatrix('transformer')"
+                                style="font-size:10px;padding:2px 8px;border-radius:6px;border:1px solid #E5E7EB;background:#fff;color:#fb923c;cursor:pointer;font-weight:700;white-space:nowrap">TF</button>
+                            <button id="sort-btn-markov" onclick="DeepLearning.sortMatrix('markov')"
+                                style="font-size:10px;padding:2px 8px;border-radius:6px;border:1px solid #E5E7EB;background:#fff;color:#34d399;cursor:pointer;font-weight:700;white-space:nowrap">MKV</button>
+                            <button id="sort-btn-autoencoder" onclick="DeepLearning.sortMatrix('autoencoder')"
+                                style="font-size:10px;padding:2px 8px;border-radius:6px;border:1px solid #E5E7EB;background:#fff;color:#a855f7;cursor:pointer;font-weight:700;white-space:nowrap">ATC</button>
+                            <button id="sort-btn-gnn" onclick="DeepLearning.sortMatrix('gnn')"
+                                style="font-size:10px;padding:2px 8px;border-radius:6px;border:1px solid #E5E7EB;background:#fff;color:#ef4444;cursor:pointer;font-weight:700;white-space:nowrap">GNN</button>
                         </div>
                     </div>
                     <div class="card-body">
@@ -401,8 +471,7 @@
                     <div class="card-header">
                         <span class="material-symbols-outlined text-teal-600">bar_chart</span>
                         <h3>모델별 Top 10 번호</h3>
-                        <span
-                            class="ml-auto text-[10px] bg-teal-50 text-teal-600 font-bold px-2 py-0.5 rounded-full">7개
+                        <span class="ml-auto text-[10px] bg-teal-50 text-teal-600 font-bold px-2 py-0.5 rounded-full">7개
                             모델 개별 분석</span>
                     </div>
                     <div class="card-body">
@@ -416,10 +485,10 @@
             <div id="tab-recommend" class="content-grid hidden pb-8">
                 <div class="card col-span-1 lg:col-span-2">
                     <div class="card-header">
-                        <span class="material-symbols-outlined text-indigo-600">casino</span>
+                        <span class="material-symbols-outlined text-blue-600">casino</span>
                         <h3>AI 추천 조합 (10게임)</h3>
                         <span
-                            class="ml-auto text-[10px] bg-indigo-50 text-indigo-600 font-bold px-2 py-0.5 rounded-full whitespace-nowrap">딥러닝
+                            class="ml-auto text-[10px] bg-blue-50 text-blue-600 font-bold px-2 py-0.5 rounded-full whitespace-nowrap">딥러닝
                             앙상블 기반</span>
                     </div>
                     <div class="card-body">
@@ -490,7 +559,7 @@
                             <thead class="sticky top-0 bg-gray-50 border-b border-gray-200">
                                 <tr>
                                     <th class="px-4 py-3 font-bold text-gray-700">끝수</th>
-                                    <th class="px-4 py-3 font-bold text-indigo-600">앙상블</th>
+                                    <th class="px-4 py-3 font-bold text-blue-600">앙상블</th>
                                     <th class="px-2 py-3 font-semibold text-gray-500">LSTM</th>
                                     <th class="px-2 py-3 font-semibold text-gray-500">XGB</th>
                                     <th class="px-2 py-3 font-semibold text-gray-500">CNN</th>
@@ -578,8 +647,7 @@
                     <div class="card-header">
                         <span class="material-symbols-outlined text-red-500">device_thermostat</span>
                         <h3>핫/콜드 번호 분석</h3>
-                        <span
-                            class="ml-auto text-[10px] bg-red-50 text-red-600 font-bold px-2 py-0.5 rounded-full">마지막
+                        <span class="ml-auto text-[10px] bg-red-50 text-red-600 font-bold px-2 py-0.5 rounded-full">마지막
                             당첨 후 미출현 회차(Gap)</span>
                     </div>
                     <div class="card-body">
@@ -632,10 +700,10 @@
             <div id="tab-custom" class="content-grid hidden pb-8">
                 <div class="card col-span-1 lg:col-span-2">
                     <div class="card-header">
-                        <span class="material-symbols-outlined text-indigo-600">tune</span>
+                        <span class="material-symbols-outlined text-blue-600">tune</span>
                         <h3>커스텀 분석 딥러닝 평가</h3>
                         <span
-                            class="ml-auto text-[10px] bg-indigo-50 text-indigo-600 font-bold px-2 py-0.5 rounded-full whitespace-nowrap">5중
+                            class="ml-auto text-[10px] bg-blue-50 text-blue-600 font-bold px-2 py-0.5 rounded-full whitespace-nowrap">5중
                             앙상블 배치 분석</span>
                     </div>
                     <div class="card-body">
@@ -654,18 +722,18 @@
     <div id="loadingOverlay"
         class="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[9999] hidden flex-col items-center justify-center transition-opacity">
         <div class="relative">
-            <div class="w-24 h-24 border-4 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin"></div>
+            <div class="w-24 h-24 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
             <div class="absolute inset-0 flex items-center justify-center">
-                <span class="material-symbols-outlined text-4xl text-indigo-400 animate-pulse">neurology</span>
+                <span class="material-symbols-outlined text-4xl text-blue-400 animate-pulse">neurology</span>
             </div>
         </div>
         <div class="mt-8 text-center">
             <h3 class="text-2xl font-bold text-white mb-2">AI Deep Analysis</h3>
-            <p id="progressText" class="text-indigo-200 text-lg animate-pulse">데이터 분석 중...</p>
+            <p id="progressText" class="text-blue-200 text-lg animate-pulse">데이터 분석 중...</p>
         </div>
         <div class="mt-8 w-64 bg-slate-800 rounded-full h-2 overflow-hidden">
             <div id="progressBar"
-                class="h-full bg-gradient-to-r from-indigo-500 to-purple-500 w-0 transition-all duration-300"></div>
+                class="h-full bg-gradient-to-r from-blue-500 to-purple-500 w-0 transition-all duration-300"></div>
         </div>
     </div>
 
@@ -676,7 +744,7 @@
         <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full transform scale-100 transition-all">
             <div class="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-2xl">
                 <h3 class="text-xl font-bold text-slate-800 flex items-center gap-2">
-                    <span class="material-symbols-outlined text-indigo-600">psychology</span>
+                    <span class="material-symbols-outlined text-blue-600">psychology</span>
                     <span id="xaiTitle">AI 분석 설명</span>
                 </h3>
                 <button onclick="DeepLearning.closeXaiModal()"
@@ -701,8 +769,8 @@
     <script src="js/common_v2.js"></script>
 
     <!-- Project Scripts -->
-    <script src="js/aiProxy.js"></script>
-    <script src="js/ai_deep_learning.js?v=20260308_FIX2"></script>
+    <script src="js/aiProxy.js?v=20260329"></script>
+    <script src="js/ai_deep_learning.js?v=20260329"></script>
     <script src="js/layout.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {

@@ -1,11 +1,11 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html class="light" lang="ko">
 
 <head>
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>Lotto Lab - 삼각수 (Supabase AI)</title>
-    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="css/tailwind.css" rel="stylesheet" />
 
     <link rel="icon" href="data:,">
 
@@ -26,6 +26,7 @@
     <script src="js/aiProxy.js"></script>
     <script src="js/filter/FilterService.js"></script>
     <script src="js/layout.js"></script>
+    <script src="js/deep_insight_panel.js"></script>
 
     <!-- NLP Modules -->
     <script src="js/NLPProcessor.js"></script>
@@ -59,105 +60,96 @@
             return triangularNumbers.has(num);
         }
 
+        // [표준] 수동 조작 마킹
+        function markManual() {
+            localStorage.setItem('triangular_number_patterns_isManual', 'true');
+            const btn = document.getElementById('recent10FilterBtn');
+            if (btn && btn.classList.contains('from-purple-500')) {
+                deactivateRecent10IfActive();
+            }
+        }
+
         const minMaxLabelsPlugin = {
             id: 'minMaxLabels',
             afterDatasetsDraw: function (chart) { }
         };
 
-        // 필터 설정 저장 함수
-        // [수정] 필터 설정 저장 함수 (DB 저장 및 무한 루프 방지)
-        let isSavingSettings = false;
-        async function saveFilterSettings() {
-            if (isSavingSettings || window.isLoadingSettings) return;
-            isSavingSettings = true;
-            try {
-                const toggle = document.getElementById('applyFilterCheck');
+        // [표준] 필터 저장/로드 플래그
+        const storageKey = 'triangular_number_patterns';
+        let _triangularSelfSaving = false;
+        let _filterSettingsLoaded = false;
 
-                // 활성화된 개수 필터 수집
+        async function saveFilterSettings(targetRoundOverride = null) {
+            if (_triangularSelfSaving) return;
+            _triangularSelfSaving = true;
+
+            try {
+                if (!allDrawData || allDrawData.length === 0) return;
+
+                const latestRound = allDrawData[0].round;
+                const targetRound = targetRoundOverride || (latestRound + 1);
+
+                const toggle = document.getElementById('applyFilterCheck');
                 const activeCounts = [];
                 for (let i = 0; i <= 6; i++) {
                     const btn = document.getElementById(`filter-btn-${i}`);
-                    if (btn && btn.classList.contains('filter-btn-active')) {
-                        activeCounts.push(i);
-                    }
+                    if (btn && btn.classList.contains('filter-btn-active')) activeCounts.push(i);
                 }
 
-                const data = {
+                const settings = {
                     selectedCounts: activeCounts,
                     excludedNumbers: Array.from(excludedNumbers),
-                    recent10FilterActive: isRecentTenFilter
+                    recent10FilterActive: document.getElementById('recent10FilterBtn').classList.contains('from-purple-500')
                 };
                 const enabled = toggle ? toggle.checked : true;
-                const settingsWithEnabled = { ...data, enabled };
 
-                // DB 저장 (FilterService 사용)
-                if (window.filterService && window.filterService.initialized) {
-                    await window.filterService.saveSetting('triangular_number_patterns', settingsWithEnabled, enabled);
-                } else if (window.Utils && window.Utils.saveFilter) {
-                    // Fallback: localStorage
-                    window.Utils.saveFilter('triangular_filter', settingsWithEnabled);
+                console.log(`[triangular_number] Saving filter for ${targetRound}:`, settings);
+
+                // 1. Utils.saveFilter (DB + localStorage + GNB 동기화)
+                if (window.Utils && window.Utils.saveFilter) {
+                    await window.Utils.saveFilter(storageKey, settings, enabled, targetRound);
+                } else if (window.filterService) {
+                    await window.filterService.saveSetting(storageKey, settings, enabled, targetRound);
                 }
 
-                // localStorage sync
-                localStorage.setItem('triangular_number_patterns', JSON.stringify(settingsWithEnabled));
-                localStorage.setItem('triangular_number_patterns_filter', JSON.stringify(settingsWithEnabled));
+                // localStorage sync for storage event
+                localStorage.setItem(storageKey, JSON.stringify({ ...settings, enabled, targetRound }));
             } finally {
-                isSavingSettings = false;
+                _triangularSelfSaving = false;
             }
         }
 
-        // 필터 설정 불러오기 함수
-        // [수정] 필터 설정 불러오기 함수 (DB 로드 무한 루프 방지)
-        async function loadFilterSettings() {
+        // [표준] 필터 설정 불러오기
+        async function loadFilterSettings(targetRoundOverride = null) {
             window.isLoadingSettings = true;
             try {
-                let saved = null;
+                const latestRound = (allDrawData && allDrawData.length > 0) ? allDrawData[0].round : null;
+                const currentRound = targetRoundOverride || (latestRound ? latestRound + 1 : null);
+                if (!currentRound) return false;
 
-                // DB에서 로드 (FilterService 사용)
-                if (window.filterService && window.filterService.initialized) {
-                    const data = await window.filterService.loadSetting('triangular_number_patterns');
-                    if (data) {
-                        saved = { ...data.settings, enabled: data.enabled };
-                    }
+                let data = null;
+                if (window.Utils && window.Utils.loadFilter) {
+                    data = await window.Utils.loadFilter(storageKey, currentRound);
+                } else if (window.filterService && window.filterService.initialized) {
+                    data = await window.filterService.loadSetting(storageKey, currentRound);
                 }
 
-                // Fallback: localStorage
-                if (!saved) {
-                    const raw = localStorage.getItem('triangular_number_patterns') || localStorage.getItem('triangular_filter') || localStorage.getItem('triangular_number_patterns_filter');
-                    if (raw) try { saved = JSON.parse(raw); } catch (e) { }
-                }
-
-                if (saved) {
+                const s = (data && data.settings !== undefined) ? data.settings : data;
+                if (data && s) {
                     // 개수 필터 복구
-                    const counts = new Set(saved.selectedCounts || []);
+                    const counts = new Set(s.selectedCounts || []);
                     for (let i = 0; i <= 6; i++) {
+                        const isActive = counts.has(i);
                         const btn = document.getElementById(`filter-btn-${i}`);
-                        const card = document.getElementById(`card-${i}`);
-                        if (counts.has(i)) {
-                            if (btn) btn.classList.add('filter-btn-active');
-                            if (card) {
-                                card.classList.remove('bg-white', 'border-gray-200');
-                                card.classList.add('bg-blue-600', 'border-blue-600', 'shadow-md');
-                                const val = document.getElementById(`count_${i}`);
-                                if (val) { val.classList.remove('text-gray-900'); val.classList.add('text-white'); }
-                                const title = card.querySelector('.text-xs');
-                                if (title) { title.classList.remove('text-gray-500'); title.classList.add('text-blue-100'); }
-                            }
-                        } else {
-                            if (btn) btn.classList.remove('filter-btn-active');
-                            if (card) {
-                                card.classList.add('bg-white', 'border-gray-200');
-                                card.classList.remove('bg-blue-600', 'border-blue-600', 'shadow-md');
-                                const val = document.getElementById(`count_${i}`);
-                                if (val) { val.classList.add('text-gray-900'); val.classList.remove('text-white'); }
-                                const title = card.querySelector('.text-xs');
-                                if (title) { title.classList.add('text-gray-500'); title.classList.remove('text-blue-100'); }
-                            }
+                        if (btn) {
+                            if (isActive) btn.classList.add('filter-btn-active');
+                            else btn.classList.remove('filter-btn-active');
                         }
+                        updateCardUI(i, isActive);
                     }
 
                     // 제외수 복구
-                    excludedNumbers = new Set(saved.excludedNumbers || []);
+                    excludedNumbers = new Set(s.excludedNumbers || []);
                     triangularArray.forEach(n => {
                         const chk = document.getElementById(`exclude_${n}`);
                         if (chk) chk.checked = excludedNumbers.has(n);
@@ -165,47 +157,35 @@
                     const input = document.getElementById('excludeNumbersInput');
                     if (input) input.value = Array.from(excludedNumbers).join(', ');
 
-                    // 필터 적용 여부 복구
+                    // 필터 활성화 여부
                     const toggle = document.getElementById('applyFilterCheck');
-                    if (toggle && saved.enabled !== undefined) toggle.checked = saved.enabled;
+                    if (toggle) toggle.checked = data.enabled !== false;
 
-                    if (saved.recent10FilterActive) {
-                        const btn = document.getElementById('recent10FilterBtn');
-                        const btnText = document.getElementById('recent10BtnText');
-                        if (btn && btnText) {
-                            btn.classList.remove('from-blue-500', 'to-indigo-600');
-                            btn.classList.add('from-purple-500', 'to-purple-700');
-                            btnText.textContent = '필터 해제';
-                        }
+                    // 최근 10회차 버튼 상태
+                    const btn = document.getElementById('recent10FilterBtn');
+                    const btnText = document.getElementById('recent10BtnText');
+                    if (s.recent10FilterActive) {
                         isRecentTenFilter = true;
+                        highlightStartRound = allDrawData.length > 0 ? allDrawData[0].round : null;
+                        if (btn) { btn.classList.remove('from-blue-500', 'to-blue-600'); btn.classList.add('from-purple-500', 'to-purple-700'); }
+                        if (btnText) btnText.textContent = '필터 해제';
                     } else {
-                        const btn = document.getElementById('recent10FilterBtn');
-                        const btnText = document.getElementById('recent10BtnText');
-                        if (btn && btnText) {
-                            btn.classList.remove('from-purple-500', 'to-purple-700');
-                            btn.classList.add('from-blue-500', 'to-indigo-600');
-                            btnText.textContent = '최근 10회차 필터 적용';
-                        }
                         isRecentTenFilter = false;
+                        highlightStartRound = null;
+                        if (btn) { btn.classList.remove('from-purple-500', 'to-purple-700'); btn.classList.add('from-blue-500', 'to-blue-600'); }
+                        if (btnText) btnText.textContent = '최근 10회차 필터 적용';
                     }
 
+                    applyFilter(true); // UI 갱신 (저장 스킵)
                     return true;
                 }
                 return false;
             } finally {
                 window.isLoadingSettings = false;
+                _filterSettingsLoaded = true; // 로드 완료 → 이후 save 허용
             }
         }
 
-        // [추가] 대시보드 실시간 동기화 (Storage Event)
-        window.addEventListener('storage', async function (e) {
-            if (e.key === 'triangular_count' || e.key === 'triangular_filter') {
-                console.log(`[triangular_number] Storage event detected for: ${e.key}, reloading...`);
-                await loadFilterSettings();
-                applyFilter();
-                updateStatistics(currentRange);
-            }
-        });
     </script>
     <style>
         /* 삼각수 공 스타일 (딥그린 - 고유색상) */
@@ -225,12 +205,12 @@
             font-weight: 700;
         }
 
-        /* 필터 버튼 활성화 스타일 (보라색 - UI 통일) */
+        /* 필터 버튼 활성화 스타일 (블루) */
         .filter-btn-active {
-            background-color: #7C3AED !important;
-            /* violet-600 */
+            background-color: #2563EB !important;
+            /* blue-600 */
             color: white !important;
-            border-color: #7C3AED !important;
+            border-color: #2563EB !important;
         }
 
         /* 통계 테이블 셀 스타일 (당첨 시) */
@@ -391,47 +371,12 @@
                             </div>
                         </div>
 
-                        <div class="ai-section p-8 pb-10 mb-6">
-                            <div class="flex items-center justify-between mb-6">
-                                <div class="flex items-baseline gap-2">
-                                    <h3 class="text-2xl font-extrabold text-gray-900 tracking-tight">AI Insight</h3>
-                                    <span id="aiTargetInfo" class="text-sm text-gray-500 font-medium"></span>
-                                </div>
-                                <!-- 프롬프트 라이브러리 버튼 (window.AIAnalysis 사용) -->
-                                <button onclick="window.AIAnalysis.openPromptLibraryModal('triangular_number', event)"
-                                    class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors">
-                                    <span class="material-symbols-outlined text-lg">library_books</span>
-                                    프롬프트 라이브러리
-                                </button>
-                            </div>
-
-                            <!-- 3-Section AI Analysis Content - Stable container with relative positioning -->
-                            <div class="relative min-h-[300px]">
-                                <div id="aiAnalysisContent"
-                                    class="prose prose-blue max-w-none text-gray-800 text-lg leading-relaxed opacity-0 transition-opacity duration-300">
-                                </div>
-
-                                <!-- Loading Indicator (Absolute to prevent layout shift) -->
-                                <div id="aiLoadingIndicator"
-                                    class="absolute inset-0 flex items-center justify-center p-12 bg-gray-50/30 rounded-xl border border-dashed border-gray-200 z-10">
-                                    <div class="flex flex-col items-center gap-3 text-gray-400">
-                                        <div
-                                            class="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin">
-                                        </div>
-                                        <span class="text-sm font-medium">AI가 실시간 데이터를 정밀 분석 중입니다...</span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- 퀵 버튼 및 NLP 입력창 -->
-                            <div class="mt-8 border-t border-gray-100 pt-8">
-                                <div class="flex flex-col gap-4">
-                                    <div class="flex gap-2 overflow-x-auto pb-4 scrollbar-hide" id="aiQuickButtons">
-                                        <!-- JS Generate -->
-                                    </div>
-                                    <div id="nlp-main-input-container" class="relative">
-                                        <!-- NLP Component -->
-                                    </div>
+                        <div class="ai-section p-8 pb-10 mb-6 font-sans">
+                            <h3 class="text-lg font-bold text-gray-900 mb-4">딥러닝 Insight</h3>
+                            <div id="dlInsightContainer">
+                                <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
+                                    <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
+                                    <span class="text-sm">딥러닝 모델 분석 중 (7개 모델)...</span>
                                 </div>
                             </div>
                         </div>
@@ -478,8 +423,8 @@
                     <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
                         <div class="flex items-center justify-between mb-4">
                             <h3 class="text-xl font-bold text-gray-900">필터</h3>
-                            <a href="filter.html?id=triangular_number_patterns"
-                                class="text-sm font-medium text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
+                            <a href="filter.html?id=triangular_number_patterns" target="_blank"
+                                class="text-sm font-medium text-slate-500 hover:text-blue-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
                                 <span class="material-symbols-outlined text-[18px]">tune</span>
                                 필터 페이지 가기
                             </a>
@@ -528,7 +473,7 @@
 
                             <!-- [표준화] 우측 하단: 최근 10회차 필터 적용 버튼 -->
                             <button onclick="applyRecent10Filters()" id="recent10FilterBtn"
-                                class="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 transition-all active:scale-95 text-sm font-black min-w-[240px] justify-center whitespace-nowrap">
+                                class="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 transition-all active:scale-95 text-sm font-black min-w-[240px] justify-center whitespace-nowrap">
                                 <span class="material-symbols-outlined text-[18px]">auto_fix_high</span>
                                 <span id="recent10BtnText">최근 10회차 필터 적용</span>
                             </button>
@@ -559,8 +504,8 @@
                                             class="py-3 px-4 text-center w-24 sticky left-0 bg-[#1e293b] z-40 whitespace-nowrap">
                                             회차</th>
                                         <th class="py-3 px-4 text-center w-[280px]">당첨번호</th>
-                                        <th class="py-3 px-4 text-center w-[340px]">삼각수</th>
-                                        <th class="py-3 px-4 text-center w-24">당첨개수</th>
+                                        <th class="py-3 px-4 text-center w-[340px]">삼각수 대상번호</th>
+                                        <th class="py-3 px-4 text-center w-24">HIT</th>
                                         <th class="py-3 px-4 text-center w-20">GAP</th>
                                     </tr>
                                 </thead>
@@ -641,32 +586,29 @@
     </div>
 
     <script>
+        // [표준] recent10 버튼 해제 헬퍼
+        function _deactivateRecent10Btn() {
+            const btn = document.getElementById('recent10FilterBtn');
+            const btnText = document.getElementById('recent10BtnText');
+            if (btn) {
+                btn.classList.remove('from-purple-500', 'to-purple-700', 'shadow-purple-200');
+                btn.classList.add('from-blue-500', 'to-blue-600', 'shadow-blue-200');
+            }
+            if (btnText) btnText.textContent = '최근 10회차 필터 적용';
+            highlightStartRound = null;
+        }
+
         function toggleFilterButton(num) {
+            markManual(); // [표준] 수동 조작 마킹
             const btn = document.getElementById(`filter-btn-${num}`);
-            if (btn) btn.classList.toggle('filter-btn-active');
+            const isCurrentlyActive = btn && btn.classList.contains('filter-btn-active');
 
-            const card = document.getElementById(`card-${num}`);
-            const valueText = document.getElementById(`count_${num}`);
-            const titleText = card ? card.querySelector('.text-xs') : null;
-
-            const isActive = card && card.classList.contains('bg-blue-600');
-
-            if (isActive) {
-                if (card) {
-                    card.classList.remove('bg-blue-600', 'border-blue-600', 'shadow-md');
-                    card.classList.add('bg-white', 'border-gray-200');
-                }
-                if (valueText) { valueText.classList.remove('text-white'); valueText.classList.add('text-gray-900'); }
-                if (titleText) { titleText.classList.remove('text-blue-100'); titleText.classList.add('text-gray-500'); }
+            if (isCurrentlyActive) {
                 if (btn) btn.classList.remove('filter-btn-active');
+                updateCardUI(num, false);
             } else {
-                if (card) {
-                    card.classList.remove('bg-white', 'border-gray-200');
-                    card.classList.add('bg-blue-600', 'border-blue-600', 'shadow-md');
-                }
-                if (valueText) { valueText.classList.remove('text-gray-900'); valueText.classList.add('text-white'); }
-                if (titleText) { titleText.classList.remove('text-gray-500'); titleText.classList.add('text-blue-100'); }
                 if (btn) btn.classList.add('filter-btn-active');
+                updateCardUI(num, true);
             }
             applyFilter();
         }
@@ -678,6 +620,7 @@
 
         // 제외수 필터 동기화
         function syncExcludeFilter() {
+            markManual(); // [표준] 수동 조작 마킹
             excludedNumbers.clear();
             const selectedList = [];
             triangularArray.forEach(n => {
@@ -697,37 +640,29 @@
             if (input) {
                 input.value = selectedList.length > 0 ? selectedList.join(', ') : '';
             }
-            saveFilterSettings();
-            applyFilter();
+            applyFilter(); // applyFilter 내부에서 saveFilterSettings 호출
         }
 
-        // 🆕 신규 회차 데이터 감지 시 필터 자동 리셋
+        // [표준] 신규 회차 감지 시 필터 자동 초기화
         async function checkAndResetOnNewDraw() {
             if (!allDrawData || allDrawData.length === 0) return;
             const latestRound = allDrawData[0].round;
-            const lastKnownRound = parseInt(localStorage.getItem('triangular_number_last_round') || '0');
 
-            if (latestRound > lastKnownRound) {
-                localStorage.setItem('triangular_number_last_round', String(latestRound));
+            // 새 회차 감지 (localStorage 비교)
+            const lastStoredRound = parseInt(localStorage.getItem('triangular_number_last_round') || '0');
+            const isNewRound = latestRound > lastStoredRound;
 
-                // [NEW] 수동 제외수 초기화 (새 회차 갱신 시점)
-                if (lastKnownRound > 0) {
-                    excludedNumbers.clear();
-                    triangularArray.forEach(n => {
-                        const chk = document.getElementById(`exclude_${n}`);
-                        if (chk) chk.checked = false;
-                        if (window.Basket) window.Basket.removeExclude(n);
-                    });
-                    if (window.BasketUI && window.BasketUI.refresh) window.BasketUI.refresh();
+            const isLoaded = await loadFilterSettings();
 
-                    const input = document.getElementById('excludeNumbersInput');
-                    if (input) input.value = '';
-                    await saveFilterSettings();
-
-                    console.log(`🆕 새 회차 감지: ${latestRound}회 → 최근 10회차 필터 자동 갱신 및 수동 제외수 초기화`);
-                }
+            if (!isLoaded || isNewRound) {
+                console.log('✨ 신규 회차 - 삼각수 필터 자동 초기화');
                 autoApplyRecent10OnLoad();
+                await saveFilterSettings();
+            } else {
+                console.log('✅ 삼각수 기존 필터 로드 완료');
             }
+
+            localStorage.setItem('triangular_number_last_round', latestRound.toString());
         }
 
         // 🆕 페이지 로드 시 최근 10회차 필터 자동 적용
@@ -752,17 +687,18 @@
             const btn = document.getElementById('recent10FilterBtn');
             const btnText = document.getElementById('recent10BtnText');
             if (btn && btnText) {
-                btn.classList.remove('from-blue-500', 'to-indigo-600');
+                btn.classList.remove('from-blue-500', 'to-blue-600');
                 btn.classList.add('from-purple-500', 'to-purple-700');
                 btnText.textContent = '필터 해제';
             }
 
+            isRecentTenFilter = true;
             highlightStartRound = Number(allDrawData[0].round);
 
             const toggle = document.getElementById('applyFilterCheck');
             if (toggle) toggle.checked = true;
 
-            applyFilter();
+            applyFilter(true); // UI 갱신 (저장은 checkAndResetOnNewDraw에서 처리)
         }
 
         function updateCardUI(i, isActive) {
@@ -808,8 +744,10 @@
         }
 
         // 필터 적용 메인 함수
-        function applyFilter() {
-            saveFilterSettings();
+        async function applyFilter(skipSave = false) {
+            if (!skipSave) {
+                await saveFilterSettings();
+            }
             const isFilterEnabled = document.getElementById('applyFilterCheck').checked;
 
             // 리스트는 필터링과 무관하게 분석 범위(currentRange)만 반영
@@ -864,7 +802,7 @@
             if (!chk.checked) {
                 isRecentTenFilter = false;
                 btn.classList.remove('from-purple-500', 'to-purple-700');
-                btn.classList.add('from-indigo-500', 'to-indigo-600');
+                btn.classList.add('from-blue-500', 'to-blue-600');
                 btnText.textContent = '최근 10회차 필터 적용';
                 return;
             }
@@ -886,65 +824,35 @@
                 [...activeCountSet].every(val => recent10CountSet.has(val));
 
             if (isMatch) {
-                btn.classList.remove('from-indigo-500', 'to-indigo-600');
+                btn.classList.remove('from-blue-500', 'to-blue-600');
                 btn.classList.add('from-purple-500', 'to-purple-700');
                 btnText.textContent = '필터 해제';
             } else {
                 btn.classList.remove('from-purple-500', 'to-purple-700');
-                btn.classList.add('from-blue-500', 'to-indigo-600');
+                btn.classList.add('from-blue-500', 'to-blue-600');
                 btnText.textContent = '최근 10회차 필터 적용';
             }
         }
 
-        // 최근 10회차 필터 적용 함수
-        function applyRecent10Filters() {
+        // [표준화] 최근 10회차 필터를 비활성화하고 UI를 초기화하는 함수
+        function deactivateRecent10IfActive() {
             const btn = document.getElementById('recent10FilterBtn');
             const btnText = document.getElementById('recent10BtnText');
-
-            // 토글: 이미 켜져있으면 끄기 (보라색 클래스 존재 여부로 판단)
-            if (btn.classList.contains('from-purple-500')) {
-                btn.classList.remove('from-purple-500', 'to-purple-700');
-                btn.classList.add('from-blue-500', 'to-indigo-600');
-                btnText.textContent = '최근 10회차 필터 적용';
-
+            if (btn && btn.classList.contains('from-purple-500')) {
+                console.log('[triangular_number] 수동 조작 감지: 최근 10회차 필터 비활성화');
+                
                 isRecentTenFilter = false;
                 highlightStartRound = null;
-                for (let i = 0; i <= 6; i++) {
-                    const filterBtn = document.getElementById(`filter-btn-${i}`);
-                    if (filterBtn) filterBtn.classList.remove('filter-btn-active');
-                    updateCardUI(i, false);
-                }
+                btn.classList.remove('from-purple-500', 'to-purple-700', 'shadow-purple-200');
+                btn.classList.add('from-blue-500', 'to-blue-600', 'shadow-blue-200');
+                if (btnText) btnText.textContent = '최근 10회차 필터 적용';
 
-                // 토글 자동 해제 추가
-                const toggle = document.getElementById('applyFilterCheck');
-                if (toggle) toggle.checked = false;
-
-                applyFilter();
-                return;
+                // 하이라이트 즉시 해제
+                document.querySelectorAll('.row-highlight').forEach(el => el.classList.remove('row-highlight'));
+                
+                saveFilterSettings();
+                renderDrawsList(allDrawData.slice(0, currentRange));
             }
-
-            if (!allDrawData || allDrawData.length < 10) return;
-
-            const recent10 = allDrawData.slice(0, 10);
-            const counts = new Set(recent10.map(d => d.triangularCount));
-
-            for (let i = 0; i <= 6; i++) {
-                const isActive = counts.has(i);
-                const filterBtn = document.getElementById(`filter-btn-${i}`);
-                if (filterBtn) {
-                    if (isActive) filterBtn.classList.add('filter-btn-active');
-                    else filterBtn.classList.remove('filter-btn-active');
-                }
-                updateCardUI(i, isActive);
-            }
-
-            btn.classList.remove('from-blue-500', 'to-indigo-600');
-            btn.classList.add('from-purple-500', 'to-purple-700');
-            btnText.textContent = '필터 해제';
-
-            highlightStartRound = Number(allDrawData[0].round);
-            document.getElementById('applyFilterCheck').checked = true;
-            applyFilter();
         }
 
         // [추가] NLP 및 초기화 로직
@@ -999,14 +907,8 @@
                 allDrawData = data.map(item => {
                     const numbers = item.numbers || [];
 
-                    // 기본 계산
-                    let triangularCount = numbers.filter(n => isTriangular(n)).length;
-
-                    // DB 컬럼 확인 (triangular_count)
-                    if (featuresMap.has(item.round)) {
-                        const feat = featuresMap.get(item.round);
-                        if (feat.triangular_count !== undefined) triangularCount = feat.triangular_count;
-                    }
+                    // [수정] 당첨개수 계산 로직 (DB 의존성 제거 및 Number 캐스팅 추가)
+                    let triangularCount = numbers.filter(n => isTriangular(Number(n))).length;
 
                     return { ...item, numbers: numbers, triangularCount: triangularCount, gap: 0 };
                 });
@@ -1042,36 +944,32 @@
 
                 updateSliderBackground(currentRange);
 
-                // 🆕 새 회차 체크 및 자동 필터 초기화
-                checkAndResetOnNewDraw();
-
-                if (!(await loadFilterSettings())) {
-                    // 저장된 필터가 없으면 자동 적용 안 함
-                } else {
-                    applyFilter();
-                }
-
-                // 🆕 다른 탭(대시보드)에서의 변경사항 실시간 감지
-                window.addEventListener('storage', (e) => {
-                    if (e.key === 'triangular_number_patterns' || e.key === 'triangular_filter' || e.key === 'triangular_number_patterns_filter') {
-                        if (!window.isLoadingSettings) {
-                            loadFilterSettings().then(() => applyFilter());
+                // [표준화] 대시보드 실시간 동기화 (Storage Event) - 단일화 및 표준화
+                window.addEventListener('storage', async (e) => {
+                    if (_triangularSelfSaving) return;
+                    if (!e.key) return;
+                    const keysToWatch = [storageKey, 'triangular_filter', 'triangular_number_patterns_filter'];
+                    if (keysToWatch.includes(e.key)) {
+                        // 로그아웃 감지
+                        if (e.newValue) {
+                            try {
+                                const _p = JSON.parse(e.newValue);
+                                if (_p.enabled === false && !_p.settings && _p.min === undefined && !_p.selectedCounts) {
+                                    resetFilterUI(); return;
+                                }
+                            } catch(_) {}
+                        }
+                        const latestRound = (allDrawData && allDrawData.length > 0) ? allDrawData[0].round : null;
+                        const currentRound = latestRound ? latestRound + 1 : null;
+                        const loaded = await loadFilterSettings(currentRound);
+                        if (loaded) {
+                            applyFilter(true);
+                            updateStatistics(currentRange);
                         }
                     }
                 });
 
-                // FilterService 초기화 (DB 필터 저장용)
-                if (window.initFilterService) {
-                    await window.initFilterService();
-                }
-
-                refreshAIAnalysis();
-
-                if (!await loadFilterSettings()) {
-                    initFilterDefaults();
-                } else {
-                    applyFilter();
-                }
+                initDeepInsight();
 
             } catch (err) {
                 console.error('데이터 로드 실패:', err);
@@ -1130,6 +1028,7 @@
         }
 
         function toggleValueHighlight(val) {
+            markManual(); // [표준] 수동 조작 마킹
             if (selectedHighlight.val === val) {
                 selectedHighlight = { col: null, val: null };
             } else {
@@ -1140,6 +1039,7 @@
 
         // 🔹 하이라이트 토글 (행 클릭)
         function highlightRows(round) {
+            markManual(); // [표준] 수동 조작 마킹
             const r = Number(round);
 
             // 1. 이미 하이라이트된 행을 클릭하면 해제
@@ -1292,6 +1192,7 @@
         }
 
         function changeChartMode(mode) {
+            markManual(); // [표준] 수동 조작 마킹
             if (!triangularChart) return;
             chartMode = mode;
             const distBtn = document.getElementById('chartTypeDistribution');
@@ -1344,6 +1245,7 @@
         let rangeDebounceTimer = null;
 
         function updateRange(value) {
+            markManual(); // [표준] 수동 조작 마킹
             currentRange = parseInt(value);
 
             // 1. Immediate UI update
@@ -1357,7 +1259,7 @@
                 updateStatistics(currentRange);
                 changeChartMode(chartMode);
                 applyFilter();
-                refreshAIAnalysis();
+                initDeepInsight();
             }, 300);
         }
 
@@ -1529,93 +1431,10 @@
 
         let chatHistory = [];
 
-        // ✅ AI 분석 실행 함수 (Window.AIAnalysis 엔진 사용)
-        async function refreshAIAnalysis() {
-            if (isAIAnalyzing || !allDrawData || allDrawData.length === 0) return;
-            isAIAnalyzing = true;
-
-            const loader = document.getElementById('aiLoadingIndicator');
-            const content = document.getElementById('aiAnalysisContent');
-
-            if (loader) loader.classList.remove('hidden');
-            if (content) {
-                content.classList.add('hidden');
-                content.classList.add('opacity-0');
-                content.classList.remove('opacity-100');
-            }
-
-            try {
-                const latestDraw = allDrawData[0];
-                const subjectRound = latestDraw.round;
-                const targetRound = subjectRound + 1;
-
-                const stats = getTriangularAnalysisData();
-                if (!stats) return;
-
-                if (window.AIAnalysis) {
-                    await window.AIAnalysis.executeAnalysis({
-                        containerId: 'aiAnalysisContent',
-                        containerClass: 'prose prose-base max-w-none text-gray-800 leading-relaxed',
-                        analysisType: '삼각수 패턴 정밀 분석',
-                        subjectRound: subjectRound,
-                        targetRound: targetRound,
-                        customData: `
-## 삼각수 기초 통계 (최근 ${stats.range}회차 기준)
-- 평균: ${stats.avg.toFixed(2)} | 표준편차: ${stats.stdDev.toFixed(2)}
-- 최근 5회 평균: ${stats.ma5.toFixed(1)} | 최근 10회 평균: ${stats.ma10.toFixed(1)} | 최근 20회 평균: ${stats.ma20.toFixed(1)}
-- 추세: ${stats.trend}
-
-## 삼각수 개수별 분포
-${stats.distText}
-
-## Gap/Streak 분석
-- 삼각수 멸(0개) Gap: ${stats.zeroGap}회차 경과
-- 2개 이상 연속(Streak): ${stats.hotStreak}회차 연속 유지 중
-
-## 최근 30회차 상세 데이터
-${stats.recent30Str}
-                        `,
-                        customRules: `
-# [분석 특명: 데이터 기반 논리 분석]
-1. 답변은 반드시 다음 3가지 섹션으로 구성하시오:
-   - **[패턴 분석]**: 데이터에 기반한 현재의 출현 패턴 및 통계적 특징 분석
-   - **[추천 전략]**: 분석된 패턴을 바탕으로 한 차회차 구체적 필터링/선택 전략
-   - **[최종 결론]**: 핵심 요약 및 최종 권고 수치
-2. "에너지", "운세", "기운" 등 비과학적 표현은 철저히 배제하고 "통계적 흐름", "편차", "회귀" 관점에서 분석하시오.
-3. 반드시 상기 지표(평균, MA, zeroGap, hotStreak 등) 중 3개 이상을 직접 인용하여 분석 근거를 제시하시오.
-4. [패턴 진단]: 현재 삼각수의 출현 흐름이 '강력한 복귀 타이밍(임계점)'인지, '일시적 정체기'인지 단호하게 진단하시오.
-5. [전략 제안]: ${targetRound}회차에서 예상되는 삼각수 개수 범위를 수치(예: 1~2개)로 제안하고 그 이유를 설명하시오.
-6. 금지어: 에너지, 기운, 파동, 운세, 대박, 필승, 보장은 없다, 참고용, 재미로.
-7. 수치는 {{trend:내용}}, 결론은 {{recommendation:내용}} 태그를 사용하시오.
-                        `
-                    });
-                }
-
-                if (loader) loader.classList.add('hidden');
-                if (content) {
-                    content.classList.remove('hidden');
-                    // Opacity 처리를 위해 브라우저 리플로우 유도 후 클래스 변경
-                    setTimeout(() => {
-                        content.classList.remove('opacity-0');
-                        content.classList.add('opacity-100');
-                    }, 50);
-                }
-
-                generateAiQuickButtons();
-
-            } catch (err) {
-                console.error('Initial AI Report Error:', err);
-                if (loader) {
-                    loader.classList.add('hidden');
-                }
-                if (content) {
-                    content.classList.remove('hidden');
-                    content.classList.remove('opacity-0');
-                    content.classList.add('opacity-100');
-                    content.innerHTML = '<div class="text-sm text-red-600 bg-red-50 p-4 rounded-xl border border-red-100">AI 분석 엔진 연동 실패. 잠시 후 다시 시도해 주세요.</div>';
-                }
-            } finally {
-                isAIAnalyzing = false;
+        // 딥러닝 인사이트 패널 초기화
+        function initDeepInsight() {
+            if (window.DeepInsightPanel) {
+                DeepInsightPanel.render('dlInsightContainer', 'triangular', '삼각수 개수');
             }
         }
 
@@ -1828,7 +1647,8 @@ ${stats.recent30Str}
                 if (chk) chk.checked = false;
 
                 highlightStartRound = null;
-                applyFilter(); // 여기서 버튼 스타일(파란색) 및 텍스트 원복됨
+                applyFilter(true);
+                saveFilterSettings(); // 해제 상태 저장
                 return;
             }
 

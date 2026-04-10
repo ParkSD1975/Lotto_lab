@@ -1,516 +1,1509 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html class="light" lang="ko">
 
 <head>
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>Lotto Lab - 대시보드</title>
-    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+
+    <!-- Tailwind CDN with forms plugin -->
+    <link href="css/tailwind.css" rel="stylesheet" />
+
+    <!-- Favicon placeholder -->
     <link rel="icon" href="data:,">
+
+    <!-- Pretendard font -->
     <link as="style" crossorigin=""
         href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css"
         rel="stylesheet" />
+
+    <!-- Material Symbols -->
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
         rel="stylesheet" />
 
+    <!-- Supabase SDK (must load before config.js / common_v2.js) -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+    <!-- Shared CSS -->
+    <link rel="stylesheet" href="css/common.css" />
+
     <style>
+        /* ── Material Icons ── */
         .material-symbols-outlined {
             font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
         }
-
         .material-symbols-outlined.filled {
             font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
         }
 
+        /* ── Ball colors ── */
         .ball-yellow {
             background: radial-gradient(circle at 35% 35%, #FDE047 0%, #EAB308 100%);
-            box-shadow: inset -2px -2px 6px rgba(0, 0, 0, 0.2), 2px 2px 4px rgba(0, 0, 0, 0.15);
+            box-shadow: inset -2px -2px 6px rgba(0,0,0,0.2), 2px 2px 4px rgba(0,0,0,0.15);
             border: 1px solid #CA8A04;
         }
-
         .ball-blue {
             background: radial-gradient(circle at 35% 35%, #60A5FA 0%, #2563EB 100%);
-            box-shadow: inset -2px -2px 6px rgba(0, 0, 0, 0.2), 2px 2px 4px rgba(0, 0, 0, 0.15);
+            box-shadow: inset -2px -2px 6px rgba(0,0,0,0.2), 2px 2px 4px rgba(0,0,0,0.15);
             border: 1px solid #1D4ED8;
         }
-
         .ball-red {
             background: radial-gradient(circle at 35% 35%, #F87171 0%, #DC2626 100%);
-            box-shadow: inset -2px -2px 6px rgba(0, 0, 0, 0.2), 2px 2px 4px rgba(0, 0, 0, 0.15);
+            box-shadow: inset -2px -2px 6px rgba(0,0,0,0.2), 2px 2px 4px rgba(0,0,0,0.15);
             border: 1px solid #B91C1C;
         }
-
         .ball-gray {
             background: radial-gradient(circle at 35% 35%, #9CA3AF 0%, #4B5563 100%);
-            box-shadow: inset -2px -2px 6px rgba(0, 0, 0, 0.2), 2px 2px 4px rgba(0, 0, 0, 0.15);
+            box-shadow: inset -2px -2px 6px rgba(0,0,0,0.2), 2px 2px 4px rgba(0,0,0,0.15);
             border: 1px solid #374151;
         }
-
         .ball-green {
             background: radial-gradient(circle at 35% 35%, #4ADE80 0%, #16A34A 100%);
-            box-shadow: inset -2px -2px 6px rgba(0, 0, 0, 0.2), 2px 2px 4px rgba(0, 0, 0, 0.15);
+            box-shadow: inset -2px -2px 6px rgba(0,0,0,0.2), 2px 2px 4px rgba(0,0,0,0.15);
             border: 1px solid #15803D;
         }
 
-        .ball-win {
-            background: radial-gradient(circle at 35% 35%, #3B82F6 0%, #1E3A8A 100%);
-            box-shadow: inset -2px -2px 6px rgba(0, 0, 0, 0.3), 2px 2px 4px rgba(0, 0, 0, 0.2);
-            border: 1px solid #1E3A8A;
+        /* ── Countdown monospace font ── */
+        .countdown-digit {
+            font-family: 'Courier New', 'Roboto Mono', monospace;
+            font-variant-numeric: tabular-nums;
+            letter-spacing: 0.05em;
         }
 
-        .ball-lose {
-            background: radial-gradient(circle at 35% 35%, #D1D5DB 0%, #9CA3AF 100%);
-            box-shadow: inset -2px -2px 6px rgba(0, 0, 0, 0.2), 2px 2px 4px rgba(0, 0, 0, 0.15);
-            border: 1px solid #6B7280;
+        /* ── Skeleton animation ── */
+        @keyframes shimmer {
+            0%   { background-position: -400px 0; }
+            100% { background-position: 400px 0; }
+        }
+        .skeleton-shimmer {
+            background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+            background-size: 400px 100%;
+            animation: shimmer 1.4s ease-in-out infinite;
+        }
+
+        /* ── Heatmap color scale CSS variables ── */
+        :root {
+            --heatmap-0:  #F3F4F6;
+            --heatmap-1:  #DBEAFE;
+            --heatmap-2:  #BFDBFE;
+            --heatmap-3:  #93C5FD;
+            --heatmap-4:  #60A5FA;
+            --heatmap-5:  #3B82F6;
+            --heatmap-6:  #2563EB;
+            --heatmap-7:  #1D4ED8;
+            --heatmap-8:  #1E40AF;
+            --heatmap-9:  #1E3A8A;
+            --heatmap-10: #172554;
+        }
+
+        /* ── Custom easing variables ── */
+        :root {
+            --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+            --ease-out-expo:  cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        /* ── Section entrance (initial state) ── */
+        .section-animate {
+            opacity: 0;
+            transform: translateY(24px);
+            transition: opacity 0.5s var(--ease-out-quart),
+                        transform 0.5s var(--ease-out-quart);
+        }
+        .section-animate.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* ── Ball pop-in ── */
+        @keyframes ballPop {
+            0%   { opacity: 0; transform: scale(0.4); }
+            70%  { transform: scale(1.05); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+        .ball-pop {
+            animation: ballPop 0.35s var(--ease-out-expo) both;
+        }
+
+        /* ── Quick link hover lift ── */
+        #section-quicklinks a {
+            transition: transform 0.2s var(--ease-out-quart),
+                        box-shadow 0.2s var(--ease-out-quart),
+                        background-color 0.2s ease,
+                        border-color 0.2s ease;
+        }
+        #section-quicklinks a:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 20px -4px rgba(99,102,241,0.15);
+        }
+
+        /* ── KPI card hover lift ── */
+        #section-kpi > div > div {
+            transition: transform 0.2s var(--ease-out-quart),
+                        box-shadow 0.2s var(--ease-out-quart);
+        }
+        #section-kpi > div > div:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px -4px rgba(0,0,0,0.08);
+        }
+
+        /* ── Hero ball hover ── */
+        #hero-balls > div {
+            transition: transform 0.15s var(--ease-out-quart),
+                        box-shadow 0.15s var(--ease-out-quart);
+            cursor: default;
+        }
+        #hero-balls > div:hover {
+            transform: translateY(-3px) scale(1.08);
+            box-shadow: 0 8px 16px rgba(0,0,0,0.3);
+        }
+
+        /* ── Hot/cold ball hover ── */
+        .hotcold-ball-wrap {
+            transition: transform 0.15s var(--ease-out-quart);
+        }
+        .hotcold-ball-wrap:hover {
+            transform: translateY(-2px) scale(1.05);
+        }
+
+        /* ── Heatmap cell hover ── */
+        #heatmap-grid > div {
+            transition: transform 0.12s var(--ease-out-quart),
+                        box-shadow 0.12s var(--ease-out-quart);
+        }
+        #heatmap-grid > div:hover {
+            transform: scale(1.18);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            z-index: 10;
+            position: relative;
+        }
+
+        /* ── Missing bar fill animation ── */
+        .missing-bar-fill {
+            width: 0%;
+            transition: width 0.6s var(--ease-out-quart);
+        }
+
+        /* ── Confidence bar animated ── */
+        #ai-confidence-bar {
+            width: 0% !important;
+            transition: width 0.7s var(--ease-out-expo);
+        }
+
+        /* ── Reduced motion ── */
+        @media (prefers-reduced-motion: reduce) {
+            .section-animate { opacity: 1 !important; transform: none !important; transition: none !important; }
+            .ball-pop { animation: none !important; opacity: 1 !important; transform: none !important; }
+            .missing-bar-fill, #ai-confidence-bar { transition: none !important; }
+            #section-quicklinks a:hover, #section-kpi > div > div:hover { transform: none !important; }
         }
     </style>
 </head>
 
-<body class="bg-[#F9FAFB] font-sans antialiased overflow-hidden">
-    <div class="flex h-screen w-full">
-        <!-- 사이드바 -->
-        <aside class="w-64 flex flex-col bg-white border-r border-gray-100 h-full">
-            <!-- 로고 -->
-            <div class="p-6 flex items-center gap-3 mb-2">
-                <div class="bg-green-100 p-2.5 rounded-lg">
-                    <span class="material-symbols-outlined text-green-500 text-3xl filled">casino</span>
+<body class="bg-[#F9FAFB] font-['Pretendard'] antialiased">
+
+    <!-- GNB (dynamically loaded by layout.js) -->
+    <div id="gnb-container"></div>
+
+    <main class="pt-16 min-h-screen">
+        <div class="max-w-7xl mx-auto px-6 lg:px-8 py-6 pb-16 space-y-6">
+
+            <!-- ────────────────────────────────────────────────
+                 Section 1: Hero — 최신 당첨번호 + 카운트다운
+            ──────────────────────────────────────────────────── -->
+            <section id="section-hero" class="section-animate" style="transition-delay: 0ms">
+                <div id="hero-card" class="bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl p-6 shadow-lg relative overflow-hidden">
+                    <div class="absolute inset-0 opacity-[0.03]" style="background-image: radial-gradient(circle, white 1px, transparent 1px); background-size: 20px 20px;"></div>
+                    <!-- Skeleton (shown until data loads) -->
+                    <div id="hero-skeleton" class="animate-pulse space-y-4 relative z-10">
+                        <div class="flex items-center justify-between">
+                            <div class="h-5 bg-slate-700 rounded w-40"></div>
+                            <div class="h-5 bg-slate-700 rounded w-24"></div>
+                        </div>
+                        <div class="flex items-center gap-3 py-2">
+                            <div class="w-12 h-12 bg-slate-700 rounded-full"></div>
+                            <div class="w-12 h-12 bg-slate-700 rounded-full"></div>
+                            <div class="w-12 h-12 bg-slate-700 rounded-full"></div>
+                            <div class="w-12 h-12 bg-slate-700 rounded-full"></div>
+                            <div class="w-12 h-12 bg-slate-700 rounded-full"></div>
+                            <div class="w-12 h-12 bg-slate-700 rounded-full"></div>
+                            <div class="text-slate-600 text-2xl font-bold mx-1">+</div>
+                            <div class="w-10 h-10 bg-slate-700 rounded-full"></div>
+                        </div>
+                        <div class="flex items-center gap-4 pt-1">
+                            <div class="h-4 bg-slate-700 rounded w-32"></div>
+                            <div class="h-8 bg-slate-700 rounded w-56"></div>
+                        </div>
+                    </div>
+                    <!-- Real content (hidden until data loads) -->
+                    <div id="hero-content" class="hidden relative z-10">
+                        <!-- Title row -->
+                        <div class="flex items-center justify-between mb-4">
+                            <h2 class="text-sm font-semibold text-slate-300 tracking-wide uppercase">최신 당첨번호</h2>
+                            <div class="flex items-center gap-2">
+                                <span id="hero-round" class="text-sm font-bold text-white bg-white/10 px-3 py-1 rounded-full"></span>
+                                <span id="hero-date" class="text-xs text-slate-400"></span>
+                            </div>
+                        </div>
+                        <!-- Ball row -->
+                        <div id="hero-balls" class="flex items-center gap-2 sm:gap-3 py-2 flex-wrap"></div>
+                        <!-- Divider -->
+                        <div class="border-t border-white/10 my-4"></div>
+                        <!-- Status + Countdown row -->
+                        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                            <!-- AI Status -->
+                            <div class="flex items-center gap-2">
+                                <span id="ai-status-dot" class="w-2 h-2 rounded-full bg-slate-500"></span>
+                                <span id="ai-status-text" class="text-xs text-slate-400 font-medium">AI 서버 확인중...</span>
+                            </div>
+                            <!-- Countdown -->
+                            <div class="flex items-center gap-2">
+                                <span class="material-symbols-outlined text-slate-400 text-base">timer</span>
+                                <span class="text-xs text-slate-400 font-medium">다음 추첨까지:</span>
+                                <span id="countdown-timer" class="countdown-digit text-sm font-bold text-white bg-white/10 px-2.5 py-1 rounded-lg tracking-tight"></span>
+                            </div>
+                        </div>
+                        <!-- Quick action buttons -->
+                        <div class="flex flex-wrap gap-2 mt-4">
+                            <a href="ai_deep_learning.html" class="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 active:bg-white/30 active:scale-95 text-white rounded-xl px-4 py-2.5 text-xs font-semibold transition-all">
+                                <span class="material-symbols-outlined text-sm">psychology</span>
+                                딥러닝 분석
+                            </a>
+                            <a href="filter.html" class="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 active:bg-white/30 active:scale-95 text-white rounded-xl px-4 py-2.5 text-xs font-semibold transition-all">
+                                <span class="material-symbols-outlined text-sm">filter_alt</span>
+                                필터 조합
+                            </a>
+                            <a href="verification.html" class="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 active:bg-white/30 active:scale-95 text-white rounded-xl px-4 py-2.5 text-xs font-semibold transition-all">
+                                <span class="material-symbols-outlined text-sm">fact_check</span>
+                                검증
+                            </a>
+                        </div>
+                    </div>
                 </div>
-                <div class="flex flex-col">
-                    <h1 class="text-lg font-bold tracking-tight text-gray-900 leading-none">Lotto Lab</h1>
-                    <span class="text-xs text-gray-500 font-medium">분석 플랫폼</span>
+            </section>
+
+            <!-- ────────────────────────────────────────────────
+                 Section 2: KPI Cards — 4열
+            ──────────────────────────────────────────────────── -->
+            <section id="section-kpi" class="section-animate" style="transition-delay: 80ms">
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <!-- KPI Card 1: 총 회차 -->
+                    <div class="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+                        <div class="flex items-center justify-between mb-3">
+                            <div class="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center">
+                                <span class="material-symbols-outlined text-indigo-500 text-xl filled">casino</span>
+                            </div>
+                            <span class="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md">누적</span>
+                        </div>
+                        <p class="text-xs text-gray-500 font-medium mb-1">총 회차</p>
+                        <p class="text-2xl font-black text-gray-900" id="kpi-round">--</p>
+                    </div>
+                    <!-- KPI Card 2: 저장된 조합 -->
+                    <div class="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+                        <div class="flex items-center justify-between mb-3">
+                            <div class="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center">
+                                <span class="material-symbols-outlined text-blue-500 text-xl filled">inventory_2</span>
+                            </div>
+                            <span class="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md" id="kpi-combos-badge">저장</span>
+                        </div>
+                        <p class="text-xs text-gray-500 font-medium mb-1">저장된 조합</p>
+                        <p class="text-2xl font-black text-gray-900" id="kpi-combos">--</p>
+                    </div>
+                    <!-- KPI Card 3: 딥러닝 신뢰도 -->
+                    <div class="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+                        <div class="flex items-center justify-between mb-3">
+                            <div class="w-10 h-10 bg-purple-50 rounded-xl flex items-center justify-center">
+                                <span class="material-symbols-outlined text-purple-500 text-xl filled">psychology</span>
+                            </div>
+                            <span class="text-xs font-bold text-purple-600 bg-purple-50 px-2 py-0.5 rounded-md" id="kpi-conf-badge">최근 분석</span>
+                        </div>
+                        <p class="text-xs text-gray-500 font-medium mb-1">딥러닝 신뢰도</p>
+                        <p class="text-2xl font-black text-gray-900" id="kpi-accuracy">--%</p>
+                    </div>
+                    <!-- KPI Card 4: 다음 추첨 -->
+                    <div class="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+                        <div class="flex items-center justify-between mb-3">
+                            <div class="w-10 h-10 bg-orange-50 rounded-xl flex items-center justify-center">
+                                <span class="material-symbols-outlined text-orange-500 text-xl filled">event</span>
+                            </div>
+                            <span class="text-xs font-bold text-orange-600 bg-orange-50 px-2 py-0.5 rounded-md">다음 추첨</span>
+                        </div>
+                        <p class="text-xs text-gray-500 font-medium mb-1">다음 추첨</p>
+                        <p class="text-2xl font-black text-gray-900" id="kpi-dday">D-?</p>
+                    </div>
                 </div>
+            </section>
+
+            <!-- ────────────────────────────────────────────────
+                 Section 3: Hot/Cold + 미출현 — 2열
+            ──────────────────────────────────────────────────── -->
+            <div class="flex items-center gap-3">
+                <h2 class="text-xs font-bold text-gray-400 uppercase tracking-widest">번호 분석</h2>
+                <div class="flex-1 h-px bg-gray-100"></div>
             </div>
-
-            <!-- 네비게이션 -->
-            <nav class="flex-1 flex flex-col gap-1 px-4 py-2">
-                <a class="flex items-center gap-3 px-3 py-3 rounded-lg bg-active-green text-active-text font-semibold shadow-sm"
-                    href="#">
-                    <span class="material-symbols-outlined filled">dashboard</span>
-                    <span class="text-sm">대시보드</span>
-                </a>
-                <a class="flex items-center gap-3 px-3 py-3 rounded-lg text-gray-500 hover:bg-gray-50 hover:text-gray-900 transition-all"
-                    href="#">
-                    <span class="material-symbols-outlined">confirmation_number</span>
-                    <span class="text-sm font-medium">당첨번호</span>
-                </a>
-                <a class="flex items-center gap-3 px-3 py-3 rounded-lg text-gray-500 hover:bg-gray-50 hover:text-gray-900 transition-all"
-                    href="#">
-                    <span class="material-symbols-outlined">analytics</span>
-                    <span class="text-sm font-medium">기초분석</span>
-                </a>
-                <a class="flex items-center gap-3 px-3 py-3 rounded-lg text-gray-500 hover:bg-gray-50 hover:text-gray-900 transition-all"
-                    href="#">
-                    <span class="material-symbols-outlined">tune</span>
-                    <span class="text-sm font-medium">커스텀분석</span>
-                </a>
-                <a class="flex items-center gap-3 px-3 py-3 rounded-lg text-gray-500 hover:bg-gray-50 hover:text-gray-900 transition-all"
-                    href="#">
-                    <span class="material-symbols-outlined">psychology</span>
-                    <span class="text-sm font-medium">AI분석</span>
-                </a>
-                <a class="flex items-center gap-3 px-3 py-3 rounded-lg text-gray-500 hover:bg-gray-50 hover:text-gray-900 transition-all"
-                    href="#">
-                    <span class="material-symbols-outlined">filter_alt</span>
-                    <span class="text-sm font-medium">필터</span>
-                </a>
-                <a class="flex items-center gap-3 px-3 py-3 rounded-lg text-gray-500 hover:bg-gray-50 hover:text-gray-900 transition-all"
-                    href="#">
-                    <span class="material-symbols-outlined">dataset</span>
-                    <span class="text-sm font-medium">조합</span>
-                </a>
-                <a class="flex items-center gap-3 px-3 py-3 rounded-lg text-gray-500 hover:bg-gray-50 hover:text-gray-900 transition-all"
-                    href="#">
-                    <span class="material-symbols-outlined">smart_toy</span>
-                    <span class="text-sm font-medium">AI 조합</span>
-                </a>
-                <a class="flex items-center gap-3 px-3 py-3 rounded-lg text-gray-500 hover:bg-gray-50 hover:text-gray-900 transition-all"
-                    href="#">
-                    <span class="material-symbols-outlined">print</span>
-                    <span class="text-sm font-medium">출력</span>
-                </a>
-                <a class="flex items-center gap-3 px-3 py-3 rounded-lg text-gray-500 hover:bg-gray-50 hover:text-gray-900 transition-all"
-                    href="#">
-                    <span class="material-symbols-outlined">fact_check</span>
-                    <span class="text-sm font-medium">검증</span>
-                </a>
-            </nav>
-        </aside>
-
-        <!-- 메인 컨텐츠 -->
-        <div class="flex flex-col flex-1 h-full">
-            <!-- 헤더 -->
-            <header class="bg-white border-b border-gray-100 h-16 px-10 flex items-center justify-between">
-                <h2 class="text-lg font-bold text-gray-900">대시보드 개요</h2>
-                <div class="flex items-center gap-4">
-                    <!-- 검색 -->
-                    <div class="relative w-80">
-                        <span
-                            class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xl">search</span>
-                        <input type="text" placeholder="추첨, 전략 검색..."
-                            class="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent" />
-                    </div>
-                    <!-- 알림 -->
-                    <button class="relative p-2 hover:bg-gray-50 rounded-lg transition-colors">
-                        <span class="material-symbols-outlined text-gray-600">notifications</span>
-                        <span class="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
-                    </button>
-                    <!-- 새 분석 버튼 -->
-                    <button
-                        class="flex items-center gap-2 px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg font-medium transition-colors">
-                        <span class="material-symbols-outlined text-xl">add</span>
-                        <span class="text-sm">새 분석</span>
-                    </button>
-                </div>
-            </header>
-
-            <!-- 메인 영역 -->
-            <main class="flex-1 overflow-y-auto p-8">
-                <div class="max-w-7xl mx-auto space-y-8">
-                    <!-- 환영 메시지 -->
-                    <div class="bg-white rounded-xl p-8 shadow-sm border border-gray-100">
-                        <h1 class="text-2xl font-bold text-gray-900 mb-2">Alex님, 환영합니다! 👋</h1>
-                        <p class="text-gray-600 mb-6">AI 모델이 최신 추첨 패턴을 분석했습니다.</p>
-
-                        <!-- 빠른 액션 버튼 -->
-                        <div class="flex gap-3">
-                            <button
-                                class="flex items-center gap-2 px-4 py-2 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors border border-gray-200">
-                                <span class="material-symbols-outlined text-gray-600 text-xl">schedule</span>
-                                <span class="text-sm font-medium text-gray-700">마지막 업데이트: 방금 전</span>
-                            </button>
-                            <button
-                                class="flex items-center gap-2 px-4 py-2 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors border border-gray-200">
-                                <span class="material-symbols-outlined text-gray-600 text-xl">refresh</span>
-                                <span class="text-sm font-medium text-gray-700">최근 당첨번호 업데이트</span>
-                            </button>
-                            <button
-                                class="flex items-center gap-2 px-4 py-2 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors border border-gray-200">
-                                <span class="material-symbols-outlined text-gray-600 text-xl">calendar_month</span>
-                                <span class="text-sm font-medium text-gray-700">분석 업데이트</span>
-                            </button>
+            <section id="section-analysis" class="section-animate" style="transition-delay: 0ms">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <!-- Hot/Cold Card -->
+                    <div class="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 flex flex-col">
+                        <!-- Header -->
+                        <div class="flex items-center justify-between mb-5">
+                            <div class="flex items-center gap-2">
+                                <span class="w-8 h-8 bg-rose-50 rounded-lg flex items-center justify-center"><span class="material-symbols-outlined text-rose-500 text-[18px] filled">local_fire_department</span></span>
+                                <h3 class="text-base font-bold text-gray-800">Hot/Cold 번호</h3>
+                            </div>
+                            <span id="hotcold-range-badge" class="text-xs font-semibold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full">최근 20회</span>
+                        </div>
+                        <!-- Content (loading skeleton until data) -->
+                        <div id="hotcold-skeleton" class="animate-pulse space-y-4 flex-1">
+                            <div class="h-4 bg-gray-200 rounded w-1/3"></div>
+                            <div class="flex gap-2 flex-wrap">
+                                <div class="w-10 h-10 bg-gray-200 rounded-full"></div>
+                                <div class="w-10 h-10 bg-gray-200 rounded-full"></div>
+                                <div class="w-10 h-10 bg-gray-200 rounded-full"></div>
+                                <div class="w-10 h-10 bg-gray-200 rounded-full"></div>
+                                <div class="w-10 h-10 bg-gray-200 rounded-full"></div>
+                            </div>
+                            <div class="h-4 bg-gray-200 rounded w-1/3"></div>
+                            <div class="flex gap-2 flex-wrap">
+                                <div class="w-10 h-10 bg-gray-200 rounded-full"></div>
+                                <div class="w-10 h-10 bg-gray-200 rounded-full"></div>
+                                <div class="w-10 h-10 bg-gray-200 rounded-full"></div>
+                                <div class="w-10 h-10 bg-gray-200 rounded-full"></div>
+                                <div class="w-10 h-10 bg-gray-200 rounded-full"></div>
+                            </div>
+                        </div>
+                        <div id="hotcold-content" class="hidden flex-1 flex flex-col">
+                            <!-- HOT -->
+                            <p class="text-xs font-bold text-rose-500 uppercase tracking-wider mb-3">🔴 HOT (가장 많이 나온 번호)</p>
+                            <div id="hotcold-hot" class="flex flex-wrap gap-3 mb-5"></div>
+                            <!-- COLD -->
+                            <p class="text-xs font-bold text-blue-500 uppercase tracking-wider mb-3">🔵 COLD (가장 적게 나온 번호)</p>
+                            <div id="hotcold-cold" class="flex flex-wrap gap-3 flex-1"></div>
+                        </div>
+                        <!-- Footer -->
+                        <div class="mt-5 pt-4 border-t border-gray-100">
+                            <a href="hot_cold.html" class="group text-sm text-indigo-500 hover:text-indigo-600 font-medium flex items-center gap-1 transition-colors">
+                                Hot/Cold 분석 더보기
+                                <span class="material-symbols-outlined text-sm group-hover:translate-x-0.5 transition-transform">arrow_forward</span>
+                            </a>
                         </div>
                     </div>
 
-                    <!-- KPI 카드 -->
-                    <div class="grid grid-cols-4 gap-6">
-                        <!-- 활성 분석 -->
-                        <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-                            <div class="flex items-center gap-3 mb-4">
-                                <div class="p-2 bg-green-50 rounded-lg">
-                                    <span class="material-symbols-outlined text-green-500 text-2xl">flag</span>
-                                </div>
-                                <span class="text-xs text-green-600 font-semibold px-2 py-1 bg-green-50 rounded">+2 이번
-                                    주</span>
+                    <!-- 미출현 번호 Card -->
+                    <div class="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 flex flex-col">
+                        <!-- Header -->
+                        <div class="flex items-center justify-between mb-5">
+                            <div class="flex items-center gap-2">
+                                <span class="w-8 h-8 bg-orange-50 rounded-lg flex items-center justify-center"><span class="material-symbols-outlined text-orange-500 text-[18px]">hourglass_empty</span></span>
+                                <h3 class="text-base font-bold text-gray-800">미출현 번호</h3>
                             </div>
-                            <p class="text-sm text-gray-600 mb-1">활성 분석</p>
-                            <p class="text-3xl font-bold text-gray-900">12</p>
+                            <span class="text-xs font-semibold text-orange-600 bg-orange-50 px-2.5 py-1 rounded-full">출현 대기 Top 5</span>
                         </div>
-
-                        <!-- 필터조합수 -->
-                        <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-                            <div class="flex items-center gap-3 mb-4">
-                                <div class="p-2 bg-blue-50 rounded-lg">
-                                    <span class="material-symbols-outlined text-blue-500 text-2xl">filter_alt</span>
-                                </div>
-                                <span class="text-xs text-gray-500">생성됨</span>
-                            </div>
-                            <p class="text-sm text-gray-600 mb-1">필터조합수</p>
-                            <p class="text-3xl font-bold text-gray-900">1,450</p>
+                        <!-- Content -->
+                        <div id="missing-skeleton" class="animate-pulse space-y-3 flex-1">
+                            <div class="h-10 bg-gray-200 rounded-xl w-full"></div>
+                            <div class="h-10 bg-gray-200 rounded-xl w-full"></div>
+                            <div class="h-10 bg-gray-200 rounded-xl w-full"></div>
+                            <div class="h-10 bg-gray-200 rounded-xl w-full"></div>
+                            <div class="h-10 bg-gray-200 rounded-xl w-5/6"></div>
                         </div>
-
-                        <!-- AI 예측 정확도 -->
-                        <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-                            <div class="flex items-center gap-3 mb-4">
-                                <div class="p-2 bg-purple-50 rounded-lg">
-                                    <span class="material-symbols-outlined text-purple-500 text-2xl">show_chart</span>
-                                </div>
-                                <span class="text-xs text-green-600 font-semibold px-2 py-1 bg-green-50 rounded">+5%
-                                    향상도</span>
-                            </div>
-                            <p class="text-sm text-gray-600 mb-1">AI 예측 정확도</p>
-                            <p class="text-3xl font-bold text-gray-900">68%</p>
+                        <div id="missing-content" class="hidden flex-1 space-y-3"></div>
+                        <!-- Footer -->
+                        <div class="mt-5 pt-4 border-t border-gray-100">
+                            <a href="missing.html" class="group text-sm text-indigo-500 hover:text-indigo-600 font-medium flex items-center gap-1 transition-colors">
+                                미출현 분석 더보기
+                                <span class="material-symbols-outlined text-sm group-hover:translate-x-0.5 transition-transform">arrow_forward</span>
+                            </a>
                         </div>
-
-                        <!-- 2022회차 추첨까지 -->
-                        <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-                            <div class="flex items-center gap-3 mb-4">
-                                <div class="p-2 bg-orange-50 rounded-lg">
-                                    <span class="material-symbols-outlined text-orange-500 text-2xl">schedule</span>
-                                </div>
-                            </div>
-                            <p class="text-sm text-gray-600 mb-1">2022회차 추첨까지</p>
-                            <p class="text-3xl font-bold text-gray-900">04h 30m</p>
-                        </div>
-                    </div>
-
-                    <!-- 2열 레이아웃 -->
-                    <div class="grid grid-cols-2 gap-6">
-                        <!-- 좌측: 조합 결과 -->
-                        <section class="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-                            <div class="mb-4">
-                                <h3 class="text-lg font-bold text-gray-900">2021회차 조합 결과</h3>
-                            </div>
-                            <p class="text-sm text-gray-600 mb-6">생성된 조합의 전체 당첨 현황입니다.</p>
-
-                            <!-- 총 조합수 -->
-                            <div class="bg-gray-50 rounded-lg p-3 mb-4">
-                                <div class="flex items-center justify-between">
-                                    <span class="text-sm text-gray-600 font-medium">총조합수</span>
-                                    <span class="text-xl font-bold text-gray-900">100개</span>
-                                </div>
-                            </div>
-
-                            <!-- 등수별 카운트 (2x3 그리드) -->
-                            <div class="grid grid-cols-2 gap-3">
-                                <div
-                                    class="flex items-center justify-between p-3 bg-yellow-50 rounded-lg border border-yellow-200">
-                                    <span class="text-xs text-yellow-700 font-semibold">1등</span>
-                                    <span class="text-2xl font-bold text-gray-900">0개</span>
-                                </div>
-
-                                <div
-                                    class="flex items-center justify-between p-3 bg-blue-50 rounded-lg border border-blue-200">
-                                    <span class="text-xs text-blue-700 font-semibold">2등</span>
-                                    <span class="text-2xl font-bold text-gray-900">0개</span>
-                                </div>
-
-                                <div
-                                    class="flex items-center justify-between p-3 bg-orange-50 rounded-lg border border-orange-200">
-                                    <span class="text-xs text-orange-700 font-semibold">3등</span>
-                                    <span class="text-2xl font-bold text-gray-900">1개</span>
-                                </div>
-
-                                <div
-                                    class="flex items-center justify-between p-3 bg-blue-50 rounded-lg border border-blue-200">
-                                    <span class="text-xs text-blue-700 font-semibold">4등</span>
-                                    <span class="text-2xl font-bold text-gray-900">10개</span>
-                                </div>
-
-                                <div
-                                    class="flex items-center justify-between p-3 bg-green-50 rounded-lg border border-green-200">
-                                    <span class="text-xs text-green-700 font-semibold">5등</span>
-                                    <span class="text-2xl font-bold text-gray-900">25개</span>
-                                </div>
-
-                                <div
-                                    class="flex items-center justify-between p-3 bg-red-50 rounded-lg border border-red-200">
-                                    <span class="text-xs text-red-700 font-semibold">낙첨</span>
-                                    <span class="text-2xl font-bold text-gray-900">64개</span>
-                                </div>
-                            </div>
-                        </section>
-
-                        <!-- 우측: Top 10 테이블 -->
-                        <section class="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-                            <div class="flex items-center justify-between mb-6">
-                                <h3 class="text-lg font-bold text-gray-900">2021회차 추첨 결과 상세 (Top 10)</h3>
-                                <a href="#"
-                                    class="text-sm text-green-500 hover:text-green-600 font-medium flex items-center gap-1">
-                                    전체 기록 보기
-                                    <span class="material-symbols-outlined text-lg">arrow_forward</span>
-                                </a>
-                            </div>
-
-                            <!-- 테이블 -->
-                            <div class="overflow-hidden">
-                                <table class="w-full">
-                                    <thead>
-                                        <tr class="border-b border-gray-200">
-                                            <th
-                                                class="py-3 px-4 text-left text-xs font-semibold text-gray-600 uppercase">
-                                                순번</th>
-                                            <th
-                                                class="py-3 px-4 text-center text-xs font-semibold text-gray-600 uppercase">
-                                                선택번호</th>
-                                            <th
-                                                class="py-3 px-4 text-right text-xs font-semibold text-gray-600 uppercase">
-                                                결과</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <!-- Row 1 -->
-                                        <tr class="hover:bg-gray-50 transition-colors border-b border-gray-100">
-                                            <td class="py-3 px-4 text-sm font-medium text-gray-900">1</td>
-                                            <td class="py-3 px-4">
-                                                <div class="flex gap-2 justify-center">
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-win text-white font-bold text-xs">06</span>
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-win text-white font-bold text-xs">12</span>
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-win text-white font-bold text-xs">23</span>
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-win text-white font-bold text-xs">34</span>
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-win text-white font-bold text-xs">38</span>
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-lose text-white font-bold text-xs">42</span>
-                                                </div>
-                                            </td>
-                                            <td class="py-3 px-4 text-right">
-                                                <span
-                                                    class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">3등</span>
-                                            </td>
-                                        </tr>
-
-                                        <!-- Row 2 -->
-                                        <tr class="hover:bg-gray-50 transition-colors border-b border-gray-100">
-                                            <td class="py-3 px-4 text-sm font-medium text-gray-900">2</td>
-                                            <td class="py-3 px-4">
-                                                <div class="flex gap-2 justify-center">
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-win text-white font-bold text-xs">06</span>
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-lose text-white font-bold text-xs">11</span>
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-win text-white font-bold text-xs">23</span>
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-win text-white font-bold text-xs">34</span>
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-win text-white font-bold text-xs">38</span>
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-win text-white font-bold text-xs">45</span>
-                                                </div>
-                                            </td>
-                                            <td class="py-3 px-4 text-right">
-                                                <span
-                                                    class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">4등</span>
-                                            </td>
-                                        </tr>
-
-                                        <!-- Row 3 -->
-                                        <tr class="hover:bg-gray-50 transition-colors border-b border-gray-100">
-                                            <td class="py-3 px-4 text-sm font-medium text-gray-900">3</td>
-                                            <td class="py-3 px-4">
-                                                <div class="flex gap-2 justify-center">
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-lose text-white font-bold text-xs">05</span>
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-win text-white font-bold text-xs">12</span>
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-lose text-white font-bold text-xs">25</span>
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-win text-white font-bold text-xs">34</span>
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-win text-white font-bold text-xs">38</span>
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-win text-white font-bold text-xs">41</span>
-                                                </div>
-                                            </td>
-                                            <td class="py-3 px-4 text-right">
-                                                <span
-                                                    class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">4등</span>
-                                            </td>
-                                        </tr>
-
-                                        <!-- Row 4 -->
-                                        <tr class="hover:bg-gray-50 transition-colors border-b border-gray-100">
-                                            <td class="py-3 px-4 text-sm font-medium text-gray-900">4</td>
-                                            <td class="py-3 px-4">
-                                                <div class="flex gap-2 justify-center">
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-lose text-white font-bold text-xs">02</span>
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-win text-white font-bold text-xs">12</span>
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-win text-white font-bold text-xs">23</span>
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-lose text-white font-bold text-xs">35</span>
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-win text-white font-bold text-xs">38</span>
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-win text-white font-bold text-xs">42</span>
-                                                </div>
-                                            </td>
-                                            <td class="py-3 px-4 text-right">
-                                                <span
-                                                    class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">4등</span>
-                                            </td>
-                                        </tr>
-
-                                        <!-- Row 5 -->
-                                        <tr class="hover:bg-gray-50 transition-colors border-b border-gray-100">
-                                            <td class="py-3 px-4 text-sm font-medium text-gray-900">5</td>
-                                            <td class="py-3 px-4">
-                                                <div class="flex gap-2 justify-center">
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-lose text-white font-bold text-xs">09</span>
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-lose text-white font-bold text-xs">18</span>
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-win text-white font-bold text-xs">23</span>
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-lose text-white font-bold text-xs">33</span>
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-win text-white font-bold text-xs">38</span>
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-win text-white font-bold text-xs">44</span>
-                                                </div>
-                                            </td>
-                                            <td class="py-3 px-4 text-right">
-                                                <span
-                                                    class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">5등</span>
-                                            </td>
-                                        </tr>
-
-                                        <!-- Row 6 -->
-                                        <tr class="hover:bg-gray-50 transition-colors border-b border-gray-100">
-                                            <td class="py-3 px-4 text-sm font-medium text-gray-900">6</td>
-                                            <td class="py-3 px-4">
-                                                <div class="flex gap-2 justify-center">
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-lose text-white font-bold text-xs">01</span>
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-win text-white font-bold text-xs">12</span>
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-lose text-white font-bold text-xs">24</span>
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-win text-white font-bold text-xs">34</span>
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-lose text-white font-bold text-xs">40</span>
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-win text-white font-bold text-xs">42</span>
-                                                </div>
-                                            </td>
-                                            <td class="py-3 px-4 text-right">
-                                                <span
-                                                    class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">5등</span>
-                                            </td>
-                                        </tr>
-
-                                        <!-- Row 7 -->
-                                        <tr class="hover:bg-gray-50 transition-colors border-b border-gray-100">
-                                            <td class="py-3 px-4 text-sm font-medium text-gray-900">7</td>
-                                            <td class="py-3 px-4">
-                                                <div class="flex gap-2 justify-center">
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-win text-white font-bold text-xs">06</span>
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-lose text-white font-bold text-xs">13</span>
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-lose text-white font-bold text-xs">29</span>
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-win text-white font-bold text-xs">34</span>
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-win text-white font-bold text-xs">38</span>
-                                                    <span
-                                                        class="w-8 h-8 flex items-center justify-center rounded-full ball-lose text-white font-bold text-xs">43</span>
-                                                </div>
-                                            </td>
-                                            <td class="py-3 px-4 text-right">
-                                                <span
-                                                    class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">5등</span>
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </section>
                     </div>
                 </div>
-            </main>
+            </section>
+
+            <!-- ────────────────────────────────────────────────
+                 Section 4: AI 예측 + 모델 성능 — 2열
+            ──────────────────────────────────────────────────── -->
+            <div class="flex items-center gap-3">
+                <h2 class="text-xs font-bold text-gray-400 uppercase tracking-widest">AI 분석</h2>
+                <div class="flex-1 h-px bg-gray-100"></div>
+            </div>
+            <section id="section-ai" class="section-animate" style="transition-delay: 0ms">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <!-- AI 딥러닝 추천 Card -->
+                    <div class="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 flex flex-col">
+                        <!-- Header -->
+                        <div class="flex items-center justify-between mb-5">
+                            <div class="flex items-center gap-2">
+                                <span class="w-8 h-8 bg-purple-50 rounded-lg flex items-center justify-center"><span class="material-symbols-outlined text-purple-500 text-[18px] filled">psychology</span></span>
+                                <h3 class="text-base font-bold text-gray-800">AI 딥러닝 추천</h3>
+                            </div>
+                            <span id="ai-round-badge" class="text-xs font-semibold text-purple-600 bg-purple-50 px-2.5 py-1 rounded-full hidden"></span>
+                        </div>
+                        <!-- Skeleton -->
+                        <div id="ai-pred-skeleton" class="animate-pulse space-y-4 flex-1">
+                            <div class="flex gap-2">
+                                <div class="w-11 h-11 bg-gray-200 rounded-full"></div>
+                                <div class="w-11 h-11 bg-gray-200 rounded-full"></div>
+                                <div class="w-11 h-11 bg-gray-200 rounded-full"></div>
+                                <div class="w-11 h-11 bg-gray-200 rounded-full"></div>
+                                <div class="w-11 h-11 bg-gray-200 rounded-full"></div>
+                                <div class="w-11 h-11 bg-gray-200 rounded-full"></div>
+                            </div>
+                            <div class="h-4 bg-gray-200 rounded w-3/4"></div>
+                            <div class="h-12 bg-gray-200 rounded-lg w-full"></div>
+                        </div>
+                        <!-- Content -->
+                        <div id="ai-pred-content" class="hidden flex-1 flex flex-col gap-4">
+                            <!-- Balls -->
+                            <div id="ai-pred-balls" class="flex flex-wrap gap-2"></div>
+                            <!-- Confidence bar -->
+                            <div>
+                                <div class="flex items-center justify-between mb-1.5">
+                                    <span class="text-xs font-semibold text-gray-500">신뢰도</span>
+                                    <span id="ai-confidence-pct" class="text-xs font-bold text-indigo-600"></span>
+                                </div>
+                                <div class="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden">
+                                    <div id="ai-confidence-bar" class="h-2.5 rounded-full bg-gradient-to-r from-blue-500 to-indigo-600 transition-all duration-700" style="width:0%"></div>
+                                </div>
+                            </div>
+                            <!-- Summary -->
+                            <p id="ai-summary" class="text-sm text-gray-600 line-clamp-2 flex-1"></p>
+                        </div>
+                        <!-- Empty state -->
+                        <div id="ai-pred-empty" class="hidden flex-1 flex flex-col items-center justify-center gap-3 py-4">
+                            <span class="material-symbols-outlined text-4xl text-gray-300">psychology</span>
+                            <p class="text-sm text-gray-400 text-center">아직 딥러닝 분석 데이터가 없습니다</p>
+                            <a href="ai_deep_learning.html" class="text-xs font-semibold text-white bg-indigo-500 hover:bg-indigo-600 px-4 py-2 rounded-xl transition-colors">딥러닝 분석 시작</a>
+                        </div>
+                        <!-- Footer -->
+                        <div class="mt-5 pt-4 border-t border-gray-100">
+                            <a href="ai_deep_learning.html" class="group text-sm text-indigo-500 hover:text-indigo-600 font-medium flex items-center gap-1 transition-colors">
+                                딥러닝 분석 보기
+                                <span class="material-symbols-outlined text-sm group-hover:translate-x-0.5 transition-transform">arrow_forward</span>
+                            </a>
+                        </div>
+                    </div>
+
+                    <!-- 딥러닝 분석 히스토리 Card -->
+                    <div class="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 flex flex-col">
+                        <!-- Header -->
+                        <div class="flex items-center justify-between mb-5">
+                            <div class="flex items-center gap-2">
+                                <span class="w-8 h-8 bg-indigo-50 rounded-lg flex items-center justify-center"><span class="material-symbols-outlined text-indigo-500 text-[18px]">show_chart</span></span>
+                                <h3 class="text-base font-bold text-gray-800">딥러닝 분석 히스토리</h3>
+                            </div>
+                        </div>
+                        <!-- Skeleton -->
+                        <div id="model-chart-skeleton" class="animate-pulse space-y-3 flex-1">
+                            <div class="h-40 bg-gray-200 rounded-xl w-full"></div>
+                            <div class="flex items-center justify-between">
+                                <div class="h-4 bg-gray-200 rounded w-32"></div>
+                                <div class="h-4 bg-gray-200 rounded w-20"></div>
+                            </div>
+                        </div>
+                        <!-- Chart content -->
+                        <div id="model-chart-content" class="hidden flex-1 flex flex-col gap-3">
+                            <div class="relative" style="height:180px;">
+                                <canvas id="model-performance-chart"></canvas>
+                            </div>
+                            <div class="flex items-center justify-between pt-1">
+                                <div class="flex items-center gap-2">
+                                    <span class="w-3 h-3 rounded-full bg-indigo-500 inline-block"></span>
+                                    <span id="model-best-name" class="text-xs text-gray-600 font-medium"></span>
+                                </div>
+                                <span id="model-avg-hit" class="text-xs font-bold text-indigo-600"></span>
+                            </div>
+                        </div>
+                        <!-- Empty state -->
+                        <div id="model-chart-empty" class="hidden flex-1 flex flex-col items-center justify-center gap-2 py-6">
+                            <span class="material-symbols-outlined text-4xl text-gray-300">bar_chart</span>
+                            <p class="text-sm text-gray-400">모델 예측 데이터가 없습니다</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ────────────────────────────────────────────────
+                 Section 5: 조합 검증 결과 — 2열
+            ──────────────────────────────────────────────────── -->
+            <div class="flex items-center gap-3">
+                <h2 class="text-xs font-bold text-gray-400 uppercase tracking-widest">조합 &amp; 검증</h2>
+                <div class="flex-1 h-px bg-gray-100"></div>
+            </div>
+            <section id="section-verification" class="section-animate" style="transition-delay: 0ms">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+                    <!-- LEFT CARD: 조합 현황 요약 -->
+                    <div class="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 flex flex-col">
+                        <!-- Header -->
+                        <div class="flex items-center gap-2 mb-5">
+                            <div class="w-9 h-9 bg-indigo-50 rounded-xl flex items-center justify-center shrink-0">
+                                <span class="material-symbols-outlined text-indigo-500 text-xl">target</span>
+                            </div>
+                            <h3 class="text-base font-bold text-gray-800">조합 현황</h3>
+                        </div>
+
+                        <!-- Skeleton (hidden after data loads) -->
+                        <div id="verif-skeleton" class="animate-pulse space-y-3 flex-1">
+                            <div class="h-10 bg-gray-100 rounded-xl"></div>
+                            <div class="h-10 bg-gray-100 rounded-xl"></div>
+                            <div class="h-10 bg-gray-100 rounded-xl"></div>
+                        </div>
+
+                        <!-- Content: stat rows -->
+                        <div id="verif-content" class="hidden flex-1 space-y-3">
+                            <div class="flex items-center justify-between px-4 py-3 bg-gray-50 rounded-xl">
+                                <div class="flex items-center gap-2">
+                                    <span class="material-symbols-outlined text-indigo-400 text-lg">folder_copy</span>
+                                    <span class="text-sm text-gray-600 font-medium">저장된 그룹</span>
+                                </div>
+                                <span id="verif-group-count" class="text-sm font-black text-gray-900">--</span>
+                            </div>
+                            <div class="flex items-center justify-between px-4 py-3 bg-gray-50 rounded-xl">
+                                <div class="flex items-center gap-2">
+                                    <span class="material-symbols-outlined text-indigo-400 text-lg">format_list_numbered</span>
+                                    <span class="text-sm text-gray-600 font-medium">총 조합수</span>
+                                </div>
+                                <span id="verif-combo-count" class="text-sm font-black text-gray-900">--</span>
+                            </div>
+                            <div class="flex items-center justify-between px-4 py-3 bg-gray-50 rounded-xl">
+                                <div class="flex items-center gap-2">
+                                    <span class="material-symbols-outlined text-indigo-400 text-lg">calendar_today</span>
+                                    <span class="text-sm text-gray-600 font-medium">최근 생성</span>
+                                </div>
+                                <span id="verif-last-date" class="text-sm font-black text-gray-900">--</span>
+                            </div>
+                        </div>
+
+                        <!-- Empty state -->
+                        <div id="verif-empty" class="hidden flex-1 flex flex-col items-center justify-center gap-3 py-6">
+                            <span class="material-symbols-outlined text-4xl text-gray-300">inventory_2</span>
+                            <p class="text-sm text-gray-400 text-center">저장된 조합이 없습니다</p>
+                            <a href="combination_generator.html"
+                               class="text-xs font-semibold text-white bg-indigo-500 hover:bg-indigo-600 px-4 py-2 rounded-xl transition-colors">
+                                조합 생성하기
+                            </a>
+                        </div>
+
+                        <!-- Footer -->
+                        <div class="mt-5 pt-4 border-t border-gray-100">
+                            <a href="combination_generator.html"
+                               class="text-sm text-indigo-500 hover:text-indigo-600 font-medium flex items-center gap-1 transition-colors">
+                                조합 생성하기
+                                <span class="material-symbols-outlined text-sm">arrow_forward</span>
+                            </a>
+                        </div>
+                    </div>
+
+                    <!-- RIGHT CARD: 빠른 검증 안내 -->
+                    <div class="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 flex flex-col">
+                        <!-- Header -->
+                        <div class="flex items-center gap-2 mb-5">
+                            <div class="w-9 h-9 bg-emerald-50 rounded-xl flex items-center justify-center shrink-0">
+                                <span class="material-symbols-outlined text-emerald-500 text-xl">fact_check</span>
+                            </div>
+                            <h3 class="text-base font-bold text-gray-800">당첨 검증</h3>
+                        </div>
+
+                        <!-- Description -->
+                        <p class="text-sm text-gray-500 leading-relaxed flex-1">
+                            생성한 조합의 당첨 여부를<br>
+                            한눈에 확인하세요.
+                        </p>
+
+                        <!-- Action buttons -->
+                        <div class="mt-5 space-y-3">
+                            <a href="verification.html"
+                               class="flex items-center justify-between w-full px-4 py-3 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition-colors group">
+                                <div class="flex items-center gap-2">
+                                    <span class="material-symbols-outlined text-indigo-500 text-lg">fact_check</span>
+                                    <span class="text-sm font-semibold text-indigo-700">검증 페이지로 이동</span>
+                                </div>
+                                <span class="material-symbols-outlined text-indigo-400 text-sm group-hover:translate-x-0.5 transition-transform">arrow_forward</span>
+                            </a>
+                            <a href="output.html"
+                               class="flex items-center justify-between w-full px-4 py-3 bg-gray-50 hover:bg-gray-100 rounded-xl transition-colors group">
+                                <div class="flex items-center gap-2">
+                                    <span class="material-symbols-outlined text-gray-500 text-lg">print</span>
+                                    <span class="text-sm font-semibold text-gray-700">출력 페이지로 이동</span>
+                                </div>
+                                <span class="material-symbols-outlined text-gray-400 text-sm group-hover:translate-x-0.5 transition-transform">arrow_forward</span>
+                            </a>
+                        </div>
+                    </div>
+
+                </div>
+            </section>
+
+            <!-- ────────────────────────────────────────────────
+                 Section 6: 번호 히트맵
+            ──────────────────────────────────────────────────── -->
+            <div class="flex items-center gap-3">
+                <h2 class="text-xs font-bold text-gray-400 uppercase tracking-widest">번호 빈도</h2>
+                <div class="flex-1 h-px bg-gray-100"></div>
+            </div>
+            <section id="section-heatmap" class="section-animate" style="transition-delay: 0ms">
+                <div class="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+                    <!-- Header row -->
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="flex items-center gap-2">
+                            <span class="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center"><span class="material-symbols-outlined text-blue-500 text-[18px]">grid_view</span></span>
+                            <h3 class="text-base font-bold text-gray-800">번호 출현 히트맵</h3>
+                        </div>
+                        <!-- Period tabs -->
+                        <div class="flex items-center gap-1 bg-gray-100 p-1 rounded-full">
+                            <button data-period="10" aria-label="최근 10회"
+                                    class="heatmap-tab px-3 py-1 text-xs font-semibold rounded-full text-gray-500 hover:text-gray-700 transition-colors">
+                                10회
+                            </button>
+                            <button data-period="20" aria-label="최근 20회"
+                                    class="heatmap-tab px-3 py-1 text-xs font-semibold rounded-full bg-slate-800 text-white">
+                                20회
+                            </button>
+                            <button data-period="50" aria-label="최근 50회"
+                                    class="heatmap-tab px-3 py-1 text-xs font-semibold rounded-full text-gray-500 hover:text-gray-700 transition-colors">
+                                50회
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Subtitle -->
+                    <p id="heatmap-subtitle" class="text-xs text-gray-400 mb-4">최근 20회 기준 출현 빈도</p>
+
+                    <!-- Heatmap grid (9 columns × 5 rows = 45 cells) -->
+                    <div id="heatmap-grid"
+                         class="grid gap-1.5"
+                         style="grid-template-columns: repeat(9, minmax(0, 1fr));">
+                        <!-- Rendered by renderHeatmap() -->
+                    </div>
+
+                    <!-- Color legend -->
+                    <div class="flex items-center gap-2 pt-4">
+                        <span class="text-[11px] text-gray-400">적음</span>
+                        <div class="flex gap-0.5">
+                            <div class="w-6 h-4 rounded" style="background: var(--heatmap-0)"></div>
+                            <div class="w-6 h-4 rounded" style="background: var(--heatmap-2)"></div>
+                            <div class="w-6 h-4 rounded" style="background: var(--heatmap-5)"></div>
+                            <div class="w-6 h-4 rounded" style="background: var(--heatmap-7)"></div>
+                            <div class="w-6 h-4 rounded" style="background: var(--heatmap-10)"></div>
+                        </div>
+                        <span class="text-[11px] text-gray-400">많음</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ────────────────────────────────────────────────
+                 Section 7: Quick Actions
+            ──────────────────────────────────────────────────── -->
+            <div class="flex items-center gap-3">
+                <h2 class="text-xs font-bold text-gray-400 uppercase tracking-widest">바로가기</h2>
+                <div class="flex-1 h-px bg-gray-100"></div>
+            </div>
+            <section id="section-quicklinks" class="section-animate" style="transition-delay: 0ms">
+                <div class="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+                    <!-- Header -->
+                    <div class="flex items-center gap-2 mb-4">
+                        <span class="material-symbols-outlined text-gray-400 text-xl">apps</span>
+                        <h3 class="text-base font-bold text-gray-800">바로가기</h3>
+                    </div>
+                    <!-- Grid of 6 action cards -->
+                    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                        <a href="properties_matrix.html"
+                           class="flex flex-col items-center justify-center gap-2 p-4 rounded-xl border border-gray-100 hover:border-indigo-200 hover:bg-indigo-50/50 hover:shadow-md transition-all group">
+                            <span class="material-symbols-outlined text-2xl text-gray-400 group-hover:text-indigo-500 transition-colors">analytics</span>
+                            <span class="text-xs font-bold text-gray-700 group-hover:text-indigo-700">기초분석</span>
+                            <span class="text-[10px] text-gray-400 text-center leading-tight">번호 속성 &amp; 패턴 분석</span>
+                        </a>
+                        <a href="custom_analysis.html"
+                           class="flex flex-col items-center justify-center gap-2 p-4 rounded-xl border border-gray-100 hover:border-indigo-200 hover:bg-indigo-50/50 hover:shadow-md transition-all group">
+                            <span class="material-symbols-outlined text-2xl text-gray-400 group-hover:text-indigo-500 transition-colors">tune</span>
+                            <span class="text-xs font-bold text-gray-700 group-hover:text-indigo-700">커스텀분석</span>
+                            <span class="text-[10px] text-gray-400 text-center leading-tight">나만의 분석 규칙 생성</span>
+                        </a>
+                        <a href="ai_deep_learning.html"
+                           class="flex flex-col items-center justify-center gap-2 p-4 rounded-xl border border-gray-100 hover:border-indigo-200 hover:bg-indigo-50/50 hover:shadow-md transition-all group">
+                            <span class="material-symbols-outlined text-2xl text-gray-400 group-hover:text-indigo-500 transition-colors">psychology</span>
+                            <span class="text-xs font-bold text-gray-700 group-hover:text-indigo-700">딥러닝</span>
+                            <span class="text-[10px] text-gray-400 text-center leading-tight">AI 모델 예측 분석</span>
+                        </a>
+                        <a href="filter.html"
+                           class="flex flex-col items-center justify-center gap-2 p-4 rounded-xl border border-gray-100 hover:border-indigo-200 hover:bg-indigo-50/50 hover:shadow-md transition-all group">
+                            <span class="material-symbols-outlined text-2xl text-gray-400 group-hover:text-indigo-500 transition-colors">filter_alt</span>
+                            <span class="text-xs font-bold text-gray-700 group-hover:text-indigo-700">필터</span>
+                            <span class="text-[10px] text-gray-400 text-center leading-tight">스마트 필터 조합</span>
+                        </a>
+                        <a href="combination_generator.html"
+                           class="flex flex-col items-center justify-center gap-2 p-4 rounded-xl border border-gray-100 hover:border-indigo-200 hover:bg-indigo-50/50 hover:shadow-md transition-all group">
+                            <span class="material-symbols-outlined text-2xl text-gray-400 group-hover:text-indigo-500 transition-colors">dataset</span>
+                            <span class="text-xs font-bold text-gray-700 group-hover:text-indigo-700">조합생성</span>
+                            <span class="text-[10px] text-gray-400 text-center leading-tight">번호 조합 자동 생성</span>
+                        </a>
+                        <a href="ai_combination.html"
+                           class="flex flex-col items-center justify-center gap-2 p-4 rounded-xl border border-gray-100 hover:border-indigo-200 hover:bg-indigo-50/50 hover:shadow-md transition-all group">
+                            <span class="material-symbols-outlined text-2xl text-gray-400 group-hover:text-indigo-500 transition-colors">smart_toy</span>
+                            <span class="text-xs font-bold text-gray-700 group-hover:text-indigo-700">AI 조합</span>
+                            <span class="text-[10px] text-gray-400 text-center leading-tight">AI 기반 추천 조합</span>
+                        </a>
+                    </div>
+                </div>
+            </section>
+
         </div>
-    </div>
+    </main>
+
+    <!-- ── Shared scripts ── -->
+    <script src="js/config.js"></script>
+    <script src="js/common_v2.js"></script>
+    <script src="js/layout.js"></script>
+    <script src="js/theme.js"></script>
+
+    <script>
+        class DashboardApp {
+            constructor() {
+                this.latestDraw = null;
+                this.allDraws = [];
+                this.deepAnalysis = null;
+                this.modelPredictions = [];
+                this.countdownInterval = null;
+            }
+
+            async init() {
+                console.log('[Dashboard] Initializing...');
+                this._setupSectionObserver();
+                await this.loadHeroSection();
+                await this.loadKPICards();
+                await this.loadAnalysisSection();
+                await this.loadAISection();
+                await this.loadVerificationSection();
+                this.loadHeatmapSection();
+                this.loadQuickLinks();
+            }
+
+            _setupSectionObserver() {
+                const observer = new IntersectionObserver((entries) => {
+                    entries.forEach(entry => {
+                        if (entry.isIntersecting) {
+                            entry.target.classList.add('visible');
+                            observer.unobserve(entry.target);
+                        }
+                    });
+                }, { threshold: 0.08 });
+
+                document.querySelectorAll('.section-animate').forEach(el => observer.observe(el));
+
+                // Hero is always visible immediately
+                const hero = document.getElementById('section-hero');
+                if (hero) setTimeout(() => hero.classList.add('visible'), 50);
+                const kpi = document.getElementById('section-kpi');
+                if (kpi) setTimeout(() => kpi.classList.add('visible'), 130);
+            }
+
+            // ── Utility ──
+            getBallClass(num) {
+                const n = parseInt(num);
+                if (n <= 10) return 'ball-yellow';
+                if (n <= 20) return 'ball-blue';
+                if (n <= 30) return 'ball-red';
+                if (n <= 40) return 'ball-gray';
+                return 'ball-green';
+            }
+
+            getNumbers(draw) {
+                if (draw.numbers) return draw.numbers;
+                return [draw.num1, draw.num2, draw.num3, draw.num4, draw.num5, draw.num6];
+            }
+
+            getBonus(draw) {
+                return draw.bonus || draw.bonus_number || draw.bonusNo;
+            }
+
+            // ── Section 1: Hero ──
+            async loadHeroSection() {
+                try {
+                    const { data } = await window.supabaseClient
+                        .from('lotto_draws')
+                        .select('*')
+                        .order('round', { ascending: false })
+                        .limit(1);
+
+                    if (!data || !data[0]) {
+                        console.warn('[Dashboard] No draw data found');
+                        return;
+                    }
+                    this.latestDraw = data[0];
+                    this.renderHero();
+                    this.startCountdown();
+                    this.checkAIServerStatus();
+                } catch (err) {
+                    console.error('[Dashboard] Hero load error:', err);
+                }
+            }
+
+            renderHero() {
+                const draw = this.latestDraw;
+                if (!draw) return;
+
+                const numbers = this.getNumbers(draw);
+                const bonus = this.getBonus(draw);
+
+                // Populate round + date
+                const roundEl = document.getElementById('hero-round');
+                const dateEl = document.getElementById('hero-date');
+                if (roundEl) roundEl.textContent = `${draw.round}회`;
+                if (dateEl && draw.draw_date) {
+                    dateEl.textContent = draw.draw_date.replace(/-/g, '.');
+                }
+
+                // Build balls HTML
+                const ballsEl = document.getElementById('hero-balls');
+                if (ballsEl) {
+                    let html = '';
+                    numbers.forEach(num => {
+                        const cls = this.getBallClass(num);
+                        html += `<div class="w-12 h-12 rounded-full ${cls} flex items-center justify-center text-white font-black text-base select-none">${num}</div>`;
+                    });
+                    // Plus separator + bonus ball
+                    html += `<span class="text-white/40 text-2xl font-bold mx-1">+</span>`;
+                    if (bonus != null) {
+                        const bcls = this.getBallClass(bonus);
+                        html += `<div class="w-10 h-10 rounded-full ${bcls} flex items-center justify-center text-white font-black text-sm select-none ring-2 ring-white/30">${bonus}</div>`;
+                    }
+                    ballsEl.innerHTML = html;
+                    // Ball cascade animation
+                    requestAnimationFrame(() => {
+                        ballsEl.querySelectorAll('div').forEach((ball, i) => {
+                            ball.classList.add('ball-pop');
+                            ball.style.animationDelay = `${i * 60}ms`;
+                        });
+                    });
+                }
+
+                // Fade in real content, hide skeleton
+                const skeleton = document.getElementById('hero-skeleton');
+                const content = document.getElementById('hero-content');
+                if (skeleton) skeleton.style.display = 'none';
+                if (content) {
+                    content.classList.remove('hidden');
+                    content.style.opacity = '0';
+                    content.style.transition = 'opacity 0.4s ease';
+                    requestAnimationFrame(() => { content.style.opacity = '1'; });
+                }
+            }
+
+            startCountdown() {
+                const updateCountdown = () => {
+                    const now = new Date();
+                    const kstOffset = 9 * 60; // KST is UTC+9
+                    const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+                    const kstNow = new Date(utc + (kstOffset * 60000));
+
+                    // Find next Saturday 20:45 KST
+                    let nextDraw = new Date(kstNow);
+                    nextDraw.setHours(20, 45, 0, 0);
+                    const daysUntilSat = (6 - kstNow.getDay() + 7) % 7;
+                    if (daysUntilSat === 0 && kstNow >= nextDraw) {
+                        nextDraw.setDate(nextDraw.getDate() + 7);
+                    } else {
+                        nextDraw.setDate(nextDraw.getDate() + daysUntilSat);
+                    }
+
+                    const diff = nextDraw - kstNow;
+                    const days    = Math.floor(diff / (1000 * 60 * 60 * 24));
+                    const hours   = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+                    const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+
+                    const el = document.getElementById('countdown-timer');
+                    if (el) {
+                        el.textContent = `${days}일 ${String(hours).padStart(2,'0')}시간 ${String(minutes).padStart(2,'0')}분 ${String(seconds).padStart(2,'0')}초`;
+                    }
+
+                    // Sync KPI D-day card
+                    const dday = document.getElementById('kpi-dday');
+                    if (dday) dday.textContent = `D-${days}`;
+                };
+
+                updateCountdown();
+                this.countdownInterval = setInterval(updateCountdown, 1000);
+            }
+
+            async checkAIServerStatus() {
+                try {
+                    // Use LANGCHAIN_CONFIG.URL (defined in config.js)
+                    const url = (window.LANGCHAIN_CONFIG && window.LANGCHAIN_CONFIG.URL)
+                        || (window.CONFIG && window.CONFIG.LANGCHAIN && window.CONFIG.LANGCHAIN.URL);
+                    if (!url) { this.setAIStatus(false); return; }
+                    const res = await fetch(url + '/health', { signal: AbortSignal.timeout(5000) });
+                    this.setAIStatus(res.ok);
+                } catch {
+                    this.setAIStatus(false);
+                }
+            }
+
+            setAIStatus(online) {
+                const dot  = document.getElementById('ai-status-dot');
+                const text = document.getElementById('ai-status-text');
+                if (dot) {
+                    dot.className = online
+                        ? 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse'
+                        : 'w-2 h-2 rounded-full bg-red-400';
+                }
+                if (text) {
+                    text.textContent = online ? 'AI 서버 온라인' : 'AI 서버 오프라인';
+                    text.className   = online
+                        ? 'text-xs text-emerald-300 font-medium'
+                        : 'text-xs text-red-300 font-medium';
+                }
+            }
+
+            _animateValue(el, start, end, duration, suffix = '') {
+                if (!el) return;
+                // Cancel any previous animation on this element
+                if (el._animTimer) { clearInterval(el._animTimer); el._animTimer = null; }
+                const steps = 20;
+                const interval = Math.max(duration / steps, 16);
+                let step = 0;
+                el._animTimer = setInterval(() => {
+                    step++;
+                    const progress = Math.min(step / steps, 1);
+                    const eased = 1 - Math.pow(1 - progress, 3);
+                    el.textContent = Math.round(start + (end - start) * eased) + suffix;
+                    if (step >= steps) { clearInterval(el._animTimer); el._animTimer = null; }
+                }, interval);
+            }
+
+            // ── Section 2: KPI ──
+            async loadKPICards() {
+                const [roundRes, combosRes, confRes] = await Promise.allSettled([
+                    this.getLatestRound(),
+                    this.getNextRoundCombos(),
+                    this.getLatestConfidence()
+                ]);
+
+                // KPI 1: Total rounds
+                const roundVal = roundRes.status === 'fulfilled' ? roundRes.value : '--';
+                const roundEl = document.getElementById('kpi-round');
+                if (roundEl && roundVal !== '--') {
+                    this._animateValue(roundEl, 0, parseInt(roundVal), 700, '회');
+                } else if (roundEl) { roundEl.textContent = '--'; }
+
+                // KPI 2: 저장된 조합수 (다음 회차 기준)
+                const combosData = combosRes.status === 'fulfilled' ? combosRes.value : null;
+                const combosEl = document.getElementById('kpi-combos');
+                const combosBadge = document.getElementById('kpi-combos-badge');
+                if (combosEl && combosData) {
+                    this._animateValue(combosEl, 0, combosData.total, 500, '개');
+                    if (combosBadge && combosData.round) combosBadge.textContent = `${combosData.round}회`;
+                } else if (combosEl) { combosEl.textContent = '--'; }
+
+                // KPI 3: 딥러닝 최근 신뢰도
+                const confData = confRes.status === 'fulfilled' ? confRes.value : null;
+                const accEl = document.getElementById('kpi-accuracy');
+                const confBadge = document.getElementById('kpi-conf-badge');
+                if (accEl && confData !== null) {
+                    accEl.textContent = confData.conf > 0 ? `${confData.conf}%` : '분석 중';
+                    if (confBadge && confData.round) confBadge.textContent = `${confData.round}회`;
+                } else if (accEl) { accEl.textContent = '--%'; }
+
+                // KPI 4 (D-day) is updated live by startCountdown()
+            }
+
+            async getLatestRound() {
+                if (this.latestDraw) return this.latestDraw.round;
+                const { data } = await window.supabaseClient
+                    .from('lotto_draws')
+                    .select('round')
+                    .order('round', { ascending: false })
+                    .limit(1);
+                return data?.[0]?.round || '--';
+            }
+
+            async getNextRoundCombos() {
+                try {
+                    const nextRound = this.latestDraw ? this.latestDraw.round + 1 : null;
+                    let query = window.supabaseClient
+                        .from('saved_combination_groups')
+                        .select('round_number, combo_count');
+                    if (nextRound) query = query.eq('round_number', nextRound);
+                    const { data } = await query;
+                    if (!data || data.length === 0) {
+                        // fallback: latest round's groups
+                        const { data: latest } = await window.supabaseClient
+                            .from('saved_combination_groups')
+                            .select('round_number, combo_count')
+                            .order('created_at', { ascending: false })
+                            .limit(20);
+                        if (!latest || latest.length === 0) return null;
+                        const round = latest[0].round_number;
+                        const total = latest.filter(r => r.round_number === round)
+                            .reduce((s, r) => s + (r.combo_count || 0), 0);
+                        return { round, total };
+                    }
+                    const total = data.reduce((s, r) => s + (r.combo_count || 0), 0);
+                    return { round: nextRound, total };
+                } catch { return null; }
+            }
+
+            async getLatestConfidence() {
+                try {
+                    const { data } = await window.supabaseClient
+                        .from('deep_analysis_history')
+                        .select('target_round, confidence')
+                        .order('created_at', { ascending: false })
+                        .limit(5);
+                    if (!data || data.length === 0) return null;
+                    // Find latest entry with confidence > 0 first, else use most recent
+                    const withConf = data.find(r => (r.confidence || 0) > 0);
+                    const rec = withConf || data[0];
+                    return { round: rec.target_round, conf: Math.round(parseFloat(rec.confidence) || 0) };
+                } catch { return null; }
+            }
+
+            // ── Section 3: Hot/Cold + 미출현 ──
+            async loadAnalysisSection() {
+                try {
+                    // Load last 100 draws for miss calculation (stored for heatmap reuse)
+                    const { data: draws } = await window.supabaseClient
+                        .from('lotto_draws')
+                        .select('*')
+                        .order('round', { ascending: false })
+                        .limit(100);
+
+                    if (!draws || draws.length === 0) {
+                        ['hotcold-skeleton', 'missing-skeleton'].forEach(id => {
+                            const el = document.getElementById(id);
+                            if (el) el.classList.add('hidden');
+                        });
+                        return;
+                    }
+
+                    this.allDraws = draws;
+                    const recent20 = draws.slice(0, 20);
+
+                    // Update hot/cold badge with actual round range
+                    const badgeEl = document.getElementById('hotcold-range-badge');
+                    if (badgeEl && recent20.length >= 2) {
+                        const newest = recent20[0].round;
+                        const oldest = recent20[recent20.length - 1].round;
+                        badgeEl.textContent = `${oldest}~${newest}회`;
+                    }
+
+                    // ── Compute frequency from last 20 draws ──
+                    const freq = {};
+                    for (let n = 1; n <= 45; n++) freq[n] = 0;
+                    recent20.forEach(draw => {
+                        this.getNumbers(draw).forEach(n => { freq[parseInt(n)]++; });
+                    });
+
+                    const sorted = Object.entries(freq)
+                        .map(([n, c]) => ({ n: parseInt(n), c }))
+                        .sort((a, b) => b.c - a.c);
+
+                    const hot  = sorted.slice(0, 5);
+                    const cold = sorted.slice(-5).reverse();
+
+                    // ── Render Hot/Cold ──
+                    const renderBalls = (containerId, items) => {
+                        const el = document.getElementById(containerId);
+                        if (!el) return;
+                        el.innerHTML = items.map(({ n, c }) => `
+                            <div class="hotcold-ball-wrap flex flex-col items-center gap-1">
+                                <div class="w-10 h-10 rounded-full ${this.getBallClass(n)} flex items-center justify-center text-white font-bold text-sm select-none">${n}</div>
+                                <span class="text-[11px] font-bold text-gray-500">${c}회</span>
+                            </div>`).join('');
+                        requestAnimationFrame(() => {
+                            el.querySelectorAll('.hotcold-ball-wrap').forEach((wrap, i) => {
+                                wrap.style.opacity = '0';
+                                wrap.style.transform = 'scale(0.4)';
+                                wrap.style.transition = `opacity 0.3s ease ${i * 60}ms, transform 0.3s var(--ease-out-expo) ${i * 60}ms`;
+                                requestAnimationFrame(() => {
+                                    wrap.style.opacity = '1';
+                                    wrap.style.transform = 'scale(1)';
+                                });
+                            });
+                        });
+                    };
+                    renderBalls('hotcold-hot',  hot);
+                    renderBalls('hotcold-cold', cold);
+
+                    document.getElementById('hotcold-skeleton').classList.add('hidden');
+                    document.getElementById('hotcold-content').classList.remove('hidden');
+
+                    // ── Compute miss counts (rounds since last appearance) ──
+                    const missCounts = {};
+                    for (let n = 1; n <= 45; n++) {
+                        missCounts[n] = 0;
+                        for (let i = 0; i < draws.length; i++) {
+                            const nums = this.getNumbers(draws[i]).map(Number);
+                            if (nums.includes(n)) break;
+                            missCounts[n]++;
+                        }
+                    }
+
+                    const topMissing = Object.entries(missCounts)
+                        .map(([n, m]) => ({ n: parseInt(n), m }))
+                        .sort((a, b) => b.m - a.m)
+                        .slice(0, 5);
+
+                    const maxMiss = topMissing[0]?.m || 1;
+
+                    const missingEl = document.getElementById('missing-content');
+                    if (missingEl) {
+                        missingEl.innerHTML = topMissing.map(({ n, m }) => {
+                            const pct = Math.round((m / maxMiss) * 100);
+                            let barColor = 'bg-gray-400';
+                            let badge = '';
+                            if (m > 20) { barColor = 'bg-rose-500'; badge = '<span class="text-[10px] font-bold text-rose-500 bg-rose-50 px-1.5 py-0.5 rounded-full ml-1">위험</span>'; }
+                            else if (m > 15) { barColor = 'bg-orange-400'; badge = '<span class="text-[10px] font-bold text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded-full ml-1">경고</span>'; }
+                            else if (m > 10) { barColor = 'bg-yellow-400'; badge = '<span class="text-[10px] font-bold text-yellow-600 bg-yellow-50 px-1.5 py-0.5 rounded-full ml-1">주의</span>'; }
+                            return `
+                            <div class="flex items-center gap-3">
+                                <div class="w-9 h-9 rounded-full ${this.getBallClass(n)} flex items-center justify-center text-white font-bold text-sm shrink-0 select-none">${n}</div>
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex items-center justify-between mb-1">
+                                        <span class="text-xs font-semibold text-gray-700">${m}회 미출현${badge}</span>
+                                    </div>
+                                    <div class="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
+                                        <div class="missing-bar-fill h-2 rounded-full ${barColor}" data-width="${pct}"></div>
+                                    </div>
+                                </div>
+                            </div>`;
+                        }).join('');
+                    }
+
+                    document.getElementById('missing-skeleton').classList.add('hidden');
+                    document.getElementById('missing-content').classList.remove('hidden');
+                    requestAnimationFrame(() => requestAnimationFrame(() => {
+                        document.querySelectorAll('.missing-bar-fill').forEach(bar => {
+                            const target = bar.dataset.width;
+                            if (target) bar.style.width = target + '%';
+                        });
+                    }));
+
+                } catch (err) {
+                    console.error('[Dashboard] Analysis section error:', err);
+                }
+            }
+
+            // ── Section 4: AI 예측 + 모델 성능 ──
+            async loadAISection() {
+                await Promise.allSettled([
+                    this._loadDeepAnalysis(),
+                    this._loadModelChart()
+                ]);
+            }
+
+            async _loadDeepAnalysis() {
+                try {
+                    const { data } = await window.supabaseClient
+                        .from('deep_analysis_history')
+                        .select('target_round, confidence, summary, recommended_numbers, created_at')
+                        .order('created_at', { ascending: false })
+                        .limit(1);
+
+                    const skeleton = document.getElementById('ai-pred-skeleton');
+                    const content  = document.getElementById('ai-pred-content');
+                    const empty    = document.getElementById('ai-pred-empty');
+
+                    if (skeleton) skeleton.classList.add('hidden');
+
+                    if (!data || data.length === 0) {
+                        if (empty) empty.classList.remove('hidden');
+                        return;
+                    }
+
+                    const rec = data[0];
+
+                    // Round badge
+                    const badge = document.getElementById('ai-round-badge');
+                    if (badge && rec.target_round) {
+                        badge.textContent = `${rec.target_round}회 예측`;
+                        badge.classList.remove('hidden');
+                    }
+
+                    // Recommended balls
+                    const ballsEl = document.getElementById('ai-pred-balls');
+                    if (ballsEl) {
+                        let nums = rec.recommended_numbers;
+                        if (typeof nums === 'string') {
+                            try { nums = JSON.parse(nums); } catch { nums = nums.split(',').map(Number); }
+                        }
+                        if (Array.isArray(nums)) {
+                            ballsEl.innerHTML = nums.map(n => `
+                                <div class="w-11 h-11 rounded-full ${this.getBallClass(n)} flex items-center justify-center text-white font-bold text-sm select-none">${n}</div>
+                            `).join('');
+                        }
+                    }
+
+                    // Confidence bar
+                    const conf = parseFloat(rec.confidence) || 0;
+                    const pct  = conf > 1 ? conf : conf * 100; // handle 0-1 or 0-100
+                    const confPct = document.getElementById('ai-confidence-pct');
+                    if (confPct) confPct.textContent = pct > 0 ? `${Math.round(pct)}%` : '산출 중';
+                    setTimeout(() => {
+                        const bar = document.getElementById('ai-confidence-bar');
+                        if (bar) bar.style.width = Math.min(pct, 100) + '%';
+                    }, 100);
+
+                    // Summary
+                    const summaryEl = document.getElementById('ai-summary');
+                    if (summaryEl) summaryEl.textContent = rec.summary || '';
+
+                    if (content) content.classList.remove('hidden');
+
+                } catch (err) {
+                    console.error('[Dashboard] Deep analysis load error:', err);
+                    const skeleton = document.getElementById('ai-pred-skeleton');
+                    const empty    = document.getElementById('ai-pred-empty');
+                    if (skeleton) skeleton.classList.add('hidden');
+                    if (empty)    empty.classList.remove('hidden');
+                }
+            }
+
+            async _loadModelChart() {
+                try {
+                    const { data } = await window.supabaseClient
+                        .from('deep_analysis_history')
+                        .select('target_round, confidence, created_at')
+                        .order('created_at', { ascending: false })
+                        .limit(10);
+
+                    const skeleton = document.getElementById('model-chart-skeleton');
+                    const content  = document.getElementById('model-chart-content');
+                    const empty    = document.getElementById('model-chart-empty');
+
+                    if (skeleton) skeleton.classList.add('hidden');
+
+                    if (!data || data.length === 0) {
+                        if (empty) empty.classList.remove('hidden');
+                        return;
+                    }
+
+                    // Sort by round ascending for chart
+                    const sorted = [...data].sort((a, b) => a.target_round - b.target_round);
+                    const roundLabels = sorted.map(r => `${r.target_round}회`);
+                    const confValues  = sorted.map(r => {
+                        const c = parseFloat(r.confidence) || 0;
+                        return c > 1 ? c : c * 100;
+                    });
+
+                    const totalConf = confValues.filter(c => c > 0);
+                    const avgConf = totalConf.length > 0
+                        ? (totalConf.reduce((s, c) => s + c, 0) / totalConf.length).toFixed(1)
+                        : 0;
+                    const maxConf = totalConf.length > 0 ? Math.max(...totalConf).toFixed(1) : 0;
+
+                    const nameEl = document.getElementById('model-best-name');
+                    const avgEl  = document.getElementById('model-avg-hit');
+                    if (nameEl) nameEl.textContent = `총 ${data.length}회 분석 완료`;
+                    if (avgEl)  avgEl.textContent  = avgConf > 0 ? `평균 신뢰도 ${avgConf}%` : '신뢰도 산출 중';
+
+                    if (content) content.classList.remove('hidden');
+
+                    const ctx = document.getElementById('model-performance-chart');
+                    if (ctx) {
+                        new Chart(ctx.getContext('2d'), {
+                            type: 'line',
+                            data: {
+                                labels: roundLabels,
+                                datasets: [{
+                                    label: '딥러닝 신뢰도',
+                                    data: confValues,
+                                    borderColor: '#6366f1',
+                                    backgroundColor: 'rgba(99,102,241,0.08)',
+                                    fill: true,
+                                    tension: 0.4,
+                                    borderWidth: 2.5,
+                                    pointRadius: 4,
+                                    pointBackgroundColor: confValues.map(c => c > 0 ? '#6366f1' : '#d1d5db'),
+                                    pointBorderColor: '#fff',
+                                    pointBorderWidth: 2
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                    legend: { display: false },
+                                    tooltip: {
+                                        backgroundColor: '#1e293b',
+                                        callbacks: {
+                                            label: ctx => ctx.parsed.y > 0 ? `신뢰도 ${ctx.parsed.y}%` : '신뢰도 산출 중'
+                                        },
+                                        titleFont: { family: 'Pretendard' },
+                                        bodyFont:  { family: 'Pretendard' }
+                                    }
+                                },
+                                scales: {
+                                    y: { min: 0, max: 100, ticks: { stepSize: 20, callback: v => v + '%' } },
+                                    x: { ticks: { font: { size: 11 } } }
+                                }
+                            }
+                        });
+                    }
+
+                } catch (err) {
+                    console.error('[Dashboard] History chart load error:', err);
+                    const skeleton = document.getElementById('model-chart-skeleton');
+                    const empty    = document.getElementById('model-chart-empty');
+                    if (skeleton) skeleton.classList.add('hidden');
+                    if (empty)    empty.classList.remove('hidden');
+                }
+            }
+            // ── Section 5: 조합 검증 현황 ──
+            async loadVerificationSection() {
+                const skeleton = document.getElementById('verif-skeleton');
+                const content  = document.getElementById('verif-content');
+                const empty    = document.getElementById('verif-empty');
+
+                try {
+                    const { data, error } = await window.supabaseClient
+                        .from('saved_combination_groups')
+                        .select('*')
+                        .order('created_at', { ascending: false })
+                        .limit(50);
+
+                    if (skeleton) skeleton.classList.add('hidden');
+
+                    if (error || !data || data.length === 0) {
+                        if (empty) empty.classList.remove('hidden');
+                        return;
+                    }
+
+                    // Count total combinations across all groups
+                    let totalCombos = 0;
+                    data.forEach(group => {
+                        let combos = group.combinations;
+                        if (typeof combos === 'string') {
+                            try { combos = JSON.parse(combos); } catch { combos = []; }
+                        }
+                        if (Array.isArray(combos)) totalCombos += combos.length;
+                    });
+
+                    // Latest created_at
+                    const latest = data[0].created_at;
+                    let dateStr = '--';
+                    if (latest) {
+                        const d = new Date(latest);
+                        dateStr = `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`;
+                    }
+
+                    const groupCountEl = document.getElementById('verif-group-count');
+                    const comboCountEl = document.getElementById('verif-combo-count');
+                    const lastDateEl   = document.getElementById('verif-last-date');
+
+                    if (groupCountEl) groupCountEl.textContent = `${data.length}개`;
+                    if (comboCountEl) comboCountEl.textContent = `${totalCombos}개`;
+                    if (lastDateEl)   lastDateEl.textContent   = dateStr;
+
+                    if (content) content.classList.remove('hidden');
+
+                } catch (err) {
+                    console.warn('[Dashboard] Verification section error (table may not exist):', err);
+                    if (skeleton) skeleton.classList.add('hidden');
+                    if (empty)    empty.classList.remove('hidden');
+                }
+            }
+
+            // ── Section 6: 번호 히트맵 ──
+            loadHeatmapSection() {
+                // Wire up tab click handlers
+                document.querySelectorAll('.heatmap-tab').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        document.querySelectorAll('.heatmap-tab').forEach(b => {
+                            b.classList.remove('bg-slate-800', 'text-white');
+                            b.classList.add('text-gray-500');
+                        });
+                        btn.classList.add('bg-slate-800', 'text-white');
+                        btn.classList.remove('text-gray-500');
+                        const period = parseInt(btn.dataset.period);
+                        this.renderHeatmap(period);
+                        const subtitle = document.getElementById('heatmap-subtitle');
+                        if (subtitle) subtitle.textContent = `최근 ${period}회 기준 출현 빈도`;
+                    });
+                });
+
+                // Initial render with default period 20
+                this.renderHeatmap(20);
+            }
+
+            renderHeatmap(period = 20) {
+                const draws = this.allDraws.slice(0, period);
+                const freq = {};
+                for (let n = 1; n <= 45; n++) freq[n] = 0;
+                draws.forEach(d => {
+                    this.getNumbers(d).forEach(n => { freq[parseInt(n)]++; });
+                });
+
+                const maxFreq = Math.max(...Object.values(freq));
+                const style   = getComputedStyle(document.documentElement);
+
+                const grid = document.getElementById('heatmap-grid');
+                if (!grid) return;
+
+                let html = '';
+                for (let n = 1; n <= 45; n++) {
+                    const count = freq[n];
+                    const level = maxFreq > 0 ? Math.round((count / maxFreq) * 10) : 0;
+                    const color = style.getPropertyValue(`--heatmap-${level}`).trim() || '#F3F4F6';
+                    const textColor = level >= 5 ? 'text-white' : 'text-gray-700';
+                    html += `<div class="rounded-lg flex items-center justify-center cursor-pointer transition-all hover:scale-110 hover:shadow-md"
+                                  style="background-color:${color}; aspect-ratio:1;"
+                                  title="${n}번: ${count}회 출현 (최근 ${period}회)">
+                                <span class="text-xs font-bold ${textColor}">${String(n).padStart(2, '0')}</span>
+                             </div>`;
+                }
+                grid.innerHTML = html;
+
+                // Staggered cell reveal
+                const cells = grid.querySelectorAll('div');
+                cells.forEach((cell, i) => {
+                    cell.style.opacity = '0';
+                    cell.style.transform = 'scale(0.7)';
+                    cell.style.transition = `opacity 0.2s ease ${i * 12}ms, transform 0.2s var(--ease-out-expo) ${i * 12}ms`;
+                    requestAnimationFrame(() => requestAnimationFrame(() => {
+                        cell.style.opacity = '1';
+                        cell.style.transform = 'scale(1)';
+                    }));
+                });
+            }
+
+            // ── Section 7: Quick Links (static — just a no-op marker) ──
+            loadQuickLinks() {
+                // Section 7 is purely static HTML; nothing to render dynamically.
+                console.log('[Dashboard] Quick links ready.');
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // 안전장치: JS 오류와 무관하게 3초 후 모든 섹션 강제 노출
+            setTimeout(() => {
+                document.querySelectorAll('.section-animate').forEach(el => el.classList.add('visible'));
+            }, 3000);
+
+            // Supabase 클라이언트 준비 대기 (최대 8초)
+            let waited = 0;
+            const checkReady = setInterval(() => {
+                waited += 100;
+                if (window.supabaseClient) {
+                    clearInterval(checkReady);
+                    window.dashboardApp = new DashboardApp();
+                    window.dashboardApp.init().catch(err => {
+                        console.error('[Dashboard] Init error:', err);
+                        // 에러 발생해도 모든 섹션 강제 노출
+                        document.querySelectorAll('.section-animate').forEach(el => el.classList.add('visible'));
+                    });
+                } else if (waited >= 8000) {
+                    clearInterval(checkReady);
+                    console.warn('[Dashboard] Supabase client not available after 8s');
+                    document.querySelectorAll('.section-animate').forEach(el => el.classList.add('visible'));
+                }
+            }, 100);
+        });
+    </script>
+
 </body>
 
 </html>
+

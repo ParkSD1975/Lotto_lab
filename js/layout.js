@@ -27,6 +27,12 @@ document.addEventListener("DOMContentLoaded", function () {
 
     // 페이지별 설정 (어떤 GNB를 켜고, 어떤 사이드바를 쓸지)
     const PAGE_CONFIG = {
+        // 대시보드 페이지: GNB 인덱스 0번
+        'dashboard.html': {
+            gnbIndex: 0,
+            sidebarUrl: null,
+            type: 'full'
+        },
         // 당첨번호 페이지: GNB 인덱스 1번
         'winning-numbers.html': {
             gnbIndex: 1,
@@ -56,6 +62,27 @@ document.addEventListener("DOMContentLoaded", function () {
             sidebarUrl: null, // 사이드바 제거
             type: 'full'      // 꽉 찬 화면 레이아웃
         },
+        'combination_generator.html': {
+            gnbIndex: 6,
+            sidebarUrl: null,
+            type: 'full'
+        },
+        // [추가] AI 조합 페이지
+        'ai_combination.html': {
+            gnbIndex: 7,
+            sidebarUrl: null,
+            type: 'full'
+        },
+        'output.html': {
+            gnbIndex: 8,
+            sidebarUrl: null,
+            type: 'full'
+        },
+        'verification.html': {
+            gnbIndex: 9,
+            sidebarUrl: null,
+            type: 'full'
+        },
         // 그 외 나머지는 모두 '기초 분석'으로 간주 (기본값)
         'default': {
             gnbIndex: 2,
@@ -82,21 +109,32 @@ document.addEventListener("DOMContentLoaded", function () {
         .then(response => response.text())
         .then(data => {
             const container = document.getElementById('gnb-container');
-            container.innerHTML = data;
-
-            // 헤더 컨테이너에 높이와 레이아웃 클래스 강제 주입
-            container.classList.add('h-16', 'shrink-0', 'z-[100]', 'relative');
+            if (container) {
+                container.innerHTML = data;
+                // 헤더 컨테이너에 높이와 레이아웃 클래스 강제 주입
+                container.classList.add('h-16', 'shrink-0', 'z-[100]', 'relative');
+            }
 
             // [NEW] 전문가 메모 버튼 주입
             const loginBtnWrapper = container.querySelector('#loginBtn');
             if (loginBtnWrapper && !document.getElementById('expert-memo-trigger')) {
                 const btnHtml = `
-                    <button id="expert-memo-trigger" onclick="window.ExpertMemo.open()" class="flex items-center justify-center w-9 h-9 rounded-full text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition-all group relative mr-1" title="전문가 분석 메모">
+                    <button id="expert-memo-trigger" onclick="window.ExpertMemo.open()" class="flex items-center justify-center w-9 h-9 rounded-full text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition-all group relative mr-1" title="전문가 분석 메모">
                         <span class="material-symbols-outlined text-[24px]">edit_note</span>
                         <span class="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border border-white"></span>
                     </button>
                 `;
                 loginBtnWrapper.insertAdjacentHTML('beforebegin', btnHtml);
+            }
+
+            // acct_panel.js 로드 (계정/텔레그램 패널 — innerHTML 주입 후 별도 실행)
+            if (!window.AcctPanel) {
+                const apScript = document.createElement('script');
+                apScript.src = 'js/acct_panel.js';
+                document.head.appendChild(apScript);
+            } else {
+                // 이미 로드된 경우 뱃지 갱신
+                setTimeout(() => window.AcctPanel?.refresh(), 50);
             }
 
             // GNB 메뉴 처리
@@ -119,7 +157,7 @@ document.addEventListener("DOMContentLoaded", function () {
         <!-- Header -->
         <div class="px-8 py-6 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-gray-50 to-white">
             <div class="flex items-center gap-3">
-                <div class="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-indigo-200">
+                <div class="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-blue-200">
                     <span class="material-symbols-outlined text-xl">add_circle</span>
                 </div>
                 <div>
@@ -140,7 +178,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 <div class="space-y-2">
                     <label class="block text-sm font-bold text-gray-700">분석 제목 <span class="text-red-500">*</span></label>
                     <input type="text" id="newAnalysisTitle" 
-                        class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-50/50 transition-all font-bold text-gray-900 placeholder-gray-400"
+                        class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-50/50 transition-all font-bold text-gray-900 placeholder-gray-400"
                         placeholder="예: 최근 5주간 당첨번호 분석">
                 </div>
 
@@ -150,7 +188,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     </label>
                     <div class="relative">
                         <textarea id="newAnalysisPrompt" rows="4"
-                            class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-50/50 transition-all text-gray-700 placeholder-gray-400 resize-none"
+                            class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-50/50 transition-all text-gray-700 placeholder-gray-400 resize-none"
                             placeholder="AI에게 분석하고 싶은 내용을 자연어로 설명해주세요.&#10;예: '지난주 당첨번호에서 +1씩 더한 번호들을 분석해줘'"></textarea>
                         <div class="absolute bottom-3 right-3">
                             <button onclick="document.getElementById('newAnalysisPrompt').value = ''" class="p-1 text-gray-300 hover:text-gray-500 rounded-lg hover:bg-gray-100 transition-colors">
@@ -161,11 +199,11 @@ document.addEventListener("DOMContentLoaded", function () {
                 </div>
 
                 <!-- 💡 Tip Box -->
-                <div class="bg-indigo-50/50 border border-indigo-100 rounded-xl p-4 flex gap-3">
-                    <span class="material-symbols-outlined text-indigo-500 shrink-0">lightbulb</span>
-                    <div class="text-sm text-indigo-800 space-y-1">
+                <div class="bg-blue-50/50 border border-blue-100 rounded-xl p-4 flex gap-3">
+                    <span class="material-symbols-outlined text-blue-500 shrink-0">lightbulb</span>
+                    <div class="text-sm text-blue-800 space-y-1">
                         <p class="font-bold">AI 분석 팁</p>
-                        <p class="text-indigo-600/80 leading-relaxed">
+                        <p class="text-blue-600/80 leading-relaxed">
                             "직전 회차 번호", "날짜 끝수", "이월수" 같은 키워드를 사용하면 AI가 더 정확한 규칙을 만들어줍니다.
                         </p>
                     </div>
@@ -180,14 +218,14 @@ document.addEventListener("DOMContentLoaded", function () {
                     <span class="h-px flex-1 bg-gray-100"></span>
                 </div>
 
-                <div class="bg-white border-2 border-indigo-50 rounded-2xl p-6 shadow-xl shadow-indigo-50/50 relative overflow-hidden">
+                <div class="bg-white border-2 border-blue-50 rounded-2xl p-6 shadow-xl shadow-blue-50/50 relative overflow-hidden">
                     <div class="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
-                        <span class="material-symbols-outlined text-8xl text-indigo-900">neurology</span>
+                        <span class="material-symbols-outlined text-8xl text-blue-900">neurology</span>
                     </div>
 
                     <div class="relative z-10 space-y-4">
                         <div class="flex items-center gap-3">
-                            <span id="previewTypeBadge" class="px-3 py-1 rounded-lg text-xs font-black bg-indigo-100 text-indigo-700">TYPE</span>
+                            <span id="previewTypeBadge" class="px-3 py-1 rounded-lg text-xs font-black bg-blue-100 text-blue-700">TYPE</span>
                             <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">AI Generated Configuration</span>
                         </div>
 
@@ -204,7 +242,7 @@ document.addEventListener("DOMContentLoaded", function () {
                         <!-- Dynamic Preview -->
                         <div id="previewDynamic" class="hidden">
                              <label class="block text-xs font-bold text-gray-500 mb-2 uppercase">Dynamic Rule</label>
-                             <div class="p-4 bg-indigo-600 rounded-xl text-white shadow-lg shadow-indigo-200">
+                             <div class="p-4 bg-blue-600 rounded-xl text-white shadow-lg shadow-blue-200">
                                 <div class="flex items-center gap-3">
                                     <span class="material-symbols-outlined text-2xl">function</span>
                                     <p id="previewRuleText" class="font-bold text-lg">규칙 설명</p>
@@ -223,7 +261,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 취소
             </button>
             
-            <button id="btnAnalyze" onclick="analyzePrompt()" class="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold transition-all shadow-lg shadow-indigo-200 hover:shadow-indigo-300 transform active:scale-95">
+            <button id="btnAnalyze" onclick="analyzePrompt()" class="flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold transition-all shadow-lg shadow-blue-200 hover:shadow-blue-300 transform active:scale-95">
                 <span class="material-symbols-outlined text-lg">psychology</span>
                 AI 분석 실행
             </button>
@@ -335,6 +373,10 @@ function loadSidebar(url, config, pageName, sortableScript) {
     const container = document.getElementById('lnb-container');
     if (!container) return;
 
+    // 로드 전 투명화 (로딩 중 깜빡임 방지)
+    container.style.opacity = '0';
+    container.style.transition = 'opacity 0.2s ease';
+
     fetch(url)
         .then(response => response.text())
         .then(async html => { // async 키워드 추가
@@ -350,17 +392,22 @@ function loadSidebar(url, config, pageName, sortableScript) {
                 initBasicSidebar(container, pageName, sortableScript);
             }
 
-            // [NEW] 커스텀 분석 메뉴 동적 로딩 (커스텀 타입일 때만)
-            if (config.type === 'custom') {
-                await renderCustomMenuItems();
-                // 커스텀 사이드바도 드래그앤드롭 지원
-                const navContainer = document.getElementById('customAnalysisNav');
-                if (navContainer) {
-                    initSortable(navContainer, 'lnbOrder_custom');
-                }
-            }
-
             highlightCurrentPage();
+
+            // HTML 주입 완료 즉시 fade-in (async 작업 전에 실행하여 LNB가 숨긴 채 유지되는 현상 방지)
+            container.style.opacity = '1';
+            requestAnimationFrame(() => { container.style.opacity = '1'; });
+
+            // [NEW] 커스텀 분석 메뉴 동적 로딩 (커스텀 타입일 때만) — fade-in 후 비동기 실행
+            if (config.type === 'custom') {
+                renderCustomMenuItems().then((storageKey) => {
+                    // 커스텀 사이드바도 드래그앤드롭 지원
+                    const navContainer = document.getElementById('customAnalysisNav');
+                    if (navContainer && storageKey) {
+                        initSortable(navContainer, storageKey);
+                    }
+                }).catch(err => console.warn('커스텀 메뉴 로드 실패:', err));
+            }
         })
         .catch(err => console.error('사이드바 로드 실패:', err));
 }
@@ -424,25 +471,33 @@ function highlightCurrentPage() {
 // 6. [NEW] 커스텀 메뉴 렌더링 함수
 // ==========================================
 async function renderCustomMenuItems() {
-    const navContainer = document.getElementById('customAnalysisNav'); // sidebar_custom.html 내의 nav 태그 찾기
-    if (!navContainer || !window.supabaseClient) return;
+    const navContainer = document.getElementById('customAnalysisNav');
+    if (!navContainer) return null;
 
     try {
-        // 1. DB에서 커스텀 분석 목록 가져오기
-        const _menuUser = (await window.supabaseClient.auth.getUser()).data?.user;
-        const _menuUserId = _menuUser?.id;
+        // [수정] filterService 우선 → auth.getUser() 비동기 타이밍 이슈 해결
+        // 로그아웃 직후 auth 상태가 비확정일 때, filterService가 이미 확정된 userId를 가지고 있으면 우선 사용
+        // _lastLoginUserId: 로그아웃 전에 auth.js에서 백업해둔 유저 ID (3번째 fallback)
+        const _menuUserId = window.filterService?.userId
+            || (await window.supabaseClient.auth.getUser()).data?.user?.id
+            || localStorage.getItem('_lastLoginUserId')
+            || null;
+
+        // [수정] 사용자별로 저장 키 분리 (로그아웃 시 순서가 섞이는 문제 방지)
+        const storageKey = _menuUserId ? `lnbOrder_custom_${_menuUserId}` : 'lnbOrder_custom_guest';
+        // 현재 로그인한 사용자의 키를 window에 노출 → 드래그앤드롭 저장 시에도 같은 키 사용되도록 보장
+        window._customMenuStorageKey = storageKey;
 
         // [수정] 내 분석 + 공용(user_id가 null) 분석 모두 가져오기
         let _menuQuery = window.supabaseClient
             .from('ai_custom_analyses')
             .select('id, title, type, filter_config, user_id')
+            .is('target_round', null)
             .order('created_at', { ascending: true });
 
         if (_menuUserId) {
-            // 내 데이터이거나 공용 데이터인 경우
             _menuQuery = _menuQuery.or(`user_id.eq.${_menuUserId},user_id.is.null`);
         } else {
-            // 로그인 안 된 경우 공용만
             _menuQuery = _menuQuery.is('user_id', null);
         }
 
@@ -450,8 +505,8 @@ async function renderCustomMenuItems() {
 
         if (error) throw error;
 
-        // [NEW] 순서 동기화 (LocalStorage 기반)
-        const savedOrder = JSON.parse(localStorage.getItem('lnbOrder_custom'));
+        // [NEW] 순서 동기화 (사용자 전용 LocalStorage 기반)
+        const savedOrder = JSON.parse(localStorage.getItem(storageKey));
         if (savedOrder && savedOrder.length > 0) {
             analyses.sort((a, b) => {
                 const hrefA = `custom_analysis.html?id=${a.id}`;
@@ -459,9 +514,7 @@ async function renderCustomMenuItems() {
                 const idxA = savedOrder.indexOf(hrefA);
                 const idxB = savedOrder.indexOf(hrefB);
 
-                // 둘 다 순서에 있으면 해당 순서대로
                 if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-                // 새로운 메뉴(순서에 없는 것)는 뒤로 보냄
                 if (idxA !== -1) return -1;
                 if (idxB !== -1) return 1;
                 return 0;
@@ -527,6 +580,7 @@ async function renderCustomMenuItems() {
             `;
         }
 
+        return storageKey;
     } catch (err) {
         console.error('커스텀 메뉴 로딩 실패:', err);
         navContainer.innerHTML = `
@@ -650,7 +704,7 @@ Return ONLY the JSON. No markdown.
 `;
 
             // Edge Function 호출
-            const { data, error } = await window.supabaseClient.functions.invoke('analyze-lotto', {
+            const { data, error } = await window.supabaseClient.functions.invoke('ai-lotto-analyst', {
                 body: { context: systemContext }
             });
 
@@ -753,11 +807,11 @@ Return ONLY the JSON. No markdown.
             if (ballContainer) {
                 ballContainer.innerHTML = '';
                 const getBallColor = (n) => {
-                    if (n <= 10) return '#fbc400';
-                    if (n <= 20) return '#69c8f2';
-                    if (n <= 30) return '#ff7272';
-                    if (n <= 40) return '#aaaaaa';
-                    return '#b0d840';
+                    if (n <= 10) return '#F7C948';
+                    if (n <= 20) return '#4a90d9';
+                    if (n <= 30) return '#E04A4A';
+                    if (n <= 40) return '#6B7280';
+                    return '#48B05A';
                 };
 
                 (data.target_numbers || []).forEach(num => {

@@ -93,7 +93,7 @@ const DeepLearning = {
             }
         } else {
             try {
-                const url = window.AI_SERVER_URL || 'https://lottolab-production-31e3.up.railway.app';
+                const url = window.AI_SERVER_URL || 'https://parksungdeok-lotto-ai-backend.hf.space';
                 const timeout = isStartup ? 3000 : 5000;
                 const res = await fetch(url + '/health', { signal: AbortSignal.timeout(timeout) });
                 this.state.isConnected = res.ok;
@@ -110,15 +110,24 @@ const DeepLearning = {
         if (!el) return;
 
         if (state === 'warming') {
-            const sec = elapsed ? ` (${elapsed}초...)` : '';
-            el.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span> 서버 웜업 중${sec}`;
+            const sec = elapsed ? ` ${elapsed}초` : '';
+            el.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span> 서버 기동 중${sec} <span class="font-normal opacity-70">(최대 1분)</span>`;
             el.className = 'flex items-center gap-1.5 text-[11px] font-bold text-amber-600 bg-amber-50 px-2.5 py-0.5 rounded-full border border-amber-200';
         } else if (this.state.isConnected) {
             el.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> 연결됨';
             el.className = 'flex items-center gap-1.5 text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200';
         } else {
-            el.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span> 연결 끊김';
+            el.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span> 연결 끊김 <button onclick="DeepLearning.retryConnection()" class="ml-1 underline text-rose-600 hover:text-rose-800 cursor-pointer bg-transparent border-0 p-0 text-[11px] font-bold">재시도</button>';
             el.className = 'flex items-center gap-1.5 text-[11px] font-bold text-rose-500 bg-rose-50 px-2.5 py-0.5 rounded-full border border-rose-200';
+        }
+    },
+
+    async retryConnection() {
+        console.log('🔄 [DeepLearning] 재연결 시도...');
+        await this.checkConnection(true);
+        if (this.state.isConnected) {
+            this.loadHistoryList();
+            this.runAnalysis();
         }
     },
 
@@ -265,9 +274,32 @@ const DeepLearning = {
                     this.renderAll(result);
                     this._prefetchXAIInBackground();
                     this.showLoading(false);
-                    // 서버 웜업 후 이력 목록 재시도 (초기 콜드스타트로 실패했을 수 있음)
-                    const histSel = document.getElementById('historySelect');
-                    if (!histSel || histSel.options.length <= 1) this.loadHistoryList();
+
+                    // [추가] 분석 완료 즉시 DB에 자동 저장
+                    if (window.supabaseClient) {
+                        try {
+                            const { error: saveErr } = await window.supabaseClient
+                                .from('deep_analysis_history')
+                                .upsert({
+                                    target_round: parseInt(result.target_round || this.state.targetRound),
+                                    analysis_data: result,
+                                    recommended_numbers: result.top_5 || result.recommended || [],
+                                    combinations: result.combinations || [],
+                                    created_at: new Date().toISOString()
+                                }, { onConflict: 'target_round' });
+
+                            if (saveErr) {
+                                console.warn("💾 [AI 분석] 자동 저장 실패:", saveErr);
+                            } else {
+                                console.log("💾 [AI 분석] DB에 성공적으로 자동 저장되었습니다.");
+                                // 서버 웜업 후 이력 목록 재시도
+                                const histSel = document.getElementById('historySelect');
+                                if (!histSel || histSel.options.length <= 1) this.loadHistoryList();
+                            }
+                        } catch (e) {
+                            console.error("💾 [AI 분석] DB 저장 도중 오류:", e);
+                        }
+                    }
                 } else {
                     throw new Error("Python 분석 실패 (응답 없음)");
                 }
@@ -463,11 +495,11 @@ const DeepLearning = {
 
     getBallColor(n) {
         n = parseInt(n);
-        if (n <= 10) return '#fbc400';
-        if (n <= 20) return '#69c8f2';
-        if (n <= 30) return '#ff7272';
-        if (n <= 40) return '#aaaaaa';
-        return '#b0d840';
+        if (n <= 10) return '#F7C948';
+        if (n <= 20) return '#4a90d9';
+        if (n <= 30) return '#E04A4A';
+        if (n <= 40) return '#6B7280';
+        return '#48B05A';
     },
 
     renderStrategy(strategy, elapsed) {
@@ -481,7 +513,7 @@ const DeepLearning = {
         const tagEl = document.getElementById('keywordTags');
         if (tagEl && strategy.keywords) {
             tagEl.innerHTML = strategy.keywords.map(function (k) {
-                return '<span class="px-3 py-1 bg-white text-indigo-700 text-xs font-bold rounded-lg border border-indigo-100 shadow-sm">' + k + '</span>';
+                return '<span class="px-3 py-1 bg-white text-blue-700 text-xs font-bold rounded-lg border border-blue-100 shadow-sm">' + k + '</span>';
             }).join('');
         }
         const elapsedEl = document.getElementById('elapsedTime');
@@ -594,7 +626,7 @@ const DeepLearning = {
         const container = document.getElementById('modelDetailContainer');
         if (!container || !modelTop10) return;
         const modelConfig = {
-            lstm: { label: 'LSTM (시계열)', icon: 'timeline', gradient: 'from-indigo-500 to-indigo-600', barColor: '#818cf8' },
+            lstm: { label: 'LSTM (시계열)', icon: 'timeline', gradient: 'from-blue-500 to-blue-600', barColor: '#818cf8' },
             xgboost: { label: 'XGBoost (패턴)', icon: 'account_tree', gradient: 'from-blue-500 to-blue-600', barColor: '#60a5fa' },
             cnn: { label: 'CNN (공간)', icon: 'grid_view', gradient: 'from-pink-500 to-pink-600', barColor: '#f472b6' },
             transformer: { label: 'Transformer (맥락)', icon: 'psychology', gradient: 'from-orange-500 to-orange-600', barColor: '#fb923c' },
@@ -645,13 +677,15 @@ const DeepLearning = {
             odd: '홀짝비율', high: '저고비율', prime: '소수',
             composite: '합성수', consecutive: '연번', square: '제곱수',
             triangular: '삼각수', twin: '동형수', mul3: '3의배수',
-            mul4: '4의배수', mul5: '5의배수', non_multiple: '배수외'
+            mul4: '4의배수', mul5: '5의배수', non_multiple: '배수외',
+            hot10: '최근10회', missing: '미출현수', neighbor: '이웃수', carryover: '이월수'
         };
         const FILTER_ORDER = [
             'sum', 'tail_sum', 'ac',
             'odd', 'high', 'consecutive', 'twin',
             'prime', 'composite', 'square', 'triangular',
-            'mul3', 'mul4', 'mul5', 'non_multiple'
+            'mul3', 'mul4', 'mul5', 'non_multiple',
+            'hot10', 'missing', 'neighbor', 'carryover'
         ];
         const MODEL_CONFIG = {
             lstm: { label: 'LSTM', color: '#818cf8', bg: '#eef2ff' },
@@ -667,7 +701,7 @@ const DeepLearning = {
         html += '<table class="w-full text-xs">';
         html += '<thead><tr>';
         html += '<th class="px-5 py-4 text-left font-bold text-gray-700">지표</th>';
-        html += '<th class="px-4 py-4 text-center font-bold text-indigo-600 bg-indigo-50/50">앙상블<br>범위</th>';
+        html += '<th class="px-4 py-4 text-center font-bold text-blue-600 bg-blue-50/50">앙상블<br>범위</th>';
         models.forEach(m => {
             const cfg = MODEL_CONFIG[m];
             html += `<th class="px-4 py-4 text-center font-bold text-gray-500">${cfg.label}<br><span class="text-gray-400 font-normal text-[10px]">예상범위</span></th>`;
@@ -728,7 +762,7 @@ const DeepLearning = {
             rowIdx++;
             html += `<tr class="border-b border-gray-50 last:border-0 hover:bg-gray-50 transition-colors">`;
             html += `<td class="px-5 py-3 font-bold text-gray-700">${label}</td>`;
-            html += `<td class="px-4 py-3 text-center font-mono font-bold text-indigo-600 bg-indigo-50/30">${ensembleRange}</td>`;
+            html += `<td class="px-4 py-3 text-center font-mono font-bold text-blue-600 bg-blue-50/30">${ensembleRange}</td>`;
             models.forEach(m => {
                 const cfg = MODEL_CONFIG[m];
                 const exp = modelExp[m];
@@ -826,7 +860,7 @@ const DeepLearning = {
                 const reason = mData.reason || mData.reasoning || '-';
                 const isActive = key === m;
                 html += `<div class="flex items-center gap-4 py-2.5 text-xs">`;
-                html += `<span class="font-bold w-24 flex-shrink-0${isActive ? ' text-indigo-600' : ' text-gray-500'}">${cfg.label}</span>`;
+                html += `<span class="font-bold w-24 flex-shrink-0${isActive ? ' text-blue-600' : ' text-gray-500'}">${cfg.label}</span>`;
                 html += `<div class="flex-1 bg-gray-100 h-2 rounded-full overflow-hidden"><div class="h-full rounded-full" style="width:${Math.min(score === '-' ? 0 : score, 100)}%;background:${cfg.color}"></div></div>`;
                 html += `<span class="font-bold w-8 text-right text-gray-700">${score}</span>`;
                 html += `<span class="text-gray-400 flex-1 truncate ml-3" title="${reason}">${reason}</span>`;
@@ -903,7 +937,7 @@ const DeepLearning = {
                     ? r.min + ' ~ ' + r.max
                     : r.max !== undefined ? '최대 ' + r.max : '-';
             return '<div class="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm hover:shadow-md transition-shadow">' +
-                '<div class="flex items-center gap-3 mb-3"><div class="p-1.5 bg-indigo-50 rounded-lg text-indigo-600"><span class="material-symbols-outlined text-lg">' + icon + '</span></div><h4 class="font-bold text-gray-800 text-sm">' + r.filter + '</h4></div>' +
+                '<div class="flex items-center gap-3 mb-3"><div class="p-1.5 bg-blue-50 rounded-lg text-blue-600"><span class="material-symbols-outlined text-lg">' + icon + '</span></div><h4 class="font-bold text-gray-800 text-sm">' + r.filter + '</h4></div>' +
                 '<p class="text-gray-900 font-black text-xl mb-3 tracking-tight">' + valueText + '</p>' +
                 '<div class="bg-gray-50 p-3 rounded-xl text-xs text-gray-600 leading-relaxed border border-gray-100">' + (r.evidence || '근거 데이터 없음') + '</div></div>';
         }).join('');
@@ -974,10 +1008,10 @@ const DeepLearning = {
             }).join('');
 
             // [디자인 수정] 순위는 큰 숫자로, 전체 레이아웃 간소화
-            return `<div class="group relative bg-white border border-gray-100 rounded-2xl p-5 hover:border-indigo-200 hover:shadow-lg transition-all duration-300">
-                <div class="absolute left-0 top-0 bottom-0 w-1 bg-transparent group-hover:bg-indigo-500 rounded-l-2xl transition-colors"></div>
+            return `<div class="group relative bg-white border border-gray-100 rounded-2xl p-5 hover:border-blue-200 hover:shadow-lg transition-all duration-300">
+                <div class="absolute left-0 top-0 bottom-0 w-1 bg-transparent group-hover:bg-blue-500 rounded-l-2xl transition-colors"></div>
                 <div class="flex items-center gap-6">
-                    <span class="text-2xl font-black text-gray-200 group-hover:text-indigo-500 w-10 text-center transition-colors font-mono">${String(rank).padStart(2, '0')}</span>
+                    <span class="text-2xl font-black text-gray-200 group-hover:text-blue-500 w-10 text-center transition-colors font-mono">${String(rank).padStart(2, '0')}</span>
 
                     <div class="flex gap-2">${ballsHtml}</div>
 
@@ -986,14 +1020,14 @@ const DeepLearning = {
 
                         <div class="text-right">
                             <div class="text-xs text-gray-400 font-medium mb-0.5">예측점수</div>
-                            <div class="text-lg font-black ${scorePct >= 0.8 ? 'text-indigo-600' : 'text-gray-700'}">${(score * 100).toFixed(0)}<span class="text-xs font-normal text-gray-400 ml-0.5">점</span></div>
+                            <div class="text-lg font-black ${scorePct >= 0.8 ? 'text-blue-600' : 'text-gray-700'}">${(score * 100).toFixed(0)}<span class="text-xs font-normal text-gray-400 ml-0.5">점</span></div>
                         </div>
                     </div>
                 </div>
 
                 <!-- 하단 상세 스탯 (마우스 오버 시 또는 항상 표시) -->
                 <div class="mt-4 pt-3 border-t border-gray-50 flex items-center gap-4 text-xs text-gray-400 font-mono">
-                    <span class="${topIncluded.length >= 2 ? 'text-indigo-600 font-bold' : ''}">Top5: ${topIncluded.length}개</span>
+                    <span class="${topIncluded.length >= 2 ? 'text-blue-600 font-bold' : ''}">Top5: ${topIncluded.length}개</span>
                     <span>합: ${sum}</span>
                     <span>홀짝: ${odd}:${6 - odd}</span>
                     <span>AC: ${ac}</span>
@@ -1101,27 +1135,19 @@ const DeepLearning = {
             else if (exp >= 0.5) { width = '30%'; barColor = '#5EEAD4'; }
 
             const expCell = `
-                <div class="flex flex-col items-center justify-center h-full px-2" title="예상 개수: ${exp.toFixed(2)}">
-                    <div class="w-full h-1.5 bg-teal-50 rounded-full overflow-hidden">
+                <div class="flex flex-col items-center justify-center h-full px-2">
+                    <span style="font-family:monospace;font-size:11px;font-weight:700;color:${exp >= 2.0 ? '#134E4A' : exp >= 1.5 ? '#0F766E' : exp >= 1.0 ? '#14B8A6' : exp >= 0.5 ? '#0D9488' : '#9CA3AF'}">${exp.toFixed(2)}<span style="font-size:9px;font-weight:400"> 개</span></span>
+                    <div class="w-full h-1 bg-teal-50 rounded-full overflow-hidden mt-0.5">
                         <div style="width:${width};height:100%;background-color:${barColor};border-radius:99px;"></div>
                     </div>
                 </div>
             `;
 
-            // 2. 모델별 미니 바 (숫자 제거, 투명도 조절)
+            // 2. 모델별 수치값 표시
             const modelCells = models.map(m => {
                 const val = item.model_exp && item.model_exp[m] != null ? parseFloat(item.model_exp[m]) : 0;
-                let opacity = 0.15;
-                let height = '4px';
-
-                if (val >= 1.5) { opacity = 1.0; height = '14px'; } // 강함
-                else if (val >= 1.0) { opacity = 0.7; height = '10px'; } // 중간
-                else if (val >= 0.5) { opacity = 0.4; height = '6px'; } // 약함
-
-                return `<td class="px-1 py-3 text-center align-bottom" title="${m.toUpperCase()}: ${val.toFixed(2)}">
-                    <div style="display:flex;align-items:flex-end;justify-content:center;height:16px;">
-                        <div style="width:12px;height:${height};background-color:${MODEL_COLORS[m]};opacity:${opacity};border-radius:2px;"></div>
-                    </div>
+                return `<td class="px-1 py-3 text-center" title="${m.toUpperCase()}: ${val.toFixed(2)}">
+                    <span style="font-family:monospace;font-size:10px;font-weight:${val >= 1.0 ? '700' : '400'};color:${val >= 1.0 ? MODEL_COLORS[m] : val >= 0.5 ? '#6B7280' : '#D1D5DB'}">${val.toFixed(1)}</span>
                 </td>`;
             }).join('');
 
@@ -1152,7 +1178,7 @@ const DeepLearning = {
             html += '<table class="w-full text-xs">';
             html += '<thead><tr class="bg-gray-50/50 border-b border-gray-200">';
             html += '<th class="px-4 py-3 text-left font-bold text-gray-700">구분</th>';
-            html += '<th class="px-4 py-3 text-center font-bold text-indigo-600">앙상블</th>';
+            html += '<th class="px-4 py-3 text-center font-bold text-blue-600">앙상블</th>';
             models.forEach(m => {
                 html += `<th class="px-2 py-3 text-center font-semibold text-gray-500" title="${m.toUpperCase()}">${MODEL_ABBR[m]}</th>`;
             });
@@ -1171,8 +1197,9 @@ const DeepLearning = {
                 else if (exp >= 0.5) { width = '30%'; barColor = '#5EEAD4'; }
 
                 const expCell = `
-                    <div class="flex flex-col items-center justify-center h-full px-2" title="예상 개수: ${exp.toFixed(2)}">
-                        <div class="w-full h-1.5 bg-teal-50 rounded-full overflow-hidden">
+                    <div class="flex flex-col items-center justify-center h-full px-2">
+                        <span style="font-family:monospace;font-size:11px;font-weight:700;color:${exp >= 2.0 ? '#134E4A' : exp >= 1.5 ? '#0F766E' : exp >= 1.0 ? '#14B8A6' : exp >= 0.5 ? '#0D9488' : '#9CA3AF'}">${exp.toFixed(2)}<span style="font-size:9px;font-weight:400"> 개</span></span>
+                        <div class="w-full h-1 bg-teal-50 rounded-full overflow-hidden mt-0.5">
                             <div style="width:${width};height:100%;background-color:${barColor};border-radius:99px;"></div>
                         </div>
                     </div>
@@ -1180,16 +1207,8 @@ const DeepLearning = {
 
                 const modelCells = models.map(m => {
                     const val = item.model_exp && item.model_exp[m] != null ? parseFloat(item.model_exp[m]) : 0;
-                    let opacity = 0.15;
-                    let height = '4px';
-                    if (val >= 1.5) { opacity = 1.0; height = '14px'; }
-                    else if (val >= 1.0) { opacity = 0.7; height = '10px'; }
-                    else if (val >= 0.5) { opacity = 0.4; height = '6px'; }
-
-                    return `<td class="px-2 py-3 text-center align-bottom" title="${m.toUpperCase()}: ${val.toFixed(2)}">
-                        <div style="display:flex;align-items:flex-end;justify-content:center;height:16px;">
-                            <div style="width:12px;height:${height};background-color:${MODEL_COLORS[m]};opacity:${opacity};border-radius:2px;"></div>
-                        </div>
+                    return `<td class="px-2 py-3 text-center" title="${m.toUpperCase()}: ${val.toFixed(2)}">
+                        <span style="font-family:monospace;font-size:10px;font-weight:${val >= 1.0 ? '700' : '400'};color:${val >= 1.0 ? MODEL_COLORS[m] : val >= 0.5 ? '#6B7280' : '#D1D5DB'}">${val.toFixed(1)}</span>
                     </td>`;
                 }).join('');
 
@@ -1225,7 +1244,7 @@ const DeepLearning = {
         html += '<table class="w-full text-xs">';
         html += '<thead><tr class="bg-gray-50/50 border-b border-gray-200">';
         html += '<th class="px-4 py-3 text-left font-bold text-gray-700">번호대</th>';
-        html += '<th class="px-4 py-3 text-center font-bold text-indigo-600">앙상블</th>';
+        html += '<th class="px-4 py-3 text-center font-bold text-blue-600">앙상블</th>';
         models.forEach(m => {
             html += `<th class="px-2 py-3 text-center font-semibold text-gray-500" title="${m.toUpperCase()}">${MODEL_ABBR[m]}</th>`;
         });
@@ -1244,8 +1263,9 @@ const DeepLearning = {
             else if (exp >= 0.5) { width = '30%'; barColor = '#5EEAD4'; }
 
             const expCell = `
-                <div class="flex flex-col items-center justify-center h-full px-2" title="예상 개수: ${exp.toFixed(2)}">
-                    <div class="w-full h-1.5 bg-teal-50 rounded-full overflow-hidden">
+                <div class="flex flex-col items-center justify-center h-full px-2">
+                    <span style="font-family:monospace;font-size:11px;font-weight:700;color:${exp >= 2.0 ? '#134E4A' : exp >= 1.5 ? '#0F766E' : exp >= 1.0 ? '#14B8A6' : exp >= 0.5 ? '#0D9488' : '#9CA3AF'}">${exp.toFixed(2)}<span style="font-size:9px;font-weight:400"> 개</span></span>
+                    <div class="w-full h-1 bg-teal-50 rounded-full overflow-hidden mt-0.5">
                         <div style="width:${width};height:100%;background-color:${barColor};border-radius:99px;"></div>
                     </div>
                 </div>
@@ -1253,16 +1273,8 @@ const DeepLearning = {
 
             const modelCells = models.map(m => {
                 const val = item.model_exp && item.model_exp[m] != null ? parseFloat(item.model_exp[m]) : 0;
-                let opacity = 0.15;
-                let height = '4px';
-                if (val >= 1.5) { opacity = 1.0; height = '14px'; }
-                else if (val >= 1.0) { opacity = 0.7; height = '10px'; }
-                else if (val >= 0.5) { opacity = 0.4; height = '6px'; }
-
-                return `<td class="px-2 py-3 text-center align-bottom" title="${m.toUpperCase()}: ${val.toFixed(2)}">
-                    <div style="display:flex;align-items:flex-end;justify-content:center;height:16px;">
-                        <div style="width:12px;height:${height};background-color:${MODEL_COLORS[m]};opacity:${opacity};border-radius:2px;"></div>
-                    </div>
+                return `<td class="px-2 py-3 text-center" title="${m.toUpperCase()}: ${val.toFixed(2)}">
+                    <span style="font-family:monospace;font-size:10px;font-weight:${val >= 1.0 ? '700' : '400'};color:${val >= 1.0 ? MODEL_COLORS[m] : val >= 0.5 ? '#6B7280' : '#D1D5DB'}">${val.toFixed(1)}</span>
                 </td>`;
             }).join('');
 
@@ -1292,7 +1304,7 @@ const DeepLearning = {
         html += '<table class="w-full text-xs">';
         html += '<thead><tr class="bg-gray-50/50 border-b border-gray-200">';
         html += '<th class="px-4 py-3 text-left font-bold text-gray-700">궁</th>';
-        html += '<th class="px-4 py-3 text-center font-bold text-indigo-600">앙상블</th>';
+        html += '<th class="px-4 py-3 text-center font-bold text-blue-600">앙상블</th>';
         models.forEach(m => {
             html += `<th class="px-2 py-3 text-center font-semibold text-gray-500" title="${m.toUpperCase()}">${MODEL_ABBR[m]}</th>`;
         });
@@ -1311,8 +1323,9 @@ const DeepLearning = {
             else if (exp >= 0.5) { width = '30%'; barColor = '#5EEAD4'; }
 
             const expCell = `
-                <div class="flex flex-col items-center justify-center h-full px-2" title="예상 개수: ${exp.toFixed(2)}">
-                    <div class="w-full h-1.5 bg-teal-50 rounded-full overflow-hidden">
+                <div class="flex flex-col items-center justify-center h-full px-2">
+                    <span style="font-family:monospace;font-size:11px;font-weight:700;color:${exp >= 2.0 ? '#134E4A' : exp >= 1.5 ? '#0F766E' : exp >= 1.0 ? '#14B8A6' : exp >= 0.5 ? '#0D9488' : '#9CA3AF'}">${exp.toFixed(2)}<span style="font-size:9px;font-weight:400"> 개</span></span>
+                    <div class="w-full h-1 bg-teal-50 rounded-full overflow-hidden mt-0.5">
                         <div style="width:${width};height:100%;background-color:${barColor};border-radius:99px;"></div>
                     </div>
                 </div>
@@ -1320,16 +1333,8 @@ const DeepLearning = {
 
             const modelCells = models.map(m => {
                 const val = item.model_exp && item.model_exp[m] != null ? parseFloat(item.model_exp[m]) : 0;
-                let opacity = 0.15;
-                let height = '4px';
-                if (val >= 1.5) { opacity = 1.0; height = '14px'; }
-                else if (val >= 1.0) { opacity = 0.7; height = '10px'; }
-                else if (val >= 0.5) { opacity = 0.4; height = '6px'; }
-
-                return `<td class="px-2 py-3 text-center align-bottom" title="${m.toUpperCase()}: ${val.toFixed(2)}">
-                    <div style="display:flex;align-items:flex-end;justify-content:center;height:16px;">
-                        <div style="width:12px;height:${height};background-color:${MODEL_COLORS[m]};opacity:${opacity};border-radius:2px;"></div>
-                    </div>
+                return `<td class="px-2 py-3 text-center" title="${m.toUpperCase()}: ${val.toFixed(2)}">
+                    <span style="font-family:monospace;font-size:10px;font-weight:${val >= 1.0 ? '700' : '400'};color:${val >= 1.0 ? MODEL_COLORS[m] : val >= 0.5 ? '#6B7280' : '#D1D5DB'}">${val.toFixed(1)}</span>
                 </td>`;
             }).join('');
 
@@ -1358,24 +1363,26 @@ const DeepLearning = {
         html += '<table class="w-full text-xs">';
         html += '<thead><tr class="bg-gray-50/50 border-b border-gray-200">';
         html += '<th class="px-4 py-3 text-left font-bold text-gray-700">구분</th>';
-        html += '<th class="px-4 py-3 text-center font-bold text-indigo-600">앙상블 확률</th>';
+        html += '<th class="px-4 py-3 text-center font-bold text-blue-600">예상출현<span style="font-size:9px;font-weight:400;color:#9CA3AF;margin-left:3px">합=6개</span></th>';
         html += '<th class="px-4 py-3 text-center font-bold text-gray-600">번호수</th>';
-        html += '<th class="px-4 py-3 text-center font-bold text-gray-600">Top15</th>';
-        html += '<th class="px-4 py-3 text-center font-bold text-gray-600">평균확률</th>';
-        html += '<th class="px-4 py-3 text-left font-bold text-gray-600">주요 번호</th>';
+        html += '<th class="px-4 py-3 text-left font-bold text-gray-600">추천 번호</th>';
         html += '</tr></thead><tbody>';
 
         groupArray.forEach(g => {
-            const avgProb = g.avg_prob || 0;
+            // 앙상블 기대 출현수: 그룹 내 번호들의 확률 합 × 6
+            // avg_prob은 전체 합 100%로 정규화된 % 단위 → count × avg_prob / 100 × 6 = 이 그룹에서 나올 기대 개수
+            const expected = (g.count || 0) * (g.avg_prob || 0) / 100 * 6;
             let barColor = '#CCFBF1', width = '10%';
-            if (avgProb >= 4.0) { width = '100%'; barColor = '#134E4A'; }
-            else if (avgProb >= 3.0) { width = '75%'; barColor = '#0F766E'; }
-            else if (avgProb >= 2.0) { width = '50%'; barColor = '#14B8A6'; }
-            else if (avgProb >= 1.0) { width = '25%'; barColor = '#5EEAD4'; }
+            if (expected >= 2.0) { width = '100%'; barColor = '#134E4A'; }
+            else if (expected >= 1.5) { width = '75%'; barColor = '#0F766E'; }
+            else if (expected >= 1.0) { width = '50%'; barColor = '#14B8A6'; }
+            else if (expected >= 0.5) { width = '25%'; barColor = '#5EEAD4'; }
+            const textColor = expected >= 2.0 ? '#134E4A' : expected >= 1.5 ? '#0F766E' : expected >= 1.0 ? '#14B8A6' : expected >= 0.5 ? '#0D9488' : '#9CA3AF';
 
             const expCell = `
-                <div class="flex flex-col items-center justify-center h-full px-2" title="평균확률: ${avgProb.toFixed(2)}%">
-                    <div class="w-full h-1.5 bg-teal-50 rounded-full overflow-hidden">
+                <div class="flex flex-col items-center justify-center h-full px-2">
+                    <span style="font-family:monospace;font-size:15px;font-weight:900;color:${textColor}">${expected.toFixed(1)}<span style="font-size:10px;font-weight:500"> 개</span></span>
+                    <div class="w-full h-1 bg-teal-50 rounded-full overflow-hidden mt-0.5">
                         <div style="width:${width};height:100%;background-color:${barColor};border-radius:99px;"></div>
                     </div>
                 </div>
@@ -1390,8 +1397,6 @@ const DeepLearning = {
             html += `<td class="px-4 py-3 font-bold text-gray-700 text-sm">${g.label || '-'}</td>`;
             html += `<td class="px-4 py-3 text-center">${expCell}</td>`;
             html += `<td class="px-4 py-3 text-center font-mono text-gray-500">${g.count || 0}</td>`;
-            html += `<td class="px-4 py-3 text-center font-mono text-gray-500">${g.top_count || 0}</td>`;
-            html += `<td class="px-4 py-3 text-center font-mono text-gray-500">${avgProb.toFixed(2)}%</td>`;
             html += `<td class="px-4 py-3">${ballsHtml}</td>`;
             html += '</tr>';
         });
@@ -1415,28 +1420,30 @@ const DeepLearning = {
         html += '<table class="w-full text-xs">';
         html += '<thead><tr class="bg-gray-50/50 border-b border-gray-200">';
         html += '<th class="px-4 py-3 text-left font-bold text-gray-700">온도</th>';
-        html += '<th class="px-4 py-3 text-center font-bold text-indigo-600">앙상블 확률</th>';
+        html += '<th class="px-4 py-3 text-center font-bold text-blue-600">예상출현<span style="font-size:9px;font-weight:400;color:#9CA3AF;margin-left:3px">합=6개</span></th>';
         models.forEach(m => {
             html += `<th class="px-2 py-3 text-center font-semibold text-gray-500" title="${m.toUpperCase()}">${MODEL_ABBR[m]}</th>`;
         });
         html += '<th class="px-4 py-3 text-center font-bold text-gray-600">번호수</th>';
-        html += '<th class="px-4 py-3 text-center font-bold text-gray-600">Top15</th>';
         html += '<th class="px-4 py-3 text-center font-bold text-gray-600">평균Gap</th>';
         html += '</tr></thead><tbody>';
 
         STATUS_ORDER.forEach(status => {
             const d = hotColdData[status];
             if (!d) return;
-            const avgProb = (d.avg_prob || 0) * 100;
+            // 앙상블 기대 출현수: avg_prob은 0~1 범위 raw 확률 → count × avg_prob × 6
+            const expected = (d.count || 0) * (d.avg_prob || 0) * 6;
             let barColor = '#CCFBF1', width = '10%';
-            if (avgProb >= 4.0) { width = '100%'; barColor = '#134E4A'; }
-            else if (avgProb >= 3.0) { width = '75%'; barColor = '#0F766E'; }
-            else if (avgProb >= 2.0) { width = '50%'; barColor = '#14B8A6'; }
-            else if (avgProb >= 1.0) { width = '25%'; barColor = '#5EEAD4'; }
+            if (expected >= 2.0) { width = '100%'; barColor = '#134E4A'; }
+            else if (expected >= 1.5) { width = '75%'; barColor = '#0F766E'; }
+            else if (expected >= 1.0) { width = '50%'; barColor = '#14B8A6'; }
+            else if (expected >= 0.5) { width = '25%'; barColor = '#5EEAD4'; }
+            const textColor = expected >= 2.0 ? '#134E4A' : expected >= 1.5 ? '#0F766E' : expected >= 1.0 ? '#14B8A6' : expected >= 0.5 ? '#0D9488' : '#9CA3AF';
 
             const expCell = `
-                <div class="flex flex-col items-center justify-center h-full px-2" title="평균확률: ${avgProb.toFixed(2)}%">
-                    <div class="w-full h-1.5 bg-teal-50 rounded-full overflow-hidden">
+                <div class="flex flex-col items-center justify-center h-full px-2">
+                    <span style="font-family:monospace;font-size:15px;font-weight:900;color:${textColor}">${expected.toFixed(1)}<span style="font-size:10px;font-weight:500"> 개</span></span>
+                    <div class="w-full h-1 bg-teal-50 rounded-full overflow-hidden mt-0.5">
                         <div style="width:${width};height:100%;background-color:${barColor};border-radius:99px;"></div>
                     </div>
                 </div>
@@ -1445,13 +1452,8 @@ const DeepLearning = {
             const modelCells = models.map(m => {
                 const ms = (d.model_scores || {})[m] || {};
                 const signal = ms.signal || 'neutral';
-                let opacity = 0.15, height = '4px';
-                if (signal === 'positive') { opacity = 1.0; height = '14px'; }
-                else if (signal === 'neutral') { opacity = 0.5; height = '8px'; }
-                return `<td class="px-2 py-3 text-center align-bottom" title="${m.toUpperCase()}: ${signal}">
-                    <div style="display:flex;align-items:flex-end;justify-content:center;height:16px;">
-                        <div style="width:12px;height:${height};background-color:${MODEL_COLORS[m]};opacity:${opacity};border-radius:2px;"></div>
-                    </div>
+                return `<td class="px-2 py-3 text-center" title="${m.toUpperCase()}: ${signal}">
+                    <span style="font-size:11px;font-weight:700;color:${signal === 'positive' ? MODEL_COLORS[m] : signal === 'neutral' ? '#9CA3AF' : '#E5E7EB'}">${signal === 'positive' ? '▲' : signal === 'neutral' ? '−' : '▼'}</span>
                 </td>`;
             }).join('');
 
@@ -1460,7 +1462,6 @@ const DeepLearning = {
             html += `<td class="px-4 py-3 text-center">${expCell}</td>`;
             html += modelCells;
             html += `<td class="px-4 py-3 text-center font-mono text-gray-500">${d.count || 0}</td>`;
-            html += `<td class="px-4 py-3 text-center font-mono text-gray-500">${d.top_count || 0}</td>`;
             html += `<td class="px-4 py-3 text-center font-mono text-gray-500">${d.avg_gap != null ? d.avg_gap.toFixed(1) : '-'}</td>`;
             html += '</tr>';
         });
@@ -1665,7 +1666,9 @@ const DeepLearning = {
             if (!res.ok) throw new Error('이력 조회 실패');
             var data = await res.json();
             if (!data.success) throw new Error(data.error);
-            var analysisData = JSON.parse(data.data.analysis_data);
+            // [수정] analysis_data가 이미 객체이면 그대로 사용, 문자열이면 파싱
+            var rawData = data.data.analysis_data;
+            var analysisData = (typeof rawData === 'string') ? JSON.parse(rawData) : rawData;
             this.state.analysisData = analysisData;
             var roundEl = document.getElementById('targetRoundDisplay');
             if (roundEl) roundEl.textContent = analysisData.target_round;
@@ -1693,7 +1696,7 @@ const DeepLearning = {
         var remaining = matrixNums.filter(n => !priority.includes(n));
         var queue = [...priority, ...remaining];
 
-        const url = window.AI_SERVER_URL || 'https://lottolab-production-31e3.up.railway.app';
+        const url = window.AI_SERVER_URL || 'https://parksungdeok-lotto-ai-backend.hf.space';
         const target_round = d.target_round;
         const CONCURRENCY = 3;
 
@@ -1745,14 +1748,14 @@ const DeepLearning = {
         if (!modal || !content) return;
         modal.classList.remove('hidden');
         if (title) title.textContent = number + '번 XAI 심층 분석';
-        content.innerHTML = '<div class="text-center text-slate-400 py-8"><div class="w-10 h-10 border-3 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mx-auto mb-3"></div><p>' + number + '번 분석 중...</p></div>';
+        content.innerHTML = '<div class="text-center text-slate-400 py-8"><div class="w-10 h-10 border-3 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-3"></div><p>' + number + '번 분석 중...</p></div>';
         var localInfo = '';
         if (this.state.analysisData) {
             var d = this.state.analysisData;
             var evidenceText = (d.evidence && d.evidence[number]) ? d.evidence[number] : null;
             if (!evidenceText) {
                 try {
-                    const url = window.AI_SERVER_URL || 'https://lottolab-production-31e3.up.railway.app';
+                    const url = window.AI_SERVER_URL || 'https://parksungdeok-lotto-ai-backend.hf.space';
                     const reqBody = { number: number, user_query: "이 번호에 대한 심층 분석을 해줘" };
                     if (d.target_round) reqBody.target_round = d.target_round;
                     const res = await fetch(url + '/api/explain/', {
@@ -1795,7 +1798,7 @@ const DeepLearning = {
                 '<p class="font-black text-gray-900 text-lg">번호 ' + number + ' 분석결과</p>' +
                 '<span class="px-3 py-1 rounded-full text-xs font-bold ' + statusClass + '">' + statusText + '</span>' +
                 '</div>' +
-                '<p class="text-sm text-gray-500">앙상블 예측 확률: <span class="font-black text-indigo-600 text-base">' + (prob !== null ? (prob * 100).toFixed(2) : '--') + '%</span></p>' +
+                '<p class="text-sm text-gray-500">앙상블 예측 확률: <span class="font-black text-blue-600 text-base">' + (prob !== null ? (prob * 100).toFixed(2) : '--') + '%</span></p>' +
                 '</div></div>';
 
             if (matrixItem) {
@@ -1829,9 +1832,9 @@ const DeepLearning = {
                         icon = "warning";
                         iconClass = "text-rose-500";
                     } else if (isPositive) {
-                        boxClass = "bg-indigo-50/50 border-indigo-100 text-indigo-700";
+                        boxClass = "bg-blue-50/50 border-blue-100 text-blue-700";
                         icon = "auto_awesome";
-                        iconClass = "text-indigo-500";
+                        iconClass = "text-blue-500";
                     }
                     reasonsHtml += `
                         <li class="flex items-start gap-3 p-3 rounded-xl border ${boxClass}">
@@ -1844,7 +1847,7 @@ const DeepLearning = {
                 localInfo += `
                     <div class="mb-5">
                         <h4 class="font-bold text-slate-800 text-sm mb-3 flex items-center gap-2">
-                            <span class="material-symbols-outlined text-indigo-600">psychology</span> AI 심층 분석 리포트
+                            <span class="material-symbols-outlined text-blue-600">psychology</span> AI 심층 분석 리포트
                         </h4>
                         ${reasonsHtml}
                     </div>
@@ -1873,7 +1876,7 @@ const DeepLearning = {
     },
 
     _getBaseUrl() {
-        return window.AI_SERVER_URL || 'https://lottolab-production-31e3.up.railway.app';
+        return window.AI_SERVER_URL || 'https://parksungdeok-lotto-ai-backend.hf.space';
     },
 
     renderBalls(id, nums) {

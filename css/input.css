@@ -1,0 +1,11 @@
+/* Tailwind CSS Sources - Ignore 'Unknown at-rule' warnings in IDE */
+@import "tailwindcss/base";
+@import "tailwindcss/components";
+@import "tailwindcss/utilities";
+
+/* [보존] 커스텀 레이어 정의 (필요 시) */
+@layer base {
+  body {
+    -webkit-tap-highlight-color: transparent;
+  }
+}

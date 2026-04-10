@@ -1,11 +1,11 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html class="light" lang="ko">
 
 <head>
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>Lotto Lab - 조합 필터</title>
-    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="css/tailwind.css" rel="stylesheet" />
 
     <link rel="icon" href="data:,">
     <link rel="stylesheet" href="css/common.css" />
@@ -18,9 +18,9 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="js/config.js"></script>
     <script src="js/theme.js"></script>
-    <script src="js/common_v2.js"></script>
+    <script src="js/common_v2.js?v=6"></script>
     <script src="js/layout.js"></script>
-    <script src="js/filter/FilterService.js"></script>
+    <script src="js/filter/FilterService.js?v=2"></script>
 
     <style>
         .material-symbols-outlined {
@@ -87,48 +87,22 @@
             border: 1px solid #ef4444 !important;
         }
 
-        /* 📌 Sticky Header & Sub-Header */
-        .sticky-main-header {
-            position: sticky;
-            top: 64px; /* GNB Height */
-            z-index: 50;
-            background: #ffffff;
-            margin-bottom: 0 !important;
-        }
-
-        .sticky-sub-header {
-            position: sticky;
-            top: 172px; /* GNB(64) + Header(58) + Basket(50) = 172px */
-            z-index: 45;
-            background: #ffffff;
-            border-bottom: 1px solid rgba(226, 232, 240, 0.8);
-            margin-top: 0 !important;
-        }
-
-        /* 탭 버튼 스타일: 언더라인 타입 */
+        /* 💡 Responsive Pill Tabs */
         .tab-btn {
-            position: relative;
             color: #64748b;
-            transition: all 0.2s ease;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         .tab-btn:hover {
             color: #1e293b;
+            background-color: #f1f5f9;
         }
 
         .tab-btn.active {
-            color: #4f46e5;
-        }
-
-        .tab-btn.active::after {
-            content: '';
-            position: absolute;
-            bottom: -13px;
-            left: 0;
-            right: 0;
-            height: 3px;
-            background: #4f46e5;
-            border-radius: 10px 10px 0 0;
+            color: #ffffff;
+            background-color: #0f172a;
+            /* text-slate-900 background */
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
         }
 
         /* Sophisticated Buttons */
@@ -176,88 +150,142 @@
                 transform: translateY(0);
             }
         }
+
+        /* [수정] 1. 타이포그래피 폴리시: 고정폭 숫자 및 가독성 설정 */
+        :root {
+            --font-tabular: 'Pretendard', sans-serif;
+        }
+
+        .tabular-nums {
+            font-variant-numeric: tabular-nums;
+            letter-spacing: -0.02em;
+        }
+
+        /* 메인 카운터: 화면 크기에 따라 유연하게 조절되는 폰트 크기 */
+        #neonCounter {
+            font-size: clamp(2rem, 5vw, 2.5rem);
+            font-variant-numeric: tabular-nums;
+            letter-spacing: -0.05em;
+            line-height: 1;
+        }
+
+        .label-caps {
+            font-size: 11px;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            color: #94a3b8;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        /* ... (중략) ... */
     </style>
 </head>
 
 <body class="bg-[#F8FAFC] antialiased">
     <div id="gnb-container"></div>
 
-    <div class="min-h-screen pb-24 font-sans text-slate-800">
-        <!-- 🔝 Main Header (Sticky) -->
-        <div class="sticky-main-header border-b border-slate-200 shadow-sm">
-            <!-- Counter Row -->
-            <div class="max-w-7xl mx-auto px-6 py-2.5 flex items-center justify-between">
-                <div class="flex items-center gap-4">
-                    <div class="text-left">
-                        <span class="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-0.5">Combinations</span>
-                        <div class="flex items-end gap-2">
-                            <div class="text-3xl font-black font-mono text-slate-900 leading-none tracking-tighter" id="neonCounter">8,145,060</div>
-                            <div class="text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
-                                ACTIVE <span id="totalActiveFilterCount" class="text-indigo-600">0</span>
+    <div class="min-h-screen pb-24 font-sans text-slate-900 tracking-tight">
+        <!-- 🔝 Premium Sticky Header -->
+        <div
+            class="sticky top-[64px] z-50 bg-white/90 backdrop-blur-xl flex flex-col shadow-sm border-b border-slate-200/50 transition-all duration-300">
+            <!-- Main Header Area -->
+            <div>
+                <!-- Counter Row -->
+                <div class="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
+                    <div class="flex items-center gap-4">
+                        <div class="text-left">
+                            <span class="label-caps block mb-1">Combinations</span>
+                            <div class="flex items-baseline gap-3">
+                                <div class="font-black font-mono text-transparent bg-clip-text bg-gradient-to-r from-indigo-700 to-blue-600 drop-shadow-sm"
+                                    id="neonCounter">8,145,060</div>
+                                <div
+                                    class="flex items-center gap-1.5 bg-slate-100/80 px-2.5 py-1 rounded-md border border-slate-200/60 shadow-inner">
+                                    <span class="text-[10px] font-black text-slate-400 tracking-wider">ACTIVE</span>
+                                    <span id="totalActiveFilterCount"
+                                        class="text-[13px] font-black text-blue-600 tabular-nums">0</span>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
-                
-                <div class="flex items-center gap-2">
-                    <!-- Refresh Button (No Border) -->
-                    <button onclick="window.location.reload()"
-                        class="w-10 h-10 flex items-center justify-center rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-all active:scale-95"
-                        title="새로고침">
-                        <span class="material-symbols-outlined" style="font-size:22px;">refresh</span>
-                    </button>
 
-                    <!-- 단계별 분석 -->
-                    <button id="btnStepCount" onclick="window.stepCountCombinations()"
-                        class="btn-primary-dark header-action-btn group flex items-center gap-2 px-4 py-2 rounded-xl text-[13px] font-bold">
-                        <span class="material-symbols-outlined text-indigo-400 group-hover:scale-110 transition-transform" style="font-size:18px;">analytics</span>
-                        단계별 분석
-                    </button>
+                    <div class="flex items-center gap-2">
+                        <!-- Refresh Button -->
+                        <button onclick="window.location.reload()"
+                            class="w-10 h-10 flex items-center justify-center rounded-xl text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition-all active:scale-95"
+                            title="새로고침">
+                            <span class="material-symbols-outlined" style="font-size:22px;">refresh</span>
+                        </button>
 
-                    <!-- 필터 진단 -->
-                    <button id="btnDiagnose" onclick="window.diagnoseCombinations()"
-                        class="btn-primary-dark header-action-btn group flex items-center gap-2 px-4 py-2 rounded-xl text-[13px] font-bold">
-                        <span class="material-symbols-outlined text-rose-400 group-hover:scale-110 transition-transform" style="font-size:18px;">troubleshoot</span>
-                        필터 진단
-                    </button>
+                        <!-- 단계별 분석 -->
+                        <button id="btnStepCount" onclick="window.stepCountCombinations()"
+                            class="bg-white border border-slate-200 text-slate-700 hover:border-slate-300 hover:bg-slate-50 hover:shadow-sm header-action-btn group flex items-center gap-2 px-4 py-2 rounded-xl text-[13px] font-bold transition-all">
+                            <span
+                                class="material-symbols-outlined text-indigo-500 group-hover:scale-110 transition-transform duration-300"
+                                style="font-size:18px;">analytics</span>
+                            단계별 분석
+                        </button>
 
-                    <!-- 조합 생성 -->
-                    <button id="btnGenerateCombos" onclick="window.generateFinalCombinations()"
-                        class="btn-primary-dark header-action-btn group flex items-center gap-2 px-4 py-2 rounded-xl text-[13px] font-black tracking-tight">
-                        <span class="material-symbols-outlined text-amber-400 group-hover:scale-110 transition-transform" style="font-size:20px;">rocket_launch</span>
-                        조합 생성
-                    </button>
-                </div>
-            </div>
+                        <!-- 필터 진단 -->
+                        <button id="btnDiagnose" onclick="window.diagnoseCombinations()"
+                            class="bg-white border border-slate-200 text-slate-700 hover:border-slate-300 hover:bg-slate-50 hover:shadow-sm header-action-btn group flex items-center gap-2 px-4 py-2 rounded-xl text-[13px] font-bold transition-all">
+                            <span
+                                class="material-symbols-outlined text-rose-500 group-hover:scale-110 transition-transform duration-300"
+                                style="font-size:18px;">troubleshoot</span>
+                            필터 진단
+                        </button>
 
-            <!-- Basket display -->
-            <div class="bg-slate-50 border-t border-slate-100 py-2">
-                <div class="max-w-7xl mx-auto px-6 flex gap-2">
-                    <div class="flex-1 bg-white rounded border border-slate-200 p-1.5 flex items-center gap-2.5">
-                        <span class="text-[8px] font-black text-slate-400 px-1.5 py-0.5 rounded border border-slate-100">FIXED</span>
-                        <div id="topFixedBalls" class="flex flex-wrap gap-1 min-h-[22px] items-center"></div>
-                    </div>
-                    <div class="flex-1 bg-white rounded border border-slate-200 p-1.5 flex items-center gap-2.5">
-                        <span class="text-[8px] font-black text-slate-400 px-1.5 py-0.5 rounded border border-slate-100">EXCLUDED</span>
-                        <div id="topExcludeBalls" class="flex flex-wrap gap-1 min-h-[22px] items-center"></div>
+                        <!-- 조합 생성 (Primary Action) -->
+                        <button id="btnGenerateCombos" onclick="window.generateFinalCombinations()"
+                            class="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white shadow-lg shadow-indigo-600/25 transform hover:-translate-y-0.5 active:translate-y-0 header-action-btn group flex items-center gap-2 px-5 py-2 rounded-xl text-[14px] font-black tracking-tight transition-all duration-300">
+                            <span
+                                class="material-symbols-outlined text-white/90 group-hover:scale-110 transition-transform duration-300"
+                                style="font-size:20px;">rocket_launch</span>
+                            조합 생성
+                        </button>
                     </div>
                 </div>
-            </div>
-        </div>
 
-        <!-- 📑 Tabs Navigation (Sticky sub-header) -->
-        <div class="sticky-sub-header">
-            <div class="max-w-7xl mx-auto px-6 py-2.5 flex justify-center">
-                <div class="flex items-center gap-14">
-                    <button onclick="FilterDashboard.switchTab('foundation')" data-tab="foundation"
-                        class="tab-btn py-1 text-[15px] font-bold active">기초분석</button>
-                    <button onclick="FilterDashboard.switchTab('regression')" data-tab="regression"
-                        class="tab-btn py-1 text-[15px] font-bold">회귀분석</button>
-                    <button onclick="FilterDashboard.switchTab('custom')" data-tab="custom"
-                        class="tab-btn py-1 text-[15px] font-bold">커스텀분석</button>
+                <!-- Basket display -->
+                <div class="bg-slate-50 border-t border-slate-200/50 py-2.5">
+                    <div class="max-w-7xl mx-auto px-6 flex gap-3">
+                        <div
+                            class="flex-1 bg-white rounded-xl border border-blue-100 shadow-sm p-2.5 flex items-center gap-3 transition-shadow hover:shadow-md">
+                            <span
+                                class="label-caps bg-blue-50 px-2.5 py-1 rounded-md border border-blue-200/60 leading-none"
+                                style="color:#1d4ed8; font-size:9px;">Fixed</span>
+                            <div id="topFixedBalls" class="flex flex-wrap gap-1.5 min-h-[24px] items-center"></div>
+                        </div>
+                        <div
+                            class="flex-1 bg-white rounded-xl border border-rose-100 shadow-sm p-2.5 flex items-center gap-3 transition-shadow hover:shadow-md">
+                            <span
+                                class="label-caps bg-rose-50 px-2.5 py-1 rounded-md border border-rose-200/60 leading-none"
+                                style="color:#e11d48; font-size:9px;">Excluded</span>
+                            <div id="topExcludeBalls" class="flex flex-wrap gap-1.5 min-h-[24px] items-center"></div>
+                        </div>
+                    </div>
+                </div>
+            </div> <!-- End of Main Header Area -->
+
+            <!-- 📑 Responsive Tabs Navigation (Pill Design) -->
+            <div class="bg-white/80 border-t border-slate-200/50 backdrop-blur-xl">
+                <div class="max-w-7xl mx-auto px-6 py-3 flex justify-center">
+                    <div class="flex items-center gap-2 bg-slate-100/80 p-1 rounded-full border border-slate-200/60">
+                        <button onclick="FilterDashboard.switchTab('foundation')" data-tab="foundation"
+                            class="tab-btn px-6 py-2 rounded-full text-[14px] font-bold transition-all duration-300">기초분석</button>
+                        <button onclick="FilterDashboard.switchTab('regression')" data-tab="regression"
+                            class="tab-btn px-6 py-2 rounded-full text-[14px] font-bold transition-all duration-300">회귀분석</button>
+                        <button onclick="FilterDashboard.switchTab('custom')" data-tab="custom"
+                            class="tab-btn px-6 py-2 rounded-full text-[14px] font-bold transition-all duration-300">커스텀분석</button>
+                        <button onclick="FilterDashboard.switchTab('manual')" data-tab="manual"
+                            class="tab-btn px-6 py-2 rounded-full text-[14px] font-bold transition-all duration-300">수동필터</button>
+                    </div>
                 </div>
             </div>
-        </div>
+        </div> <!-- End of Premium Sticky Header -->
 
         <div class="max-w-7xl mx-auto px-6 py-4 space-y-10">
 
@@ -266,7 +294,7 @@
                 <div class="flex items-center gap-2 mb-4">
                     <h2 class="text-xl font-bold text-slate-900">기초 및 속성 분석 필터</h2>
                     <span id="foundationActiveCount"
-                        class="px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-700 text-xs font-bold">0개 켜짐</span>
+                        class="px-2 py-0.5 rounded-md bg-blue-100 text-blue-700 text-xs font-bold">0개 켜짐</span>
                 </div>
                 <!-- 1-column layout as requested -->
                 <div id="foundationFilterGrid" class="grid grid-cols-1 gap-5">
@@ -310,18 +338,438 @@
                 </div>
             </div>
 
+            <!-- ✋ Manual Filter Tab Content -->
+            <div id="tab-manual" class="tab-content hidden">
+
+                <div class="flex items-center justify-between mb-6">
+                    <div class="flex items-center gap-3">
+                        <!-- [Colorize] 아이콘 배경을 칙칙한 검정에서 브랜드 컬러(블루-인디고) 그라데이션으로 변경 -->
+                        <div
+                            class="w-9 h-9 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-md shadow-blue-500/20">
+                            <span class="material-symbols-outlined text-white" style="font-size:20px;">tune</span>
+                        </div>
+                        <div>
+                            <h2 class="text-lg font-black text-slate-900">수동필터</h2>
+                            <p class="text-[11px] text-slate-400">번호를 직접 선택하여 나만의 필터를 생성합니다</p>
+                        </div>
+                    </div>
+                    <span id="mf-list-count"
+                        class="px-3 py-1 rounded-full bg-blue-100 text-blue-700 text-xs font-black">0개</span>
+                </div>
+
+                <!-- [A] 필터 생성 카드 -->
+                <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mb-6">
+
+                    <!-- 헤더 행: 제목(넓게) + 우측 상단(MIN~MAX, 새로고침, 저장) -->
+                    <div class="flex items-center justify-between gap-4 mb-5">
+                        <input id="mf-title" type="text" placeholder="필터 제목을 입력하세요..."
+                            class="flex-1 h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 focus:bg-white transition-all" />
+
+                        <div class="flex items-center gap-2 shrink-0">
+                            <!-- [표준화] 커스텀 분석 설정창 스타일로 통합 (핑크 테마 펠릿 디자인) -->
+                            <div class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 h-11 shadow-sm focus-within:ring-2 focus-within:ring-blue-500">
+                                <input id="mf-min" type="number" min="0" max="6" value="1"
+                                    class="w-12 text-center font-black text-blue-600 bg-transparent border-none p-0 focus:ring-0 text-base" />
+                                <span class="text-slate-300 font-bold">~</span>
+                                <input id="mf-max" type="number" min="0" max="6" value="6"
+                                    class="w-12 text-center font-black text-blue-600 bg-transparent border-none p-0 focus:ring-0 text-base" />
+                            </div>
+
+                            <!-- 초기화: 아이콘만 -->
+                            <button onclick="ManualFilter.reset()" title="초기화"
+                                class="w-11 h-11 flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all shrink-0 ml-2">
+                                <span class="material-symbols-outlined" style="font-size:22px;">refresh</span>
+                            </button>
+                            <!-- 저장: Primary Action 시각 효과 적용 -->
+                            <button id="mf-save-btn" onclick="ManualFilter.save()" title="필터 저장"
+                                class="w-11 h-11 flex items-center justify-center bg-blue-50 text-blue-600 hover:text-white hover:bg-blue-600 border border-blue-100 rounded-xl transition-all active:scale-95 shrink-0 shadow-sm">
+                                <span class="material-symbols-outlined" style="font-size:22px;">save</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 번호 선택판 레이블 -->
+                    <div class="flex items-center justify-between mb-3">
+                        <span class="text-xs font-black text-slate-600 uppercase tracking-wide">번호 선택</span>
+                        <span id="mf-selected-count"
+                            class="text-xs font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">0개 선택됨</span>
+                    </div>
+
+                    <!-- 번호 그리드 (9열) -->
+                    <div id="mf-number-grid" class="grid gap-2 select-none mb-4"
+                        style="grid-template-columns: repeat(9, minmax(0, 1fr));"></div>
+
+                    <!-- 선택 번호 미리보기 -->
+                    <div id="mf-preview"
+                        class="flex flex-wrap gap-1.5 min-h-[44px] p-3 bg-slate-50 rounded-xl border border-slate-100 items-center">
+                        <span class="text-xs text-slate-400">선택된 번호가 여기 표시됩니다</span>
+                    </div>
+                </div>
+
+                <!-- [B] 저장된 필터 목록 -->
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-sm font-black text-slate-700 uppercase tracking-wide">저장된 수동필터</h3>
+                    <button onclick="ManualFilter.loadFilters()"
+                        class="text-xs text-slate-400 hover:text-blue-600 flex items-center gap-1 transition-colors">
+                        <span class="material-symbols-outlined text-[14px]">refresh</span>새로고침
+                    </button>
+                </div>
+                <div id="mf-list" class="grid grid-cols-1 gap-3">
+                    <div class="text-center py-10 text-slate-400 text-sm">저장된 필터가 없습니다.</div>
+                </div>
+
+            </div>
+
+
         </div>
     </div>
 
 
     <script src="js/filter/FilterStatsData.js"></script>
-    <script src="js/filter_dashboard.js?v=5"></script>
+    <script src="js/filter_dashboard.js?v=8"></script>
     <script src="js/filter_counter_patch.js"></script>
     <script>
+        /* ══════════════════════════════════════════════
+           ManualFilter — 수동필터 탭 JS
+        ══════════════════════════════════════════════ */
+        const ManualFilter = (() => {
+            let _selectedNums = new Set();
+            let _isDragging = false;
+            let _dragMode = null; // 'add' | 'remove'
+
+            // 볼 색상
+            function _ballColor(n) {
+                if (n <= 10) return '#F7C948';
+                if (n <= 20) return '#4a90d9';
+                if (n <= 30) return '#E04A4A';
+                if (n <= 40) return '#6B7280';
+                return '#48B05A';
+            }
+
+            // 현재 회차 (최신 당첨 + 1)
+            async function _getTargetRound() {
+                const draws = FilterDashboard?.state?.allDraws;
+                if (draws && draws.length > 0) return draws[0].round + 1;
+                const { data } = await window.supabaseClient
+                    .from('lotto_draws').select('round').order('round', { ascending: false }).limit(1).single();
+                return data ? data.round + 1 : 0;
+            }
+
+            // 번호 선택판 렌더
+            function _renderGrid() {
+                const grid = document.getElementById('mf-number-grid');
+                if (!grid) return;
+                grid.innerHTML = '';
+                for (let n = 1; n <= 45; n++) {
+                    const sel = _selectedNums.has(n);
+                    const btn = document.createElement('div');
+                    btn.dataset.num = n;
+                    btn.className = 'mf-ball flex items-center justify-center rounded-full text-xs font-black cursor-pointer transition-all select-none';
+                    btn.style.cssText = `
+                        width:34px; height:34px; font-size:11px;
+                        background:${sel ? _ballColor(n) : '#f1f5f9'};
+                        color:${sel ? '#fff' : '#64748b'};
+                        border:2px solid ${sel ? _ballColor(n) : '#e2e8f0'};
+                        box-shadow:${sel ? `0 2px 8px ${_ballColor(n)}66` : 'none'};
+                        transform:${sel ? 'scale(1.1)' : 'scale(1)'};
+                    `;
+                    btn.textContent = n;
+
+                    btn.addEventListener('mousedown', (e) => {
+                        e.preventDefault();
+                        _isDragging = true;
+                        _dragMode = _selectedNums.has(n) ? 'remove' : 'add';
+                        _toggle(n);
+                    });
+                    btn.addEventListener('mouseover', () => {
+                        if (!_isDragging) return;
+                        if (_dragMode === 'add' && !_selectedNums.has(n)) _toggle(n);
+                        if (_dragMode === 'remove' && _selectedNums.has(n)) _toggle(n);
+                    });
+                    grid.appendChild(btn);
+                }
+                _renderPreview();
+            }
+
+            function _toggle(n) {
+                if (_selectedNums.has(n)) _selectedNums.delete(n);
+                else _selectedNums.add(n);
+                _renderGrid();
+            }
+
+            function _renderPreview() {
+                const preview = document.getElementById('mf-preview');
+                const count = document.getElementById('mf-selected-count');
+                if (!preview || !count) return;
+                const nums = [..._selectedNums].sort((a, b) => a - b);
+                count.textContent = `${nums.length}개 선택됨`;
+                if (nums.length === 0) {
+                    preview.innerHTML = '<span class="text-xs text-slate-400 self-center">선택된 번호가 여기 표시됩니다</span>';
+                    return;
+                }
+                preview.innerHTML = nums.map(n => `
+                    <div class="flex items-center justify-center rounded-full text-white text-[11px] font-black"
+                        style="width:28px;height:28px;background:${_ballColor(n)};flex-shrink:0">${n}</div>
+                `).join('');
+            }
+
+            // 저장된 필터 목록 렌더
+            function _renderList(filters) {
+                const el = document.getElementById('mf-list');
+                const cnt = document.getElementById('mf-list-count');
+                if (!el) return;
+                if (cnt) cnt.textContent = `${filters.length}개`;
+                if (filters.length === 0) {
+                    el.innerHTML = '<div class="text-center py-10 text-slate-400 text-sm">저장된 필터가 없습니다.</div>';
+                    return;
+                }
+
+                // [추가] XSS 예방을 위한 HTML 특수기호 이스케이프 함수
+                const escapeHtml = (text) => {
+                    return (text || '').toString()
+                        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+                        .replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+                };
+
+                    // [수정] 현재 앱의 목표 회차 확인
+                    const sysTR = (window.FilterDashboard && window.FilterDashboard.state) ? window.FilterDashboard.state.targetRound : 0;
+
+                    el.innerHTML = filters.map(f => {
+                        const balls = (f.selected_numbers || []).sort((a, b) => a - b).map(n =>
+                            `<div class="flex items-center justify-center rounded-full text-white font-black flex-shrink-0"
+                                style="width:28px;height:28px;font-size:11px;background:${_ballColor(n)}">${n}</div>`
+                        ).join('');
+
+                        return `
+                        <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all">
+                            <!-- 상단: 제목 + 회차 + 삭제 -->
+                            <div class="flex items-center justify-between gap-3 mb-4">
+                                <div class="flex items-center gap-2 flex-1 min-w-0">
+                                    <span class="text-sm font-black text-slate-900 truncate">${escapeHtml(f.title)}</span>
+                                    <span class="px-2.5 py-0.5 bg-blue-50 text-blue-600 text-[11px] font-bold rounded-full flex-shrink-0">${f.target_round}회차</span>
+                                </div>
+                                <button onclick="ManualFilter.deleteFilter('${f.id}')"
+                                    class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-all shrink-0">
+                                    <span class="material-symbols-outlined" style="font-size:18px;">delete</span>
+                                </button>
+                            </div>
+                            
+                            <!-- 하단: 대상 번호 볼 + 우측 필터 설정 -->
+                            <div class="flex items-start justify-between gap-4">
+                                <!-- 번호 볼 -->
+                                <div class="flex flex-wrap gap-1.5 flex-1">${balls}</div>
+                                
+                                <!-- 조합 카운팅 + 일치 범위 -->
+                                <div class="flex items-center gap-2 shrink-0">
+                                    <span id="indep-count-manual_${f.id}" class="hidden text-[10px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full whitespace-nowrap"></span>
+                                    <div class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 h-10 shadow-sm focus-within:ring-2 focus-within:ring-blue-500">
+                                    <input type="number" value="${f.min_match}" min="0" max="6"
+                                        onchange="ManualFilter.updateMatch(event, '${f.id}', 'min_match', this.value)"
+                                        class="w-12 text-center font-black text-blue-600 bg-transparent border-none p-0 focus:ring-0 text-base">
+                                    <span class="text-slate-300 font-bold">~</span>
+                                    <input type="number" value="${f.max_match}" min="0" max="6"
+                                        onchange="ManualFilter.updateMatch(event, '${f.id}', 'max_match', this.value)"
+                                        class="w-12 text-center font-black text-blue-600 bg-transparent border-none p-0 focus:ring-0 text-base">
+                                </div>
+                            </div>
+                        </div>
+                    </div>`;
+                }).join('');
+                // 렌더 직후 이미 계산된 뱃지 복원 + CUMUL_BADGES 재실행 (수동필터 뱃지 갱신)
+                requestAnimationFrame(() => {
+                    if (window.applyIndepCountBadges) window.applyIndepCountBadges();
+                    if (window.triggerIndepCount) window.triggerIndepCount();
+                });
+            }
+
+
+            // Public API
+            return {
+                init() {
+                    // 드래그 종료
+                    document.addEventListener('mouseup', () => { _isDragging = false; _dragMode = null; });
+                    _renderGrid();
+                    // [추가] 초기화 시 최신 AI 데이터가 있으면 그리드에 자동 로드
+                    this.loadAI(true); 
+                    this.loadFilters();
+                },
+
+                reset() {
+                    _selectedNums.clear();
+                    document.getElementById('mf-title').value = '';
+                    document.getElementById('mf-min').value = 1;
+                    document.getElementById('mf-max').value = 6;
+                    _renderGrid();
+                },
+
+                async loadFilters() {
+                    let { data, error } = await window.supabaseClient
+                        .from('manual_filters')
+                        .select('*')
+                        .order('created_at', { ascending: false });
+                    if (error) { console.error('[ManualFilter] 로드 실패:', error); return; }
+
+                    // [추가] AI 관련 필터 자동 업데이트 로직 (stale check)
+                    const sysTR = (window.FilterDashboard && window.FilterDashboard.state) ? window.FilterDashboard.state.targetRound : 0;
+                    if (sysTR > 0) {
+                        const staleAIs = (data || []).filter(f => (f.title || '').includes('AI') && f.target_round < sysTR);
+                        if (staleAIs.length > 0) {
+                            console.log(`[ManualFilter] ${staleAIs.length}개의 AI 필터가 만료됨. 자동 갱신 시도...`);
+                            
+                            // 최신 AI 추천번호 가져오기
+                            const { data: aiData } = await window.supabaseClient
+                                .from('deep_analysis_history')
+                                .select('recommended_numbers')
+                                .eq('target_round', sysTR)
+                                .order('created_at', { ascending: false })
+                                .limit(1)
+                                .maybeSingle();
+
+                            if (aiData && aiData.recommended_numbers) {
+                                for (const f of staleAIs) {
+                                    await window.supabaseClient
+                                        .from('manual_filters')
+                                        .update({
+                                            selected_numbers: aiData.recommended_numbers,
+                                            target_round: sysTR,
+                                            title: f.title.includes('회차') ? f.title.replace(/\d+회차/, sysTR + '회차') : f.title,
+                                            updated_at: new Date().toISOString()
+                                        })
+                                        .eq('id', f.id);
+                                }
+                                // 업데이트 후 다시 불러오기
+                                const { data: newData } = await window.supabaseClient.from('manual_filters').select('*').order('created_at', { ascending: false });
+                                data = newData;
+                            }
+                        }
+                    }
+
+                    // [수정] 대시보드 상태와 동기화 (전수조사 카운팅 로직에서 이 상태를 참조함)
+                    if (window.FilterDashboard && window.FilterDashboard.state) {
+                        window.FilterDashboard.state.manualFilters = data || [];
+                    }
+
+                    _renderList(data || []);
+                },
+
+                async save() {
+                    const title = document.getElementById('mf-title')?.value?.trim();
+                    // [수정] 0~6 범위 제한 추가
+                    const minMatch = Math.max(0, Math.min(6, parseInt(document.getElementById('mf-min')?.value ?? 1)));
+                    const maxMatch = Math.max(0, Math.min(6, parseInt(document.getElementById('mf-max')?.value ?? 6)));
+                    const nums = [..._selectedNums].sort((a, b) => a - b);
+
+                    if (!title) { alert('필터 제목을 입력해주세요.'); return; }
+                    if (nums.length === 0) { alert('번호를 1개 이상 선택해주세요.'); return; }
+                    if (minMatch > maxMatch) { alert('MIN이 MAX보다 클 수 없습니다.'); return; }
+
+                    const btn = document.getElementById('mf-save-btn');
+                    if (btn) { btn.disabled = true; btn.textContent = '저장 중...'; }
+
+                    try {
+                        const targetRound = await _getTargetRound();
+                        const { error } = await window.supabaseClient.from('manual_filters').insert({
+                            title,
+                            target_round: targetRound,
+                            selected_numbers: nums,
+                            min_match: minMatch,
+                            max_match: maxMatch,
+                            enabled: true
+                        });
+                        if (error) throw error;
+                        this.reset();
+                        await this.loadFilters();
+                    } catch (e) {
+                        console.error('[ManualFilter] 저장 실패:', e);
+                        alert('저장에 실패했습니다: ' + (e.message || e));
+                    } finally {
+                        if (btn) {
+                            btn.disabled = false;
+                            btn.innerHTML = '<span class="material-symbols-outlined" style="font-size:20px;">save</span>';
+                        }
+                    }
+                },
+
+                async deleteFilter(id) {
+                    if (!confirm('이 필터를 삭제하시겠습니까?')) return;
+                    const { error } = await window.supabaseClient.from('manual_filters').delete().eq('id', id);
+                    if (error) { alert('삭제 실패: ' + error.message); return; }
+                    await this.loadFilters();
+                },
+
+                // [수정] 저장된 카드에서 MIN/MAX 재조정 후 즉시 DB 반영 및 상태 동기화
+                async updateMatch(event, id, field, value) {
+                    const update = { updated_at: new Date().toISOString() };
+                    // [수정] 0~6 범위 제한 추가
+                    update[field] = Math.max(0, Math.min(6, parseInt(value) || 0));
+
+                    // [추가] 유효성 검증 로직: MIN이 MAX보다 클 수 없음
+                    if (event && event.target) {
+                        const container = event.target.parentElement;
+                        if (container) {
+                            const inputs = container.querySelectorAll('input[type="number"]');
+                            if (inputs.length === 2) {
+                                const minVal = parseInt(inputs[0].value);
+                                const maxVal = parseInt(inputs[1].value);
+
+                                if (minVal > maxVal) {
+                                    alert('최소값이 최대값보다 클 수 없습니다.');
+                                    // 역전되었으므로, 기존 저장된 최신 데이터를 다시 불러와 복구
+                                    this.loadFilters();
+                                    return;
+                                }
+                            }
+                        }
+                    }
+
+                    const { error } = await window.supabaseClient.from('manual_filters').update(update).eq('id', id);
+                    if (error) {
+                        console.error('[ManualFilter] updateMatch 실패:', error);
+                    } else {
+                        // [추가] 성공 시 즉시 로컬 상태 동기화 및 카운팅 재실행
+                        await this.loadFilters();
+                    }
+                },
+
+                // [추가] 최신 AI 추천 번호 불러오기 (실행 시 silent 여부에 따라 UI 알림 제어)
+                async loadAI(silent = false) {
+                    try {
+                        const targetRound = await _getTargetRound();
+                        const { data, error } = await window.supabaseClient
+                            .from('deep_analysis_history')
+                            .select('recommended_numbers')
+                            .eq('target_round', targetRound)
+                            .order('created_at', { ascending: false })
+                            .limit(1)
+                            .maybeSingle();
+
+                        if (error || !data) return;
+
+                        // 번호 적용 (이미 선택된 번호가 없을 때만 자동 로드)
+                        if (_selectedNums.size === 0) {
+                            _selectedNums.clear();
+                            (data.recommended_numbers || []).forEach(n => _selectedNums.add(n));
+                            
+                            const titleInput = document.getElementById('mf-title');
+                            if (titleInput && !titleInput.value.trim()) {
+                                titleInput.value = `AI추천조합_${targetRound}회차`;
+                            }
+                            _renderGrid();
+                        }
+                    } catch (e) { console.error('[ManualFilter] loadAI 실패:', e); }
+                }
+            };
+        })();
+
+        window.ManualFilter = ManualFilter;
+
         document.addEventListener('DOMContentLoaded', () => {
             if (window.FilterDashboard) window.FilterDashboard.init();
 
-            // URL 해시 기반 자동 스크롤 (예: filter.html#filter-total_sum)
+            // 수동필터 탭 초기화
+            ManualFilter.init();
+
+            // URL 해시 기반 자동 스크롤
             if (window.location.hash) {
                 setTimeout(() => {
                     const target = document.querySelector(window.location.hash);

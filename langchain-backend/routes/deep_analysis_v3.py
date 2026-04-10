@@ -38,6 +38,18 @@ def _json_response(data: dict):
     return Response(content=json.dumps(data, cls=NumpyEncoder, ensure_ascii=False), 
                     status_code=200, media_type="application/json")
 
+# [추가] 로또 도메인 지식 상수
+LOTTO_DOMAIN_KNOWLEDGE = """
+[로또 통계 참고 규칙 - 비상식적 추천 시 이 기준으로 보정할 것]
+- 당첨번호 6개의 총합: 역대 70% 이상이 100~180 범위 (평균 143)
+- 이월수(전회차 번호 포함): 평균 1~2개 포함됨 (0개 또는 4개 이상은 드문 패턴)
+- 연속번호(예: 7-8이 붙어있는 경우): 매 회차의 약 70%에 1쌍 이상 포함
+- 동일 끝수(예: 5, 15, 25, 35) 독점: 3개 이상 시 극히 드문 패턴
+- 홀짝 비율: 3:3이 가장 흔하고 2:4 또는 4:2도 자주 출현. 0:6 또는 6:0은 드묾
+- 저번호(1~22) vs 고번호(23~45): 3:3 또는 2:4가 일반적
+- 소수 번호(2,3,5,7,11,13,17,19,23,29,31,37,41,43): 평균 1~3개 포함
+"""
+
 # ------------------------------------------------------------------
 # 1. 기초분석 시뮬레이터 (15종+)
 # ------------------------------------------------------------------
@@ -101,6 +113,9 @@ def simulate_all_filters(model_probs, history_draws, n_sim=1000):
         stats["mul3"].append(sum(1 for x in c_int if x%3==0))
         stats["mul4"].append(sum(1 for x in c_int if x%4==0))
         stats["mul5"].append(sum(1 for x in c_int if x%5==0))
+        stats["mul34"].append(sum(1 for x in c_int if x in MUL34_NUMS))
+        stats["mul35"].append(sum(1 for x in c_int if x in MUL35_NUMS))
+        stats["mul45"].append(sum(1 for x in c_int if x in MUL45_NUMS))
         stats["consecutive"].append(sum(1 for i in range(5) if c_int[i+1]-c_int[i]==1))
         stats["non_multiple"].append(sum(1 for x in c_int if x not in MULTIPLE_ALL))
         stats["hot10"].append(sum(1 for x in c_int if x in hot10_nums))
@@ -1156,7 +1171,69 @@ def analyze_number_band(final_probs, history_draws, model_contributions=None):
 # ------------------------------------------------------------------
 # LLM 전략 분석 (v2에서 통합)
 # ------------------------------------------------------------------
-async def _ask_llm_strategy_v3(target_round, top_5, exclude_10, history_draws, combinations, range_analysis):
+# [추가] 모델 간 컨센서스 요약 생성 함수
+def _build_consensus_summary(contribs: dict) -> str:
+    """7개 모델의 결과에서 의견 일치(top15 기준) 번호 분포를 요약"""
+    models = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder", "gnn"]
+    model_top15 = {}
+    for m in models:
+        probs = contribs.get(m, {})
+        if probs:
+            sorted_nums = sorted(probs.items(), key=lambda x: x[1], reverse=True)[:15]
+            model_top15[m] = {num for num, _ in sorted_nums}
+        else:
+            model_top15[m] = set()
+
+    agreement_count = {}
+    for num in range(1, 46):
+        count = sum(1 for m in models if num in model_top15[m])
+        agreement_count[num] = count
+
+    strong_agree = [n for n, c in sorted(agreement_count.items(), key=lambda x: x[1], reverse=True) if c >= 5]
+    conflict = [n for n, c in agreement_count.items() if c <= 2]
+    unique_picks = {m: [n for n in model_top15[m] if agreement_count[n] == 1] for m in models}
+
+    lines = [
+        f"- 강한 컨센서스 번호 (5개 이상 모델 동의): {strong_agree[:10]}",
+        f"- 모델 간 의견 충돌 번호 (2개 이하 모델 지지): {sorted(conflict)[:10]}",
+    ]
+    for m, nums in unique_picks.items():
+        if nums:
+            lines.append(f"- {m.upper()} 모델만 단독 추천: {nums[:5]}")
+    return "\\n".join(lines)
+
+
+# [추가] Few-Shot 예시 생성 함수
+def _build_fewshot_examples(target_round: int) -> str:
+    """최근 3개 회차의 예측 vs 실제 결과를 꺼내서 예시 텍스트 생성"""
+    try:
+        client = get_client()
+        res = client.table("deep_analysis_history") \
+            .select("target_round, recommended_numbers, actual_numbers, confidence") \
+            .not_.is_("actual_numbers", "null") \
+            .order("target_round", desc=True) \
+            .limit(3).execute()
+
+        rows = res.data or []
+        if not rows:
+            return "과거 검증 데이터 없음 (당첨번호 입력 후 사용 가능)"
+
+        lines = []
+        for row in rows:
+            rnd = row["target_round"]
+            recommended = row.get("recommended_numbers") or []
+            actual = row.get("actual_numbers") or []
+            hit = len(set(recommended) & set(actual))
+            lines.append(
+                f"- {rnd}회차: 추천 {recommended} → 실제 당첨 {actual} "
+                f"(추천수 중 {hit}개 일치, 신뢰도:{row.get('confidence', '?')}점)"
+            )
+        return "\\n".join(lines)
+    except Exception as e:
+        return f"과거 데이터 로드 실패: {e}"
+
+
+async def _ask_llm_strategy_v3(target_round, top_5, exclude_10, history_draws, combinations, range_analysis, contribs=None):
     """LLM에게 전략 분석을 요청한다."""
     try:
         from langchain_google_genai import ChatGoogleGenerativeAI
@@ -1207,12 +1284,25 @@ async def _ask_llm_strategy_v3(target_round, top_5, exclude_10, history_draws, c
                 filter_summary.append(f"- {name}: 추천범위 {range_str}")
         filter_text = "\n".join(filter_summary)
 
+        # [추가] 동적 요약 블록
+        consensus_text = _build_consensus_summary(contribs) if contribs else "데이터 없음"
+        fewshot_text = _build_fewshot_examples(target_round)
+
         prompt = f"""당신은 로또 번호 분석 전문가입니다.
 {target_round}회차 예측을 위한 전략을 한국어로 수립하세요.
+
+{LOTTO_DOMAIN_KNOWLEDGE}
+
+[과거 회차 예측 결과 참고 (Few-Shot)]
+{fewshot_text}
+※ 위 과거 사례를 참고하여, 이번 회차에 유사한 패턴이 있는지 판단하세요.
 
 [앙상블 모델 추천 결과]
 - 고정 후보 번호 (상위 5개): {top_5}
 - 제외 후보 번호 (하위 10개): {exclude_10}
+
+[모델 간 합의 분석]
+{consensus_text}
 
 [최근 5회 당첨 결과]
 {recent_text}
@@ -1227,8 +1317,10 @@ async def _ask_llm_strategy_v3(target_round, top_5, exclude_10, history_draws, c
 1. 반드시 순수 한국어만 사용하세요. 영문 단어(XGBoost, LSTM, momentum, probability 등) 사용 절대 금지.
 2. 소수점 확률값(예: 0.5775, 0.3421)을 절대 출력하지 마세요. 대신 "출현 가능성 높음/보통/낮음"으로 표현하세요.
 3. "통계적 유의성", "앙상블 확률" 같은 학술 전문용어 사용 금지. 일반인이 쉽게 이해할 수 있는 표현만 사용하세요.
-5. **반드시 아래 제공된 19개 항목의 필터를 하나도 빠짐없이 전부 분석하여 응답하세요.** 데이터가 부족하더라도 '통계 기반' 근거를 활용하여 범위를 추천해야 합니다.
-6. 반드시 아래 JSON 형식으로만 응답하세요. 마크다운 없이 순수 JSON만 반환하세요.
+4. 위 도메인 규칙과 딥러닝 결과가 충돌할 경우, 그 이유를 명시하고 도메인 규칙을 우선 적용하세요.
+5. 단계별로 생각해서 논리적으로 설명해주세요. (Chain of Thought)
+6. 반드시 아래 제공된 19개 항목의 필터를 하나도 빠짐없이 전부 분석하여 응답하세요. 데이터가 부족하더라도 '통계 기반' 근거를 활용하여 범위를 추천해야 합니다.
+7. 반드시 아래 JSON 형식으로만 응답하세요. 마크다운 없이 순수 JSON만 반환하세요.
 
 {{
   "confidence": 72,
@@ -2087,7 +2179,8 @@ async def get_deep_analysis(round_num: int = None):
         # [9] LLM 전략 분석 (신규 통합)
         strategy = await _ask_llm_strategy_v3(
             target_round, top_5, exclude_10, 
-            history_draws, combinations, range_analysis
+            history_draws, combinations, range_analysis,
+            contribs=contribs # [추가] 컨센서스 계산을 위해 모델별 기여도 전달
         )
 
         # [NEW] LLM이 누락한 필터 강제 병합 및 특수 분석 결과 통합

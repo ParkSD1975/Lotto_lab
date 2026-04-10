@@ -15,43 +15,47 @@
         _keepAliveTimer: null,
 
         /**
-         * 콜드스타트 웜업: 최대 250초 대기하며 서버 기동을 기다림
-         * @param {function} onProgress - 5초마다 경과초 전달 (UI 업데이트용)
+         * 콜드스타트 웜업: 10초 간격으로 최대 12회 폴링 (총 최대 120초)
+         * 단일 긴 fetch 대신 짧은 요청 반복으로 안정성 확보
+         * @param {function} onProgress - 경과초 전달 (UI 업데이트용)
          */
         async warmup(onProgress) {
-            const WARMUP_TIMEOUT = 250000; // 250초 (실측 212초 + 여유)
-            console.log('🔥 [AIProxy] 서버 웜업 시작 (최대 250초 대기)...');
+            const POLL_TIMEOUT = 10000;  // 회당 10초
+            const MAX_ATTEMPTS = 12;     // 최대 12회 (120초)
+            console.log('🔥 [AIProxy] 서버 웜업 시작 (최대 120초, 10초 간격 폴링)...');
 
             let elapsed = 0;
-            const ticker = setInterval(() => {
-                elapsed += 5;
-                if (onProgress) onProgress(elapsed);
-            }, 5000);
-
             let success = false;
+
             for (const url of BASE_URLS) {
-                try {
-                    const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), WARMUP_TIMEOUT);
-                    const res = await fetch(`${url}/health`, { method: 'GET', signal: controller.signal });
-                    clearTimeout(timeoutId);
-                    if (res.ok) {
-                        CURRENT_BASE_URL = url;
-                        this._isServerDown = false;
-                        this._lastCheckTime = Date.now();
-                        success = true;
-                        console.log(`✅ [AIProxy] 서버 웜업 완료 (${elapsed}초 경과)`);
-                        break;
+                for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+                    try {
+                        const controller = new AbortController();
+                        const timeoutId = setTimeout(() => controller.abort(), POLL_TIMEOUT);
+                        const res = await fetch(`${url}/health`, { method: 'GET', signal: controller.signal });
+                        clearTimeout(timeoutId);
+                        if (res.ok) {
+                            CURRENT_BASE_URL = url;
+                            this._isServerDown = false;
+                            this._lastCheckTime = Date.now();
+                            success = true;
+                            console.log(`✅ [AIProxy] 서버 웜업 완료 (${elapsed}초 경과, ${attempt}회 시도)`);
+                            break;
+                        }
+                    } catch (e) {
+                        elapsed += Math.round(POLL_TIMEOUT / 1000);
+                        if (onProgress) onProgress(elapsed);
+                        console.log(`🔄 [AIProxy] 웜업 재시도 ${attempt}/${MAX_ATTEMPTS} (${elapsed}초 경과)`);
                     }
-                } catch (e) {
-                    console.warn('⚠️ [AIProxy] 웜업 실패:', e.message);
+                    if (success) break;
                 }
+                if (success) break;
             }
 
-            clearInterval(ticker);
             if (!success) {
                 this._isServerDown = true;
                 this._lastCheckTime = Date.now();
+                console.warn('⚠️ [AIProxy] 웜업 실패: 서버 응답 없음');
             }
             return success;
         },
@@ -190,9 +194,9 @@
                 throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
             }
 
-            console.log("📡 [AIProxy] Supabase Edge Function(analyze-lotto)으로 폴백 요청...");
+            console.log("📡 [AIProxy] Supabase Edge Function(ai-lotto-analyst)으로 폴백 요청...");
 
-            const edgePromise = window.supabaseClient.functions.invoke('analyze-lotto', {
+            const edgePromise = window.supabaseClient.functions.invoke('ai-lotto-analyst', {
                 body: { context: config.prompt }
             });
 

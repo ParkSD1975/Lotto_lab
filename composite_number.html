@@ -1,11 +1,11 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html class="light" lang="ko">
 
 <head>
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>Lotto Lab - 합성수 (Supabase AI)</title>
-    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="css/tailwind.css" rel="stylesheet" />
 
     <link rel="icon" href="data:,">
 
@@ -25,6 +25,7 @@
     <script src="js/aiProxy.js"></script>
     <script src="js/filter/FilterService.js"></script>
     <script src="js/layout.js"></script>
+    <script src="js/deep_insight_panel.js"></script>
     <script src="js/NLPProcessor.js"></script>
     <script src="js/NLPInputComponent.js"></script>
     <script src="js/BasicAnalysisNLP.js"></script>
@@ -58,10 +59,23 @@
         let activeFilters = new Set(); // Internal usage
         let excludedComposites = new Set();
         let isRecentTenFilter = false;
+        let _compositeSelfSaving = false;
+        const storageKey = 'composite_number_filter';
 
         // [추가] 수동 변경 시 호출되는 함수
         function markManual() {
             localStorage.setItem('composite_number_is_manual', 'true');
+        }
+
+        // [추가] 수동 조작 시 최근 10회차 모드 자동 해제
+        function deactivateRecent10IfActive() {
+            if (isRecentTenFilter) {
+                console.log("수동 필터 조작 감지: 최근 10회차 모드 해제");
+                isRecentTenFilter = false;
+                highlightStartRound = null;
+                updateRecentTenFilterFlag();
+                saveFilterSettings(); // 상태 저장 및 동기화
+            }
         }
 
         // [추가] 최근 10회차 필터 버튼 UI 동기화
@@ -71,12 +85,12 @@
             if (!btn || !btnText) return;
 
             if (isRecentTenFilter) {
-                btn.classList.remove('from-blue-500', 'to-indigo-600', 'from-indigo-500');
+                btn.classList.remove('from-blue-500', 'to-blue-600', 'from-blue-500');
                 btn.classList.add('from-purple-500', 'to-purple-700');
                 btnText.textContent = '필터 해제';
             } else {
                 btn.classList.remove('from-purple-500', 'to-purple-700');
-                btn.classList.add('from-blue-500', 'to-indigo-600');
+                btn.classList.add('from-blue-500', 'to-blue-600');
                 btnText.textContent = '최근 10회차 필터 적용';
             }
         }
@@ -102,39 +116,54 @@
         // 전역 로딩 플래그 (무한 루프 방지)
         window.isLoadingSettings = false;
 
-        // [수정됨] 필터 설정 저장 함수 (Dashboard 필드명 표준화: selectedCounts)
-        async function saveFilterSettings() {
-            if (window.isLoadingSettings) return;
+        // [수정됨] 필터 설정 저장 함수 (표준화)
+        async function saveFilterSettings(targetRoundOverride = null) {
+            if (_compositeSelfSaving) return;
+            _compositeSelfSaving = true;
 
-            const enabled = document.getElementById('applyFilterCheck').checked;
-            const data = {
-                selectedCounts: Array.from(activeFilters), // activeFilters -> selectedCounts 표준화
-                excludedComposites: Array.from(excludedComposites),
-                recent10FilterActive: isRecentTenFilter,
-                isManual: localStorage.getItem('composite_number_is_manual') === 'true' // [추가] 수동 상태 저장
-            };
-            const settingsWithEnabled = { ...data, enabled };
+            try {
+                if (!allDrawData || allDrawData.length === 0) return;
 
-            // DB 저장 (FilterService 사용)
-            if (window.filterService && window.filterService.initialized) {
-                await window.filterService.saveSetting('composite_count', data, enabled);
-            } else if (window.Utils && window.Utils.saveFilter) {
-                window.Utils.saveFilter('composite_count', settingsWithEnabled);
+                const enabled = document.getElementById('applyFilterCheck').checked;
+                const latestRound = allDrawData[0]?.round || 0;
+                const targetRound = targetRoundOverride || (latestRound + 1);
+
+                const settings = {
+                    selectedCounts: Array.from(activeFilters),
+                    excludedComposites: Array.from(excludedComposites),
+                    recent10FilterActive: isRecentTenFilter,
+                    isManual: localStorage.getItem('composite_number_is_manual') === 'true',
+                };
+
+                console.log(`💾 합성수 필터 저장, 활성=${enabled}, targetRound=${targetRound}, selectedCounts=${JSON.stringify(settings.selectedCounts)}`);
+
+                // 1. Utils.saveFilter
+                if (window.Utils && window.Utils.saveFilter) {
+                    await window.Utils.saveFilter(storageKey, settings, enabled, targetRound);
+                }
+                // 2. round-specific
+                if (window.filterService && window.filterService.initialized) {
+                    await window.filterService.saveSetting(storageKey, settings, enabled, targetRound);
+                }
+                
+                // localStorage sync for storage event
+                localStorage.setItem(storageKey, JSON.stringify({ ...settings, enabled, targetRound }));
+            } catch (err) {
+            } finally {
+                _compositeSelfSaving = false;
             }
-
-            // localStorage sync (Dashboard sync key: composite_count)
-            localStorage.setItem('composite_count', JSON.stringify(settingsWithEnabled));
-            localStorage.setItem('composite_count_filter', JSON.stringify(settingsWithEnabled));
         }
 
         async function loadFilterSettings() {
             window.isLoadingSettings = true;
             try {
                 let saved = null;
+                const latestRound = allDrawData && allDrawData.length > 0 ? allDrawData[0].round : 0;
+                const currentTargetRound = latestRound + 1;
 
                 // 1. DB에서 로드 (FilterService 사용)
                 if (window.filterService && window.filterService.initialized) {
-                    const data = await window.filterService.loadSetting('composite_count');
+                    const data = await window.filterService.loadSetting('composite_count', currentTargetRound);
                     if (data) {
                         saved = { ...data.settings, enabled: data.enabled };
                     }
@@ -143,7 +172,11 @@
                 // 2. Fallback: localStorage
                 if (!saved) {
                     const raw = localStorage.getItem('composite_count') || localStorage.getItem('composite_count_filter') || localStorage.getItem('composite_filter');
-                    if (raw) try { saved = JSON.parse(raw); } catch (e) { }
+                    if (raw) try {
+                        const parsed = JSON.parse(raw);
+                        // Utils.saveFilter envelope 형식 { settings: {...}, enabled, ... } 언박싱
+                        saved = (parsed.settings !== undefined) ? { ...parsed.settings, enabled: parsed.enabled } : parsed;
+                    } catch (e) { }
                 }
 
                 if (saved) {
@@ -160,9 +193,9 @@
                         localStorage.setItem('composite_number_is_manual', 'false');
                     }
 
-                    // [수정] 초기 로드 시 버튼 상태 자동 복원을 하이라이트 없이 처리하기 위해 false 강제
-                    isRecentTenFilter = false;
-                    highlightStartRound = null;
+                    // recent10FilterActive 상태 복원 (저장된 값 우선)
+                    isRecentTenFilter = saved.recent10FilterActive || false;
+                    highlightStartRound = isRecentTenFilter ? (allDrawData[0]?.round || null) : null;
 
                     const chk = document.getElementById('applyFilterCheck');
                     if (chk) chk.checked = saved.enabled !== false; // undefined/null일 경우 true 기본값 유지를 고려
@@ -172,13 +205,13 @@
                     const btnText = document.getElementById('recent10BtnText');
                     if (btn && btnText) {
                         if (isRecentTenFilter) {
-                            btn.classList.remove('from-blue-500', 'to-indigo-600');
+                            btn.classList.remove('from-blue-500', 'to-blue-600');
                             btn.classList.add('from-purple-500', 'to-purple-700');
                             btnText.textContent = '필터 해제';
                             highlightStartRound = allDrawData[0]?.round;
                         } else {
                             btn.classList.remove('from-purple-500', 'to-purple-700');
-                            btn.classList.add('from-blue-500', 'to-indigo-600');
+                            btn.classList.add('from-blue-500', 'to-blue-600');
                             btnText.textContent = '최근 10회차 필터 적용';
                             highlightStartRound = null;
                         }
@@ -245,7 +278,7 @@
             // 토글: 이미 켜져있으면 끄기 (보라색 클래스 존재 여부로 판단)
             if (isRecentTenFilter && !resetExclusions) {
                 btn.classList.remove('from-purple-500', 'to-purple-700');
-                btn.classList.add('from-indigo-500', 'to-indigo-600');
+                btn.classList.add('from-blue-500', 'to-blue-600');
                 btnText.textContent = '최근 10회차 필터 적용';
 
                 // 필터 초기화
@@ -268,7 +301,7 @@
             activeFilters = new Set(counts);
 
             // 3. UI 업데이트 (보라색 토글)
-            btn.classList.remove('from-blue-500', 'to-indigo-600', 'from-indigo-500');
+            btn.classList.remove('from-blue-500', 'to-blue-600', 'from-blue-500');
             btn.classList.add('from-purple-500', 'to-purple-700');
             btnText.textContent = '필터 해제';
 
@@ -527,89 +560,11 @@
                         </div>
 
                         <div class="ai-section p-8 pb-10 mb-6 font-sans">
-                            <div class="flex items-center justify-between mb-6">
-                                <div class="flex items-center gap-2">
-                                    <h3 class="text-2xl font-extrabold text-gray-900 tracking-tight">AI Insight</h3>
-                                    <span id="aiTargetInfo" class="text-sm text-gray-500 font-medium"></span>
-                                </div>
-                                <button onclick="window.AIAnalysis.openPromptLibraryModal('composite', event)"
-                                    class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors">
-                                    <span class="material-symbols-outlined text-lg">library_books</span>
-                                    프롬프트 라이브러리
-                                </button>
-                            </div>
-
-                            <div id="aiDefaultReport" class="min-h-[100px]">
-                                <div class="flex items-center justify-center gap-2 text-gray-500 h-24">
-                                    <span class="material-symbols-outlined animate-spin">sync</span>
-                                    <span>AI 분석 데이터를 불러오는 중...</span>
-                                </div>
-                            </div>
-
-                            <div class="mt-6 border-t border-gray-100 pt-6">
-                                <div class="flex flex-col gap-3">
-                                    <div class="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='다음 회차 합성수 추천해줘'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-blue-50 text-blue-600 rounded-full hover:bg-blue-100 transition-colors whitespace-nowrap">
-                                            ✨ 추천
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='최근 10회 합성수 패턴 분석해줘'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-indigo-50 text-indigo-600 rounded-full hover:bg-indigo-100 transition-colors whitespace-nowrap">
-                                            📊 패턴
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='합성수 멸(0개) 가능성 분석해줘'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-red-50 text-red-600 rounded-full hover:bg-red-100 transition-colors whitespace-nowrap">
-                                            🚫 멸(Zero)
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='소수 vs 합성수 출현 비중 분석해줘'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-purple-50 text-purple-600 rounded-full hover:bg-purple-100 transition-colors whitespace-nowrap">
-                                            ⚖️ 비중
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='합성수 집중 구간(단번대, 10번대 등) 예상해줘'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-orange-50 text-orange-600 rounded-full hover:bg-orange-100 transition-colors whitespace-nowrap">
-                                            🎯 구간
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='합성수 과출현/미출현 임계치(Threshold) 분석'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-emerald-50 text-emerald-600 rounded-full hover:bg-emerald-100 transition-colors whitespace-nowrap">
-                                            📉 임계치
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='지난 회차 합성수의 이월 가능성 분석해줘'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-cyan-50 text-cyan-600 rounded-full hover:bg-cyan-100 transition-colors whitespace-nowrap">
-                                            🔄 이월
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='3의 배수 합성수(6, 9, 12...) 흐름 분석해줘'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-teal-50 text-teal-600 rounded-full hover:bg-teal-100 transition-colors whitespace-nowrap">
-                                            🔢 3배수
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='40번대 고합성수(40,42,44,45) 출현 여부 예측'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-rose-50 text-rose-600 rounded-full hover:bg-rose-100 transition-colors whitespace-nowrap">
-                                            🔥 고합성수
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='합성수 연속 출현(3연속 등) 패턴 진단해줘'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-violet-50 text-violet-600 rounded-full hover:bg-violet-100 transition-colors whitespace-nowrap">
-                                            ⚡ 연속
-                                        </button>
-                                    </div>
-                                    <div class="relative">
-                                        <input type="text" id="aiUserPrompt"
-                                            class="w-full pl-4 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder-gray-400"
-                                            placeholder="합성수에 대해 궁금한 점을 물어보세요..."
-                                            onkeyup="if(event.key === 'Enter') submitCustomAIAnalysis()">
-                                        <button onclick="submitCustomAIAnalysis()"
-                                            class="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors">
-                                            <span class="material-symbols-outlined text-xl">send</span>
-                                        </button>
-                                    </div>
+                            <h3 class="text-lg font-bold text-gray-900 mb-4">딥러닝 Insight</h3>
+                            <div id="dlInsightContainer">
+                                <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
+                                    <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
+                                    <span class="text-sm">딥러닝 모델 분석 중 (7개 모델)...</span>
                                 </div>
                             </div>
                         </div>
@@ -656,8 +611,8 @@
                     <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
                         <div class="flex items-center justify-between mb-4">
                             <h3 class="text-xl font-bold text-gray-900">조합 필터</h3>
-                            <a href="filter.html?id=composite_count"
-                                class="text-sm font-medium text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
+                            <a href="filter.html?id=composite_count" target="_blank"
+                                class="text-sm font-medium text-slate-500 hover:text-blue-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
                                 <span class="material-symbols-outlined text-[18px]">tune</span>
                                 필터 페이지 가기
                             </a>
@@ -691,7 +646,7 @@
 
                             <div class="flex items-center gap-6 ml-auto flex-wrap">
                                 <button onclick="applyRecent10Filters()" id="recent10FilterBtn"
-                                    class="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 transition-all active:scale-95 text-sm font-black min-w-[210px] justify-center">
+                                    class="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 transition-all active:scale-95 text-sm font-black min-w-[210px] justify-center">
                                     <span class="material-symbols-outlined text-[18px]">auto_fix_high</span>
                                     <span id="recent10BtnText">최근 10회차 필터 적용</span>
                                 </button>
@@ -734,8 +689,8 @@
                                             class="py-3 px-4 text-center w-20 sticky left-0 bg-[#1e293b] z-40 whitespace-nowrap">
                                             회차</th>
                                         <th class="py-3 px-4 text-center w-[260px]">당첨번호</th>
-                                        <th class="py-3 px-4 text-center w-[820px]">합성수</th>
-                                        <th class="py-3 px-4 text-center w-28 whitespace-nowrap">당첨개수</th>
+                                        <th class="py-3 px-4 text-center w-[820px]">합성수 대상번호</th>
+                                        <th class="py-3 px-4 text-center w-28 whitespace-nowrap">HIT</th>
                                     </tr>
                                 </thead>
                                 <tbody id="drawsList" class="divide-y divide-gray-100">
@@ -811,13 +766,46 @@
             await checkAndResetOnNewDraw();
         });
 
+        // 로그아웃 시 필터 UI 초기화
+        function resetFilterUI() {
+            activeFilters.clear();
+            isRecentTenFilter = false;
+            highlightStartRound = null;
+            const chk = document.getElementById('applyFilterCheck');
+            if (chk) chk.checked = false;
+            const btn = document.getElementById('recent10FilterBtn');
+            const btnText = document.getElementById('recent10BtnText');
+            if (btn) {
+                btn.classList.remove('from-purple-500', 'to-purple-700');
+                btn.classList.add('from-blue-500', 'to-blue-600');
+            }
+            if (btnText) btnText.textContent = '최근 10회차 필터 적용';
+            applyFilter(false);
+        }
+
         // 🔥 대시보드(filter.html) 혹은 다른 페이지에서의 설정을 실시간 동기화
-        window.addEventListener('storage', (e) => {
-            if (e.key === 'composite_count' || e.key === 'composite_count_filter' || e.key === 'composite_filter') {
+        window.addEventListener('storage', async (e) => {
+            if (_compositeSelfSaving) return;
+            if (!e.key) return;
+            
+            const keysToWatch = [storageKey, 'composite_count', 'composite_count_filter', 'composite_filter'];
+            if (keysToWatch.includes(e.key)) {
+                // 로그아웃 감지
+                if (e.newValue) {
+                    try {
+                        const _p = JSON.parse(e.newValue);
+                        if (_p.enabled === false && !_p.settings && _p.min === undefined && !_p.selectedCounts) {
+                            resetFilterUI(); return;
+                        }
+                    } catch(_) {}
+                }
                 console.log('🔄 Dashboard -> Composite Number Sync Detected');
-                loadFilterSettings().then(() => {
-                    applyFilter(false); // 외부 데이터 로드 시에는 다시 저장(loop)하지 않음
-                });
+                const latestRound = (allDrawData && allDrawData.length > 0) ? allDrawData[0].round : null;
+                const currentRound = latestRound ? latestRound + 1 : null;
+                const loaded = await loadFilterSettings(currentRound);
+                if (loaded) {
+                    applyFilter(true);
+                }
             }
         });
 
@@ -904,8 +892,7 @@
                 }
 
                 updateRange(currentRange);
-                // AI 분석 자동 실행 (common_v2 엔진 사용)
-                // refreshAIAnalysis(); // [Deleted] updateRange에서 디바운스로 호출되므로 중복 제거
+                initDeepInsight();
 
             } catch (err) {
                 console.error("데이터 로드 실패:", err);
@@ -933,7 +920,7 @@
 
         function toggleSelection(count) {
             markManual(); // [추가] 수동 변경 마킹
-            isRecentTenFilter = false; // 수동 변경 시 해제
+            deactivateRecent10IfActive(); // [수정] 표준화된 비활성화 함수 사용
             if (activeFilters.has(count)) {
                 activeFilters.delete(count);
             } else {
@@ -1039,36 +1026,17 @@ ${distText}
 `;
         }
 
-        async function refreshAIAnalysis() {
-            if (!allDrawData || allDrawData.length === 0) return;
-
-            const contextData = generateAnalysisContext(currentRange);
-
-            const analysisConfig = {
-                containerId: 'aiDefaultReport',
-                topic: '합성수',
-                analysisType: 'composite',
-                subjectRound: allDrawData[0].round,
-                targetRound: allDrawData[0].round + 1,
-                userPrompt: "다음 회차 합성수 개수 범위와 핵심 전략을 3줄 요약해줘.",
-                contextData: contextData,
-                responseStyle: 'json', // 3 sections style
-                customRules: `
-# [분석 미션: 데이터 근거 제시]
-1. "왜(Why)" 그런 예측이 나왔는지 위 Gap/Streak/평균 데이터를 인용하여 설명하시오.
-2. [전략 제안]: 다음 회차 필터링을 위한 최소~최대 개수 범위를 구체적으로 제시하고, 이유를 설명하시오.
-3. [Risks]: 현재 과열되거나 침체된 구간이 있다면 경고하시오. ({{warn:내용}} 태그 사용)
-4. 핵심 숫자는 {{good:숫자}} 태그로 강조하시오.
-`
-            };
-
-            if (window.AIAnalysis && window.AIAnalysis.executeAnalysis) {
-                await window.AIAnalysis.executeAnalysis(analysisConfig);
+        // 딥러닝 인사이트 패널 초기화
+        function initDeepInsight() {
+            if (window.DeepInsightPanel) {
+                DeepInsightPanel.render('dlInsightContainer', 'composite', '합성수 개수');
             }
         }
 
         function updateRange(value) {
             currentRange = parseInt(value);
+            markManual(); // [추가] 수동 조작 마킹
+            deactivateRecent10IfActive(); // [추가] 범위 조정 시 최근 10회차 해제
 
             // 1. Immediate UI updates (Lightweight)
             document.getElementById('rangeDisplay').innerText = currentRange;
@@ -1085,7 +1053,7 @@ ${distText}
                 calculateStats();
                 drawChart();
                 applyFilter();
-                refreshAIAnalysis();
+                initDeepInsight();
             }, 300); // 300ms delay to prevent jitter during sliding
         }
 
@@ -1435,6 +1403,7 @@ ${distText}
 
         function syncExcludeFilter() {
             markManual(); // [추가] 수동 변경 마킹
+            deactivateRecent10IfActive(); // [추가] 수동 조작 일관성
             const compositeArray = [
                 4, 6, 8, 9, 10, 12, 14, 15, 16, 18,
                 20, 21, 22, 24, 25, 26, 27, 28, 30, 32,
@@ -1475,6 +1444,37 @@ ${distText}
             cbs.forEach(cb => cb.checked = false);
             syncExcludeFilter();
         }
+        // [추가] 필터 설정 로드 함수
+        async function loadFilterSettings(targetRound = null) {
+            try {
+                if (!window.Utils || !window.Utils.loadFilter) return;
+                const settings = await window.Utils.loadFilter('composite_number_filter', targetRound);
+                if (settings) {
+                    const chk = document.getElementById('applyFilterCheck');
+                    if (chk && settings.enabled !== undefined) chk.checked = settings.enabled;
+                    
+                    if (settings.selectedCounts) {
+                        activeFilters.clear();
+                        settings.selectedCounts.forEach(c => activeFilters.add(c));
+                        document.querySelectorAll('input[name="compositeCountFilter"]').forEach(el => {
+                            el.checked = activeFilters.has(parseInt(el.value));
+                        });
+                    }
+                    if (settings.excludedComposites) {
+                        // 체크박스 상태 업데이트
+                        document.querySelectorAll('input[id^="exclude_"]').forEach(el => {
+                            const val = parseInt(el.id.split('_')[1]);
+                            el.checked = settings.excludedComposites.includes(val);
+                        });
+                        syncExcludeFilter();
+                    }
+                    applyFilter(true);
+                }
+            } catch (e) {
+                console.error('합성수 필터 로드 실패:', e);
+            }
+        }
+
     </script>
     <!-- AI Q&A Sidebar (Floating Right) -->
     <div id="aiQnaModal"
@@ -1675,16 +1675,9 @@ ${distText}
             });
         }
 
-        // [추가] 대시보드 실시간 동기화 (Storage Event)
-        window.addEventListener('storage', async function (e) {
-            if (e.key === 'composite_count' || e.key === 'composite_filter') {
-                console.log(`[composite_number] Storage event detected for: ${e.key}, reloading...`);
-                await loadFilterSettings();
-                applyFilter();
-                updateStatistics();
-            }
-        });
     </script>
 </body>
+
+</html>
 
 </html>

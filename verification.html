@@ -1,0 +1,3182 @@
+﻿<!DOCTYPE html>
+<html class="light" lang="ko">
+<head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>Lotto Lab - 검증</title>
+    <link href="css/tailwind.css" rel="stylesheet" />
+    <link rel="icon" href="data:,">
+    <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="js/config.js"></script>
+    <script src="js/theme.js"></script>
+    <script src="js/common_v2.js"></script>
+    <script src="js/filter/FilterService.js"></script>
+    <script src="js/layout.js"></script>
+
+    <style>
+        /* ── 디자인 토큰 ── */
+        :root {
+            --c-primary: #1d4ed8;
+            --c-primary-dark: #1e3a8a;
+            --c-primary-ai: #7c3aed;
+            --c-primary-ai-dark: #4c1d95;
+            --c-loading: #93c5fd;
+            --c-muted: #94a3b8;
+            --c-border: #e2e8f0;
+            --c-border-light: #f1f5f9;
+            --c-surface: #f8fafc;
+            --c-text: #334155;
+            --c-text-sub: #64748b;
+            --c-text-heading: #0f172a;
+            --c-ok: #dcfce7;
+            --c-fail: #fee2e2;
+            --c-match: #22c55e;
+        }
+
+        body { font-family: 'Pretendard', sans-serif; }
+
+        /* ── 번호 볼 ── */
+        .ball { display:inline-flex;align-items:center;justify-content:center;border-radius:50%;font-weight:400;color:#fff;flex-shrink:0; }
+        .ball-y{background:#f59e0b;} .ball-b{background:#3b82f6;} .ball-r{background:#ef4444;}
+        .ball-g{background:#6b7280;} .ball-gr{background:#10b981;} .ball-bonus{background:#8b5cf6;}
+        .ball-matched { outline:3px solid var(--c-match); outline-offset:2px; margin: 3px; }
+        /* 볼 크기 클래스 (인라인 스타일 대체) */
+        .ball-sm { width:26px; height:26px; font-size:11px; }
+        .ball-md { width:34px; height:34px; font-size:13px; }
+        .ball-lg { width:42px; height:42px; font-size:15px; }
+        .ball-xl { width:52px; height:52px; font-size:17px; }
+
+        /* ── 컨트롤 바 ── */
+        .ctrl-bar { position:sticky;top:64px;z-index:40;background:#fff;border-bottom:1px solid var(--c-border);box-shadow:0 1px 4px rgba(0,0,0,0.04); }
+
+        /* ── 메인 탭 ── */
+        .main-tab { padding:10px 18px;font-size:14px;font-weight:400;color:var(--c-text-sub);border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap;transition:color 0.15s, border-color 0.15s; }
+        .main-tab.active { color:var(--c-primary);border-bottom-color:var(--c-primary); }
+        .main-tab:hover:not(.active) { color:var(--c-text); }
+        .main-tab:focus-visible { outline:2px solid var(--c-primary);outline-offset:-2px;border-radius:2px; }
+
+        /* ── 서브 탭 ── */
+        .sub-tab { padding:7px 14px;font-size:13px;font-weight:400;color:var(--c-text-sub);background:var(--c-surface);border:1px solid var(--c-border);border-radius:8px;cursor:pointer;white-space:nowrap;transition:all 0.15s; }
+        .sub-tab.active { color:#fff;background:var(--c-primary);border-color:var(--c-primary); }
+        .sub-tab:hover:not(.active) { background:#f1f5f9;color:var(--c-text); }
+        .sub-tab:focus-visible { outline:2px solid var(--c-primary);outline-offset:2px; }
+
+        /* ── 카드 ── */
+        .stat-card { background:#fff;border:1px solid var(--c-border);border-radius:14px;padding:16px 20px; }
+        .info-card { background:#fff;border:1px solid var(--c-border);border-radius:18px;overflow:hidden; }
+
+        /* ── 필터 행 ── */
+        .filter-row { display:flex;align-items:center;padding:10px 16px;border-bottom:1px solid var(--c-border-light);gap:8px; }
+        .filter-row:last-child { border-bottom:none; }
+        .filter-row:hover { background:var(--c-surface); }
+
+        /* ── 통과 배지 (28px으로 가독성 개선) ── */
+        .pass-badge { display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;flex-shrink:0; }
+        .pass-badge.ok { background:var(--c-ok); }
+        .pass-badge.fail { background:var(--c-fail); }
+        .pass-badge.na { background:var(--c-surface); }
+
+        /* ── 그룹 헤더 ── */
+        .group-header { background:var(--c-surface);border:1px solid var(--c-border);border-radius:10px;padding:8px 14px;margin-bottom:2px;font-size:13px;font-weight:400;color:#475569;display:flex;align-items:center;gap:6px;cursor:pointer; }
+        .group-header:focus-visible { outline:2px solid var(--c-primary);outline-offset:2px; }
+
+        /* ── 테이블 수평 스크롤 (모바일 힌트 포함) ── */
+        .table-wrap { position:relative;overflow-x:auto;-webkit-overflow-scrolling:touch; }
+        .table-wrap::after { content:'';position:absolute;right:0;top:0;bottom:0;width:20px;background:linear-gradient(to left,rgba(255,255,255,0.95),transparent);pointer-events:none; }
+
+        /* ── 당첨 카드 헤더 (그라디언트 → 단색+세로선 강조) ── */
+        .win-header {
+            background:var(--c-primary);
+            border-left:5px solid #60a5fa;
+            padding:20px 24px;
+        }
+
+        /* ── 애니메이션 ── */
+        @keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+        .fade-in { animation:fadeIn 0.15s ease-out; }
+        @keyframes spin{to{transform:rotate(360deg)}}
+        .spin { display:inline-block;animation:spin 0.8s linear infinite; }
+
+        /* ── 하이라이트 (로또 공 기본색과 겹치지 않는 고대비 색상 적용) ── */
+        .ball-matched { outline: 4px solid #000000 !important; outline-offset: 2px; } /* 당첨번호: 블랙 아웃라인 (가장 확실한 구분) */
+        .ball-ai-rec { box-shadow: 0 0 0 4px #22d3ee inset, 0 0 12px rgba(34, 211, 238, 0.6); } /* AI 추천: 시안(Cyan) 내부 링 + 글로우 */
+        .ball-ai-exc { opacity: 0.2 !important; filter: grayscale(1) blur(0.5px); } /* AI 제외: 강한 흐림 및 그레이스케일 */
+        .ball-basket-exc { box-shadow: 0 0 0 4px #64748b; position: relative; z-index: 5; text-decoration: line-through; text-decoration-color: #000; text-decoration-thickness: 2px; } /* 바스켓 제외: 슬레이트 색 테두리 + 취소선 */
+        .ball-ai-ignored { background: #000 !important; color: #fff !important; box-shadow: 0 0 8px rgba(0,0,0,0.8); border: 1px solid #444; } /* AI 전체 미포함: 검은색 형광 (Black Marker) */
+
+        /* 범례 스타일 */
+        .legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--c-text-sub); }
+        .legend-ball { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
+    </style>
+</head>
+<body class="bg-slate-50 antialiased">
+
+<div id="gnb-container"></div>
+
+<!-- ══ 컨트롤 바 ══ -->
+<div class="ctrl-bar">
+    <div class="max-w-6xl mx-auto px-6 py-2.5 relative flex items-center justify-center" style="min-height:52px;">
+        <!-- 좌: 타이틀 (절대 위치) -->
+        <div class="absolute left-6 flex items-center gap-2">
+            <span class="material-symbols-outlined text-blue-600" style="font-size:22px;">fact_check</span>
+            <h1 class="text-[17px] font-normal text-slate-900">검증</h1>
+        </div>
+        <!-- 중앙: 회차 네비게이션 -->
+        <div class="flex items-center gap-2" role="navigation" aria-label="회차 이동">
+            <button id="btnPrev" onclick="VP.prevRound()"
+                aria-label="이전 회차"
+                class="w-11 h-11 flex items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:border-blue-400 hover:text-blue-600 transition-all disabled:opacity-30 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-blue-500">
+                <span class="material-symbols-outlined" style="font-size:18px;" aria-hidden="true">chevron_left</span>
+            </button>
+            <select id="roundSelect" onchange="VP.selectRound(parseInt(this.value))"
+                aria-label="검증 회차 선택"
+                style="width:170px;flex-shrink:0;"
+                class="px-3 py-1.5 border border-slate-200 rounded-lg text-[14px] font-normal text-slate-700 focus:ring-1 focus:ring-blue-400 focus:outline-none bg-white">
+            </select>
+            <button id="btnNext" onclick="VP.nextRound()"
+                aria-label="다음 회차"
+                class="w-11 h-11 flex items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:border-blue-400 hover:text-blue-600 transition-all disabled:opacity-30 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-blue-500">
+                <span class="material-symbols-outlined" style="font-size:18px;" aria-hidden="true">chevron_right</span>
+            </button>
+            <span id="roundDate" class="text-[12px] text-slate-400 ml-1 hidden sm:inline" style="min-width:64px;"></span>
+        </div>
+        <!-- 우: 로딩 인디케이터 (절대 위치, 공간 차지 안 함) -->
+        <div id="ctrlLoading" class="hidden absolute right-6 text-[12px] text-slate-400 flex items-center gap-1">
+            <span class="spin material-symbols-outlined" style="font-size:15px;">refresh</span> 로딩 중...
+        </div>
+    </div>
+</div>
+
+<!-- ══ 조합 그룹 선택 바 ══ -->
+<div class="bg-white border-b border-slate-200">
+    <div class="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between gap-4">
+        <div class="flex items-center gap-2">
+            <div class="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center">
+                <span class="material-symbols-outlined text-indigo-600" style="font-size:18px;">inventory_2</span>
+            </div>
+            <div>
+                <span class="block text-[11px] font-normal text-slate-400 uppercase tracking-tighter leading-none mb-1">Standard Selection</span>
+                <div class="flex items-center gap-2">
+                    <select id="groupSelect" onchange="VP.onGroupChange(this.value)"
+                        class="bg-transparent border-none p-0 pr-6 text-[15px] font-normal text-slate-900 focus:ring-0 cursor-pointer hover:text-indigo-600 transition-colors">
+                        <option value="">전역 기본 설정 (Global Settings)</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+        <div id="groupInfoBadge" class="hidden px-2.5 py-1 bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-lg flex items-center gap-1.5 transition-all animate-fadeIn">
+            <span class="material-symbols-outlined" style="font-size:14px;">tune</span>
+            <span class="text-[12px] font-normal">해당 조합 생성 당시의 필터 적용 중</span>
+        </div>
+    </div>
+</div>
+
+<!-- ══ 본문 ══ -->
+<div class="max-w-6xl mx-auto px-6 py-6">
+
+    <!-- 초기 로딩 -->
+    <div id="stateLoading" role="status" aria-live="polite" aria-label="데이터 로딩 중"
+        class="flex flex-col items-center justify-center py-20">
+        <span class="spin material-symbols-outlined" style="font-size:44px;color:var(--c-loading);" aria-hidden="true">refresh</span>
+        <p class="text-[13px] text-slate-400 mt-4">회차 데이터를 불러오는 중...</p>
+    </div>
+
+    <!-- 데이터 없음 -->
+    <div id="stateEmpty" class="hidden text-center py-20">
+        <span class="material-symbols-outlined" style="font-size:52px;color:#cbd5e1;" aria-hidden="true">calendar_today</span>
+        <h2 class="text-[18px]  text-slate-700 mt-4">당첨 회차 데이터가 없습니다</h2>
+        <p class="text-[13px] text-slate-400 mt-2">lotto_draws 테이블에 당첨 데이터를 입력해주세요.</p>
+    </div>
+
+    <!-- 메인 컨텐츠 -->
+    <div id="stateMain" class="hidden">
+
+        <!-- 당첨번호 카드 -->
+        <div class="info-card mb-6 fade-in" role="region" aria-label="당첨번호 정보">
+            <div class="win-header">
+                <div class="flex items-center justify-between flex-wrap gap-3">
+                    <div>
+                        <div id="winTitle" class="text-[18px]  text-white"></div>
+                        <div id="winDate" class="text-[12px] text-white/60 mt-0.5"></div>
+                    </div>
+                    <span class="px-3 py-1 bg-white/20 text-white text-[12px]  rounded-full">당첨 결과</span>
+                </div>
+                <!-- 번호 공 -->
+                <div class="flex items-center gap-2 mt-5 flex-wrap">
+                    <div id="winBalls" class="flex items-center gap-2" aria-label="당첨번호"></div>
+                    <div class="flex items-center gap-1.5 ml-3">
+                        <span class="text-[13px] text-white/40" aria-hidden="true">+</span>
+                        <div id="bonusBall" aria-label="보너스 번호"></div>
+                        <span class="text-[11px] text-white/50">보너스</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 메인 탭 -->
+        <div role="tablist" aria-label="검증 탭" class="flex border-b border-slate-200 mb-6 overflow-x-auto no-scrollbar">
+            <button role="tab" aria-selected="true"  aria-controls="tabFixedExclude" class="main-tab active" onclick="VP.switchTab('fixedExclude',this)">고정수/제외수</button>
+            <button role="tab" aria-selected="false" aria-controls="tabBasic"        class="main-tab" onclick="VP.switchTab('basic',this)">기초필터</button>
+            <button role="tab" aria-selected="false" aria-controls="tabRegression"   class="main-tab" onclick="VP.switchTab('regression',this)">회귀필터</button>
+            <button role="tab" aria-selected="false" aria-controls="tabCustom"       class="main-tab" onclick="VP.switchTab('custom',this)">커스텀필터</button>
+            <button role="tab" aria-selected="false" aria-controls="tabManual"       class="main-tab" onclick="VP.switchTab('manual',this)">수동필터</button>
+            <button role="tab" aria-selected="false" aria-controls="tabDl"           class="main-tab" onclick="VP.switchTab('dl',this)">딥러닝분석</button>
+            <button role="tab" aria-selected="false" aria-controls="tabCombosTab"    class="main-tab" onclick="VP.switchTab('combosTab',this)">조합</button>
+        </div>
+
+        <!-- ── 탭: 기초필터 ── -->
+        <div id="tabBasic" role="tabpanel" aria-label="기초필터" class="hidden fade-in">
+            <div id="basicFilterContent" aria-live="polite"></div>
+        </div>
+
+        <!-- ── 탭: 회귀필터 ── -->
+        <div id="tabRegression" role="tabpanel" aria-label="회귀필터" class="hidden fade-in">
+            <div id="regressionContent" aria-live="polite"></div>
+        </div>
+
+        <!-- ── 탭: 커스텀필터 ── -->
+        <div id="tabCustom" role="tabpanel" aria-label="커스텀필터" class="hidden fade-in">
+            <div id="customContent" aria-live="polite"></div>
+        </div>
+
+        <!-- ── 탭: 수동필터 ── -->
+        <div id="tabManual" role="tabpanel" aria-label="수동필터" class="hidden fade-in">
+            <div id="manualContent" aria-live="polite"></div>
+        </div>
+
+        <!-- ── 탭: 고정수/제외수 ── -->
+        <div id="tabFixedExclude" role="tabpanel" aria-label="고정수/제외수" class="fade-in">
+            <div id="fixedExcludeContent" aria-live="polite"></div>
+        </div>
+
+        <!-- ── 탭: 조합 ── -->
+        <div id="tabCombosTab" role="tabpanel" aria-label="조합" class="hidden fade-in">
+            <div id="combosTabContent" aria-live="polite"></div>
+        </div>
+
+        <!-- ── 탭: 딥러닝분석 ── -->
+        <div id="tabDl" role="tabpanel" aria-label="딥러닝분석" class="hidden fade-in">
+            <!-- 서브 탭 -->
+            <div role="tablist" aria-label="딥러닝 서브 탭" class="flex items-center gap-2 mb-6 flex-wrap">
+                <button role="tab" aria-selected="true"  class="sub-tab active" onclick="VP.switchSub('recommend',this)">추천수/제외수</button>
+                <button role="tab" aria-selected="false" class="sub-tab" onclick="VP.switchSub('filterAnalysis',this)">필터분석</button>
+                <button role="tab" aria-selected="false" class="sub-tab" onclick="VP.switchSub('customAnalysis',this)">커스텀분석</button>
+                <button role="tab" aria-selected="false" class="sub-tab" onclick="VP.switchSub('combos',this)">AI 추천 조합</button>
+                <button role="tab" aria-selected="false" class="sub-tab" onclick="VP.switchSub('models',this)">모델별 AI 분석</button>
+            </div>
+
+            <div id="subRecommend" role="tabpanel" class="fade-in" aria-live="polite"></div>
+            <div id="subFilterAnalysis" role="tabpanel" class="hidden fade-in" aria-live="polite"></div>
+            <div id="subCustomAnalysis" role="tabpanel" class="hidden fade-in" aria-live="polite"></div>
+            <div id="subCombos" role="tabpanel" class="hidden fade-in" aria-live="polite"></div>
+            <div id="subModels" role="tabpanel" class="hidden fade-in" aria-live="polite"></div>
+        </div>
+
+    </div><!-- /stateMain -->
+</div>
+
+<script>
+// ════════════════════════════════════════════
+//  Verification Page (VP)
+// ════════════════════════════════════════════
+const VP = (() => {
+    let allRounds   = [];
+    let curIdx      = 0;
+    let curDraw     = null;
+    let curWin      = null;   // { nums:[], bonus }
+    let savedGroups = [];
+    let curTab      = 'basic';
+    let curSub      = 'recommend';
+    let collectiveAiSet = new Set(); // [추가] 모든 AI 모델이 뽑은 번호의 합집합
+
+    // 필터 캐시 (회차별)
+    let filterDefs      = null;  // 전체 filter_definitions
+    let filterSettingsCache = {};  // { [round]: { [filter_key]: settingsRow } }
+    let filterSettings  = {};    // 현재 회차 { [filter_key]: settingsRow }
+
+    // 렌더 완료 여부 (중복 렌더 방지)
+    let renderedTabs = {};
+
+    function getSB() { return window.supabaseClient || supabase.createClient(CONFIG.SUPABASE.URL, CONFIG.SUPABASE.KEY); }
+
+    // ── 공통 UI 상수 ──
+    const LOADING_HTML = `<div class="flex items-center justify-center py-10"><span class="spin material-symbols-outlined" style="font-size:32px;color:var(--c-loading);" aria-hidden="true">refresh</span></div>`;
+    const BALL_SIZE_CLASS = { 20:'ball-sm', 28:'ball-md', 32:'ball-md', 34:'ball-lg', 36:'ball-lg', 42:'ball-xl', 50:'ball-xl' };
+
+    function emptyState(icon, title, desc='') {
+        return `<div class="info-card p-10 text-center">
+            <span class="material-symbols-outlined" style="font-size:52px;color:#cbd5e1;" aria-hidden="true">${icon}</span>
+            <h3 class="text-[16px] font-normal text-slate-700 mt-4 mb-1">${title}</h3>
+            ${desc ? `<p class="text-[12px] text-slate-400">${desc}</p>` : ''}
+        </div>`;
+    }
+
+    // ── 볼 렌더 ──
+    function bc(n) { return n<=10?'ball-y':n<=20?'ball-b':n<=30?'ball-r':n<=40?'ball-g':'ball-gr'; }
+    function ball(n, size=36, extra='') {
+        const sizeClass = BALL_SIZE_CLASS[size] || 'ball-lg';
+        return `<span class="ball ${bc(n)} ${sizeClass} ${extra}" aria-label="${n}번">${String(n).padStart(2,'0')}</span>`;
+    }
+
+    // ── AC값 ──
+    function acVal(nums) {
+        const sorted = [...nums].sort((a,b)=>a-b);
+        const diffs = new Set();
+        for (let i=0;i<sorted.length;i++)
+            for (let j=i+1;j<sorted.length;j++) diffs.add(sorted[j]-sorted[i]);
+        return diffs.size - (sorted.length - 1);
+    }
+
+    // ── 소수 집합 ──
+    const PRIMES = new Set([2,3,5,7,11,13,17,19,23,29,31,37,41,43]);
+    const TRIANGLES = new Set([1,3,6,10,15,21,28,36,45]);
+    const FIBS = new Set([1,2,3,5,8,13,21,34]);
+    const SQUARES = new Set([1,4,9,16,25,36]);
+    // 쌍둥이 소수 구성원 (1~45 내)
+    const TWIN_P = new Set([3,5,7,11,13,17,19,29,31,41,43]);
+
+    // ── 필터 실제값 계산 (filter_recommendations 의 filter 이름 → 실제 수치) ──
+    function computeFilterActual(filterName, nums) {
+        const sorted = [...nums].sort((a,b)=>a-b);
+        switch(filterName) {
+            case '총합':      return sorted.reduce((a,b)=>a+b,0);
+            case '끝수합':    return sorted.reduce((a,n)=>a+(n%10),0);
+            case 'AC값':      return acVal(nums);
+            case '홀짝': { const o=nums.filter(n=>n%2!==0).length; return `${o}:${6-o}`; }
+            case '저고':  { const h=nums.filter(n=>n>=23).length; return `${6-h}:${h}`; } // 저:고
+            case '소수':      return nums.filter(n=>PRIMES.has(n)).length;
+            case '합성수':    return nums.filter(n=>n>1&&!PRIMES.has(n)).length;
+            case '제곱수':    return nums.filter(n=>SQUARES.has(n)).length;
+            case '삼각수':    return nums.filter(n=>TRIANGLES.has(n)).length;
+            case '동형수':    return nums.filter(n=>[11,22,33,44].includes(n)).length;
+            case '연속수': { let c=0; for(let i=0;i<sorted.length-1;i++) if(sorted[i+1]-sorted[i]===1) c++; return c; }
+            case '3의 배수':  return nums.filter(n=>n%3===0).length;
+            case '4의 배수':  return nums.filter(n=>n%4===0).length;
+            case '5의 배수':  return nums.filter(n=>n%5===0).length;
+            case '배수외':    return nums.filter(n=>n%3!==0&&n%4!==0&&n%5!==0).length; // MULTIPLE_DEF['배수외']와 동일
+            case '이월수':    return _prevNums.length ? nums.filter(n=>_prevNums.includes(n)).length : null;
+            case '이웃수': {
+                if(!_prevNums.length) return null;
+                const nb=new Set();
+                _prevNums.forEach(n=>{ if(n>1)nb.add(n-1); if(n<45)nb.add(n+1); });
+                _prevNums.forEach(n=>nb.delete(n));
+                return nums.filter(n=>nb.has(n)).length;
+            }
+            case '번호대별': {
+                const g={'01~10':0,'11~20':0,'21~30':0,'31~40':0,'41~45':0};
+                sorted.forEach(x=>{ if(x<=10)g['01~10']++; else if(x<=20)g['11~20']++; else if(x<=30)g['21~30']++; else if(x<=40)g['31~40']++; else g['41~45']++; });
+                const mv=Math.max(...Object.values(g));
+                return Object.entries(g).filter(([,v])=>v===mv).map(([k])=>k).join(', ')+' 집중';
+            }
+            case '9궁분석': {
+                const gc={};
+                sorted.forEach(x=>{ const g=Math.ceil(x/5); gc[g]=(gc[g]||0)+1; });
+                return Object.entries(gc).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([k])=>`${k}궁`).join(', ');
+            }
+            default: return null; // 히스토리 필요 또는 복잡계산
+        }
+    }
+
+    // ── 필터 적중 여부 판정 ──
+    function checkFilterHit(f, actual) {
+        if (actual === null || actual === undefined) return null;
+        // 숫자 범위
+        if (f.min != null || f.max != null) {
+            const num = typeof actual === 'number' ? actual : parseFloat(actual);
+            if (isNaN(num)) return null;
+            return (f.min == null || num >= f.min) && (f.max == null || num <= f.max);
+        }
+        // 패턴 문자열 — "또는"으로 구분된 대안 중 하나라도 일치
+        if (f.pattern) {
+            const as = String(actual).toLowerCase().replace(/\s/g,'');
+            return String(f.pattern).toLowerCase().split('또는').map(s=>s.trim().replace(/\s/g,'')).some(alt =>
+                as === alt || as.includes(alt) || alt.includes(as)
+            );
+        }
+        return null;
+    }
+
+    // ── filter_recommendations 전체 적중 결과 계산 ──
+    function computeAllFilterResults(filterRecs, nums) {
+        return filterRecs.map(f => {
+            const actual = computeFilterActual(f.filter, nums);
+            const hit    = (actual !== null) ? checkFilterHit(f, actual) : null;
+            return { ...f, actual, hit };
+        });
+    }
+
+    // 필터 표시명 override (DB filter_name 우선, 없으면 아래 사용)
+    const FILTER_DISPLAY_NAMES = {
+        'total_sum':'총합','last_digit_sum':'끝수합','ac_value':'AC값',
+        'consecutive_count':'연번','odd_even_pattern':'홀짝',
+        'high_low_pattern':'저고','prime_number_patterns':'소수',
+        'composite_count':'합성수','square_number_patterns':'제곱수',
+        'triangular_number_patterns':'삼각수','twin_number_patterns':'동형수',
+        'number_range_patterns':'번호대별','tail_digit_patterns':'끝수',
+        'multiple_3_count':'배수',
+        'hot_cold_5':'핫/콜드 5회','hot_cold_10':'핫/콜드 10회',
+        'hot_cold_15':'핫/콜드 15회','hot_cold_20':'핫/콜드 20회',
+        'long_term_miss':'미출현','missing_period':'미출현그룹',
+        'missing_custom_filter':'미출현 커스텀',
+        'carryover_count':'이월수','neighbor_number_patterns':'이웃수',
+        'lotto_paper_pattern':'로또용지','magic_square_pattern':'9궁',
+        'regression_analysis':'회귀분석',
+    };
+
+    // 기초필터에서 제외 (끝수 개수는 tail_digit_patterns에서 통합, long_term_miss는 missing_period와 중복)
+    const BASIC_EXCLUDED_KEYS = new Set([
+        'regression_analysis','fixed_numbers','excluded_numbers',
+        'long_term_miss','carryover_with_bonus',
+        'end_digit_0_count','end_digit_1_count','end_digit_2_count','end_digit_3_count',
+        'end_digit_4_count','end_digit_5_count','end_digit_6_count','end_digit_7_count',
+        'end_digit_8_count','end_digit_9_count',
+    ]);
+
+    // 마방진 궁별 번호 (1궁:1-5, 2궁:6-10, ..., 9궁:41-45)
+    const MAGIC_SQUARE_DEF = {
+        '1궁':[1,2,3,4,5],'2궁':[6,7,8,9,10],'3궁':[11,12,13,14,15],
+        '4궁':[16,17,18,19,20],'5궁':[21,22,23,24,25],'6궁':[26,27,28,29,30],
+        '7궁':[31,32,33,34,35],'8궁':[36,37,38,39,40],'9궁':[41,42,43,44,45],
+    };
+    // 번호대별 번호
+    const RANGE_DEF = [
+        {key:'1_10',  label:'단번대',  nums:Array.from({length:10},(_,i)=>i+1)},
+        {key:'11_20', label:'십번대', nums:Array.from({length:10},(_,i)=>i+11)},
+        {key:'21_30', label:'이십번대', nums:Array.from({length:10},(_,i)=>i+21)},
+        {key:'31_40', label:'삼십번대', nums:Array.from({length:10},(_,i)=>i+31)},
+        {key:'41_45', label:'사십번대', nums:[41,42,43,44,45]},
+    ];
+    // 배수별 번호
+    const MULTIPLE_DEF = {
+        '3배수': Array.from({length:45},(_,i)=>i+1).filter(n=>n%3===0),
+        '4배수': Array.from({length:45},(_,i)=>i+1).filter(n=>n%4===0),
+        '5배수': Array.from({length:45},(_,i)=>i+1).filter(n=>n%5===0),
+        '3·4배수': Array.from({length:45},(_,i)=>i+1).filter(n=>n%3===0&&n%4===0),
+        '3·5배수': Array.from({length:45},(_,i)=>i+1).filter(n=>n%3===0&&n%5===0), // [추가]
+        '4·5배수': Array.from({length:45},(_,i)=>i+1).filter(n=>n%4===0&&n%5===0),
+        '배수외': Array.from({length:45},(_,i)=>i+1).filter(n=>n%3!==0&&n%4!==0&&n%5!==0),
+    };
+
+    // 로또용지 가로/세로 번호 정의
+    const LOTTO_PAPER = {
+        '가로1':[1,2,3,4,5,6,7],'가로2':[8,9,10,11,12,13,14],
+        '가로3':[15,16,17,18,19,20,21],'가로4':[22,23,24,25,26,27,28],
+        '가로5':[29,30,31,32,33,34,35],'가로6':[36,37,38,39,40,41,42],
+        '가로7':[43,44,45],
+        '세로1':[1,8,15,22,29,36,43],'세로2':[2,9,16,23,30,37,44],
+        '세로3':[3,10,17,24,31,38,45],'세로4':[4,11,18,25,32,39],
+        '세로5':[5,12,19,26,33,40],'세로6':[6,13,20,27,34,41],
+        '세로7':[7,14,21,28,35,42],
+    };
+
+    function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+    function fmtDate(d) { try{return new Date(d).toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric'});}catch(e){return '';} }
+    function isUndrawn(draw) { return !draw || draw.undrawn === true || !draw.numbers || draw.numbers.length < 6; }
+
+    // ════════════════════════════════════════
+    //  필터 값 계산 (실제 DB filter_key 기준)
+    // ════════════════════════════════════════
+    // 이전 회차 번호 (carryover 계산용, selectRound 시 설정)
+    let _prevNums = [];
+    let _prevBonus = null;
+
+    // 핫/콜드 분류 (period 이전 회차 기준, top/bottom 40%)
+    function _hotColdSets(period) {
+        const draws = allRounds.slice(curIdx + 1, curIdx + 1 + period);
+        if (!draws.length) return { hotSet: new Set(), coldSet: new Set() };
+        const freq = {};
+        for (let n = 1; n <= 45; n++) freq[n] = 0;
+        draws.forEach(d => (d.numbers||[]).forEach(n => { if (freq[n] !== undefined) freq[n]++; }));
+        const sorted = Object.entries(freq).sort((a,b) => b[1]-a[1]);
+        const cut = Math.floor(sorted.length * 0.4);
+        return {
+            hotSet:  new Set(sorted.slice(0, cut).map(x => parseInt(x[0]))),
+            coldSet: new Set(sorted.slice(sorted.length - cut).map(x => parseInt(x[0]))),
+        };
+    }
+
+    function calcFilterValue(filterKey, nums, bonus) {
+        const sorted = [...nums].sort((a,b)=>a-b);
+        const sum     = nums.reduce((a,b)=>a+b,0);
+        const tailSum = nums.map(n=>n%10).reduce((a,b)=>a+b,0);
+        const odds    = nums.filter(n=>n%2!==0).length;
+        const highs   = nums.filter(n=>n>=23).length;
+        let consec = 0;
+        for (let i=0; i<sorted.length-1; i++) if (sorted[i+1]-sorted[i]===1) consec++;
+
+        // 이월수 계산 (이전 회차 번호 필요)
+        const carryover = _prevNums.length
+            ? nums.filter(n => _prevNums.includes(n)).length : null;
+        const carryoverBonus = _prevNums.length
+            ? nums.filter(n => (_prevNums.includes(n) || n === _prevBonus)).length : null;
+
+        const map = {
+            'total_sum':          sum,
+            'last_digit_sum':     tailSum,
+            'ac_value':           acVal(nums),
+            'consecutive_count':  consec,
+            'odd_even_pattern':   `${odds}:${6-odds}`,
+            'high_low_pattern':   `${highs}:${6-highs}`,
+            'prime_number_patterns':       nums.filter(n=>PRIMES.has(n)).length,
+            'composite_count':             nums.filter(n=>n>1&&!PRIMES.has(n)).length,
+            'square_number_patterns':      nums.filter(n=>SQUARES.has(n)).length,
+            'triangular_number_patterns':  nums.filter(n=>TRIANGLES.has(n)).length,
+            'twin_number_patterns':        nums.filter(n=>[11,22,33,44].includes(n)).length,
+            'carryover_count':             carryover !== null ? carryover : '이전회차 필요',
+            'carryover_with_bonus':        carryoverBonus !== null ? carryoverBonus : '이전회차 필요',
+            'multiple_3_count':  nums.filter(n=>n%3===0).length,
+            'multiple_4_count':  nums.filter(n=>n%4===0).length,
+            'multiple_5_count':  nums.filter(n=>n%5===0).length,
+            'long_term_miss':    '히스토리 필요',
+            'missing_period':    '히스토리 필요',
+            'neighbor_number_patterns': '히스토리 필요',
+            'lotto_paper_pattern':      '그룹별 확인',
+            'magic_square_pattern':     '그룹별 확인',
+            'number_range_patterns':    '그룹별 확인',
+            'missing_custom_filter':    '그룹별 확인',
+        };
+        // 핫/콜드 (period별 실제 계산)
+        for (const p of [5,10,15,20]) {
+            const { hotSet, coldSet } = _hotColdSets(p);
+            map[`hot_cold_${p}`] = hotSet.size
+                ? `핫${nums.filter(n=>hotSet.has(n)).length}/콜드${nums.filter(n=>coldSet.has(n)).length}/중립${nums.filter(n=>!hotSet.has(n)&&!coldSet.has(n)).length}`
+                : '히스토리 필요';
+        }
+        return map.hasOwnProperty(filterKey) ? map[filterKey] : null;
+    }
+
+    // ── 패턴형 값 계산 ──
+    function calcPatternValue(filterKey, nums) {
+        const odds = nums.filter(n=>n%2!==0).length;
+        const highs = nums.filter(n=>n>=23).length;
+        const sm = nums.filter(n=>n<=15).length;
+        const md = nums.filter(n=>n>=16&&n<=30).length;
+        const lg = 6 - sm - md;
+
+        if (filterKey === 'odd_even_ratio' || filterKey === 'odd_even') return `${odds}:${6-odds}`;
+        if (filterKey === 'high_low_ratio' || filterKey === 'high_low') return `${highs}:${6-highs}`;
+        if (filterKey === 'section_distribution' || filterKey === 'section_ratio') return `${sm}:${md}:${lg}`;
+        return null;
+    }
+
+    // ── pass/fail 판정 ──
+    function checkFilterPass(def, settingRow, nums, bonus) {
+        const s = settingRow ? (settingRow.settings || {}) : {};
+        const isEnabled = settingRow ? (settingRow.enabled !== false) : false;
+        const fk = def.filter_key;
+
+        const val = calcFilterValue(fk, nums, bonus);
+        const dispVal = val !== null ? String(val) : '?';
+
+        if (!settingRow || Object.keys(s).length === 0) {
+            return { pass: null, dispVal, reason: '미설정' };
+        }
+        if (!isEnabled) {
+            return { pass: null, dispVal, reason: '비활성' };
+        }
+
+        // 히스토리/계산 불가
+        if (val === '히스토리 필요' || val === '계산 불가') {
+            return { pass: null, dispVal: val, reason: '외부 데이터 필요' };
+        }
+
+        // 이산 패턴 (홀짝, 고저) — selectedRatios 배열
+        if (fk === 'odd_even_pattern' || fk === 'high_low_pattern') {
+            const selected = s.selectedRatios || s.selectedCounts || s.selectedValues || [];
+            if (!selected.length) return { pass: null, dispVal, reason: '설정 없음' };
+            const ok = selected.includes(val) || selected.includes(String(val));
+            return { pass: ok, dispVal, reason: `허용: ${selected.join(', ')}` };
+        }
+
+        // 이산 카운트 (소수, 합성수, 제곱수, 삼각수, 연속수 등) — selectedValues 또는 activeCounts
+        if (['prime_number_patterns','composite_count','square_number_patterns',
+             'triangular_number_patterns','twin_number_patterns',
+             'consecutive_count','prime_count','square_count','twin_count','triangular_count'].includes(fk)) {
+            const numVal = typeof val === 'number' ? val : null;
+            if (numVal === null) return { pass: null, dispVal, reason: '계산 불가' };
+            const selected = s.selectedValues || s.activeCounts || s.selectedCounts || [];
+            if (!selected.length) {
+                // range fallback
+                const minV = s.min ?? s.minValue;
+                const maxV = s.max ?? s.maxValue;
+                if (minV !== undefined && maxV !== undefined)
+                    return { pass: numVal>=minV && numVal<=maxV, dispVal, reason: `${minV}~${maxV}개` };
+                return { pass: null, dispVal, reason: '설정 없음' };
+            }
+            const ok = selected.includes(numVal) || selected.includes(String(numVal));
+            return { pass: ok, dispVal, reason: `허용: ${selected.join(', ')}개` };
+        }
+
+        // range 타입 (total_sum, last_digit_sum, ac_value, consecutive_count, multiple_X_count)
+        if (typeof val === 'number') {
+            // discrete_select with selectedValues
+            if (s.useDiscreteSelection && s.selectedValues?.length > 0) {
+                const ok = s.selectedValues.includes(val) || s.selectedValues.includes(String(val));
+                return { pass: ok, dispVal, reason: `선택: ${s.selectedValues.join(', ')}` };
+            }
+            const minV = s.min ?? s.minValue;
+            const maxV = s.max ?? s.maxValue;
+            if (minV === undefined || maxV === undefined) return { pass: null, dispVal, reason: '설정 없음' };
+            return { pass: val>=minV && val<=maxV, dispVal, reason: `${minV}~${maxV}` };
+        }
+
+        return { pass: null, dispVal, reason: '판정 불가' };
+    }
+
+    // ════════════════════════════════════════
+    //  초기화
+    // ════════════════════════════════════════
+
+    // 미추첨 회차 계산: 최신 회차 기준 +1, 날짜는 +7일
+    function buildUndrawnRound(latestDraw) {
+        const nextRound = latestDraw.round + 1;
+        let nextDate = null;
+        try {
+            const d = new Date(latestDraw.date);
+            d.setDate(d.getDate() + 7);
+            nextDate = d.toISOString().split('T')[0];
+        } catch(e) {}
+        return { round: nextRound, date: nextDate, numbers: null, bonus: null, undrawn: true };
+    }
+
+    function isUndrawn(draw) {
+        return !!(draw && draw.undrawn);
+    }
+
+    async function init() {
+        setState('loading');
+        try {
+            const sb = getSB();
+            const { data, error } = await sb.from('lotto_draws').select('*').order('round',{ascending:false}).limit(500);
+            if (error) throw error;
+            if (!data || !data.length) { setState('empty'); return; }
+
+            allRounds = data;
+
+            // 최신 회차 다음 회차(미추첨)를 맨 앞에 추가
+            const undrawn = buildUndrawnRound(allRounds[0]);
+            allRounds.unshift(undrawn);
+
+            buildSelector();
+            
+            // [추가] 현재 시스템 탐색 회차 로깅 및 강제 선택
+            console.log(`[VP/init] Latest Draw in DB: ${data[0].round}, Target Undrawn: ${undrawn.round}`);
+            
+            // URL 파라미터가 없으면 무조건 최신 미추첨 회차(allRounds[0])를 선택하도록 강제
+            const urlParams = new URLSearchParams(window.location.search);
+            const target = urlParams.get('round') || allRounds[0].round;
+            
+            await selectRound(target);
+        } catch(e) {
+            console.error('[VP]', e);
+            setState('empty');
+        }
+    }
+
+    function buildSelector() {
+        const sel = document.getElementById('roundSelect');
+        sel.innerHTML = allRounds.map(r=>{
+            const label = r.undrawn ? `${r.round}회 (미추첨)` : `${r.round}회`;
+            return `<option value="${r.round}">${label}</option>`;
+        }).join('');
+    }
+
+    // ════ 회차 선택 ════
+    async function selectRound(roundNum) {
+        setCtrlLoading(true);
+        renderedTabs = {};        // 회차 바뀌면 렌더 캐시 초기화
+        filterSettingsCache = {}; // 필터 설정도 초기화 (최신 설정 반영)
+        curIdx = allRounds.findIndex(r=>r.round===roundNum);
+        document.getElementById('roundSelect').value = roundNum;
+        document.getElementById('btnPrev').disabled = curIdx >= allRounds.length - 1;
+        document.getElementById('btnNext').disabled = curIdx <= 0;
+
+        curDraw = allRounds[curIdx];
+
+        // 미추첨 회차이면 numbers/bonus null 처리
+        if (isUndrawn(curDraw)) {
+            curWin = { nums: [], bonus: null };
+            _prevNums  = [];
+            _prevBonus = null;
+            // 이전(직전 추첨) 회차 이월수 계산용
+            const prevDraw = allRounds[curIdx + 1];
+            if (prevDraw && prevDraw.numbers) {
+                _prevNums  = [...prevDraw.numbers];
+                _prevBonus = prevDraw.bonus;
+            }
+        } else {
+            const nums = [...(curDraw.numbers||[])].sort((a,b)=>a-b);
+            curWin  = { nums, bonus: curDraw.bonus };
+            // 이전 회차 (이월수 계산용)
+            const prevDraw = allRounds[curIdx + 1];
+            _prevNums  = prevDraw ? [...(prevDraw.numbers||[])] : [];
+            _prevBonus = prevDraw ? prevDraw.bonus : null;
+        }
+
+        renderWinCard();
+        await loadSavedGroups(roundNum);
+        setCtrlLoading(false);
+        setState('main');
+
+        // 탭 UI 초기화 → 고정수/제외수 탭으로 복귀
+        curTab = FIRST_TAB;
+        curSub = 'recommend';
+        document.querySelectorAll('.main-tab').forEach((b, i) => b.classList.toggle('active', i === 0));
+        ALL_TABS.forEach(t => {
+            const elT = document.getElementById('tab' + cap(t));
+            if (elT) elT.classList.toggle('hidden', t !== FIRST_TAB);
+        });
+        // DL 서브탭도 초기화
+        ['recommend','modelSettings','filterAnalysis','customAnalysis','combos','models'].forEach(s => {
+            const elS = document.getElementById('sub' + cap(s));
+            if (elS) { elS.classList.toggle('hidden', s !== 'recommend'); elS.innerHTML = ''; }
+        });
+        document.querySelectorAll('.sub-tab').forEach((b, i) => b.classList.toggle('active', i === 0));
+
+        renderTab(curTab);
+    }
+
+    // ════ 당첨번호 카드 ════
+    function renderWinCard() {
+        const { nums, bonus } = curWin;
+        const dateStr = curDraw.date ? fmtDate(curDraw.date) : '';
+
+        if (isUndrawn(curDraw)) {
+            // ── 미추첨 회차 UI ──
+            document.getElementById('winTitle').textContent = `제${curDraw.round}회 (미추첨)`;
+            document.getElementById('winDate').textContent  = dateStr ? `예정일: ${dateStr}` : '추첨 예정';
+            document.getElementById('roundDate').textContent = dateStr ? `추첨 예정: ${dateStr}` : '추첨 예정';
+            document.getElementById('roundDate').classList.remove('hidden');
+
+            // 번호 자리에 미추첨 안내
+            document.getElementById('winBalls').innerHTML = `
+                <div style="display:flex;align-items:center;gap:10px;padding:6px 0;">
+                    <span class="material-symbols-outlined" style="font-size:28px;color:rgba(255,255,255,0.5);">schedule</span>
+                    <span style="font-size:15px;font-weight:700;color:rgba(255,255,255,0.75);">아직 추첨이 진행되지 않은 회차입니다</span>
+                </div>`;
+            document.getElementById('bonusBall').innerHTML = '';
+
+            // 헤더 배지 변경
+            const badge = document.querySelector('#stateMain .info-card .bg-white\\/20');
+            if (badge) { badge.textContent = '추첨 예정'; badge.style.background = 'rgba(251,191,36,0.25)'; }
+        } else {
+            // ── 당첨 회차 UI ──
+            document.getElementById('winTitle').textContent = `제${curDraw.round}회 당첨번호`;
+            document.getElementById('winDate').textContent  = dateStr;
+            document.getElementById('roundDate').textContent = dateStr;
+            document.getElementById('roundDate').classList.remove('hidden');
+
+            // [수정] 당첨번호 렌더링 시 AI 미포함 번호 체크
+            document.getElementById('winBalls').innerHTML  = nums.map(n => {
+                const ex = [];
+                if (collectiveAiSet.size > 0 && !collectiveAiSet.has(n)) ex.push('ball-ai-ignored');
+                return ball(n, 50, ex.join(' '));
+            }).join('');
+
+            document.getElementById('bonusBall').innerHTML = bonus != null
+                ? `<span class="ball ball-bonus ${collectiveAiSet.size > 0 && !collectiveAiSet.has(bonus) ? 'ball-ai-ignored' : ''}" style="width:50px;height:50px;font-size:14px;">${String(bonus).padStart(2,'0')}</span>`
+                : '';
+
+            // 헤더 배지 원복
+            const badge = document.querySelector('#stateMain .info-card .bg-white\\/20');
+            if (badge) { badge.textContent = '당첨 결과'; badge.style.background = ''; }
+        }
+    }
+
+    let currentSnapshot = null; // [추가] 현재 선택된 그룹의 필터 스냅샷
+
+    // ════ 조합 그룹 변경 이벤트 ════
+    async function onGroupChange(groupId) {
+        const badge = document.getElementById('groupInfoBadge');
+        if (!groupId) {
+            currentSnapshot = null;
+            if (badge) badge.classList.add('hidden');
+        } else {
+            const group = savedGroups.find(g => g.id === groupId);
+            if (group && group.filter_snapshot) {
+                currentSnapshot = group.filter_snapshot;
+                if (badge) badge.classList.remove('hidden');
+                console.log(`📦 Group "${group.group_name}" Snapshot Applied.`);
+            } else {
+                currentSnapshot = null;
+                if (badge) badge.classList.add('hidden');
+                if (group && !group.filter_snapshot) {
+                    alert('이 그룹은 필터 스냅샷 정보가 없는 이전 버전의 데이터입니다.\n전역 설정을 기준으로 표시합니다.');
+                }
+            }
+        }
+        // 모든 탭의 필터 설정을 초기화하고 다시 렌더링
+        filterSettingsCache = {};
+        renderTab(curTab);
+    }
+
+    // ════ 저장 그룹 로드 (드롭다운 연동) ════
+    async function loadSavedGroups(roundNum) {
+        const select = document.getElementById('groupSelect');
+        if (select) select.innerHTML = '<option value="">전역 기본 설정 (Global Settings)</option>';
+        const badge = document.getElementById('groupInfoBadge');
+        if (badge) badge.classList.add('hidden');
+        currentSnapshot = null;
+
+        try {
+            const sb = getSB();
+            const { data:{user} } = await sb.auth.getUser().catch(()=>({data:{user:null}}));
+            let q = sb.from('saved_combination_groups').select('*').eq('round_number',roundNum).order('created_at',{ascending:true});
+            if (user) q = q.eq('user_id',user.id); else q = q.is('user_id',null);
+            const { data } = await q;
+            savedGroups = data || [];
+
+            if (select && savedGroups.length > 0) {
+                savedGroups.forEach(g => {
+                    const opt = document.createElement('option');
+                    opt.value = g.id;
+                    opt.textContent = `${g.group_name} (${(g.combo_count||0).toLocaleString()}개)`;
+                    select.appendChild(opt);
+                });
+            }
+        } catch(e) { 
+            console.warn('[VP] loadSavedGroups 실패:', e);
+            savedGroups = []; 
+        }
+    }
+
+    // ════ 탭 전환 ════
+    const ALL_TABS = ['fixedExclude','basic','regression','custom','manual','dl','combosTab'];
+
+    function switchTab(tab, btn) {
+        curTab = tab;
+        document.querySelectorAll('.main-tab').forEach(b=>{
+            b.classList.remove('active');
+            b.setAttribute('aria-selected','false');
+        });
+        btn.classList.add('active');
+        btn.setAttribute('aria-selected','true');
+        ALL_TABS.forEach(t=>{
+            const el = document.getElementById('tab'+cap(t));
+            if (el) el.classList.toggle('hidden', t!==tab);
+        });
+        renderTab(tab);
+    }
+
+    function switchSub(sub, btn) {
+        curSub = sub;
+        document.querySelectorAll('.sub-tab').forEach(b=>{
+            b.classList.remove('active');
+            b.setAttribute('aria-selected','false');
+        });
+        btn.classList.add('active');
+        btn.setAttribute('aria-selected','true');
+        ['recommend','modelSettings','filterAnalysis','customAnalysis','combos','models'].forEach(s=>{
+            const el = document.getElementById('sub'+cap(s));
+            if (el) el.classList.toggle('hidden', s!==sub);
+        });
+        renderSub(sub);
+    }
+
+    function cap(s) { return s.charAt(0).toUpperCase()+s.slice(1); }
+
+    // 첫 탭은 고정수/제외수
+    const FIRST_TAB = 'fixedExclude';
+
+    // 미추첨 회차용 안내 플레이스홀더
+    function undrawnPlaceholder(contentId) {
+        const el = document.getElementById(contentId);
+        if (!el) return;
+        el.innerHTML = `
+            <div style="text-align:center;padding:60px 0;">
+                <span class="material-symbols-outlined" style="font-size:52px;color:#cbd5e1;">schedule</span>
+                <h3 style="font-size:17px;font-weight:900;color:#334155;margin-top:16px;">아직 추첨되지 않은 회차입니다</h3>
+                <p style="font-size:13px;color:#94a3b8;margin-top:8px;">추첨 후 당첨번호가 등록되면 검증 결과를 확인할 수 있습니다.</p>
+            </div>`;
+    }
+
+    function renderTab(tab) {
+        if (tab==='fixedExclude')  renderFixedExclude();
+        else if (tab==='basic')        renderBasic();
+        else if (tab==='regression')   renderRegression();
+        else if (tab==='custom')       renderCustom();
+        else if (tab==='manual')       renderManual();
+        else if (tab==='combosTab')    renderCombosTab();
+        else if (tab==='dl')           renderSub(curSub);
+    }
+
+    // ════════════════════════════════════════
+    //  기초분석필터 탭 — Supabase 연동
+    // ════════════════════════════════════════
+
+    // filter_settings 로드: preset_id를 통해 RLS 통과 후 target_round 기준으로 merge
+    async function loadFilterSettingsByRound(round) {
+        try {
+            const sb = getSB();
+
+            // 유저 preset_id 가져오기 (RLS 통과를 위해 필수)
+            const { data: { user } } = await sb.auth.getUser().catch(()=>({data:{user:null}}));
+            if (!user) return await loadDefaultPresetSettings();
+
+            // 유저의 첫번째(기본) preset 조회
+            let presetId = null;
+            const { data: presetRows } = await sb.from('user_filter_presets')
+                .select('id, is_default')
+                .eq('user_id', user.id)
+                .order('is_default', {ascending: false})
+                .order('created_at')
+                .limit(5);
+            if (!presetRows?.length) return {};
+            const defaultPreset = presetRows.find(p => p.is_default) || presetRows[0];
+            presetId = defaultPreset.id;
+
+            // 최신 target_round 조회 (preset_id 포함으로 RLS 통과)
+            const { data: maxRow } = await sb.from('filter_settings')
+                .select('target_round')
+                .eq('preset_id', presetId)
+                .not('target_round', 'is', null)
+                .order('target_round', {ascending: false})
+                .limit(1).single();
+
+            // 우선순위: round → round+1 → 최신 target_round
+            const candidates = [round, round + 1, maxRow?.target_round].filter(Boolean);
+            const uniqueCandidates = [...new Set(candidates)];
+
+            // [추가] 만약 현재 선택된 그룹 스냅샷이 있다면, 이를 "가상" 필터 설정으로 변환하여 반환
+            if (currentSnapshot) {
+                const snapshotMap = {};
+                // 기초/회귀 설정
+                const s = currentSnapshot;
+                if (s.userSettings || s.regressionSettings) {
+                    const allS = { ...(s.userSettings || {}), ...(s.regressionSettings || {}) };
+                    Object.entries(allS).forEach(([fk, conf]) => {
+                        snapshotMap[fk] = {
+                            id: 'snap-' + fk,
+                            settings: conf.settings || conf, // [수정] snapshot 저장 구조 대응 (conf가 {settings...}일 수도 있음)
+                            enabled: conf.enabled !== false,
+                            filter_definitions: { filter_key: fk }
+                        };
+                    });
+                }
+                // 바스켓 설정 (이월/이웃/고정/제외 등)
+                if (s.basket) {
+                    snapshotMap['lotto_basket'] = {
+                        id: 'snap-basket',
+                        settings: s.basket,
+                        enabled: true,
+                        filter_definitions: { filter_key: 'lotto_basket' }
+                    };
+                }
+                // 수동필터
+                if (s.manualFilters) {
+                    // 수동필터는 여러 개일 수 있으나 일단 현재 구조상 settings에 배열로 넣거나 
+                    // FilterService가 알 수 있게 snapshotMap에 저장
+                    snapshotMap['manual_filters'] = {
+                        id: 'snap-manual',
+                        settings: { items: s.manualFilters },
+                        enabled: true,
+                        filter_definitions: { filter_key: 'manual_filters' }
+                    };
+                }
+                // 커스텀필터
+                if (s.customFilters) {
+                    (s.customFilters || []).forEach(c => {
+                        snapshotMap['custom_filter_' + c.id] = {
+                            id: 'snap-cust-' + c.id,
+                            settings: c.filter_config,
+                            enabled: c.filter_config?.enabled !== false,
+                            filter_definitions: { filter_key: 'custom_filter_' + c.id, filter_name: c.title }
+                        };
+                    });
+                }
+                return snapshotMap;
+            }
+
+            const mergedMap = {};
+            for (const tr of uniqueCandidates) {
+                const { data } = await sb.from('filter_settings')
+                    .select('*, filter_definitions(filter_key,filter_name,filter_type,ui_group,display_order)')
+                    .eq('preset_id', presetId)
+                    .eq('target_round', tr);
+                if (data?.length > 0) {
+                    data.forEach(row => {
+                        const fk = row.filter_definitions?.filter_key;
+                        if (fk && !mergedMap[fk]) mergedMap[fk] = row;
+                    });
+                }
+            }
+            if (Object.keys(mergedMap).length > 0) return mergedMap;
+
+            // 해당 회차에 설정 없으면 preset의 기본(null target_round) 설정 사용
+            const q2 = sb.from('filter_settings')
+                .select('*, filter_definitions(filter_key,filter_name,filter_type,ui_group,display_order)')
+                .is('target_round', null);
+            
+            if (presetId) q2.eq('preset_id', presetId);
+            else q2.is('preset_id', null); // 공용 설정
+
+            const { data: nd } = await q2;
+            const map = {};
+            (nd||[]).forEach(row => {
+                const fk = row.filter_definitions?.filter_key;
+                if (fk) map[fk] = row;
+            });
+            return map;
+        } catch(e) { 
+            console.error('[VP] loadFilterSettingsByRound 에러:', e);
+            return {}; 
+        }
+    }
+
+    async function loadFilterDefs() {
+        if (filterDefs) return filterDefs;
+        try {
+            const sb = getSB();
+            const { data } = await sb.from('filter_definitions')
+                .select('*').eq('is_active', true).order('display_order');
+            filterDefs = data || [];
+            return filterDefs;
+        } catch(e) { filterDefs = []; return []; }
+    }
+
+    async function loadFilterSettings(presetId) {
+        try {
+            const sb = getSB();
+            let q = sb.from('filter_settings')
+                .select('*, filter_definitions(filter_key, filter_name, filter_type, ui_group, display_order)');
+            
+            if (presetId) q = q.eq('preset_id', presetId);
+            else q = q.is('preset_id', null);
+
+            const { data } = await q;
+            // filter_key → settingRow 맵으로 변환
+            const map = {};
+            (data||[]).forEach(row => {
+                const fk = row.filter_definitions?.filter_key;
+                if (fk) map[fk] = row;
+            });
+            return map;
+        } catch(e) { return {}; }
+    }
+
+    // presetId 없이 현재 유저의 기본 프리셋 자동 로드
+    async function loadDefaultPresetSettings() {
+        try {
+            const sb = getSB();
+            const { data: { user } } = await sb.auth.getUser().catch(()=>({data:{user:null}}));
+            if (!user) {
+                // 로그인 안된 유저: preset_id 없이 공용 설정을 가져오도록 함
+                return await loadFilterSettings(null);
+            }
+            // 기본 프리셋 찾기
+            const { data: presetData } = await sb.from('user_filter_presets')
+                .select('id').eq('user_id', user.id).eq('is_default', true).limit(1).single();
+            if (!presetData?.id) {
+                // 기본 프리셋 없으면 첫 번째
+                const { data: firstPreset } = await sb.from('user_filter_presets')
+                    .select('id').eq('user_id', user.id).order('created_at').limit(1).single();
+                if (!firstPreset?.id) return await loadFilterSettings(null); // 최후의 수단으로 공용 설정
+                return await loadFilterSettings(firstPreset.id);
+            }
+            return await loadFilterSettings(presetData.id);
+        } catch(e) { return {}; }
+    }
+
+    async function renderBasic() {
+        if (!curWin) return;
+        const round = curDraw.round;
+        if (!filterSettingsCache[round]) {
+            filterSettingsCache[round] = await loadFilterSettingsByRound(round);
+        }
+        filterSettings = filterSettingsCache[round];
+        await renderBasicContent();
+    }
+
+    async function onPresetChange() {}
+    async function onFEPresetChange() {}
+
+    // ── 대상 번호: 필터키에 해당하는 실제 당첨번호 반환 ──
+    function getTargetNums(filterKey, nums) {
+        const sorted = [...nums].sort((a,b)=>a-b);
+        const m = {
+            // 수치/비율 필터 → 대상번호 없음
+            'total_sum':           [],
+            'last_digit_sum':      [],
+            'ac_value':            [],
+            'odd_even_pattern':    [],
+            'high_low_pattern':    [],
+            // 연번 → 실제 연속 쌍을 이루는 번호만
+            'consecutive_count':   sorted.filter((n,i)=>(i>0&&sorted[i-1]===n-1)||(i<sorted.length-1&&sorted[i+1]===n+1)),
+            // 유형 필터 → 1-45 전체 해당 유형 번호 (매칭은 ball-matched 오버레이로 표시)
+            'prime_number_patterns':       [...PRIMES].sort((a,b)=>a-b),
+            'composite_count':             Array.from({length:45},(_,i)=>i+1).filter(n=>n>1&&!PRIMES.has(n)),
+            'square_number_patterns':      [...SQUARES].sort((a,b)=>a-b),
+            'triangular_number_patterns':  [...TRIANGLES].sort((a,b)=>a-b),
+            'twin_number_patterns':        [11, 22, 33, 44],  // 동형수 = 같은 자릿수 반복 번호 (1-45 범위)
+            // 이월수 → 이전 회차 전체 번호 (겹친 번호는 ball-matched 표시)
+            'carryover_count':       _prevNums.length ? [..._prevNums].sort((a,b)=>a-b) : [],
+            'carryover_with_bonus':  _prevNums.length ? [..._prevNums].sort((a,b)=>a-b) : [],
+            // 끝수 → 전체 (끝수별 분기는 renderBasicContent에서 처리)
+            'tail_digit_patterns':  sorted,
+            // 배수 → 해당 배수 번호
+            // 배수 → 전체 해당 배수 번호 (1-45)
+            'multiple_3_count':        Array.from({length:45},(_,i)=>i+1).filter(n=>n%3===0),
+            'multiple_4_count':        Array.from({length:45},(_,i)=>i+1).filter(n=>n%4===0),
+            'multiple_5_count':        Array.from({length:45},(_,i)=>i+1).filter(n=>n%5===0),
+            'multiple_3_4_count':      Array.from({length:45},(_,i)=>i+1).filter(n=>n%3===0&&n%4===0),
+            'multiple_3_5_count':      Array.from({length:45},(_,i)=>i+1).filter(n=>n%3===0&&n%5===0),
+            'multiple_4_5_count':      Array.from({length:45},(_,i)=>i+1).filter(n=>n%4===0&&n%5===0),
+            'multiple_other_count':    Array.from({length:45},(_,i)=>i+1).filter(n=>n%3!==0&&n%4!==0&&n%5!==0),
+            // 기타 공통 패턴들은 번호 정렬값(sorted)을 기본으로 반환
+            'number_range_patterns':   sorted,
+            'magic_square_pattern':    sorted,
+            'lotto_paper_pattern':     sorted,
+            'missing_period':          sorted,
+            'missing_custom_filter':   sorted,
+            'hot_cold_5':   sorted,
+            'hot_cold_10':  sorted,
+            'hot_cold_15':  sorted,
+            'hot_cold_20':  sorted,
+        };
+        return m.hasOwnProperty(filterKey) ? (m[filterKey]||[]) : sorted;
+    }
+
+    // ── 필터값 텍스트 (설정된 범위/조건) ──
+    function getFilterSettingText(def, s) {
+        if (!s || Object.keys(s).length === 0) return '-';
+        if (s.enabled === false) return '비활성';
+        if (def.filter_type === 'pattern_select') {
+            const sel = s.selectedRatios || s.selectedPatterns || s.selectedValues || [];
+            return sel.length ? sel.join(', ') : '-';
+        }
+        if (def.filter_type === 'special' && s.filters) {
+            return Object.entries(s.filters).map(([d,r])=>`${d}끝:${r.min??0}~${r.max??6}`).join(' / ');
+        }
+        if (def.filter_type === 'multi_range' && s.filters) {
+            return Object.entries(s.filters).map(([n,r])=>`${n}:${r.min??0}~${r.max??6}`).join(' / ');
+        }
+        // 이산 개수 선택 (소수, 합성수, 삼각수, 제곱수, 동형수, 연번, 이웃수, 이월수 등)
+        const selected = s.selectedValues || s.activeCounts || s.selectedCounts || [];
+        if (selected.length) return selected.map(String).join(', ') + '개';
+        if (s.useDiscreteSelection) return '-';
+        const min = s.min ?? s.minValue;
+        const max = s.max ?? s.maxValue;
+        if (min !== undefined && max !== undefined) return `${min} ~ ${max}`;
+        return '-';
+    }
+
+    async function renderBasicContent() {
+        const el = document.getElementById('basicFilterContent');
+        el.innerHTML = LOADING_HTML;
+
+        const defs = await loadFilterDefs();
+        const settings = filterSettings || {};
+        const { nums, bonus } = curWin;
+
+        // 미출현 그룹 분류를 위해 number_round_stats.gap 로드
+        // 그룹 기준: 1그룹(gap≤5), 2그룹(gap6-10), 3그룹(gap11-15), 4그룹(gap>15)
+        let gapMap = {};  // { number: gap }
+        try {
+            const sb = getSB();
+            const { data: gapData } = await sb.from('number_round_stats')
+                .select('number, gap')
+                .eq('round', curDraw.round);
+            (gapData||[]).forEach(r => { gapMap[r.number] = r.gap; });
+        } catch(e) {}
+
+        const hasGapData = Object.keys(gapMap).length > 0;
+
+        function getMissingGroups() {
+            const groups = {g1:[], g2:[], g3:[], g4:[]};
+            if (!hasGapData) return groups; // 데이터 없으면 모두 빈 그룹 반환
+            for (let n = 1; n <= 45; n++) {
+                const g = gapMap[n] ?? 0;
+                if (g <= 5)       groups.g1.push(n);
+                else if (g <= 10) groups.g2.push(n);
+                else if (g <= 15) groups.g3.push(n);
+                else              groups.g4.push(n);
+            }
+            return groups;
+        }
+
+        const getDisplayName = def => def.filter_name || FILTER_DISPLAY_NAMES[def.filter_key] || def.filter_key;
+        const tailGroup = d => Array.from({length:45},(_,i)=>i+1).filter(n=>n%10===d);
+
+        const undrawn = isUndrawn(curDraw);
+        const winSet = new Set(nums);
+
+        // makeRow: name, targetNums, filterVal, actualVal, passResult, enabled
+        const makeRow = (name, targetNums, filterVal, actualVal, passResult, enabled=null) => {
+            // 미추첨 회차: 실측값/결과 대신 "추첨예정" 표시
+            if (undrawn) { actualVal = '추첨예정'; passResult = null; }
+            const passCls = passResult===true ? 'text-emerald-600' : passResult===false ? 'text-rose-500' : 'text-amber-500';
+            const passText = passResult===true ? '적중' : passResult===false ? '미적중' : (undrawn ? '추첨예정' : '-');
+            const rowBg = '';
+            const balls = targetNums.length
+                ? targetNums.map(n=>ball(n, 28,'')).join('')
+                : '<span class="text-[11px] text-slate-300">-</span>';
+            const enabledHtml = enabled===null
+                ? '<span class="text-[11px] text-slate-300">-</span>'
+                : enabled
+                    ? '<span class="text-[11px] text-emerald-500 bg-emerald-50 px-2 py-0.5 rounded">ON</span>'
+                    : '<span class="text-[11px] text-slate-400 bg-slate-100 px-2 py-0.5 rounded">OFF</span>';
+            return `
+            <tr class="${rowBg} hover:bg-slate-50 transition-colors">
+                <td class="px-3 py-2.5 text-[14px] text-slate-700 whitespace-nowrap">${esc(name)}</td>
+                <td class="px-3 py-2.5"><div class="flex items-center gap-2 flex-wrap">${balls}</div></td>
+                <td class="px-3 py-2.5 text-[12px] text-slate-500 whitespace-nowrap">${esc(String(filterVal))}</td>
+                <td class="px-3 py-2.5 text-center text-[15px] text-slate-800 whitespace-nowrap">${esc(String(actualVal))}</td>
+                <td class="px-3 py-2.5 text-center whitespace-nowrap">${enabledHtml}</td>
+                <td class="px-3 py-2.5 text-center whitespace-nowrap"><span class="text-[14px] ${passCls}">${passText}</span></td>
+            </tr>`;
+        };
+
+        // filter_key 기준 룩업 맵
+        const defsByKey = {};
+        defs.forEach(def => { defsByKey[def.filter_key] = def; });
+        // neighbor_count 별칭 처리
+        if (!defsByKey['neighbor_number_patterns'] && defsByKey['neighbor_count']) {
+            defsByKey['neighbor_number_patterns'] = defsByKey['neighbor_count'];
+        }
+
+        // 그룹 헤더 행
+        const makeGroupRow = (title) => `
+        <tr>
+            <td colspan="6" class="px-4 py-1.5 bg-slate-100 border-t-2 border-slate-200">
+                <span class="text-[11px]  text-slate-500 uppercase tracking-wider">${esc(title)}</span>
+            </td>
+        </tr>`;
+
+        // 고정 순서 정의
+        const BASIC_FILTER_ORDER = [
+            'total_sum','last_digit_sum','ac_value','odd_even_pattern','high_low_pattern',
+            'consecutive_count','neighbor_number_patterns','carryover_count',
+            'prime_number_patterns','composite_count','triangular_number_patterns',
+            'square_number_patterns','twin_number_patterns',
+            'tail_digit_patterns','multiple_3_count','number_range_patterns',
+            'magic_square_pattern','lotto_paper_pattern',
+            'hot_cold_5','hot_cold_10','hot_cold_15','hot_cold_20',
+            'missing_period','missing_custom_filter',
+        ];
+
+        const rows = BASIC_FILTER_ORDER.flatMap(fkOrd => {
+            if (BASIC_EXCLUDED_KEYS.has(fkOrd)) return [];
+            const def = defsByKey[fkOrd] || { filter_key: fkOrd, filter_name: FILTER_DISPLAY_NAMES[fkOrd] || fkOrd, filter_type: 'range', ui_group: 'basic', display_order: 0 };
+            const settingRow = settings[fkOrd];
+            const s = settingRow?.settings || {};
+            const enabled = settingRow ? (settingRow.enabled !== false) : null;
+            const displayName = getDisplayName(def);
+            const fk = def.filter_key;
+
+            // ── 끝수 패턴 → 0~9 각각 독립 행 ──
+            if (fk === 'tail_digit_patterns') {
+                const digitFilters = s.filters || {};
+                return [makeGroupRow('끝수'), ...[0,1,2,3,4,5,6,7,8,9].map(d => {
+                    const targetAll = tailGroup(d);
+                    const range = digitFilters[String(d)];
+                    const cnt = nums.filter(n=>n%10===d).length;
+                    if (!range) return makeRow(`${d}끝`, targetAll, '-', `${cnt}개`, null, enabled);
+                    const min=range.min??0, max=range.max??6;
+                    const pass = enabled ? (cnt>=min && cnt<=max) : null;
+                    return makeRow(`${d}끝`, targetAll, `${min}~${max}개`, `${cnt}개`, pass, enabled);
+                })];
+            }
+
+            // ── 번호대 → RANGE_DEF 기준 독립 행 ──
+            if (fk === 'number_range_patterns') {
+                const ranges = s.ranges || {};
+                return [makeGroupRow('번호대별'), ...RANGE_DEF.map(({key, label, nums: rNums}) => {
+                    const range = ranges[key];
+                    const matchNums = nums.filter(n=>rNums.includes(n));
+                    const cnt = matchNums.length;
+                    if (!range) return makeRow(label, rNums, '-', `${cnt}개`, null, enabled);
+                    const min=range.min??0, max=range.max??6;
+                    const pass = enabled ? (cnt>=min && cnt<=max) : null;
+                    return makeRow(label, rNums, `${min}~${max}개`, `${cnt}개`, pass, enabled);
+                })];
+            }
+
+            // ── 마방진(9궁) → 궁별 독립 행 ──
+            if (fk === 'magic_square_pattern') {
+                const filters = s.filters || {};
+                return [makeGroupRow('9궁'), ...Object.entries(MAGIC_SQUARE_DEF).map(([gName, gNums]) => {
+                    const range = filters[gName];
+                    const matchNums = nums.filter(n=>gNums.includes(n));
+                    const cnt = matchNums.length;
+                    if (!range) return makeRow(gName, gNums, '-', `${cnt}개`, null, enabled);
+                    const min=range.min??0, max=range.max??6;
+                    const pass = enabled ? (cnt>=min && cnt<=max) : null;
+                    return makeRow(gName, gNums, `${min}~${max}개`, `${cnt}개`, pass, enabled);
+                })];
+            }
+
+            // ── 로또용지 → 가로/세로 독립 행 ──
+            if (fk === 'lotto_paper_pattern') {
+                const groups = s.groups || {};
+                return [makeGroupRow('로또용지'), ...Object.entries(LOTTO_PAPER).map(([ln, lineNums]) => {
+                    const range = groups[ln];
+                    const cnt = nums.filter(n=>lineNums.includes(n)).length;
+                    if (!range) return makeRow(ln, lineNums, '-', `${cnt}개`, null, enabled);
+                    const min=range.min??0, max=range.max??6;
+                    const pass = enabled ? (cnt>=min && cnt<=max) : null;
+                    return makeRow(ln, lineNums, `${min}~${max}개`, `${cnt}개`, pass, enabled);
+                })];
+            }
+
+            // ── 배수 필터 → 유형별 독립 행 ──
+            // --- 배수 그룹 (multiple_3_count 하나가 전체 배수 필터 그룹을 대표) ---
+            if (fk === 'multiple_3_count') {
+                const innerSettings = s.settings || s;
+                const filters = innerSettings.filters || {};
+                return [makeGroupRow('배수'), ...Object.entries(MULTIPLE_DEF).map(([typeName, typeNums]) => {
+                    const norm = (k) => k.replace(/·/g,'').replace(/\s/g,'');
+                    const range = filters[typeName] || filters[norm(typeName)] || Object.entries(filters).find(([fk,fv])=>norm(fk)===norm(typeName))?.[1];
+                    const matchNums = nums.filter(n=>typeNums.includes(n));
+                    const cnt = matchNums.length;
+                    if (!range) return makeRow(typeName, typeNums, '-', `${cnt}개`, null, enabled);
+                    const min=range.min??0, max=range.max??6;
+                    const pass = enabled ? (cnt>=min && cnt<=max) : null;
+                    return makeRow(typeName, typeNums, `${min}~${max}개`, `${cnt}개`, pass, enabled);
+                })];
+            }
+
+            // ── 미출현 그룹 (missing_period) → 4구간 독립 행 ──
+            if (fk === 'missing_period') {
+                const header = makeGroupRow('미출현그룹');
+                if (!hasGapData) {
+                    return [header, `<tr><td colspan="6" class="px-4 py-2 text-[11px] text-slate-400 text-center">number_round_stats 데이터 없음 (${curDraw.round}회)</td></tr>`];
+                }
+                const ranges = s.ranges || {};
+                const mg = getMissingGroups();
+                const groupDefs = [
+                    {label:'5회 이하 미출현', minK:'r1Min', maxK:'r1Max', gNums: mg.g1},
+                    {label:'10회 이하 미출현', minK:'r2Min', maxK:'r2Max', gNums: mg.g2},
+                    {label:'15회 이하 미출현', minK:'r3Min', maxK:'r3Max', gNums: mg.g3},
+                    {label:'16회 이상 미출현', minK:'r4Min', maxK:'r4Max', gNums: mg.g4},
+                ];
+                return [header, ...groupDefs.map(({label, minK, maxK, gNums}) => {
+                    const min = ranges[minK], max = ranges[maxK];
+                    const cnt = nums.filter(n => gNums.includes(n)).length;
+                    const filterVal = min !== undefined ? `${min}~${max}개` : '-';
+                    const pass = (enabled && min !== undefined) ? (cnt >= (min??0) && cnt <= (max??6)) : null;
+                    return makeRow(label, gNums, filterVal, `${cnt}개`, pass, enabled);
+                })];
+            }
+
+            // ── 미출현 커스텀 → 그룹별 독립 행 ──
+            if (fk === 'missing_custom_filter') {
+                const filters = s.filters || [];
+                if (!filters.length) return [makeGroupRow('미출현 커스텀'), makeRow('(그룹 없음)', [], '-', '-', null, enabled)];
+                return [makeGroupRow('미출현 커스텀'), ...filters.map(g => {
+                    const gNums = g.numbers || [];
+                    const isGEnabled = g.enabled !== false;
+                    const matchNums = nums.filter(n=>gNums.includes(n));
+                    const cnt = matchNums.length;
+                    const min = g.minCount??0, max = g.maxCount??6;
+                    const pass = (enabled && isGEnabled) ? (cnt>=min && cnt<=max) : null;
+                    return makeRow(g.name||'그룹', gNums, `${min}~${max}개`, `${cnt}개`, pass, enabled && isGEnabled);
+                })];
+            }
+
+            // ── 핫/콜드 → Hot / Neutral / Cold 각각 행 ──
+            if (fk === 'hot_cold_5' || fk === 'hot_cold_10' || fk === 'hot_cold_15' || fk === 'hot_cold_20') {
+                const period = parseInt(fk.split('_')[2]);
+                const innerSettings = s.settings || s;
+                const pf = innerSettings.periodFilter || (innerSettings.hotMin !== undefined ? innerSettings : {}); // [수정] 평면 구조 대응
+                const { hotSet, coldSet } = _hotColdSets(period);
+                const allNums = Array.from({length:45},(_,i)=>i+1);
+                const hotAllNums  = allNums.filter(n=>hotSet.has(n));
+                const coldAllNums = allNums.filter(n=>coldSet.has(n));
+                const neutralAllNums = allNums.filter(n=>!hotSet.has(n)&&!coldSet.has(n));
+                const hotCnt  = nums.filter(n=>hotSet.has(n)).length;
+                const coldCnt = nums.filter(n=>coldSet.has(n)).length;
+                const neutCnt = nums.filter(n=>!hotSet.has(n)&&!coldSet.has(n)).length;
+                const header = makeGroupRow(`핫/콜드 ${period}회`);
+
+                if (hotSet.size === 0) {
+                    return [header, makeRow('Hot / Neutral / Cold', [], '-', '히스토리 부족', null, enabled)];
+                }
+
+                // 설정 여부와 무관하게 항상 3행 표시 (대상번호 포함)
+                const hotFv   = pf.hotMin     !== undefined ? `${pf.hotMin}~${pf.hotMax??6}개`     : '-';
+                const neutFv  = pf.neutralMin !== undefined ? `${pf.neutralMin}~${pf.neutralMax??6}개` : '-';
+                const coldFv  = pf.coldMin    !== undefined ? `${pf.coldMin}~${pf.coldMax??6}개`    : '-';
+                const hotPass  = (enabled && pf.hotMin     !== undefined) ? (hotCnt  >= (pf.hotMin??0)     && hotCnt  <= (pf.hotMax??6))     : null;
+                const neutPass = (enabled && pf.neutralMin !== undefined) ? (neutCnt >= (pf.neutralMin??0) && neutCnt <= (pf.neutralMax??6)) : null;
+                const coldPass = (enabled && pf.coldMin    !== undefined) ? (coldCnt >= (pf.coldMin??0)    && coldCnt <= (pf.coldMax??6))    : null;
+                return [header,
+                    makeRow('Hot',     hotAllNums,     hotFv,  `${hotCnt}개`,  hotPass,  enabled),
+                    makeRow('Neutral', neutralAllNums, neutFv, `${neutCnt}개`, neutPass, enabled),
+                    makeRow('Cold',    coldAllNums,    coldFv, `${coldCnt}개`, coldPass, enabled),
+                ];
+            }
+
+            // ── 이월수 → 이전 회차 전체 번호 target, 겹친 수 ball-matched ──
+            if (fk === 'carryover_count') {
+                const targetNums = _prevNums.length ? [..._prevNums].sort((a,b)=>a-b) : [];
+                const cnt = nums.filter(n=>_prevNums.includes(n)).length;
+                const selected = s.selectedCounts || s.selectedValues || [];
+                const pass = (enabled && selected.length) ? (selected.includes(cnt)||selected.includes(String(cnt))) : null;
+                const filterVal = selected.length ? `${selected.join(',')}개` : '-';
+                return [makeRow('이월수', targetNums, filterVal, `${cnt}`, pass, enabled)];
+            }
+
+            // ── 이웃수 → 이전 회차 이웃 후보 전체 target, 당첨번호 중 해당 수 ball-matched ──
+            if (fk === 'neighbor_count' || fk === 'neighbor_number_patterns') {
+                let targetNums;
+                if (_prevNums.length) {
+                    const nb = new Set();
+                    _prevNums.forEach(n => { if(n>1) nb.add(n-1); if(n<45) nb.add(n+1); });
+                    _prevNums.forEach(n => nb.delete(n));
+                    targetNums = [...nb].sort((a,b)=>a-b);
+                } else {
+                    targetNums = [...nums].sort((a,b)=>a-b);
+                }
+                const cnt = nums.filter(n=>targetNums.includes(n)).length;
+                const selected = s.selectedCounts || s.activeCounts || s.selectedValues || [];
+                const hasRange = s.min !== undefined && s.max !== undefined;
+                const filterVal = selected.length
+                    ? selected.map(String).join(', ') + '개'
+                    : hasRange ? `${s.min} ~ ${s.max}` : '-';
+                const pass = enabled
+                    ? (selected.length
+                        ? (selected.includes(cnt) || selected.includes(String(cnt)))
+                        : hasRange ? (cnt >= s.min && cnt <= s.max) : null)
+                    : null;
+                return [makeRow('이웃수', targetNums, filterVal, `${cnt}`, pass, enabled)];
+            }
+
+            // ── 일반 필터 ──
+            const result = checkFilterPass(def, settingRow, nums, bonus);
+            const targetNums = getTargetNums(fk, nums);
+            const filterVal = getFilterSettingText(def, s);
+            return [makeRow(displayName, targetNums, filterVal, result.dispVal, result.pass, enabled)];
+        }).join('');
+
+        const undrawnBanner = undrawn ? `
+        <div class="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-2">
+            <span class="material-symbols-outlined text-amber-500" style="font-size:16px;">schedule</span>
+            <span class="text-[12px] text-amber-700 ">추첨 전 회차 — 설정된 필터값을 확인합니다. 추첨 후 적중 여부가 표시됩니다.</span>
+        </div>` : '';
+
+        el.innerHTML = defs.length === 0 ? emptyState('filter_list', '필터 정의 데이터가 없습니다.') : `
+        ${undrawnBanner}
+        <div class="info-card overflow-hidden">
+            <div class="table-wrap">
+            <table class="w-full border-collapse" style="table-layout:fixed;min-width:560px">
+                <colgroup>
+                    <col style="width:90px">
+                    <col>
+                    <col style="width:100px">
+                    <col style="width:75px">
+                    <col style="width:50px">
+                    <col style="width:70px">
+                </colgroup>
+                <thead>
+                    <tr class="bg-slate-50 border-b border-slate-200">
+                        <th class="px-3 py-2.5 text-left text-[11px]  text-slate-500 uppercase tracking-wide whitespace-nowrap">필터</th>
+                        <th class="px-3 py-2.5 text-left text-[11px]  text-slate-500 uppercase tracking-wide whitespace-nowrap">대상번호</th>
+                        <th class="px-3 py-2.5 text-left text-[11px]  text-slate-500 uppercase tracking-wide whitespace-nowrap">필터값</th>
+                        <th class="px-3 py-2.5 text-center text-[11px]  text-slate-500 uppercase tracking-wide whitespace-nowrap">결과</th>
+                        <th class="px-3 py-2.5 text-center text-[11px]  text-slate-500 uppercase tracking-wide whitespace-nowrap">활성</th>
+                        <th class="px-3 py-2.5 text-center text-[11px]  text-slate-500 uppercase tracking-wide whitespace-nowrap">${undrawn ? '상태' : '적중'}</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    ${rows}
+                </tbody>
+            </table>
+            </div>
+        </div>`;
+    }
+
+    // ════════════════════════════════════════
+    //  회귀필터 탭
+    // ════════════════════════════════════════
+    async function renderRegression() {
+        if (renderedTabs.regression === curDraw?.round) return;
+        const el = document.getElementById('regressionContent');
+        el.innerHTML = LOADING_HTML;
+
+        try {
+            const sb = getSB();
+            let { data, error } = await sb.from('regression_details')
+                .select('*')
+                .eq('target_round', curDraw.round)
+                .order('regression_distance', {ascending:true});
+
+            if (error) throw error;
+
+            // regression_details에 없으면 allRounds에서 직접 계산
+            if (!data || !data.length) {
+                const targetNums = isUndrawn(curDraw) ? [] : (curDraw.numbers || []);
+                const targetSet = new Set(targetNums);
+                const roundsMap = {};
+                allRounds.forEach(d => { if (d.numbers) roundsMap[d.round] = d.numbers; });
+                const computed = [];
+                for (let dist = 2; dist <= 200; dist++) {
+                    const srcRound = curDraw.round - dist;
+                    const srcNums = roundsMap[srcRound];
+                    if (!srcNums) continue;
+                    const matching = srcNums.filter(n => targetSet.has(n));
+                    computed.push({
+                        regression_distance: dist,
+                        source_round: srcRound,
+                        source_numbers: srcNums,
+                        matching_numbers: matching,
+                        match_count: matching.length
+                    });
+                }
+                if (!computed.length) {
+                    el.innerHTML = emptyState('trending_up', `${curDraw.round}회 회귀 데이터 없음`);
+                    return;
+                }
+                data = computed;
+            }
+
+            // 회귀탭은 항상 해당 회차 기준으로 filterSettings 로드
+            const regRound = curDraw.round;
+            if (!filterSettingsCache[regRound]) {
+                filterSettingsCache[regRound] = await loadFilterSettingsByRound(regRound);
+            }
+            const regFilterSettings = filterSettingsCache[regRound];
+            let regSetting = regFilterSettings['regression_analysis'];
+            let regCfg = regSetting?.settings || {};
+            const globalEnabled = regSetting ? (regSetting.enabled !== false) : null;
+
+            const { nums } = curWin;
+            const undrawn = isUndrawn(curDraw);
+            const winSet = new Set(nums);
+
+            const makeRow = (name, srcNums, filterVal, actualVal, passResult, enabled) => {
+                if (undrawn) { actualVal = '추첨예정'; passResult = null; }
+                const passCls = passResult===true ? 'text-emerald-600 ' : passResult===false ? 'text-rose-500 ' : 'text-amber-500';
+                const passText = passResult===true ? '적중' : passResult===false ? '미적중' : (undrawn ? '추첨예정' : '-');
+                const rowBg = '';
+                const enabledHtml = enabled===null
+                    ? '<span class="text-[10px] text-slate-300">-</span>'
+                    : enabled
+                        ? '<span class="text-[10px]  text-emerald-500 bg-emerald-50 px-1.5 py-0.5 rounded">ON</span>'
+                        : '<span class="text-[10px]  text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">OFF</span>';
+                const balls = srcNums.length
+                    ? srcNums.map(n=>ball(n, 28,winSet.has(n)?'ball-matched':'')).join('')
+                    : '<span class="text-[10px] text-slate-300">-</span>';
+                return `
+                <tr class="${rowBg} hover:bg-slate-50 transition-colors">
+                    <td class="px-4 py-2.5 text-[12px]  text-slate-700 whitespace-nowrap">${esc(name)}</td>
+                    <td class="px-3 py-2"><div class="flex items-center gap-2 flex-wrap">${balls}</div></td>
+                    <td class="px-3 py-2 text-[11px] text-slate-500 whitespace-nowrap">${esc(String(filterVal))}</td>
+                    <td class="px-3 py-2 text-[13px]  text-slate-800 whitespace-nowrap">${esc(String(actualVal))}</td>
+                    <td class="px-3 py-2 text-center whitespace-nowrap">${enabledHtml}</td>
+                    <td class="px-4 py-2 text-center whitespace-nowrap"><span class="text-[12px]  ${passCls}">${passText}</span></td>
+                </tr>`;
+            };
+
+            const rows = data.map(r => {
+                const dist = String(r.regression_distance);
+                const cfg = regCfg[dist];
+                const isEnabled = cfg ? ((cfg.enabled !== false) && (globalEnabled !== false)) : globalEnabled;
+                const srcNums = r.source_numbers || [];
+                const matchCnt = r.match_count ?? srcNums.filter(n=>winSet.has(n)).length;
+                const filterVal = cfg ? `${cfg.min??0}~${cfg.max??6}` : '-';
+                const pass = cfg && isEnabled ? (matchCnt>=(cfg.min??0) && matchCnt<=(cfg.max??6)) : null;
+                return makeRow(
+                    `${r.regression_distance}회귀`,
+                    srcNums, filterVal, `${matchCnt}`, pass, isEnabled
+                );
+            }).join('');
+
+            el.innerHTML = `
+            ${undrawn ? `<div class="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-2"><span class="material-symbols-outlined text-amber-500" style="font-size:16px;">schedule</span><span class="text-[12px] text-amber-700 ">추첨 전 회차 — 설정된 회귀필터값을 확인합니다.</span></div>` : ''}
+            <div class="info-card overflow-hidden">
+                <div class="table-wrap">
+                <table class="w-full border-collapse" style="table-layout:fixed;min-width:520px">
+                    <colgroup>
+                        <col style="width:82px">
+                        <col>
+                        <col style="width:92px">
+                        <col style="width:68px">
+                        <col style="width:44px">
+                        <col style="width:62px">
+                    </colgroup>
+                    <thead>
+                        <tr class="bg-slate-50 border-b border-slate-200">
+                            <th class="px-3 py-2.5 text-left text-[11px]  text-slate-500 uppercase tracking-wide whitespace-nowrap">필터</th>
+                            <th class="px-3 py-2.5 text-left text-[11px]  text-slate-500 uppercase tracking-wide whitespace-nowrap">대상번호</th>
+                            <th class="px-3 py-2.5 text-left text-[11px]  text-slate-500 uppercase tracking-wide whitespace-nowrap">필터값</th>
+                            <th class="px-3 py-2.5 text-center text-[11px]  text-slate-500 uppercase tracking-wide whitespace-nowrap">결과</th>
+                            <th class="px-3 py-2.5 text-center text-[11px]  text-slate-500 uppercase tracking-wide whitespace-nowrap">활성</th>
+                            <th class="px-3 py-2.5 text-center text-[11px]  text-slate-500 uppercase tracking-wide whitespace-nowrap">${undrawn ? '상태' : '적중'}</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        ${rows}
+                    </tbody>
+                </table>
+                </div>
+            </div>
+            ${undrawn ? '' : '<div class="mt-2 text-[11px] text-slate-400 px-1">초록 테두리 = 실제 당첨번호와 일치</div>'}`;
+
+            renderedTabs.regression = curDraw.round;
+        } catch(e) {
+            console.error('[VP/regression]', e);
+            el.innerHTML = `<div class="info-card p-8 text-center text-rose-500 text-[13px]">로드 오류: ${esc(e.message)}</div>`;
+        }
+    }
+
+    // ════════════════════════════════════════
+    //  커스텀필터 탭
+    // ════════════════════════════════════════
+    async function renderCustom() {
+        if (renderedTabs.custom === curDraw?.round) return;
+        const el = document.getElementById('customContent');
+        el.innerHTML = LOADING_HTML;
+
+        try {
+            const round = curDraw.round;
+            const sb = getSB();
+            const [analysesRes, histRes] = await Promise.all([
+                sb.from('ai_custom_analyses')
+                    .select('*')
+                    .or(`target_round.eq.${round},target_round.is.null`)
+                    .order('created_at', {ascending:false}),
+                sb.from('analysis_history')
+                    .select('analysis_id, target_numbers')
+                    .eq('target_round', round)
+            ]);
+
+            if (analysesRes.error) throw analysesRes.error;
+            let data = analysesRes.data || [];
+            
+            // [추가] 스냅샷(그룹 선택) 데이터가 있으면 병합 또는 대체
+            const snapshotCustomKeys = Object.keys(filterSettings).filter(k => k.startsWith('custom_filter_'));
+            if (snapshotCustomKeys.length > 0) {
+                // 스냅샷 데이터 기반으로 가상 아이템 생성
+                const snapItems = snapshotCustomKeys.map(k => {
+                    const s = filterSettings[k];
+                    return {
+                        id: s.id,
+                        title: s.filter_definitions?.filter_name || '스냅샷 필터',
+                        filter_config: s.settings,
+                        is_snapshot: true
+                    };
+                });
+                // 중복 제거 (ID 기준) 또는 스냅샷 우선
+                data = [...snapItems, ...data.filter(d => !snapItems.find(s => s.id === d.id))];
+            }
+
+            if (!data.length) {
+                el.innerHTML = emptyState('tune', `${round}회 커스텀필터 데이터 없음`, '커스텀 분석 페이지에서 분석을 저장하면 여기서 확인됩니다.'); return;
+            }
+
+            const histMap = {};
+            (histRes.data || []).forEach(h => { histMap[h.analysis_id] = h.target_numbers || []; });
+
+            const { nums, bonus } = curWin;
+            const undrawn = isUndrawn(curDraw);
+            const winSet = new Set(nums);
+
+            const makeRow = (name, targetNums, filterVal, actualVal, passResult, enabled=null, isSnap=false) => {
+                if (undrawn) { actualVal = '추첨예정'; passResult = null; }
+                const passCls = passResult===true ? 'text-emerald-600 ' : passResult===false ? 'text-rose-500 ' : 'text-amber-500';
+                const passText = passResult===true ? '적중' : passResult===false ? '미적중' : (undrawn ? '추첨예정' : '-');
+                const rowBg = isSnap ? 'bg-indigo-50/30' : '';
+                const enabledHtml = enabled===null
+                    ? '<span class="text-[10px] text-slate-300">-</span>'
+                    : enabled
+                        ? '<span class="text-[10px]  text-emerald-500 bg-emerald-50 px-1.5 py-0.5 rounded font-bold">ON</span>'
+                        : '<span class="text-[10px]  text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">OFF</span>';
+                const balls = targetNums.length
+                    ? targetNums.map(n=>ball(n, 28,winSet.has(n)?'ball-matched':'')).join('')
+                    : '<span class="text-[10px] text-slate-300">-</span>';
+                const snapBadge = isSnap ? '<span class="text-[9px] bg-indigo-100 text-indigo-600 px-1 rounded mr-1">SNAP</span>' : '';
+                
+                return `
+                <tr class="${rowBg} hover:bg-slate-50 transition-colors">
+                    <td class="px-3 py-2 text-[12px]  text-slate-700 whitespace-nowrap" title="${esc(name)}">${snapBadge}${esc(name)}</td>
+                    <td class="px-3 py-2"><div class="flex items-center gap-2 flex-wrap">${balls}</div></td>
+                    <td class="px-3 py-2 text-[11px] text-slate-500 whitespace-nowrap">${esc(String(filterVal))}</td>
+                    <td class="px-3 py-2 text-[13px]  text-slate-800 whitespace-nowrap">${esc(String(actualVal))}</td>
+                    <td class="px-3 py-2 text-center whitespace-nowrap">${enabledHtml}</td>
+                    <td class="px-4 py-2 text-center whitespace-nowrap"><span class="text-[12px]  ${passCls} font-bold">${passText}</span></td>
+                </tr>`;
+            };
+
+            const rows = data.map(item => {
+                let targetNums = (histMap[item.id] || []).filter(n => Number.isInteger(n) && n >= 1 && n <= 45);
+                if (!targetNums.length) {
+                    const type = item.type || 'static';
+                    if ((type === 'dynamic' || type === 'group' || type === 'regression_overlap') && window.LOTTO_CONSTANTS?.calculateCustomTargets) {
+                        const drawsFromPrev = allRounds.slice(curIdx + 1);
+                        targetNums = (window.LOTTO_CONSTANTS.calculateCustomTargets(item, drawsFromPrev, { isPrediction: true }) || [])
+                            .filter(n => Number.isInteger(n) && n >= 1 && n <= 45);
+                    } else {
+                        targetNums = (item.target_numbers || item.filter_config?.target_numbers || item.filter_config?.numbers || item.filter_config?.selected_numbers || item.numbers || [])
+                            .filter(n => Number.isInteger(n) && n >= 1 && n <= 45);
+                    }
+                }
+                const matchCnt = targetNums.filter(n=>winSet.has(n)).length;
+                const hasBonus = targetNums.includes(bonus);
+                const fc = item.filter_config || {};
+                const isEnabled = fc.enabled !== false;
+                const minM = fc.min ?? fc.min_match;
+                const maxM = fc.max ?? fc.max_match;
+
+                let filterVal = '-';
+                if (minM !== undefined && maxM !== undefined) filterVal = `${minM}~${maxM}`;
+                else if (minM !== undefined) filterVal = `≥${minM}`;
+                else if (maxM !== undefined) filterVal = `≤${maxM}`;
+
+                let pass = null;
+                if (minM !== undefined && maxM !== undefined && isEnabled) {
+                    pass = matchCnt >= minM && matchCnt <= maxM;
+                }
+                return makeRow(item.title || '커스텀 분석', targetNums, filterVal, `${matchCnt}${hasBonus?' +B':''}`, pass, isEnabled, !!item.is_snapshot);
+            }).join('');
+
+            el.innerHTML = `
+            ${undrawn ? `
+            <div class="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-2">
+                <span class="material-symbols-outlined text-amber-500" style="font-size:16px;">schedule</span>
+                <span class="text-[12px] text-amber-700 font-medium">추첨 전 회차 — 당첨번호 대조 없이 필터 설정값을 확인합니다</span>
+            </div>` : ''}
+            <div class="info-card overflow-hidden">
+                <div class="table-wrap">
+                <table class="w-full border-collapse">
+                    <thead>
+                        <tr class="bg-slate-50 border-b border-slate-200">
+                            <th class="px-3 py-2.5 text-left text-[11px]  text-slate-500 uppercase tracking-wide">필터</th>
+                            <th class="px-3 py-2.5 text-left text-[11px]  text-slate-500 uppercase tracking-wide">대상번호</th>
+                            <th class="px-3 py-2.5 text-left text-[11px]  text-slate-500 uppercase tracking-wide w-20">필터값</th>
+                            <th class="px-3 py-2.5 text-center text-[11px]  text-slate-500 uppercase tracking-wide w-12">결과</th>
+                            <th class="px-3 py-2.5 text-center text-[11px]  text-slate-500 uppercase tracking-wide w-10">활성</th>
+                            <th class="px-3 py-2.5 text-center text-[11px]  text-slate-500 uppercase tracking-wide w-14">${undrawn ? '상태' : '적중'}</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        ${rows}
+                    </tbody>
+                </table>
+                </div>
+            </div>`;
+            renderedTabs.custom = round;
+        } catch(e) {
+            console.error('[VP/custom]', e);
+            el.innerHTML = `<div class="info-card p-8 text-center text-rose-500 text-[13px]">로드 오류: ${esc(e.message)}</div>`;
+        }
+    }
+
+    // ════════════════════════════════════════
+    //  수동필터 탭
+    // ════════════════════════════════════════
+    async function renderManual() {
+        if (renderedTabs.manual === curDraw?.round) return;
+        const el = document.getElementById('manualContent');
+        el.innerHTML = LOADING_HTML;
+
+        try {
+            const round = curDraw.round;
+            let data = [];
+            let sourceMsg = '';
+
+            // [추가] 스냅샷 데이터 지원 (그룹 선택 시)
+            const snapInfo = filterSettings['manual_filters'] || filterSettings['manual'];
+            if (snapInfo && snapInfo.settings?.items) {
+                data = snapInfo.settings.items;
+                sourceMsg = '<span class="text-[10px] bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded font-bold mr-2">그룹 스냅샷 데이터</span>';
+            } else {
+                // [개선] 현재 회차와 다음 회차(미추첨용 저장분)를 함께 검색
+                const sb = getSB();
+                const { data: dbData, error } = await sb.from('manual_filters')
+                    .select('*')
+                    .in('target_round', [round, round + 1, String(round), String(round+1)])
+                    .order('created_at', {ascending:true});
+
+                if (error) throw error;
+                data = dbData || [];
+
+                // [추가] 만약 현재/다음 회차 데이터가 한개도 없다면, 가장 최근에 작성된 수동필터를 가져옵니다.
+                if (data.length === 0) {
+                    const { data: latestManual, error: latestErr } = await sb.from('manual_filters')
+                        .select('*')
+                        .order('target_round', { ascending: false })
+                        .limit(10); // 최근 10개 정도 가져옴
+                    
+                    if (!latestErr && latestManual?.length > 0) {
+                        data = latestManual;
+                        const lr = data[0].target_round;
+                        sourceMsg = `<span class="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-bold mr-2">${lr}회차 필터 데이터 (참조용)</span>`;
+                    }
+                }
+            }
+
+            if (!data || !data.length) {
+                el.innerHTML = `
+                <div class="info-card p-10 text-center">
+                    <span class="material-symbols-outlined text-slate-200" style="font-size:52px;">filter_list</span>
+                    <h3 class="text-[16px]  text-slate-700 mt-5 mb-2">${round}회 수동필터 없음</h3>
+                    <p class="text-[13px] text-slate-400 max-w-sm mx-auto">필터 페이지에서 수동 번호 필터를 추가하면 이 회차의 당첨번호와 비교됩니다.</p>
+                </div>`; return;
+            }
+
+            const undrawn = isUndrawn(curDraw);
+            const { nums, bonus } = curWin;
+            const winSet = new Set(nums);
+
+            const cards = data.map(mf => {
+                const selNums = mf.selected_numbers || [];
+                const matchCnt = undrawn ? 0 : selNums.filter(n=>winSet.has(n)).length;
+                const minM = mf.min_match || 0, maxM = mf.max_match || 6;
+                const pass = undrawn ? null : (matchCnt >= minM && matchCnt <= maxM);
+                const isEnabled = mf.enabled !== false;
+
+                const iconName = undrawn ? 'schedule' : (!isEnabled ? 'remove' : pass ? 'check' : 'close');
+                const iconBg   = undrawn ? 'bg-amber-100' : (!isEnabled ? 'bg-slate-100' : pass ? 'bg-emerald-100' : 'bg-rose-100');
+                const iconCls  = undrawn ? 'text-amber-500' : (!isEnabled ? 'text-slate-400' : pass ? 'text-emerald-600' : 'text-rose-500');
+                const badgeCls = undrawn
+                    ? 'bg-amber-100 text-amber-700'
+                    : (pass ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-600');
+                const badgeText = undrawn
+                    ? '추첨예정'
+                    : `${matchCnt}개 매칭 · ${pass ? '통과' : '실패'}`;
+
+                return `
+                <div class="info-card mb-4 ${!isEnabled?'opacity-50':''} transition-all hover:shadow-md">
+                    <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50/60">
+                        <div class="flex items-center gap-2">
+                            <span class="w-5 h-5 rounded-full flex items-center justify-center ${iconBg}">
+                                <span class="material-symbols-outlined ${iconCls}" style="font-size:12px;">${iconName}</span>
+                            </span>
+                            <span class="text-[13px] font-bold text-slate-700">${esc(mf.title||'수동필터')}</span>
+                            ${mf.target_round && mf.target_round != round ? `<span class="text-[9px] text-slate-400 bg-slate-100 px-1 rounded">${mf.target_round}회용</span>` : ''}
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-[11px] text-slate-500">조건: ${minM}~${maxM}개</span>
+                            <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold ${badgeCls}">
+                                ${badgeText}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="px-5 py-4">
+                        <div class="flex items-center gap-1.5 flex-wrap">
+                            ${selNums.map(n=>`
+                            <div class="flex flex-col items-center gap-0.5">
+                                ${ball(n, 28, (!undrawn && winSet.has(n))?'ball-matched':'')}
+                                <span class="text-[8px] font-bold ${(!undrawn && winSet.has(n))?'text-emerald-600':'text-slate-300'}">${(!undrawn && winSet.has(n))?'✓':''}</span>
+                            </div>`).join('')}
+                        </div>
+                    </div>
+                </div>`;
+            }).join('');
+
+            const passCount = undrawn ? 0 : data.filter(mf => {
+                const sel = mf.selected_numbers||[];
+                const mc = sel.filter(n=>winSet.has(n)).length;
+                return mc >= (mf.min_match||0) && mc <= (mf.max_match||6) && mf.enabled !== false;
+            }).length;
+
+            el.innerHTML = `
+            <div class="flex items-center justify-between mb-4 p-4 bg-slate-50 border border-slate-200 rounded-xl">
+                <div class="flex items-center gap-2">
+                    <span class="material-symbols-outlined text-slate-500" style="font-size:18px;">tune</span>
+                    <span class="text-[12px] text-slate-600">${sourceMsg} ${data.length}개 수동필터${undrawn ? ' 설정됨' : ` 중 <strong>${passCount}개 통과</strong>`}</span>
+                </div>
+            </div>
+            ${cards}`;
+
+            renderedTabs.manual = round;
+        } catch(e) {
+            console.error('[VP/manual]', e);
+            el.innerHTML = `<div class="info-card p-10 text-center text-rose-500">
+                <span class="material-symbols-outlined mb-2" style="font-size:32px;">error</span>
+                <div class="text-[13px] font-bold">수동필터 로드 실패</div>
+                <div class="text-[11px] opacity-70 mt-1">${esc(e.message)}</div>
+            </div>`;
+        }
+    }
+
+    // ════════════════════════════════════════
+    //  고정수/제외수 탭
+    // ════════════════════════════════════════
+    async function renderFixedExclude() {
+        if (!curWin) return;
+        const round = curDraw.round;
+        if (!filterSettingsCache[round]) {
+            filterSettingsCache[round] = await loadFilterSettingsByRound(round);
+        }
+        filterSettings = filterSettingsCache[round];
+        if (isUndrawn(curDraw)) {
+            await renderFixedExcludeUndrawn();
+        } else {
+            await renderFixedExcludeContent();
+        }
+    }
+
+    // 미추첨 회차: 고정수/제외수 설정 확인 (비교 없이 번호만 표시)
+    async function renderFixedExcludeUndrawn() {
+        const el = document.getElementById('fixedExcludeContent');
+        el.innerHTML = LOADING_HTML;
+
+        let fixedNums = [], excludeNums = [];
+        const fixedRow   = filterSettings['fixed_numbers'];
+        const excludeRow = filterSettings['excluded_numbers'];
+        if (fixedRow?.settings)   fixedNums   = fixedRow.settings.numbers   || fixedRow.settings.values   || [];
+        if (excludeRow?.settings) excludeNums = excludeRow.settings.numbers || excludeRow.settings.values || [];
+        if (!fixedNums.length)   fixedNums   = JSON.parse(localStorage.getItem('basket_fixed')  || '[]');
+        if (!excludeNums.length) excludeNums = JSON.parse(localStorage.getItem('basket_exclude') || '[]');
+
+        const makeBalls = (arr, colorClass) =>
+            arr.length ? arr.map(n=>`<span class="ball ${colorClass}" style="width:36px;height:36px;font-size:11px;">${String(n).padStart(2,'0')}</span>`).join('') :
+            `<span class="text-[12px] text-slate-400">없음</span>`;
+
+        el.innerHTML = `
+        <div class="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-2">
+            <span class="material-symbols-outlined text-amber-500" style="font-size:16px;">schedule</span>
+            <span class="text-[12px] text-amber-700 ">추첨 전 회차 — 당첨번호 대조 없이 설정된 번호를 확인합니다</span>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div class="info-card">
+                <div class="flex items-center gap-2 px-4 py-3 border-b border-slate-100 bg-blue-50/60">
+                    <span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+                    <span class="text-[13px]  text-slate-700">고정수 설정</span>
+                    <span class="text-[11px] text-slate-400">${fixedNums.length}개</span>
+                </div>
+                <div class="p-5">
+                    <div class="flex flex-wrap gap-2">${makeBalls(fixedNums,'ball-b')}</div>
+                </div>
+            </div>
+            <div class="info-card">
+                <div class="flex items-center gap-2 px-4 py-3 border-b border-slate-100 bg-rose-50/60">
+                    <span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
+                    <span class="text-[13px]  text-slate-700">제외수 설정</span>
+                    <span class="text-[11px] text-slate-400">${excludeNums.length}개</span>
+                </div>
+                <div class="p-5">
+                    <div class="flex flex-wrap gap-2">${makeBalls(excludeNums,'ball-r')}</div>
+                </div>
+            </div>
+        </div>`;
+    }
+
+    async function renderFixedExcludeContent() {
+        const el = document.getElementById('fixedExcludeContent');
+        el.innerHTML = LOADING_HTML;
+
+        const { nums, bonus } = curWin;
+        const winSet = new Set(nums);
+
+        // filterSettings 맵(filter_key → row)에서 직접 조회
+        let fixedNums = [], excludeNums = [];
+
+        const fixedRow   = filterSettings['fixed_numbers'];
+        const excludeRow = filterSettings['excluded_numbers'];
+
+        if (fixedRow?.settings)   fixedNums   = fixedRow.settings.numbers   || fixedRow.settings.values   || [];
+        if (excludeRow?.settings) excludeNums = excludeRow.settings.numbers || excludeRow.settings.values || [];
+
+        // localStorage 백업 (비로그인 / 미저장 상태) - [수정] 최근 회차일 때만 바스켓 적용
+        const isLatest = (curDraw && allRounds[0] && curDraw.round === allRounds[0].round);
+        if (isLatest && (!fixedNums.length || !excludeNums.length)) {
+            const basketData = JSON.parse(localStorage.getItem('lotto_basket') || '{"fixed":[],"exclude":[]}');
+            if (!fixedNums.length)   fixedNums   = basketData.fixed   || [];
+            if (!excludeNums.length) excludeNums = basketData.exclude || [];
+        }
+
+        const fixedHit   = fixedNums.filter(n=>winSet.has(n));
+        const fixedMiss  = fixedNums.filter(n=>!winSet.has(n));
+        const exclFail   = excludeNums.filter(n=>winSet.has(n));  // 제외했는데 당첨
+        const exclOk     = excludeNums.filter(n=>!winSet.has(n));
+
+        const renderBalls = (arr, hitSet, hitClass, missClass) =>
+            arr.map(n=>`
+            <div class="flex flex-col items-center gap-0.5">
+                ${ball(n, 34, (winSet.has(n)?'ball-matched':'') + (collectiveAiSet.size > 0 && !collectiveAiSet.has(n) ? ' ball-ai-ignored' : ''))}
+                <span class="text-[9px]  ${winSet.has(n)?hitClass:missClass}">${winSet.has(n)?'✓ 적중':'미포함'}</span>
+            </div>`).join('');
+
+        el.innerHTML = `
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+
+            <!-- 고정수 카드 -->
+            <div class="info-card">
+                <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-blue-50/60">
+                    <div class="flex items-center gap-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+                        <span class="text-[13px]  text-slate-700">고정수 검증</span>
+                        <span class="text-[11px] text-slate-400">${fixedNums.length}개</span>
+                    </div>
+                    <span class="px-2.5 py-0.5 rounded-full text-[11px]  ${fixedHit.length>0?'bg-emerald-100 text-emerald-700':'bg-slate-100 text-slate-500'}">
+                        ${fixedHit.length}개 적중
+                    </span>
+                </div>
+                <div class="p-5">
+                    ${fixedNums.length === 0 ?
+                        `<div class="text-center py-6 text-[12px] text-slate-400"><span class="material-symbols-outlined block mb-2" style="font-size:32px;color:#cbd5e1;">pin</span>고정수 없음</div>` :
+                        `<div class="flex flex-wrap gap-2 mb-4">
+                            ${renderBalls(fixedNums, winSet, 'text-emerald-600', 'text-slate-300')}
+                        </div>
+                        <div class="p-3 rounded-xl text-[12px]  ${fixedHit.length>0?'bg-emerald-50 text-emerald-700':'bg-rose-50 text-rose-600'}">
+                            ${fixedHit.length>0
+                                ? `✅ ${fixedHit.join(', ')}번 적중 (${fixedHit.length}/${fixedNums.length}개)`
+                                : `❌ 고정수 ${fixedNums.length}개 모두 낙첨`}
+                        </div>`
+                    }
+                </div>
+            </div>
+
+            <!-- 제외수 카드 -->
+            <div class="info-card">
+                <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-rose-50/60">
+                    <div class="flex items-center gap-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
+                        <span class="text-[13px]  text-slate-700">제외수 검증</span>
+                        <span class="text-[11px] text-slate-400">${excludeNums.length}개</span>
+                    </div>
+                    <span class="px-2.5 py-0.5 rounded-full text-[11px]  ${exclFail.length===0?'bg-emerald-100 text-emerald-700':'bg-rose-100 text-rose-600'}">
+                        ${exclFail.length===0?'전체 제외 성공':`${exclFail.length}개 제외 실패`}
+                    </span>
+                </div>
+                <div class="p-5">
+                    ${excludeNums.length === 0 ?
+                        `<div class="text-center py-6 text-[12px] text-slate-400"><span class="material-symbols-outlined block mb-2" style="font-size:32px;color:#cbd5e1;">remove_circle</span>제외수 없음</div>` :
+                        `<div class="flex flex-wrap gap-2 mb-4">
+                            ${excludeNums.map(n=>`
+                            <div class="flex flex-col items-center gap-0.5">
+                                ${ball(n, 34, winSet.has(n)?'ball-matched':'')}
+                                <span class="text-[9px]  ${winSet.has(n)?'text-rose-500':'text-emerald-500'}">${winSet.has(n)?'⚠ 포함':'✓ 제외'}</span>
+                            </div>`).join('')}
+                        </div>
+                        <div class="grid grid-cols-2 gap-3 mb-3">
+                            <div class="text-center p-3 bg-emerald-50 rounded-xl">
+                                <div class="text-[24px]  text-emerald-500">${exclOk.length}</div>
+                                <div class="text-[11px] text-emerald-600 ">제외 성공</div>
+                            </div>
+                            <div class="text-center p-3 ${exclFail.length?'bg-rose-50':'bg-slate-50'} rounded-xl">
+                                <div class="text-[24px]  ${exclFail.length?'text-rose-500':'text-slate-300'}">${exclFail.length}</div>
+                                <div class="text-[11px] ${exclFail.length?'text-rose-500':'text-slate-400'} ">제외 실패</div>
+                            </div>
+                        </div>
+                        <div class="p-3 rounded-xl text-[12px]  ${exclFail.length===0?'bg-emerald-50 text-emerald-700':'bg-rose-50 text-rose-600'}">
+                            ${exclFail.length===0
+                                ? `✅ 모든 제외수(${excludeNums.length}개)가 당첨번호에서 제외되었습니다.`
+                                : `⚠️ ${exclFail.join(', ')}번 제외 실패 (당첨번호에 포함)`}
+                        </div>`
+                    }
+                </div>
+            </div>
+
+        </div>`;
+
+    }
+
+    // ════════════════════════════════════════
+    //  조합 탭 렌더
+    // ════════════════════════════════════════
+    function renderCombosTab() {
+        const el = document.getElementById('combosTabContent');
+        if (!curWin) return;
+
+        // 미추첨 회차: 저장 조합만 표시 (당첨 비교 없음)
+        if (isUndrawn(curDraw)) {
+            if (!savedGroups.length) {
+                el.innerHTML = `
+                <div class="info-card p-12 text-center">
+                    <span class="material-symbols-outlined" style="font-size:52px;color:#cbd5e1;">folder_open</span>
+                    <h3 class="text-[16px]  text-slate-600 mt-5 mb-2">${curDraw.round}회 저장된 조합이 없습니다</h3>
+                    <p class="text-[13px] text-slate-400">조합 페이지에서 이 회차 예측 조합을 저장하면 추첨 후 검증됩니다.</p>
+                </div>`; return;
+            }
+            const totalCombos = savedGroups.reduce((s,g)=>s+(g.combinations||[]).length,0);
+            el.innerHTML = `
+            <div class="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-2">
+                <span class="material-symbols-outlined text-amber-500" style="font-size:16px;">schedule</span>
+                <span class="text-[12px] text-amber-700 ">추첨 전 회차 — ${savedGroups.length}개 그룹 · ${totalCombos.toLocaleString()}개 조합 저장됨 · 추첨 후 당첨 결과가 표시됩니다</span>
+            </div>
+            ${savedGroups.map(g=>{
+                const combos = g.combinations||[];
+                return `
+                <div class="info-card mb-4">
+                    <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50">
+                        <div class="flex items-center gap-2">
+                            <span class="text-[13px]  text-slate-700">${esc(g.group_name||'그룹')}</span>
+                            ${g.memo==='ai_combination' ? '<span class="px-2 py-0.5 bg-purple-100 text-purple-700 text-[10px]  rounded-full">🤖 AI 조합</span>' : ''}
+                        </div>
+                        <span class="text-[11px] text-slate-400">${combos.length}개 조합</span>
+                    </div>
+                    <div class="p-4 flex flex-col gap-2">
+                        ${combos.map(c=>`
+                        <div class="flex items-center gap-1.5 flex-wrap">
+                            ${[...(c.numbers||[])].sort((a,b)=>a-b).map(n=>ball(n,28)).join('')}
+                        </div>`).join('')}
+                        ${combos.length===0?'<div class="text-[12px] text-slate-400 text-center py-4">조합 없음</div>':''}
+                    </div>
+                </div>`;
+            }).join('')}`;
+            return;
+        }
+
+        const { nums, bonus } = curWin;
+        const winSet = new Set(nums);
+
+        if (!savedGroups.length) {
+            el.innerHTML = `
+            <div class="info-card p-12 text-center">
+                <span class="material-symbols-outlined" style="font-size:52px;color:#cbd5e1;">folder_open</span>
+                <h3 class="text-[16px]  text-slate-600 mt-5 mb-2">${curDraw.round}회 저장된 조합이 없습니다</h3>
+                <p class="text-[13px] text-slate-400">조합 페이지에서 이 회차 예측 조합을 저장하면 검증 결과가 표시됩니다.</p>
+            </div>`; return;
+        }
+
+        // 전체 통계
+        let total=0, r0=0, r_low=0, r1=0,r2=0,r3=0,r4=0,r5=0;
+        savedGroups.forEach(g=>(g.combinations||[]).forEach(c=>{
+            total++;
+            const m = c.numbers.filter(n=>winSet.has(n)).length;
+            const hb = c.numbers.includes(bonus);
+            if(m===6) r1++;
+            else if(m===5&&hb) r2++;
+            else if(m===5) r3++;
+            else if(m===4) r4++;
+            else if(m===3) r5++;
+            else if(m===0) r0++;
+            else r_low++;  // 1개 or 2개 일치 (미당첨)
+        }));
+        const missTotal = r0 + r_low;
+
+        el.innerHTML = `
+        <!-- 전체 당첨 요약 -->
+        <div class="info-card p-5 mb-5">
+            <div class="flex items-center gap-2 mb-4">
+                <span class="material-symbols-outlined text-blue-500" style="font-size:18px;">bar_chart</span>
+                <span class="text-[14px]  text-slate-700">전체 통계</span>
+                <span class="text-[12px] text-slate-400">${savedGroups.length}개 그룹 · ${total.toLocaleString()}개 조합</span>
+            </div>
+            <div class="grid grid-cols-4 sm:grid-cols-7 gap-2 mb-4">
+                ${[
+                    ['미당첨', 'bg-slate-50 border-slate-200 text-slate-600', missTotal, '0~2개'],
+                    ['5등', 'bg-emerald-50 border-emerald-200 text-emerald-700', r5, '3개 일치'],
+                    ['4등', 'bg-blue-50 border-blue-200 text-blue-700', r4, '4개 일치'],
+                    ['3등', 'bg-orange-50 border-orange-200 text-orange-700', r3, '5개 일치'],
+                    ['2등', 'bg-purple-50 border-purple-200 text-purple-700', r2, '5개+보너스'],
+                    ['🏆 1등', 'bg-yellow-50 border-yellow-300 text-yellow-800', r1, '6개 일치'],
+                    ['합계', 'bg-slate-100 border-slate-300 text-slate-700', total, '전체'],
+                ].map(([label, cls, cnt, sub])=>`
+                <div class="border ${cls} rounded-xl p-3 text-center ${cnt>0&&label!=='합계'&&label!=='미당첨'?'ring-1 ring-offset-1':''}">
+                    <div class="text-[20px]  ${cnt>0&&label.includes('등')?'':'opacity-60'}">${cnt.toLocaleString()}</div>
+                    <div class="text-[11px]  mt-0.5">${label}</div>
+                    <div class="text-[9px] mt-0.5 opacity-60">${sub}</div>
+                    <div class="text-[10px] mt-0.5 opacity-70">${total?((cnt/total)*100).toFixed(1)+'%':'0%'}</div>
+                </div>`).join('')}
+            </div>
+            ${r1+r2+r3+r4+r5 > 0 ? `
+            <div class="pt-3 border-t border-slate-100 flex items-center gap-2 flex-wrap">
+                <span class="material-symbols-outlined text-emerald-500" style="font-size:15px;">emoji_events</span>
+                <span class="text-[12px]  text-emerald-700">당첨 조합 있음!</span>
+                ${r1?`<span class="px-2.5 py-1 bg-yellow-100 text-yellow-800 text-[11px]  rounded-lg">🏆 1등 ${r1}개</span>`:''}
+                ${r2?`<span class="px-2.5 py-1 bg-purple-100 text-purple-800 text-[11px]  rounded-lg">2등 ${r2}개</span>`:''}
+                ${r3?`<span class="px-2.5 py-1 bg-red-100 text-red-700 text-[11px]  rounded-lg">3등 ${r3}개</span>`:''}
+                ${r4?`<span class="px-2.5 py-1 bg-blue-100 text-blue-700 text-[11px]  rounded-lg">4등 ${r4}개</span>`:''}
+                ${r5?`<span class="px-2.5 py-1 bg-emerald-100 text-emerald-700 text-[11px]  rounded-lg">5등 ${r5}개</span>`:''}
+                <span class="text-[11px] text-slate-400 ml-auto">각 그룹 카드에서 당첨 조합을 확인하세요</span>
+            </div>` : `
+            <div class="pt-3 border-t border-slate-100 text-[12px] text-slate-400 flex items-center gap-2">
+                <span class="material-symbols-outlined text-slate-300" style="font-size:15px;">sentiment_dissatisfied</span>
+                이 회차에서 당첨된 조합이 없습니다.
+            </div>`}
+        </div>
+
+        <!-- 그룹별 카드 -->
+        ${savedGroups.map(g=>renderGroupCard(g, nums, winSet, bonus)).join('')}`;
+    }
+
+    function renderGroupCard(g, winNums, winSet, bonus) {
+        const combos = g.combinations || [];
+        let r1=0,r2=0,r3=0,r4=0,r5=0;
+        const scored = combos.map(c=>{
+            const m = c.numbers.filter(n=>winSet.has(n)).length;
+            const hb = c.numbers.includes(bonus);
+            let rank = 0;
+            if(m===6){r1++;rank=1;}else if(m===5&&hb){r2++;rank=2;}else if(m===5){r3++;rank=3;}else if(m===4){r4++;rank=4;}else if(m===3){r5++;rank=5;}
+            return {...c, m, hb, rank};
+        }).sort((a,b)=>b.m-a.m);
+        const best = scored[0]?.m || 0;
+        const lost = combos.length-r1-r2-r3-r4-r5;
+
+        // 등수별 카드 섹션
+        const RANK_META = [
+            {rank:1, label:'🏆 1등', full:'1등 (6개 일치)', color:'#ca8a04', bg:'bg-yellow-50', border:'border-yellow-300', textCls:'text-yellow-800', badgeCls:'bg-yellow-100 text-yellow-800'},
+            {rank:2, label:'2등', full:'2등 (5개 + 보너스)', color:'#7c3aed', bg:'bg-purple-50', border:'border-purple-300', textCls:'text-purple-800', badgeCls:'bg-purple-100 text-purple-800'},
+            {rank:3, label:'3등', full:'3등 (5개 일치)', color:'#dc2626', bg:'bg-red-50', border:'border-red-300', textCls:'text-red-700', badgeCls:'bg-red-100 text-red-700'},
+            {rank:4, label:'4등', full:'4등 (4개 일치)', color:'#1d4ed8', bg:'bg-blue-50', border:'border-blue-300', textCls:'text-blue-700', badgeCls:'bg-blue-100 text-blue-700'},
+            {rank:5, label:'5등', full:'5등 (3개 일치)', color:'#059669', bg:'bg-emerald-50', border:'border-emerald-300', textCls:'text-emerald-700', badgeCls:'bg-emerald-100 text-emerald-700'},
+        ];
+        const hasWinners = r1+r2+r3+r4+r5 > 0;
+        const rankCardsSections = hasWinners ? `
+        <div class="px-5 pt-4 pb-3 border-t border-slate-100">
+            <div class="text-[11px]  text-slate-500 mb-3 flex items-center gap-1.5">
+                <span class="material-symbols-outlined text-slate-400" style="font-size:14px;">emoji_events</span>
+                등수별 당첨 조합
+            </div>
+            ${RANK_META.filter(rm=>{
+                return scored.filter(c=>c.rank===rm.rank).length > 0;
+            }).map(rm=>{
+                const rCombos = scored.filter(c=>c.rank===rm.rank);
+                return `
+                <div class="${rm.bg} border ${rm.border} rounded-xl p-4 mb-3">
+                    <div class="flex items-center gap-2 mb-3">
+                        <span class="text-[13px]  ${rm.textCls}">${rm.full}</span>
+                        <span class="px-2.5 py-0.5 rounded-full text-[11px]  ${rm.badgeCls}">${rCombos.length}개 조합</span>
+                    </div>
+                    <div class="flex flex-col gap-2">
+                        ${rCombos.map(c=>`
+                        <div class="flex items-center gap-2 bg-white/80 rounded-lg px-3 py-2 shadow-sm">
+                            <div class="flex items-center gap-1 flex-wrap">
+                                ${[...c.numbers].sort((a,b)=>a-b).map(n=>ball(n,28,winSet.has(n)?'ball-matched':'')).join('')}
+                            </div>
+                            ${c.hb?`<span class="text-[9px]  text-purple-700 bg-purple-100 px-1.5 py-0.5 rounded-full ml-1">+보너스</span>`:''}
+                            <span class="ml-auto text-[10px]  text-slate-400 flex-shrink-0">${c.m}개 일치</span>
+                        </div>`).join('')}
+                    </div>
+                </div>`;
+            }).join('')}
+        </div>` : '';
+
+        return `
+        <div class="info-card mb-5">
+            <div style="background:linear-gradient(135deg,#1d4ed8,#1e3a8a);padding:16px 20px;" class="flex items-center justify-between flex-wrap gap-2">
+                <div>
+                    <span style="font-size:15px;font-weight:900;color:#fff;">${esc(g.group_name||'조합')}</span>
+                    <span style="font-size:11px;color:rgba(255,255,255,0.6);margin-left:8px;">${combos.length}개 조합</span>
+                    ${g.memo==='ai_combination' ? '<span style="font-size:10px;font-weight:900;background:rgba(167,139,250,0.3);color:#e9d5ff;border:1px solid rgba(167,139,250,0.4);padding:2px 8px;border-radius:99px;margin-left:6px;">🤖 AI 조합</span>' : ''}
+                </div>
+                <div class="flex items-center gap-1.5 flex-wrap">
+                    ${r1?`<span class="px-2 py-0.5 bg-yellow-400 text-yellow-900 text-[10px]  rounded-full">🏆 1등 ${r1}</span>`:''}
+                    ${r2?`<span class="px-2 py-0.5 bg-purple-400 text-white text-[10px]  rounded-full">2등 ${r2}</span>`:''}
+                    ${r3?`<span class="px-2 py-0.5 bg-red-400 text-white text-[10px]  rounded-full">3등 ${r3}</span>`:''}
+                    ${r4?`<span class="px-2 py-0.5 bg-blue-400 text-white text-[10px]  rounded-full">4등 ${r4}</span>`:''}
+                    ${r5?`<span class="px-2 py-0.5 bg-emerald-400 text-white text-[10px]  rounded-full">5등 ${r5}</span>`:''}
+                    <span style="font-size:10px;font-weight:700;color:rgba(255,255,255,0.7);">최다 ${best}개 일치</span>
+                </div>
+            </div>
+            <div class="flex items-center gap-2 px-5 py-3 border-b border-slate-100 flex-wrap bg-slate-50/60">
+                ${[['1등(6개)','bg-yellow-100 text-yellow-800',r1],['2등(5+보너스)','bg-purple-100 text-purple-800',r2],['3등(5개)','bg-red-100 text-red-800',r3],['4등(4개)','bg-blue-100 text-blue-800',r4],['5등(3개)','bg-emerald-100 text-emerald-800',r5],['낙첨','bg-slate-100 text-slate-500',lost]].map(([label,cls,cnt])=>
+                    cnt>0?`<span class="px-2.5 py-1 ${cls} text-[11px]  rounded-lg">${label}: ${cnt}</span>`:''
+                ).join('')}
+            </div>
+            ${rankCardsSections}
+            <div class="px-5 py-4 ${hasWinners ? 'border-t border-slate-100' : ''}">
+                <div class="text-[11px] text-slate-400  mb-2">전체 ${combos.length}개 중 상위 15개 (매칭 많은 순) · 초록 테두리 = 당첨번호 일치</div>
+                ${scored.slice(0,15).map((c,i)=>`
+                <div class="flex items-center gap-2 py-2 ${i<Math.min(scored.length,15)-1?'border-b border-slate-50':''}">
+                    <span class="text-[10px]  text-slate-300 w-5 text-right flex-shrink-0">${i+1}</span>
+                    <div class="flex items-center gap-1">
+                        ${[...c.numbers].sort((a,b)=>a-b).map(n=>ball(n,25,winSet.has(n)?'ball-matched':'')).join('')}
+                    </div>
+                    <span class="ml-auto flex-shrink-0 px-2 py-0.5 text-[10px]  rounded-full ${c.rank===1?'bg-yellow-100 text-yellow-800':c.rank===2?'bg-purple-100 text-purple-800':c.rank===3?'bg-red-100 text-red-800':c.rank===4?'bg-blue-100 text-blue-800':c.rank===5?'bg-emerald-100 text-emerald-800':'bg-slate-100 text-slate-500'}">
+                        ${c.rank?c.rank+'등':c.m+'개 일치'}
+                    </span>
+                </div>`).join('')}
+                ${scored.length>15?`<div class="text-center text-[11px] text-slate-400 mt-2 pt-2 border-t border-slate-100">+ 나머지 ${scored.length-15}개 조합 생략</div>`:''}
+            </div>
+        </div>`;
+    }
+
+    // ════════════════════════════════════════
+    //  딥러닝분석 서브탭 렌더
+    // ════════════════════════════════════════
+    // [최종 수정] 딥러닝 서브탭 통합 렌더링: 중복 제거 및 모델 기반 단일화
+    async function renderSub(sub) {
+        if (!curWin) return;
+        if (sub==='recommend')              await renderSubModels('recommend');
+        else if (sub==='models')            await renderSubModels('models');
+        else if (sub==='combos')            await renderSubModels('combos');
+        else if (sub==='filterAnalysis')    await renderSubFilterAnalysis();
+        else if (sub==='customAnalysis')    await renderSubCustomAnalysis();
+    }
+
+    // [삭제] renderSubRecommend, renderSubModelSettings, renderSubCombos — renderSubModels로 통합됨
+
+    async function renderSubModels(sub = 'recommend') {
+        const el = document.getElementById('sub' + cap(sub));
+        if (!el) return;
+        el.innerHTML = LOADING_HTML;
+        const { nums } = curWin;
+        const winSet = new Set(nums);
+
+        // dbKey: analysis.matrix_data 내 실제 키 이름
+            const MODEL_LIST = [
+                { key:'ens',   dbKey:'ensemble',    label:'앙상블 Result',     color:'#7C3AED' },
+                { key:'lstm',  dbKey:'lstm',        label:'LSTM',           color:'#6366F1' },
+                { key:'xgb',   dbKey:'xgboost',     label:'XGBoost',        color:'#F59E0B' },
+                { key:'cnn',   dbKey:'cnn',         label:'CNN-LSTM',        color:'#10B981' },
+                { key:'tf',    dbKey:'transformer', label:'Transformer',     color:'#3B82F6' },
+                { key:'mkv',   dbKey:'markov',      label:'Markov',          color:'#8B5CF6' },
+                { key:'atc',   dbKey:'autoencoder', label:'Autoencoder', color:'#EC4899' },
+                { key:'gnn',   dbKey:'gnn',         label:'GNN',             color:'#14B8A6' }
+            ];
+
+        // 배열/객체에서 TOP 20 추출 (범용)
+        const getTop20 = (raw) => {
+            if (!raw || typeof raw !== 'object') return [];
+            const entries = Array.isArray(raw)
+                ? raw.map((s,i) => ({ n: i+1, s: Number(s) }))
+                : Object.entries(raw).map(([n,s]) => ({ n: parseInt(n), s: Number(s) }));
+            return entries.filter(x=>x.n>=1&&x.n<=45).sort((a,b)=>b.s-a.s).slice(0,20);
+        };
+
+        try {
+            const sb = getSB();
+            const round = curDraw.round;
+            const { data: dlRows, error: dlErr } = await sb.from('deep_analysis_history')
+                .select('analysis_data, number_rankings, model_rankings, combinations, recommended_numbers, target_round')
+                .in('target_round', [round, String(round)])
+                .order('created_at', { ascending: false })
+                .limit(1);
+            
+            const data = dlRows?.[0] || null;
+
+            if (dlErr) console.error('[VP] DL query error:', dlErr);
+            
+            // [추가] 회차 불일치 방지 로깅
+            if (data && data.target_round != round) {
+                console.warn(`[VP/DL] Displaying data for round ${data.target_round} instead of requested ${round}`);
+            }
+
+            if (!data) {
+                el.innerHTML = `<div class="bg-blue-50 border border-blue-100 rounded-xl p-4 text-[12px] text-blue-700">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="material-symbols-outlined text-blue-500" style="font-size:18px;">info</span>
+                        <b class="text-[14px]">${round}회 딥러닝 분석 결과 없음</b>
+                    </div>
+                    <p class="mb-2">검사한 DB 컬럼: <i>target_round</i> [<b>${round}</b> 또는 <b>"${round}"</b>]</p>
+                    <p class="text-slate-500">AI 분석 페이지에서 분석 결과 저장을 먼저 완료해 주세요.</p>
+                </div>`; return;
+            }
+
+            const ad = (() => {
+                if (!data.analysis_data) return {};
+                try { return typeof data.analysis_data === 'string' ? JSON.parse(data.analysis_data) : data.analysis_data; }
+                catch(e) { return {}; }
+            })();
+
+            // ── matrix_data에서 모델별 번호 점수 맵 빌드 ──
+            // analysis.matrix_data: [{num, models:{lstm:{score}, xgboost:{score}, ...}}, ...]
+            const matrixData = ad?.analysis?.matrix_data || [];
+            const modelScoreMap = {}; // { dbKey: { numStr: score } }
+            matrixData.forEach(item => {
+                if (!item.num || !item.models) return;
+                Object.entries(item.models).forEach(([mKey, mData]) => {
+                    if (!modelScoreMap[mKey]) modelScoreMap[mKey] = {};
+                    modelScoreMap[mKey][item.num] = typeof mData === 'object' ? (mData.score ?? 0) : Number(mData);
+                });
+            });
+
+            // dbKey 기준으로 TOP 20 추출
+            const getModelTop20 = (dbKey) => {
+                const scores = modelScoreMap[dbKey] || {};
+                if (!Object.keys(scores).length) return [];
+                return Object.entries(scores)
+                    .map(([n,s]) => ({ n: parseInt(n), s: Number(s) }))
+                    .filter(x => x.n >= 1 && x.n <= 45)
+                    .sort((a,b) => b.s - a.s)
+                    .slice(0, 20);
+            };
+
+            // dbKey 기준으로 TOP 20 추출 및 전체 합집합 계산
+            collectiveAiSet.clear();
+            MODEL_LIST.forEach(m => {
+                const top20 = getModelTop20(m.dbKey);
+                top20.forEach(x => collectiveAiSet.add(x.n));
+            });
+
+            // 합집합 계산 후 당첨번호 카드 및 다른 섹션 재렌더링 필요 시 호출 가능
+            // 여기서는 페이지 로드 시점에 맞춰 자연스럽게 반영됨
+
+            // ── 앙상블 TOP 20: matrix_data 전체 합산 or combinations 집계 ──
+            let ensembleTop = [];
+            if (matrixData.length > 0) {
+                // matrix_data total 점수 기준
+                ensembleTop = matrixData
+                    .filter(item => item.num >= 1 && item.num <= 45)
+                    .map(item => {
+                        // 모델 가중치 반영한 앙상블 점수 계산
+                        const mw = ad?.pipeline?.modelWeights || ad?.model_weights || ad?.analysis?.model_weights || data?.model_rankings || {};
+                        let weightSum = 0, scoreSum = 0;
+                        if (item.models) {
+                            Object.entries(item.models).forEach(([mk, md]) => {
+                                const w = mw[mk] || (1/7);
+                                const s = typeof md === 'object' ? (md.score ?? 0) : Number(md);
+                                scoreSum += s * w;
+                                weightSum += w;
+                            });
+                        }
+                        return { n: item.num, s: weightSum > 0 ? scoreSum / weightSum : (item.total || 0) };
+                    })
+                    .sort((a,b) => b.s - a.s).slice(0, 20);
+            } else {
+                // fallback: combinations 집계
+                const combos = ad.combinations || data.combinations || [];
+                const numScoreMap = {};
+                combos.forEach(c => {
+                    (c.numbers||[]).forEach(n => {
+                        if (!numScoreMap[n]) numScoreMap[n] = { count:0, total:0 };
+                        numScoreMap[n].count++;
+                        numScoreMap[n].total += (c.score||0);
+                    });
+                });
+                const nr = data.number_rankings || ad.number_rankings;
+                if (nr && typeof nr === 'object' && Object.keys(nr).length > 0) {
+                    ensembleTop = getTop20(nr);
+                } else if (Object.keys(numScoreMap).length > 0) {
+                    ensembleTop = Object.entries(numScoreMap)
+                        .map(([n,v]) => ({ n: parseInt(n), s: v.count>0 ? v.total/v.count : 0 }))
+                        .sort((a,b)=>b.s-a.s).slice(0,20);
+                }
+            }
+
+            const recNums = (ad.top_5 || data.recommended_numbers || []).map(Number);
+            const excNums = (ad.exclude_10 || data.excluded_numbers || []).map(Number);
+            const recSet  = new Set(recNums);
+            const excSet  = new Set(excNums);
+
+            // [추가] 바스켓(고정수/제외수) 번호 가져오기
+            // [수정] 현재 회차가 시스템 상의 최신 회차(상단 첫번째)일 때만 바스켓 하이라이트를 적용합니다.
+            const basketData = JSON.parse(localStorage.getItem('lotto_basket') || '{"fixed":[],"exclude":[]}');
+            const isLatest   = (curDraw && allRounds[0] && curDraw.round === allRounds[0].round);
+
+            const basketFixed   = isLatest ? (basketData.fixed   || []).map(Number) : [];
+            const basketExclude = isLatest ? (basketData.exclude || []).map(Number) : [];
+            const bfSet = new Set(basketFixed);
+            const beSet = new Set(basketExclude);
+
+            // 앙상블 TOP5 요약 바
+            const topRow = (recNums.length || excNums.length) ? `
+            <div class="flex flex-col gap-3 mb-5">
+                ${recNums.length ? `
+                <div class="info-card p-4 flex items-center gap-3 flex-wrap">
+                    <span class="text-[12px] font-bold text-slate-600 whitespace-nowrap w-20">앙상블 TOP5</span>
+                    <div class="flex items-center gap-1 flex-wrap">
+                        ${recNums.map(n=>{
+                            const ex = [];
+                            if (winSet.has(n)) ex.push('ball-matched');
+                            if (bfSet.has(n))  ex.push('ball-basket-fixed');
+                            if (beSet.has(n))  ex.push('ball-basket-exc');
+                            return `
+                            <div class="flex flex-col items-center gap-0.5">
+                                ${ball(n,30,ex.join(' '))}
+                                <span class="text-[8px] font-bold ${winSet.has(n)?'text-emerald-500':'text-slate-300'}">${winSet.has(n)?'✓':'-'}</span>
+                            </div>`;
+                        }).join('')}
+                    </div>
+                    <span class="ml-auto text-[11px] font-bold ${recNums.filter(n=>winSet.has(n)).length>0?'text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full':'text-slate-400'}">${recNums.filter(n=>winSet.has(n)).length}/${recNums.length}개 적중</span>
+                </div>` : ''}
+                ${excNums.length ? `
+                <div class="info-card p-4 flex items-center gap-3 flex-wrap">
+                    <span class="text-[12px] font-bold text-rose-500 whitespace-nowrap w-20">제외예상수</span>
+                    <div class="flex items-center gap-1 flex-wrap">
+                        ${excNums.map(n=>{
+                            const ex = [];
+                            if (winSet.has(n)) ex.push('ball-matched');
+                            if (bfSet.has(n))  ex.push('ball-basket-fixed');
+                            if (beSet.has(n))  ex.push('ball-basket-exc');
+                            return `
+                            <div class="flex flex-col items-center gap-0.5">
+                                ${ball(n,26,ex.join(' '))}
+                                <span class="text-[8px] font-bold ${winSet.has(n)?'text-rose-500':'text-slate-300'}">${winSet.has(n)?'출현!':'-'}</span>
+                            </div>`;
+                        }).join('')}
+                    </div>
+                    <span class="ml-auto text-[11px] font-bold ${excNums.filter(n=>winSet.has(n)).length>0?'text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full':'text-slate-400'}">${excNums.filter(n=>winSet.has(n)).length}/${excNums.length}개 출현 (오류)</span>
+                </div>` : ''}
+            </div>` : '';
+
+            // 모델 카드 빌더
+            const makeModelCard = (label, color, top20arr, dbKey = '') => {
+                const mw = ad?.pipeline?.modelWeights || ad?.model_weights || ad?.analysis?.model_weights || data?.model_rankings || {};
+                const weight = dbKey === 'ensemble' ? 1.0 : (mw[dbKey] || mw[dbKey.replace('xgboost','xgb')] || mw[label.toLowerCase()] || 0);
+
+                if (!top20arr.length) return `
+                <div class="info-card overflow-hidden opacity-60">
+                    <div class="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
+                        <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:${color}"></span>
+                        <span class="text-[13px]  text-slate-700">${label}</span>
+                        <span class="ml-auto text-[11px] text-slate-300">데이터 없음</span>
+                    </div>
+                </div>`;
+                const hit = top20arr.filter(x=>winSet.has(x.n)).length;
+                const maxS = top20arr[0]?.s || 1;
+                return `
+                <div class="info-card overflow-hidden">
+                    <div class="px-4 py-3 border-b border-slate-100 flex items-center gap-2" style="background:${color}0d">
+                        <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:${color}"></span>
+                        <div class="flex flex-col flex-1">
+                            <span class="text-[13px] font-bold text-slate-700">${label}</span>
+                            ${weight > 0 ? `
+                            <div class="flex items-center gap-2 mt-1 w-full max-w-[150px]">
+                                <div class="flex-1 h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                                    <div class="h-full rounded-full" style="width:${weight*100}%; background:${color}"></div>
+                                </div>
+                                <span class="text-[10px] text-slate-500 font-bold flex-shrink-0">${(weight*100).toFixed(1)}%</span>
+                            </div>` : ''}
+                        </div>
+                        <span class="ml-auto flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold ${hit>=3?'bg-emerald-100 text-emerald-700':hit>=1?'bg-blue-50 text-blue-600':'bg-slate-50 text-slate-400'}">
+                            ${hit}개 적중 (TOP20)
+                        </span>
+                    </div>
+                    <div class="px-3 py-4 bg-white overflow-hidden">
+                        <div class="flex items-center justify-between gap-[2px] pb-1 w-full">
+                            ${top20arr.map((x,i) => {
+                                // [수정] 하이라이트 클래스 결정
+                                const ex = [];
+                                if (winSet.has(x.n)) ex.push('ball-matched');
+                                if (recSet.has(x.n)) ex.push('ball-ai-rec');
+                                if (excSet.has(x.n)) ex.push('ball-ai-exc');
+                                if (bfSet.has(x.n))  ex.push('ball-basket-fixed');
+                                if (beSet.has(x.n))  ex.push('ball-basket-exc');
+
+                                return `
+                                <div class="flex flex-col items-center gap-1">
+                                    ${ball(x.n, 26, ex.join(' '))}
+                                    <div class="bg-slate-100 rounded-full h-1 overflow-hidden" style="width:18px;">
+                                        <div class="bg-blue-400 h-full" style="width:${Math.min(100, (x.s/maxS)*100)}%"></div>
+                                    </div>
+                                    <span class="text-[8px] text-slate-400" style="font-size:7px;">${i+1}위</span>
+                                </div>`;
+                            }).join('')}
+                        </div>
+                    </div>
+                </div>`;
+            };
+
+            // 모델별 카드 목록 빌드
+            const modelCards = MODEL_LIST.filter(m => m.dbKey !== 'ensemble').map(m => {
+                return makeModelCard(m.label, m.color, getModelTop20(m.dbKey), m.dbKey);
+            }).join('');
+            const ensembleCard = makeModelCard('앙상블 (종합 분석)', '#4F46E5', ensembleTop, 'ensemble');
+
+            if (sub === 'recommend') {
+                el.innerHTML = topRow || emptyState('analytics', '추천수/제외수 데이터가 없습니다.');
+            } else if (sub === 'models' || sub === 'modelSettings') {
+                el.innerHTML = `
+                <div class="mb-5 flex items-center justify-between flex-wrap gap-4">
+                    <div class="flex items-center gap-2">
+                        <span class="material-symbols-outlined text-slate-400">equalizer</span>
+                        <span class="text-[14px] font-bold text-slate-700">AI 모델별 분석 결과 및 가중치</span>
+                    </div>
+                    <!-- 하이라이트 범례 -->
+                    <div class="flex items-center gap-4 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl">
+                        <div class="legend-item">
+                            <div class="legend-ball" style="border: 2px solid #000000;"></div>
+                            <span>당첨</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-ball" style="box-shadow: 0 0 0 2px #22d3ee inset; background: #22d3ee44;"></div>
+                            <span>AI추천</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-ball" style="opacity: 0.2; background: #94a3b8;"></div>
+                            <span>AI제외</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-ball" style="box-shadow: 0 0 0 2px #ec4899;"></div>
+                            <span>바스켓고정</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-ball" style="box-shadow: 0 0 0 2px #64748b; position: relative;">
+                                <div style="position: absolute; top: 50%; left: 0; width: 100%; height: 1px; background: #000;"></div>
+                            </div>
+                            <span>바스켓제외</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-ball" style="background: #000; border: 1px solid #444;"></div>
+                            <span>AI 전체미포함</span>
+                        </div>
+                    </div>
+                </div>
+                ${ensembleCard}
+                <div class="grid grid-cols-1 gap-4 mt-6">${modelCards}</div>`;
+            } else if (sub === 'combos') {
+                // 추천 조합 카드 (ad.combinations 활용)
+                const combos = ad?.combinations || data?.combinations || [];
+                const comboHtml = combos.length === 0 ? emptyState('category', '생성된 조합이 없습니다.')
+                    : `<div class="grid grid-cols-1 gap-3">
+                        ${combos.map((c,i)=>`
+                        <div class="info-card p-4 flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <span class="text-[11px] text-slate-400">#${String(i+1).padStart(2,'0')}</span>
+                                <div class="flex items-center gap-1.5">${(c.numbers||[]).map(n=>{
+                                    const ex = [];
+                                    if (winSet.has(n)) ex.push('ball-matched');
+                                    if (recSet.has(n)) ex.push('ball-ai-rec');
+                                    if (excSet.has(n)) ex.push('ball-ai-exc');
+                                    if (bfSet.has(n))  ex.push('ball-basket-fixed');
+                                    if (beSet.has(n))  ex.push('ball-basket-exc');
+                                    return ball(n,28,ex.join(' '));
+                                }).join('')}</div>
+                            </div>
+                            <div class="text-right">
+                                <div class="text-[14px] text-indigo-600">${(c.score*100).toFixed(1)}점</div>
+                                <div class="text-[10px] text-slate-400">AI 예측 신뢰도</div>
+                            </div>
+                        </div>`).join('')}
+                    </div>`;
+                el.innerHTML = `${topRow}${comboHtml}`;
+            }
+
+        } catch(e) {
+            console.error('[VP] renderSubModels 에러:', e);
+            el.innerHTML = `<div class="info-card p-8 text-center text-rose-500 text-[13px]">로드 오류: ${esc(e.message)}</div>`;
+        }
+    }
+
+    // ════════════════════════════════════════
+    //  딥러닝 필터분석 서브탭
+    //  filter_settings + DL recommended_numbers 1:1 대조
+    // ════════════════════════════════════════
+    async function renderSubFilterAnalysis() {
+        const el = document.getElementById('subFilterAnalysis');
+        if (!el) return;
+        el.innerHTML = LOADING_HTML;
+
+        const round = curDraw?.round;
+        if (!round) { el.innerHTML = emptyState('error', '회차 정보가 없습니다.'); return; }
+
+        const undrawn = isUndrawn(curDraw);
+
+        try {
+            const sb = getSB();
+
+            // 1. DL 추천번호 로드 (최신 분석 결과 1개)
+            const { data: dlRows, error: dlErr } = await sb.from('deep_analysis_history')
+                .select('recommended_numbers, excluded_numbers, analysis_data, created_at, model_rankings')
+                .or(`target_round.eq.${curDraw.round},target_round.eq."${curDraw.round}"`)
+                .order('created_at', { ascending: false })
+                .limit(1);
+            
+            const dlData = dlRows?.[0] || null;
+
+            if (dlErr) console.warn('[filterAnalysis] DL query error:', dlErr.message);
+
+            if (!dlData) {
+                el.innerHTML = `<div class="bg-amber-50 border border-amber-100 rounded-xl p-4 text-[12px] text-amber-700">
+                    ${curDraw.round}회 딥러닝 분석 결과가 없습니다. AI 분석 페이지에서 이 회차를 분석하면 저장됩니다.</div>`;
+                return;
+            }
+
+            const recNums = (dlData.recommended_numbers || []).map(Number).filter(n => n >= 1 && n <= 45);
+            const recSet = new Set(recNums);
+
+            if (!recNums.length) {
+                el.innerHTML = `<div class="info-card p-8 text-center">
+                    <span class="material-symbols-outlined" style="font-size:48px;color:#cbd5e1;">filter_list</span>
+                    <h3 class="text-[15px]  text-slate-600 mt-4 mb-2">추천번호 없음</h3>
+                    <p class="text-[12px] text-slate-400">딥러닝 추천번호가 저장되어 있지 않습니다.</p>
+                </div>`;
+                return;
+            }
+
+            // 2. filterSettings 로드 (캐시 사용)
+            const round = curDraw.round;
+            if (!filterSettingsCache[round]) {
+                filterSettingsCache[round] = await loadFilterSettingsByRound(round);
+            }
+            const settings = filterSettingsCache[round] || {};
+            const defs = await loadFilterDefs();
+            const defsByKey = {};
+            defs.forEach(d => { defsByKey[d.filter_key] = d; });
+            if (!defsByKey['neighbor_number_patterns'] && defsByKey['neighbor_count']) {
+                defsByKey['neighbor_number_patterns'] = defsByKey['neighbor_count'];
+            }
+
+            // 3. 미출현 gapMap 로드
+            let gapMap = {};
+            try {
+                const { data: gapData } = await sb.from('number_round_stats')
+                    .select('number, gap').eq('round', curDraw.round);
+                (gapData || []).forEach(r => { gapMap[r.number] = r.gap; });
+            } catch(e) {}
+
+            const hasGapDataDL = Object.keys(gapMap).length > 0;
+
+            function getMissingGroups() {
+                const groups = { g1: [], g2: [], g3: [], g4: [] };
+                if (!hasGapDataDL) return groups;
+                for (let n = 1; n <= 45; n++) {
+                    const g = gapMap[n] ?? 0;
+                    if (g <= 5)       groups.g1.push(n);
+                    else if (g <= 10) groups.g2.push(n);
+                    else if (g <= 15) groups.g3.push(n);
+                    else              groups.g4.push(n);
+                }
+                return groups;
+            }
+
+            const tailGroup = d => Array.from({ length: 45 }, (_, i) => i + 1).filter(n => n % 10 === d);
+            const getDisplayName = def => def.filter_name || FILTER_DISPLAY_NAMES[def.filter_key] || def.filter_key;
+
+            // 4. 합계 변수 초기화
+            let passCount = 0, failCount = 0, totalEnabled = 0;
+            const countPass = (pass, enabled) => {
+                if (enabled && pass !== null) { pass ? passCount++ : failCount++; totalEnabled++; }
+            };
+
+            const makeRow = (name, targetNums, filterVal, actualVal, passResult, enabled = null) => {
+                const passCls = passResult === true ? 'text-emerald-600' : passResult === false ? 'text-rose-500' : 'text-slate-400';
+                const passText = passResult === true ? '통과' : passResult === false ? '미통과' : '-';
+                const balls = targetNums.length
+                    ? targetNums.map(n => ball(n, 28, recSet.has(n) ? 'ball-matched' : '')).join('')
+                    : '<span class="text-[11px] text-slate-300">-</span>';
+                const enabledHtml = enabled === null
+                    ? '<span class="text-[11px] text-slate-300">-</span>'
+                    : enabled
+                        ? '<span class="text-[11px] text-emerald-500 bg-emerald-50 px-2 py-0.5 rounded">ON</span>'
+                        : '<span class="text-[11px] text-slate-400 bg-slate-100 px-2 py-0.5 rounded">OFF</span>';
+                return `
+                <tr class="hover:bg-slate-50 transition-colors">
+                    <td class="px-3 py-4 text-[14px] text-slate-700 whitespace-nowrap">${esc(name)}</td>
+                    <td class="px-3 py-4"><div class="flex items-center gap-1 flex-wrap">${balls}</div></td>
+                    <td class="px-3 py-4 text-[12px] text-slate-500 whitespace-nowrap">${esc(String(filterVal))}</td>
+                    <td class="px-3 py-4 text-center text-[15px] text-slate-800 whitespace-nowrap">${esc(String(actualVal))}</td>
+                    <td class="px-3 py-4 text-center whitespace-nowrap">${enabledHtml}</td>
+                    <td class="px-3 py-4 text-center whitespace-nowrap"><span class="text-[14px] ${passCls}">${passText}</span></td>
+                </tr>`;
+            };
+
+            const makeGroupRow = title => `
+            <tr>
+                <td colspan="6" class="px-4 py-1.5 bg-slate-100 border-t-2 border-slate-200">
+                    <span class="text-[11px]  text-slate-500 uppercase tracking-wider">${esc(title)}</span>
+                </td>
+            </tr>`;
+
+            // 5. 필터 순서 (renderBasicContent와 동일)
+            const FILTER_ORDER = [
+                'total_sum', 'last_digit_sum', 'ac_value', 'odd_even_pattern', 'high_low_pattern',
+                'consecutive_count', 'neighbor_number_patterns', 'carryover_count',
+                'prime_number_patterns', 'composite_count', 'triangular_number_patterns',
+                'square_number_patterns', 'twin_number_patterns',
+                'tail_digit_patterns', 'multiple_3_count', 'number_range_patterns',
+                'magic_square_pattern', 'lotto_paper_pattern',
+                'hot_cold_5', 'hot_cold_10', 'hot_cold_15', 'hot_cold_20',
+                'missing_period', 'missing_custom_filter',
+            ];
+
+            const rows = FILTER_ORDER.flatMap(fkOrd => {
+                if (BASIC_EXCLUDED_KEYS.has(fkOrd)) return [];
+                const def = defsByKey[fkOrd] || { filter_key: fkOrd, filter_name: FILTER_DISPLAY_NAMES[fkOrd] || fkOrd, filter_type: 'range', ui_group: 'basic', display_order: 0 };
+                const settingRow = settings[fkOrd];
+                const s = (settingRow?.settings || settingRow || {}); // [수정] 스냅샷/일반 설정 호환
+                const enabled = settingRow ? (settingRow.enabled !== false) : null;
+                const fk = def.filter_key;
+
+                // ── 끝수 패턴 ──
+                if (fk === 'tail_digit_patterns') {
+                    const digitFilters = s.filters || {};
+                    return [makeGroupRow('끝수'), ...[0,1,2,3,4,5,6,7,8,9].map(d => {
+                        const targetAll = tailGroup(d);
+                        const range = digitFilters[String(d)];
+                        const cnt = recNums.filter(n => n % 10 === d).length;
+                        if (!range) return makeRow(`${d}끝`, targetAll, '-', `${cnt}개`, null, enabled);
+                        const min = range.min ?? 0, max = range.max ?? 6;
+                        const pass = enabled ? (cnt >= min && cnt <= max) : null;
+                        countPass(pass, enabled);
+                        return makeRow(`${d}끝`, targetAll, `${min}~${max}개`, `${cnt}개`, pass, enabled);
+                    })];
+                }
+
+                // ── 번호대별 ──
+                if (fk === 'number_range_patterns') {
+                    const ranges = s.ranges || {};
+                    return [makeGroupRow('번호대별'), ...RANGE_DEF.map(({ key, label, nums: rNums }) => {
+                        const range = ranges[key];
+                        const cnt = recNums.filter(n => rNums.includes(n)).length;
+                        if (!range) return makeRow(label, rNums, '-', `${cnt}개`, null, enabled);
+                        const min = range.min ?? 0, max = range.max ?? 6;
+                        const pass = enabled ? (cnt >= min && cnt <= max) : null;
+                        countPass(pass, enabled);
+                        return makeRow(label, rNums, `${min}~${max}개`, `${cnt}개`, pass, enabled);
+                    })];
+                }
+
+                // ── 마방진(9궁) ──
+                if (fk === 'magic_square_pattern') {
+                    const filters = s.filters || {};
+                    return [makeGroupRow('9궁'), ...Object.entries(MAGIC_SQUARE_DEF).map(([gName, gNums]) => {
+                        const range = filters[gName];
+                        const cnt = recNums.filter(n => gNums.includes(n)).length;
+                        if (!range) return makeRow(gName, gNums, '-', `${cnt}개`, null, enabled);
+                        const min = range.min ?? 0, max = range.max ?? 6;
+                        const pass = enabled ? (cnt >= min && cnt <= max) : null;
+                        countPass(pass, enabled);
+                        return makeRow(gName, gNums, `${min}~${max}개`, `${cnt}개`, pass, enabled);
+                    })];
+                }
+
+                // ── 로또용지 ──
+                if (fk === 'lotto_paper_pattern') {
+                    const groups = s.groups || {};
+                    return [makeGroupRow('로또용지'), ...Object.entries(LOTTO_PAPER).map(([ln, lineNums]) => {
+                        const range = groups[ln];
+                        const cnt = recNums.filter(n => lineNums.includes(n)).length;
+                        if (!range) return makeRow(ln, lineNums, '-', `${cnt}개`, null, enabled);
+                        const min = range.min ?? 0, max = range.max ?? 6;
+                        const pass = enabled ? (cnt >= min && cnt <= max) : null;
+                        countPass(pass, enabled);
+                        return makeRow(ln, lineNums, `${min}~${max}개`, `${cnt}개`, pass, enabled);
+                    })];
+                }
+
+                // ── 배수 ──
+                if (fk === 'multiple_3_count') {
+                    const filters = (s.settings?.filters || s.filters || {});
+                    return [makeGroupRow('배수'), ...Object.entries(MULTIPLE_DEF).map(([typeName, typeNums]) => {
+                        const range = filters[typeName] || filters[typeName.replace('·','')]; // [수정] 점 없는 키 대응
+                        const cnt = recNums.filter(n => typeNums.includes(n)).length;
+                        if (!range) return makeRow(typeName, typeNums, '-', `${cnt}개`, null, enabled);
+                        const min = range.min ?? 0, max = range.max ?? 6;
+                        const pass = enabled ? (cnt >= min && cnt <= max) : null;
+                        countPass(pass, enabled);
+                        return makeRow(typeName, typeNums, `${min}~${max}개`, `${cnt}개`, pass, enabled);
+                    })];
+                }
+
+                // ── 미출현그룹 ──
+                if (fk === 'missing_period') {
+                    const header = makeGroupRow('미출현그룹');
+                    if (!hasGapDataDL) {
+                        return [header, `<tr><td colspan="6" class="px-4 py-2 text-[11px] text-slate-400 text-center">number_round_stats 데이터 없음 (${curDraw.round}회)</td></tr>`];
+                    }
+                    const ranges = s.ranges || {};
+                    const mg = getMissingGroups();
+                    const groupDefs = [
+                        { label: '5회 이하 미출현',  minK: 'r1Min', maxK: 'r1Max', gNums: mg.g1 },
+                        { label: '10회 이하 미출현', minK: 'r2Min', maxK: 'r2Max', gNums: mg.g2 },
+                        { label: '15회 이하 미출현', minK: 'r3Min', maxK: 'r3Max', gNums: mg.g3 },
+                        { label: '16회 이상 미출현', minK: 'r4Min', maxK: 'r4Max', gNums: mg.g4 },
+                    ];
+                    return [header, ...groupDefs.map(({ label, minK, maxK, gNums }) => {
+                        const min = ranges[minK], max = ranges[maxK];
+                        const cnt = recNums.filter(n => gNums.includes(n)).length;
+                        const filterVal = min !== undefined ? `${min}~${max}개` : '-';
+                        const pass = (enabled && min !== undefined) ? (cnt >= (min ?? 0) && cnt <= (max ?? 6)) : null;
+                        countPass(pass, enabled);
+                        return makeRow(label, gNums, filterVal, `${cnt}개`, pass, enabled);
+                    })];
+                }
+
+                // ── 미출현 커스텀 ──
+                if (fk === 'missing_custom_filter') {
+                    const filters = s.filters || [];
+                    if (!filters.length) return [makeGroupRow('미출현 커스텀'), makeRow('(그룹 없음)', [], '-', '-', null, enabled)];
+                    return [makeGroupRow('미출현 커스텀'), ...filters.map(g => {
+                        const gNums = g.numbers || [];
+                        const isGEnabled = g.enabled !== false;
+                        const cnt = recNums.filter(n => gNums.includes(n)).length;
+                        const min = g.minCount ?? 0, max = g.maxCount ?? 6;
+                        const pass = (enabled && isGEnabled) ? (cnt >= min && cnt <= max) : null;
+                        if (enabled && isGEnabled && pass !== null) { pass ? passCount++ : failCount++; totalEnabled++; }
+                        return makeRow(g.name || '그룹', gNums, `${min}~${max}개`, `${cnt}개`, pass, enabled && isGEnabled);
+                    })];
+                }
+
+                // ── 핫/콜드 ──
+                if (fk === 'hot_cold_5' || fk === 'hot_cold_10' || fk === 'hot_cold_15' || fk === 'hot_cold_20') {
+                    const period = parseInt(fk.split('_')[2]);
+                    const innerSettings = s.subSettings || s.settings || s;
+                    const pf = innerSettings.periodFilter || (innerSettings.hotMin !== undefined ? innerSettings : {}); // [수정] 평면 구조 대응
+                    const { hotSet, coldSet } = _hotColdSets(period);
+                    const allNums = Array.from({ length: 45 }, (_, i) => i + 1);
+                    const hotAllNums     = allNums.filter(n => hotSet.has(n));
+                    const coldAllNums    = allNums.filter(n => coldSet.has(n));
+                    const neutralAllNums = allNums.filter(n => !hotSet.has(n) && !coldSet.has(n));
+                    const hotCnt  = recNums.filter(n => hotSet.has(n)).length;
+                    const coldCnt = recNums.filter(n => coldSet.has(n)).length;
+                    const neutCnt = recNums.filter(n => !hotSet.has(n) && !coldSet.has(n)).length;
+                    const header = makeGroupRow(`핫/콜드 ${period}회`);
+
+                    if (hotSet.size === 0) {
+                        return [header, makeRow('Hot / Neutral / Cold', [], '-', '히스토리 부족', null, enabled)];
+                    }
+
+                    // 설정 여부와 무관하게 항상 3행 표시 (대상번호 포함)
+                    const hotFv   = pf.hotMin     !== undefined ? `${pf.hotMin}~${pf.hotMax??6}개`     : '-';
+                    const neutFv  = pf.neutralMin !== undefined ? `${pf.neutralMin}~${pf.neutralMax??6}개` : '-';
+                    const coldFv  = pf.coldMin    !== undefined ? `${pf.coldMin}~${pf.coldMax??6}개`    : '-';
+                    const hotPass  = (enabled && pf.hotMin     !== undefined) ? (hotCnt  >= (pf.hotMin??0)     && hotCnt  <= (pf.hotMax??6))     : null;
+                    const neutPass = (enabled && pf.neutralMin !== undefined) ? (neutCnt >= (pf.neutralMin??0) && neutCnt <= (pf.neutralMax??6)) : null;
+                    const coldPass = (enabled && pf.coldMin    !== undefined) ? (coldCnt >= (pf.coldMin??0)    && coldCnt <= (pf.coldMax??6))    : null;
+                    countPass(hotPass); countPass(neutPass); countPass(coldPass);
+                    return [header,
+                        makeRow('Hot',     hotAllNums,     hotFv,  `${hotCnt}개`,  hotPass,  enabled),
+                        makeRow('Neutral', neutralAllNums, neutFv, `${neutCnt}개`, neutPass, enabled),
+                        makeRow('Cold',    coldAllNums,    coldFv, `${coldCnt}개`, coldPass, enabled),
+                    ];
+                }
+
+                // ── 이월수 ──
+                if (fk === 'carryover_count') {
+                    const targetNums = _prevNums.length ? [..._prevNums].sort((a, b) => a - b) : [];
+                    const cnt = recNums.filter(n => _prevNums.includes(n)).length;
+                    const selected = s.selectedCounts || s.selectedValues || [];
+                    const pass = (enabled && selected.length) ? (selected.includes(cnt) || selected.includes(String(cnt))) : null;
+                    countPass(pass, enabled);
+                    const filterVal = selected.length ? `${selected.join(',')}개` : '-';
+                    return [makeRow('이월수', targetNums, filterVal, `${cnt}`, pass, enabled)];
+                }
+
+                // ── 이웃수 ──
+                if (fk === 'neighbor_count' || fk === 'neighbor_number_patterns') {
+                    let targetNums;
+                    if (_prevNums.length) {
+                        const nb = new Set();
+                        _prevNums.forEach(n => { if (n > 1) nb.add(n - 1); if (n < 45) nb.add(n + 1); });
+                        _prevNums.forEach(n => nb.delete(n));
+                        targetNums = [...nb].sort((a, b) => a - b);
+                    } else {
+                        targetNums = [...recNums].sort((a, b) => a - b);
+                    }
+                    const cnt = recNums.filter(n => targetNums.includes(n)).length;
+                    const selected = s.selectedCounts || s.activeCounts || s.selectedValues || [];
+                    const hasRange = s.min !== undefined && s.max !== undefined;
+                    const filterVal = selected.length ? selected.map(String).join(', ') + '개' : hasRange ? `${s.min} ~ ${s.max}` : '-';
+                    const pass = enabled
+                        ? (selected.length
+                            ? (selected.includes(cnt) || selected.includes(String(cnt)))
+                            : hasRange ? (cnt >= s.min && cnt <= s.max) : null)
+                        : null;
+                    countPass(pass, enabled);
+                    return [makeRow('이웃수', targetNums, filterVal, `${cnt}`, pass, enabled)];
+                }
+
+                // ── 일반 필터 ──
+                const result = checkFilterPass(def, settingRow, recNums, null);
+                const targetNums = getTargetNums(fk, recNums);
+                const filterVal = getFilterSettingText(def, s);
+                countPass(result.pass, enabled);
+                return [makeRow(getDisplayName(def), targetNums, filterVal, result.dispVal, result.pass, enabled)];
+            }).join('');
+
+            // 6. 요약 카드
+            const passPct = totalEnabled > 0 ? Math.round(passCount / totalEnabled * 100) : 0;
+            const barColor = passPct >= 70 ? '#10b981' : passPct >= 50 ? '#3b82f6' : '#f59e0b';
+            const recBalls = recNums.map(n => ball(n, 34, '')).join('');
+
+            const summaryCard = `
+            <div class="flex flex-col gap-3 mb-4">
+                ${undrawn ? `
+                <div class="p-3 bg-amber-50 border-2 border-amber-300 rounded-xl">
+                    <div class="flex items-center gap-2 mb-1">
+                        <span class="material-symbols-outlined text-amber-500" style="font-size:18px;">schedule</span>
+                        <span class="text-[13px]  text-amber-800">추첨 전 회차</span>
+                    </div>
+                    <div class="text-[12px] text-amber-700">
+                        아래 <b>통과/미통과</b> 결과값은 <b>당첨번호가 아닌 DL 추천번호를 기준</b>으로 계산한 값입니다.<br>
+                        "DL이 추천한 번호들이 사용자 설정 필터를 통과하는가?"를 검증합니다.
+                    </div>
+                </div>` : ''}
+                <div class="p-3 bg-blue-50 border border-blue-100 rounded-xl flex items-center gap-2 flex-wrap">
+                    <span class="material-symbols-outlined text-blue-500" style="font-size:16px;">stars</span>
+                    <span class="text-[12px]  text-slate-700 mr-1">DL 추천번호 ${recNums.length}개</span>
+                    <div class="flex items-center gap-1 flex-wrap">${recBalls}</div>
+                    <span class="ml-auto text-[11px] text-slate-400 bg-blue-100 px-2 py-0.5 rounded-full">파란 테두리 = DL 추천번호</span>
+                </div>
+                ${totalEnabled > 0 ? `
+                <div class="flex items-center gap-4 p-4 rounded-2xl border ${passPct>=70?'bg-emerald-50 border-emerald-100':passPct>=50?'bg-blue-50 border-blue-100':'bg-amber-50 border-amber-100'}">
+                    <div class="flex-1 min-w-0">
+                        <div class="text-[13px]  text-slate-800 mb-1">DL 추천번호 필터 통과율</div>
+                        <div class="text-[11px] text-slate-500 mb-2">활성 필터 ${totalEnabled}개 · DL 추천번호 기준 판정</div>
+                        <div class="h-2 rounded-full bg-slate-200 overflow-hidden">
+                            <div class="h-2 rounded-full transition-all" style="width:${passPct}%;background:${barColor}"></div>
+                        </div>
+                    </div>
+                    <div class="text-right flex-shrink-0">
+                        <div class="text-[30px]  leading-none" style="color:${barColor}">${passPct}%</div>
+                        <div class="text-[11px] text-slate-500 mt-0.5">${passCount} / ${totalEnabled}개 통과</div>
+                    </div>
+                </div>` : ''}
+            </div>`;
+
+            el.innerHTML = `
+            ${summaryCard}
+            <div class="info-card overflow-hidden">
+                <div class="table-wrap">
+                <table class="w-full border-collapse" style="table-layout:fixed;min-width:560px">
+                    <colgroup>
+                        <col style="width:82px">
+                        <col>
+                        <col style="width:90px">
+                        <col style="width:68px">
+                        <col style="width:44px">
+                        <col style="width:58px">
+                    </colgroup>
+                    <thead>
+                        <tr class="bg-slate-50 border-b border-slate-200">
+                            <th class="px-3 py-2.5 text-left text-[11px]  text-slate-500 uppercase tracking-wide whitespace-nowrap">필터</th>
+                            <th class="px-3 py-2.5 text-left text-[11px]  text-slate-500 uppercase tracking-wide whitespace-nowrap">대상번호 <span class="normal-case font-normal text-blue-500 text-[10px]">(파란=DL추천)</span></th>
+                            <th class="px-3 py-2.5 text-left text-[11px]  text-slate-500 uppercase tracking-wide whitespace-nowrap">필터값</th>
+                            <th class="px-3 py-2.5 text-center text-[11px]  text-slate-500 uppercase tracking-wide whitespace-nowrap">DL결과</th>
+                            <th class="px-3 py-2.5 text-center text-[11px]  text-slate-500 uppercase tracking-wide whitespace-nowrap">활성</th>
+                            <th class="px-3 py-2.5 text-center text-[11px]  text-slate-500 uppercase tracking-wide whitespace-nowrap">통과</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        ${rows}
+                    </tbody>
+                </table>
+                </div>
+            </div>`;
+        } catch(e) {
+            console.error('[renderSubFilterAnalysis]', e);
+            el.innerHTML = `<div class="info-card p-8 text-center text-rose-500 text-[13px]">로드 오류: ${esc(e.message)}</div>`;
+        }
+    }
+
+    // ════════════════════════════════════════
+    //  딥러닝 커스텀분석 서브탭
+    // ════════════════════════════════════════
+    async function renderSubCustomAnalysis() {
+        const el = document.getElementById('subCustomAnalysis');
+        el.innerHTML = LOADING_HTML;
+        const { nums } = curWin;
+        const winSet = new Set(nums);
+
+        try {
+            const sb = getSB();
+            const round = curDraw.round;
+            // 1) DL 커스텀: analysis.custom_evaluations 배열
+            // 2) ai_custom_analyses 테이블 (컬럼: title, type, target_numbers, rules, ai_evaluation)
+            const [dlRes, caRes] = await Promise.all([
+                sb.from('deep_analysis_history')
+                    .select('analysis_data')
+                    .in('target_round', [round, String(round)])
+                    .order('created_at', { ascending: false })
+                    .limit(1).maybeSingle(),
+                sb.from('ai_custom_analyses')
+                    .select('id, title, type, target_numbers, rules, ai_evaluation, target_round')
+                    .in('target_round', [round, String(round)])
+                    .limit(30)
+            ]);
+
+            const ad = (() => {
+                if (!dlRes.data?.analysis_data) return {};
+                try { return typeof dlRes.data.analysis_data === 'string' ? JSON.parse(dlRes.data.analysis_data) : dlRes.data.analysis_data; }
+                catch(e) { return {}; }
+            })();
+
+            // DL custom_evaluations: [{id, title, type, targets, avg_hit, hit_dist, model_scores, gap, str}, ...]
+            const dlCustom = ad?.analysis?.custom_evaluations || [];
+            // ai_custom_analyses 테이블 데이터
+            const caData = caRes.data || [];
+
+            if (!dlCustom.length && !caData.length) {
+                el.innerHTML = emptyState('analytics', `${curDraw.round}회 커스텀 분석 데이터 없음`, '커스텀 분석 페이지에서 이 회차를 분석하면 결과가 저장됩니다.'); return;
+            }
+
+            // ── DL custom_evaluations 카드 ──
+            const dlCards = dlCustom.map(item => {
+                const title = item.title || '커스텀 분석';
+                const tNums = (item.targets || []).map(Number).filter(n=>n>=1&&n<=45);
+                const hit = tNums.filter(n=>winSet.has(n)).length;
+                const avgHit = item.avg_hit != null ? Number(item.avg_hit).toFixed(2) : null;
+                const hitPct = tNums.length ? Math.round(hit/tNums.length*100) : 0;
+                // 모델 점수 평균
+                const mScores = item.model_scores ? Object.entries(item.model_scores) : [];
+                const avgModelScore = mScores.length
+                    ? Math.round(mScores.reduce((s,[,v])=>s+(typeof v==='object'?(v.score??0):Number(v)),0)/mScores.length)
+                    : null;
+                return `
+                <div class="info-card p-4">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="text-[12px]  text-slate-700">${esc(title)}</span>
+                        <span class="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">${item.type||'static'}</span>
+                        ${tNums.length ? `<span class="ml-auto text-[11px]  ${hit>0?'text-emerald-600':'text-slate-400'}">${hit}/${tNums.length}개 적중</span>` : ''}
+                    </div>
+                    ${tNums.length ? `
+                    <div class="flex flex-wrap gap-1 py-1 mb-2">
+                        ${tNums.map(n=>`
+                        <div class="flex flex-col items-center gap-0.5">
+                            ${ball(n, 42,winSet.has(n)?'ball-matched':'')}
+                            ${winSet.has(n)?'<span class="text-[7px]  text-emerald-500">✓</span>':''}
+                        </div>`).join('')}
+                    </div>` : '<div class="text-[11px] text-slate-400 mb-2">대상번호 없음</div>'}
+                    <div class="flex flex-wrap gap-2 text-[10px]">
+                        ${avgHit!=null?`<span class="bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">평균 적중 ${avgHit}개</span>`:''}
+                        ${avgModelScore!=null?`<span class="bg-purple-50 text-purple-600 px-2 py-0.5 rounded-full">모델점수 ${avgModelScore}</span>`:''}
+                        ${item.str!=null?`<span class="bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-full">강도 ${item.str}</span>`:''}
+                    </div>
+                </div>`;
+            }).join('');
+
+            // ── ai_custom_analyses 카드 ──
+            const caCards = caData.map(item => {
+                const title = item.title || '커스텀 분석';
+                const tNums = (item.target_numbers || []).map(Number).filter(n=>n>=1&&n<=45);
+                const hit = tNums.filter(n=>winSet.has(n)).length;
+                const aiEval = item.ai_evaluation || {};
+                return `
+                <div class="info-card p-4 border-l-2 border-indigo-300">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="text-[12px]  text-slate-700">${esc(title)}</span>
+                        <span class="text-[10px] px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-500">${item.type||'static'}</span>
+                        ${tNums.length ? `<span class="ml-auto text-[11px]  ${hit>0?'text-emerald-600':'text-slate-400'}">${hit}/${tNums.length}개 적중</span>` : ''}
+                    </div>
+                    ${tNums.length ? `
+                    <div class="flex flex-wrap gap-1 py-1 mb-2">
+                        ${tNums.map(n=>`
+                        <div class="flex flex-col items-center gap-0.5">
+                            ${ball(n, 42,winSet.has(n)?'ball-matched':'')}
+                            ${winSet.has(n)?'<span class="text-[7px]  text-emerald-500">✓</span>':''}
+                        </div>`).join('')}
+                    </div>` : '<div class="text-[11px] text-slate-400 mb-2">대상번호 없음</div>'}
+                    ${Object.keys(aiEval).length ? `<div class="text-[10px] text-slate-400 bg-slate-50 rounded-lg p-2">${Object.entries(aiEval).slice(0,2).map(([k,v])=>`<span class="mr-2">${k}: ${typeof v==='number'?Number(v).toFixed(2):v}</span>`).join('')}</div>` : ''}
+                </div>`;
+            }).join('');
+
+            el.innerHTML = `
+            <div class="mb-4 text-[12px] text-slate-500 bg-blue-50 border border-blue-100 rounded-xl p-3">
+                커스텀 분석 대상번호 중 실제 당첨번호 포함 여부를 검증합니다. (초록 테두리 = 당첨번호 일치)
+            </div>
+            ${dlCustom.length ? `
+            <div class="flex items-center gap-2 mb-3">
+                <span class="w-2 h-2 rounded-full bg-purple-500"></span>
+                <span class="text-[12px]  text-slate-600">딥러닝 커스텀 평가 (${dlCustom.length}개)</span>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-6">${dlCards}</div>` : ''}
+            ${caData.length ? `
+            <div class="flex items-center gap-2 mb-3">
+                <span class="w-2 h-2 rounded-full bg-indigo-500"></span>
+                <span class="text-[12px]  text-slate-600">저장된 커스텀 분석 (${caData.length}개)</span>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">${caCards}</div>` : ''}`;
+        } catch(e) {
+            el.innerHTML = `<div class="info-card p-8 text-center text-rose-500 text-[13px]">로드 오류: ${esc(e.message)}</div>`;
+        }
+    }
+
+    // ════ 유틸 ════
+    function setState(s) {
+        document.getElementById('stateLoading').style.display = s==='loading'?'flex':'none';
+        document.getElementById('stateEmpty').classList.toggle('hidden', s!=='empty');
+        document.getElementById('stateMain').classList.toggle('hidden', s!=='main');
+    }
+    function setCtrlLoading(show) {
+        document.getElementById('ctrlLoading').classList.toggle('hidden', !show);
+    }
+
+    function prevRound() { if(curIdx<allRounds.length-1) selectRound(allRounds[curIdx+1].round); }
+    function nextRound() { if(curIdx>0) selectRound(allRounds[curIdx-1].round); }
+
+    // [추가] 바스켓 변경 시 즉시 반영
+    window.addEventListener('basketChanged', () => {
+        if (curTab === 'ai') {
+            VP.renderAI();
+        } else if (curTab === 'fixedExclude') {
+            renderFixedExcludeContent();
+        }
+    });
+
+    return { init, selectRound, prevRound, nextRound, switchTab, switchSub, onPresetChange, onFEPresetChange, onGroupChange };
+})();
+
+document.addEventListener('DOMContentLoaded', () => VP.init());
+</script>
+</body>
+</html>
+

@@ -1,0 +1,602 @@
+﻿<!DOCTYPE html>
+<html class="light" lang="ko">
+<head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>Lotto Lab - 출력</title>
+    <link href="css/tailwind.css" rel="stylesheet" />
+    <link rel="icon" href="data:,">
+    <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="js/config.js"></script>
+    <script src="js/theme.js"></script>
+    <script src="js/common_v2.js"></script>
+    <script src="js/filter/FilterService.js"></script>
+    <script src="js/layout.js"></script>
+
+    <style>
+        body { font-family: 'Pretendard', sans-serif; }
+
+        /* [수정] 1. 로또 공 디자인 및 그림자 폴리시 */
+        .ball {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 30px; height: 30px; border-radius: 50%;
+            font-size: 11px; font-weight: 400; color: #fff; flex-shrink: 0;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15); /* 입체감 그림자 추가 */
+            text-shadow: 0 1px 2px rgba(0,0,0,0.3); /* 숫자가 더 또렷하게 보이도록 테두리 효과 */
+        }
+        /* 실제 로또 색상에 더 가깝고 화사하게 그라데이션 적용 */
+        .ball-y { background: linear-gradient(135deg, #f59e0b, #d97706); } /* 노랑 */
+        .ball-b { background: linear-gradient(135deg, #3b82f6, #2563eb); } /* 파랑 */
+        .ball-r { background: linear-gradient(135deg, #ef4444, #dc2626); } /* 빨강 */
+        .ball-g { background: linear-gradient(135deg, #6b7280, #4b5563); } /* 회색 */
+        .ball-gr{ background: linear-gradient(135deg, #10b981, #059669); } /* 초록 */
+
+        /* [수정] 2. 상단 컨트롤 바 글래스모피즘(반투명 유리) 효과 적용 */
+        .ctrl-bar {
+            position: sticky; top: 64px; z-index: 40;
+            background: #ffffff; /* [수정] 불투명 배경으로 변경 */
+            border-bottom: 1px solid rgba(226, 232, 240, 0.8);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            transition: all 0.3s ease;
+        }
+
+        /* [수정] 3. 그룹 카드 디자인 고급화 & 마우스 호버 효과 */
+        .group-card { 
+            background: #fff; border: 1px solid #e2e8f0; border-radius: 18px; 
+            overflow: hidden; 
+            box-shadow: 0 4px 12px rgba(0,0,0,0.03), 0 1px 3px rgba(0,0,0,0.02); 
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .group-card:hover {
+            transform: translateY(-2px); /* 마우스 올렸을 때 카드가 2px 살짝 위로 뜹니다 */
+            box-shadow: 0 8px 16px rgba(0,0,0,0.06); /* 그림자도 살짝 깊어집니다 */
+        }
+        .combo-row:nth-child(even) { background: #f8fafc; }
+        .combo-row { transition: background-color 0.2s ease; }
+        .combo-row:hover { background: #f1f5f9; } /* 리스트(행)에 마우스를 올리면 살짝 짙어짐 */
+
+        @keyframes fadeIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
+        .fade-in { animation: fadeIn 0.3s cubic-bezier(0.4, 0, 0.2, 1); } /* 스르륵 등장 속도 부드럽게 개선 */
+        @keyframes spin { to { transform:rotate(360deg); } }
+        .spin { display:inline-block; animation:spin 0.8s linear infinite; }
+
+        /* [수정] 4. 다운로드 드롭다운 메뉴 호버 디테일 */
+        .dl-dropdown { 
+            position:absolute; right:0; top:calc(100%+6px); background:#fff; 
+            border:1px solid #e2e8f0; border-radius:14px; box-shadow:0 8px 32px rgba(0,0,0,0.12); 
+            z-index:50; min-width:170px; padding:6px 0; 
+            transform-origin: top right;
+            animation: fadeIn 0.15s ease-out; 
+        }
+        .dl-item { display:flex; align-items:center; gap:10px; padding:10px 16px; font-size:12px; font-weight:600; color:#374151; cursor:pointer; transition:all 0.15s ease; }
+        .dl-item:hover { background:#eff6ff; color:#1d4ed8; padding-left:20px; } /* 마우스 올리면 글씨가 파랗게 되고 살짝 우측으로 밀림 */
+
+        /* 텔레그램 토스트 */
+        #tgToast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(20px); opacity:0; transition:all 0.3s; z-index:9999; pointer-events:none; }
+        #tgToast.show { transform:translateX(-50%) translateY(0); opacity:1; }
+
+        @media print {
+            .no-print, .ctrl-bar, #gnb-container { display:none !important; }
+            .group-card { break-inside:avoid; box-shadow:none !important; border:1px solid #ccc !important; border-radius:8px !important; }
+            .print-break { page-break-before: always; }
+            body { background:#fff !important; }
+        }
+    </style>
+</head>
+<body class="bg-slate-50 antialiased">
+
+<div id="gnb-container"></div>
+
+<!-- ══ 컨트롤 바 ══ -->
+<div class="ctrl-bar no-print">
+    <div class="max-w-5xl mx-auto px-6 py-3 flex items-center justify-between gap-3 flex-wrap">
+        <div class="flex items-center gap-3">
+            <span class="material-symbols-outlined text-blue-600" style="font-size:22px;">print</span>
+            <h1 class="text-[17px] font-semibold text-slate-900">출력</h1>
+            <span id="ctrlBadge" class="hidden px-2.5 py-0.5 bg-blue-100 text-blue-700 text-[12px] font-semibold rounded-full"></span>
+            <!-- [추가] 넘버링 수정 버튼 (중복 발견시 표시) -->
+            <button id="btnFixNames" onclick="OP.fixGroupNames()" class="hidden px-2.5 py-0.5 bg-rose-100 text-rose-700 text-[12px] font-semibold rounded-full hover:bg-rose-200 transition-colors">
+                번호 중복 해결하기
+            </button>
+        </div>
+        <div class="flex items-center gap-2 flex-shrink-0">
+            <!-- 다운로드 드롭다운 -->
+            <div class="relative" id="dlWrap">
+                <button onclick="OP.toggleDl()" class="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg hover:border-blue-400 hover:text-blue-600 transition-all no-print">
+                    <span class="material-symbols-outlined" style="font-size:15px;">download</span>다운로드
+                    <span class="material-symbols-outlined" style="font-size:14px;">expand_more</span>
+                </button>
+                <div id="dlDropdown" class="dl-dropdown hidden">
+                    <div class="dl-item" onclick="OP.downloadAllTxt()">
+                        <span class="material-symbols-outlined text-slate-400" style="font-size:16px;">text_snippet</span>전체 텍스트(.txt)
+                    </div>
+                    <div class="dl-item" onclick="OP.downloadAllCsv()">
+                        <span class="material-symbols-outlined text-slate-400" style="font-size:16px;">table</span>전체 CSV(.csv)
+                    </div>
+                    <div style="border-top:1px solid #f1f5f9;margin:4px 0;"></div>
+                    <div class="dl-item" onclick="OP.doPrint()">
+                        <span class="material-symbols-outlined text-slate-400" style="font-size:16px;">print</span>인쇄 / PDF 저장
+                    </div>
+                </div>
+            </div>
+            <!-- 텔레그램 전체 전송 -->
+            <button id="btnTgAll" onclick="OP.sendAllTelegram()" class="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold text-sky-600 bg-sky-50 border border-sky-200 rounded-lg hover:bg-sky-100 transition-all no-print hidden">
+                <span class="material-symbols-outlined" style="font-size:15px;">send</span>텔레그램 전송
+            </button>
+            <!-- 조합으로 -->
+            <a href="combination_generator.html" class="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold text-slate-500 bg-white border border-slate-200 rounded-lg hover:border-slate-400 hover:text-slate-700 transition-all no-print">
+                <span class="material-symbols-outlined" style="font-size:15px;">arrow_back</span>조합으로
+            </a>
+        </div>
+    </div>
+</div>
+
+<!-- ══ 메인 ══ -->
+<div class="max-w-5xl mx-auto px-6 py-6 min-h-screen">
+
+    <!-- 로딩 -->
+    <div id="loadingState" class="hidden" style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:80px 0;">
+        <span class="material-symbols-outlined spin" style="font-size:40px;color:#93c5fd;">refresh</span>
+        <p style="font-size:13px;color:#94a3b8;margin-top:16px;">저장된 조합을 불러오는 중...</p>
+    </div>
+
+    <!-- 빈 상태 -->
+    <div id="emptyState" class="hidden" style="display:none; flex-direction:column; align-items:center; justify-content:center; padding:80px 0; text-align:center;">
+        <div style="width:72px;height:72px;background:#f1f5f9;border-radius:18px;display:flex;align-items:center;justify-content:center;margin-bottom:20px;">
+            <span class="material-symbols-outlined" style="font-size:40px;color:#cbd5e1;">inbox</span>
+        </div>
+        <h2 id="emptyMsg" style="font-size:18px;font-weight:600;color:#334155;margin-bottom:8px;">저장된 조합이 없습니다</h2>
+        <p style="font-size:13px;color:#94a3b8;margin-bottom:20px;">조합 페이지에서 저장 후 이 페이지로 이동해주세요.</p>
+        <a href="combination_generator.html" style="display:inline-flex;align-items:center;gap:8px;padding:10px 24px;background:#1d4ed8;color:#fff;font-size:13px;font-weight:600;border-radius:12px;text-decoration:none;">
+            <span class="material-symbols-outlined" style="font-size:16px;">format_list_numbered</span>조합 페이지로
+        </a>
+    </div>
+
+    <!-- ══ 그룹 목록 ══ -->
+    <div id="currentSection" class="hidden fade-in"></div>
+
+</div>
+
+<!-- ══ 텔레그램 토스트 ══ -->
+<div id="tgToast" class="px-4 py-3 rounded-xl text-[13px] font-semibold shadow-xl flex items-center gap-2"></div>
+
+<script>
+// ════════════════════════════════════════════
+//  OutputPage (OP)
+// ════════════════════════════════════════════
+const OP = (() => {
+    const SB_URL = 'https://dkcflmyoscudawleglzb.supabase.co';
+    const SB_KEY = CONFIG.SUPABASE.KEY;
+    const TG_FUNC = SB_URL + '/functions/v1/send-telegram';
+
+    let groups = [];
+    let currentRound = null;
+    let duplicateMap = new Map(); // 조합 숫자 문자열 -> [gid, index][]
+
+    function getSB() {
+        return window.supabaseClient || supabase.createClient(SB_URL, SB_KEY);
+    }
+
+    // [수정] 5. 읽기 쉽게 다듬은 유틸리티 함수들 (코드 폴리시, 기존 이름 유지)
+    
+    // 로또 번호에 따른 공 색상 클래스 반환
+    function bc(n) { 
+        if (n <= 10) return 'ball-y';
+        if (n <= 20) return 'ball-b';
+        if (n <= 30) return 'ball-r';
+        if (n <= 40) return 'ball-g';
+        return 'ball-gr';
+    }
+
+    // 로또 공 웹 요소(HTML) 생성
+    function makeBalls(nums, size=30) {
+        return nums.map(n => {
+            const fontSize = size <= 26 ? 10 : 11;
+            const padNum = String(n).padStart(2, '0');
+            return `<span class="ball ${bc(n)}" style="width:${size}px; height:${size}px; font-size:${fontSize}px;">${padNum}</span>`;
+        }).join('');
+    }
+
+    // HTML 특수문자 안전하게 변환 (보안 처리)
+    function esc(s) { 
+        return String(s || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;'); 
+    }
+
+    // 시간 문자열을 보기 편한 한국 날짜/시간으로 변환
+    function fmtDt(iso) {
+        try { 
+            return new Date(iso || Date.now()).toLocaleString('ko-KR', {
+                year: 'numeric', month: '2-digit', day: '2-digit', 
+                hour: '2-digit', minute: '2-digit'
+            }); 
+        } catch(e) { 
+            return ''; 
+        }
+    }
+
+    // 다운로드용 파일 맨끝에 붙일 오늘 날짜 생성 (예: 20260326)
+    function fmtFile() {
+        const d = new Date();
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}${month}${day}`;
+    }
+
+    // ════ 현재 대상 회차 조회 ════
+    async function fetchTargetRound() {
+        try {
+            const sb = getSB();
+            const { data } = await sb.from('lotto_draws').select('round').order('round',{ascending:false}).limit(1).single();
+            return data ? data.round + 1 : null;
+        } catch(e) { return null; }
+    }
+
+    // ════ 해당 회차 그룹 목록 조회 (저장 순 오름차순) ════
+    async function fetchGroupsByRound(roundNum) {
+        try {
+            const sb = getSB();
+            const { data: { user } } = await sb.auth.getUser().catch(() => ({data:{user:null}}));
+            let q = sb.from('saved_combination_groups')
+                .select('*')
+                .order('created_at', { ascending: true });
+            if (roundNum) q = q.eq('round_number', roundNum);
+            if (user) q = q.eq('user_id', user.id);
+            else       q = q.is('user_id', null);
+            const { data, error } = await q;
+            if (error) { console.warn('[Output] 그룹 조회 오류:', error); return []; }
+            return data || [];
+        } catch(e) { console.warn('[Output] fetchGroups 실패:', e); return []; }
+    }
+
+    // ════ 그룹 목록 렌더 ════
+    function renderGroups(groupList, targetRound) {
+        groups = groupList;
+        const hasTg = !!getTgChatId();
+        const totalCombos = groupList.reduce((s, g) => s + (g.combo_count || (g.combinations||[]).length), 0);
+        
+        // [추가] 중복 이름 체크 및 버튼 표시
+        const nameSet = new Set();
+        let hasDuplicateName = false;
+        groupList.forEach(g => {
+            if (nameSet.has(g.group_name)) hasDuplicateName = true;
+            nameSet.add(g.group_name);
+        });
+        const fixBtn = document.getElementById('btnFixNames');
+        if (fixBtn) {
+            hasDuplicateName ? fixBtn.classList.remove('hidden') : fixBtn.classList.add('hidden');
+        }
+
+        const roundLabel = currentRound ? `${currentRound}회` : '';
+        const html = groupList.map((g, idx) => {
+            const combos = g.combinations || [];
+            const gid = g.id || ('idx' + idx);
+            return `
+            <div class="group-card mb-5 shadow-sm" id="gc-${gid}">
+                <div style="background:linear-gradient(135deg,#1d4ed8,#1e3a8a);padding:16px 20px;" class="flex items-center justify-between flex-wrap gap-3">
+                    <div>
+                        <div style="font-size:17px;font-weight:600;color:#fff;">
+                            <span style="opacity:0.6;font-size:14px;margin-right:6px;">#${idx + 1}</span>
+                            ${esc(g.group_name || '저장된 조합')}
+                        </div>
+                        <div style="font-size:11px;color:rgba(255,255,255,0.7);margin-top:3px;">
+                            ${combos.length.toLocaleString()}개 조합 · 저장 ${fmtDt(g.created_at)}
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 no-print flex-wrap">
+                        <button onclick="OP.dlGroupTxt('${gid}')" class="flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-semibold text-white" style="background:rgba(255,255,255,0.2);border-radius:8px;border:none;cursor:pointer;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+                            <span class="material-symbols-outlined" style="font-size:13px;">download</span>TXT
+                        </button>
+                        <button onclick="OP.dlGroupCsv('${gid}')" class="flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-semibold text-white" style="background:rgba(255,255,255,0.2);border-radius:8px;border:none;cursor:pointer;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+                            <span class="material-symbols-outlined" style="font-size:13px;">table</span>CSV
+                        </button>
+                        <button onclick="OP.sendTg('${gid}')" id="tgBtn${gid}" class="flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-semibold" style="background:${hasTg?'rgba(255,255,255,0.2)':'rgba(255,255,255,0.1)'};color:${hasTg?'#fff':'rgba(255,255,255,0.5)'};border-radius:8px;border:none;cursor:pointer;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+                            <span class="material-symbols-outlined" style="font-size:13px;">send</span>${hasTg?'텔레그램':'미설정'}
+                        </button>
+                        <!-- [추가] 그룹 삭제 버튼 -->
+                        <button onclick="OP.deleteGroup('${gid}')" class="flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-semibold text-white" style="background:rgba(239,68,68,0.4);border-radius:8px;border:none;cursor:pointer;" onmouseover="this.style.background='rgba(239,68,68,0.6)'" onmouseout="this.style.background='rgba(239,68,68,0.4)'">
+                            <span class="material-symbols-outlined" style="font-size:13px;">delete</span>삭제
+                        </button>
+                    </div>
+                </div>
+                <div>
+                    ${combos.map((c,i)=>{
+                        const numStr = c.numbers.slice().sort((a,b)=>a-b).join(',');
+                        const isDup = (duplicateMap.get(numStr) || []).filter(x => x.gid !== gid).length > 0;
+                        return `
+                        <div class="combo-row" id="row-${gid}-${i}" style="display:flex;align-items:center;gap:12px;padding:8px 20px;border-bottom:1px solid #f1f5f9;">
+                            <span style="width:36px;text-align:right;font-size:11px;font-weight:600;color:#cbd5e1;flex-shrink:0;">${(i+1).toLocaleString()}</span>
+                            <div style="display:flex;align-items:center;gap:5px;flex:1;">
+                                ${makeBalls(c.numbers)}
+                                ${isDup ? '<span class="px-1.5 py-0.5 bg-rose-100 text-rose-600 text-[10px] font-semibold rounded ml-2">중복</span>' : ''}
+                            </div>
+                            <!-- [추가] 개별 삭제 버튼 -->
+                            <button onclick="OP.deleteCombo('${gid}', ${i})" class="no-print p-1 text-slate-300 hover:text-rose-500 transition-colors" title="조합 삭제">
+                                <span class="material-symbols-outlined" style="font-size:18px;">close</span>
+                            </button>
+                        </div>`;
+                    }).join('')}
+                </div>
+            </div>`;
+        }).join('');
+
+        const sec = document.getElementById('currentSection');
+        sec.innerHTML = html;
+        sec.classList.remove('hidden');
+
+        // 컨트롤 뱃지
+        const badge = document.getElementById('ctrlBadge');
+        badge.textContent = `${roundLabel ? roundLabel + ' · ' : ''}${groupList.length}개 그룹 · ${totalCombos.toLocaleString()}개 조합`;
+        badge.classList.remove('hidden');
+
+        if (hasTg) document.getElementById('btnTgAll').classList.remove('hidden');
+    }
+
+    // ════ 빈 상태 ════
+    function showEmpty(targetRound) {
+        const msg = document.getElementById('emptyMsg');
+        if (msg) msg.textContent = targetRound ? `${targetRound}회 저장된 조합이 없습니다` : '저장된 조합이 없습니다';
+        const el = document.getElementById('emptyState');
+        el.style.display = 'flex';
+        el.classList.remove('hidden');
+    }
+
+    // ════ 로딩 ════
+    function showLoading() {
+        const el = document.getElementById('loadingState');
+        if (el) { el.style.display = 'flex'; el.classList.remove('hidden'); }
+    }
+    function hideLoading() {
+        const el = document.getElementById('loadingState');
+        if (el) { el.style.display = 'none'; el.classList.add('hidden'); }
+    }
+
+    // ════ 텔레그램 Chat ID ════
+    function getTgChatId() { return localStorage.getItem('telegram_chat_id') || ''; }
+
+    // ════ 텔레그램 메시지 포맷 ════
+    function buildTgMessage(combos, title, savedAt) {
+        const header = ['🎰 ' + title, '📅 ' + (savedAt||fmtDt(Date.now())), '━━━━━━━━━━━━━━━━━━', `총 ${combos.length}개 조합`, ''].join('\n');
+        const lines = combos.map((c,i) => `${String(i+1).padStart(3,' ')}.  ${c.numbers.map(n=>String(n).padStart(2,'0')).join('  ')}`);
+        return header + lines.join('\n') + '\n━━━━━━━━━━━━━━━━━━';
+    }
+
+    // ════ 텔레그램 전송 ════
+    async function sendTg(gid) {
+        const chatId = getTgChatId();
+        if (!chatId) { showToast('⚠️ 텔레그램 Chat ID가 설정되지 않았습니다.\n헤더의 계정 아이콘 → 텔레그램 설정', false); return; }
+        const g = groups.find(x => x.id === gid) || groups.find((_,i) => 'idx'+i === gid);
+        if (!g) return;
+        const btn = document.getElementById('tgBtn'+gid);
+        if (btn) btn.innerHTML = '<span class="spin material-symbols-outlined" style="font-size:13px;">refresh</span> 전송 중...';
+        try {
+            const res = await fetch(TG_FUNC, { method:'POST', headers:{'Content-Type':'application/json','apikey':SB_KEY}, body: JSON.stringify({chat_id:chatId, message:buildTgMessage(g.combinations||[], g.group_name||'조합', fmtDt(g.created_at))}) });
+            const result = await res.json();
+            if (result.ok) showToast(`✅ 텔레그램 전송 완료! (${(g.combinations||[]).length}개 조합)`, true);
+            else showToast(`❌ 전송 실패: ${result.error}`, false);
+        } catch(e) { showToast('❌ 전송 오류: '+e.message, false); }
+        finally { if (btn) btn.innerHTML = `<span class="material-symbols-outlined" style="font-size:13px;">send</span>${getTgChatId()?'텔레그램':'미설정'}`; }
+    }
+
+    // ════ 텔레그램 전체 전송 ════
+    async function sendAllTelegram() {
+        const chatId = getTgChatId();
+        if (!chatId) { showToast('⚠️ 텔레그램 Chat ID가 설정되지 않았습니다.', false); return; }
+        if (!groups.length) { showToast('⚠️ 전송할 조합이 없습니다.', false); return; }
+        const btn = document.getElementById('btnTgAll');
+        const orig = btn.innerHTML;
+        btn.innerHTML = '<span class="spin material-symbols-outlined" style="font-size:15px;">refresh</span> 전송 중...';
+        btn.disabled = true;
+        try {
+            for (const g of groups) {
+                await fetch(TG_FUNC, {method:'POST', headers:{'Content-Type':'application/json','apikey':SB_KEY}, body:JSON.stringify({chat_id:chatId, message:buildTgMessage(g.combinations||[], g.group_name||'조합', fmtDt(g.created_at))})});
+            }
+            const total = groups.reduce((s,g)=>s+(g.combinations||[]).length, 0);
+            showToast(`✅ 텔레그램 전송 완료! (${groups.length}개 그룹, ${total}개 조합)`, true);
+        } catch(e) { showToast('❌ 전송 오류: '+e.message, false); }
+        finally { btn.innerHTML=orig; btn.disabled=false; }
+    }
+
+    // ════ 다운로드 ════
+    function download(content, filename, mime) {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([content],{type:mime}));
+        a.download = filename;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    }
+    function buildTxt(combos, title) {
+        let s = `${title}\n${'─'.repeat(36)}\n생성: ${new Date().toLocaleString('ko-KR')}  /  ${combos.length}개 조합\n${'─'.repeat(36)}\n`;
+        combos.forEach((c,i)=>{ s += `${String(i+1).padStart(4,' ')}.  ${c.numbers.map(n=>String(n).padStart(2,'0')).join('  ')}\n`; });
+        return s;
+    }
+    function buildCsv(combos) {
+        let rows = ['\uFEFF순번,번호1,번호2,번호3,번호4,번호5,번호6'];
+        combos.forEach((c,i)=>rows.push(`${i+1},${c.numbers.join(',')}`));
+        return rows.join('\n');
+    }
+    function _findGroup(gid) {
+        return groups.find(x=>x.id===gid) || groups.find((_,i)=>'idx'+i===gid);
+    }
+    function dlGroupTxt(gid) {
+        const g = _findGroup(gid); if (!g) return;
+        download(buildTxt(g.combinations||[], g.group_name||'조합'), `lotto_${(g.group_name||'조합').replace(/\s/g,'_')}_${fmtFile()}.txt`, 'text/plain;charset=utf-8');
+    }
+    function dlGroupCsv(gid) {
+        const g = _findGroup(gid); if (!g) return;
+        download(buildCsv(g.combinations||[]), `lotto_${(g.group_name||'조합').replace(/\s/g,'_')}_${fmtFile()}.csv`, 'text/csv;charset=utf-8');
+    }
+    function downloadAllTxt() {
+        toggleDl();
+        let content = `Lotto Lab 전체 조합\n생성: ${new Date().toLocaleString('ko-KR')}\n\n`;
+        groups.forEach(g=>{ content+=`\n【 ${g.group_name||'그룹'} 】\n${'─'.repeat(32)}\n`; (g.combinations||[]).forEach((c,i)=>{ content+=`${String(i+1).padStart(4,' ')}.  ${c.numbers.map(n=>String(n).padStart(2,'0')).join('  ')}\n`; }); });
+        download(content, `lotto_all_${fmtFile()}.txt`, 'text/plain;charset=utf-8');
+    }
+    function downloadAllCsv() {
+        toggleDl();
+        let rows = ['\uFEFF그룹명,순번,번호1,번호2,번호3,번호4,번호5,번호6'];
+        groups.forEach(g=>{ (g.combinations||[]).forEach((c,i)=>{ rows.push(`${g.group_name||''},${i+1},${c.numbers.join(',')}`); }); });
+        download(rows.join('\n'), `lotto_all_${fmtFile()}.csv`, 'text/csv;charset=utf-8');
+    }
+
+    // ════ 드롭다운 ════
+    function toggleDl() { document.getElementById('dlDropdown').classList.toggle('hidden'); }
+    document.addEventListener('click', e => {
+        if (!document.getElementById('dlWrap')?.contains(e.target))
+            document.getElementById('dlDropdown')?.classList.add('hidden');
+    });
+    function doPrint() { toggleDl(); window.print(); }
+
+    // ════ 토스트 ════
+    function showToast(msg, ok) {
+        const t = document.getElementById('tgToast');
+        if (!t) return;
+        t.innerHTML = msg.replace(/\n/g,'<br>');
+        t.style.background = ok ? '#d1fae5' : '#fee2e2';
+        t.style.color = ok ? '#065f46' : '#991b1b';
+        t.style.border = `1px solid ${ok?'#6ee7b7':'#fca5a5'}`;
+        t.classList.add('show');
+        setTimeout(()=>t.classList.remove('show'), 3500);
+    }
+
+    // ════ 중복 매핑 ════
+    function buildDuplicateMap(groupList) {
+        duplicateMap.clear();
+        groupList.forEach(g => {
+            const gid = g.id || ('idx' + groups.indexOf(g));
+            (g.combinations || []).forEach((c, idx) => {
+                const s = c.numbers.slice().sort((a,b)=>a-b).join(',');
+                if (!duplicateMap.has(s)) duplicateMap.set(s, []);
+                duplicateMap.get(s).push({ gid, idx });
+            });
+        });
+    }
+
+    // ════ 개별 삭제 ════
+    async function deleteCombo(gid, idx) {
+        if (!confirm('이 조합을 삭제하시겠습니까?')) return;
+        const gIdx = groups.findIndex(x => x.id === gid || 'idx' + groups.indexOf(x) === gid);
+        if (gIdx === -1) return;
+        
+        const g = groups[gIdx];
+        const newCombos = g.combinations.filter((_, i) => i !== idx);
+        
+        try {
+            const sb = getSB();
+            const { error } = await sb.from('saved_combination_groups')
+                .update({ 
+                    combinations: newCombos, 
+                    combo_count: newCombos.length 
+                })
+                .eq('id', g.id);
+            
+            if (error) throw error;
+            
+            // 로컬 상태 업데이트
+            g.combinations = newCombos;
+            g.combo_count = newCombos.length;
+            
+            // 데이터 재구성 및 리렌더링
+            buildDuplicateMap(groups);
+            renderGroups(groups); 
+            showToast('✅ 선택한 조합이 삭제되었습니다.', true);
+        } catch(e) {
+            console.error('[Delete] 삭제 실패:', e);
+            showToast('❌ 삭제 실패: ' + e.message, false);
+        }
+    }
+
+    // ════ 그룹 삭제 ════
+    async function deleteGroup(gid) {
+        if (!confirm('이 그룹 전체를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.')) return;
+        const gIdx = groups.findIndex(x => x.id === gid || 'idx' + groups.indexOf(x) === gid);
+        if (gIdx === -1) return;
+        const g = groups[gIdx];
+
+        try {
+            const sb = getSB();
+            const { error } = await sb.from('saved_combination_groups').delete().eq('id', g.id);
+            if (error) throw error;
+
+            groups.splice(gIdx, 1);
+            buildDuplicateMap(groups);
+            renderGroups(groups);
+            showToast('✅ 그룹이 삭제되었습니다.', true);
+        } catch(e) {
+            console.error('[DeleteGroup] 실패:', e);
+            showToast('❌ 삭제 실패: ' + e.message, false);
+        }
+    }
+
+    // ════ 그룹 명칭 정렬 (넘버링 일괄 수정) ════
+    async function fixGroupNames() {
+        if (!confirm('현재 표시된 그룹들의 이름을 "조합 1, 2..." 순서로 다시 일련번호를 부여하시겠습니까?\n이 작업은 데이터베이스(DB)에 즉시 반영됩니다.')) return;
+        
+        const btn = document.getElementById('btnFixNames');
+        btn.innerHTML = '<span class="spin material-symbols-outlined" style="font-size:12px;">refresh</span> 수정 중...';
+        btn.disabled = true;
+
+        try {
+            const sb = getSB();
+            // 생성일 순으로 정렬된 현재 그룹들에 대해 번호 재부여
+            for (let i = 0; i < groups.length; i++) {
+                const g = groups[i];
+                const newName = currentRound ? `${currentRound}회 조합 ${i + 1}` : `조합 ${i + 1}`;
+                if (g.group_name !== newName) {
+                    const { error } = await sb.from('saved_combination_groups')
+                        .update({ group_name: newName })
+                        .eq('id', g.id);
+                    if (error) throw error;
+                    g.group_name = newName;
+                }
+            }
+            showToast('✅ 그룹 넘버링이 성공적으로 수정되었습니다.', true);
+            renderGroups(groups);
+        } catch(e) {
+            console.error('[FixNames] 실패:', e);
+            showToast('❌ 넘버링 수정 실패: ' + e.message, false);
+        } finally {
+            btn.innerHTML = '번호 중복 해결하기';
+            btn.disabled = false;
+        }
+    }
+
+    // ════ 초기화 ════
+    async function init() {
+        showLoading();
+        try {
+            currentRound = await fetchTargetRound();
+            const groupList   = await fetchGroupsByRound(currentRound);
+            hideLoading();
+            if (groupList && groupList.length > 0) {
+                groups = groupList;
+                buildDuplicateMap(groups);
+                renderGroups(groups);
+            } else {
+                showEmpty(targetRound);
+            }
+        } catch(e) {
+            hideLoading();
+            showEmpty(null);
+        }
+    }
+
+    return {
+        init,
+        sendTg, sendAllTelegram,
+        dlGroupTxt, dlGroupCsv, downloadAllTxt, downloadAllCsv,
+        toggleDl, doPrint,
+        deleteCombo, deleteGroup, fixGroupNames // [수정] 누락된 함수 수출
+    };
+})();
+
+document.addEventListener('DOMContentLoaded', () => OP.init());
+</script>
+</body>
+</html>
+

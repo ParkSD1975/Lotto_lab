@@ -1,0 +1,859 @@
+﻿<!DOCTYPE html>
+<html class="light" lang="ko">
+
+<head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>Lotto Lab - AI 조합</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link rel="icon" href="data:,">
+    <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css"
+        rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
+        rel="stylesheet" />
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="js/config.js"></script>
+    <script src="js/theme.js"></script>
+    <script src="js/common_v2.js"></script>
+    <script src="js/layout.js"></script>
+
+    <style>
+        /* ── 디자인 토큰 (verification.html 공통) ── */
+        :root {
+            --c-primary: #1d4ed8;
+            --c-primary-dark: #1e3a8a;
+            --c-primary-ai: #7c3aed;
+            --c-primary-ai-dark: #4c1d95;
+            --c-loading: #93c5fd;
+            --c-muted: #94a3b8;
+            --c-border: #e2e8f0;
+            --c-border-light: #f1f5f9;
+            --c-surface: #f8fafc;
+            --c-text: #334155;
+            --c-text-sub: #64748b;
+            --c-text-heading: #0f172a;
+            --c-ok: #dcfce7;
+            --c-fail: #fee2e2;
+        }
+
+        body {
+            font-family: 'Pretendard', sans-serif;
+            background: #fff;
+            color: var(--c-text);
+        }
+
+        /* ── 번호 볼 (완벽한 원형 유지) ── */
+        .ball {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            font-size: 13px;
+            font-weight: 500;
+            color: #fff;
+            flex-shrink: 0;
+            position: relative;
+        }
+
+
+        .ball-y {
+            background: #f59e0b;
+        }
+
+        .ball-b {
+            background: #3b82f6;
+        }
+
+        .ball-r {
+            background: #ef4444;
+        }
+
+        .ball-g {
+            background: #6b7280;
+        }
+
+        .ball-gr {
+            background: #10b981;
+        }
+
+        /* 추천 번호 하일라이트 (링이 볼 크기를 키우지 않도록 절대 좌표 배치) */
+        .ball-halo {
+            position: absolute;
+            inset: -3px;
+            border: 2.5px solid #fbbf24;
+            border-radius: 50%;
+            pointer-events: none;
+            box-shadow: 0 0 8px rgba(251, 191, 36, 0.4);
+        }
+
+        .ball-dot {
+            position: absolute;
+            top: -1px;
+            right: -1px;
+            width: 8px;
+            height: 8px;
+            background: #fbbf24;
+            border-radius: 50%;
+            border: 1.5px solid white;
+        }
+
+
+
+        /* ── 메인 타이틀 ── */
+        .title-area {
+            border-bottom: 1px solid var(--c-border);
+        }
+
+        /* ── 정보 카드 ── */
+        .info-card {
+            background: #fff;
+            border: 1px solid var(--c-border);
+            border-radius: 16px;
+            padding: 14px;
+            transition: all 0.2s;
+        }
+
+        .info-card:hover {
+            border-color: var(--c-primary-ai);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(124, 58, 237, 0.08);
+        }
+
+        .info-icon {
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 10px;
+            background: #f5f3ff;
+            color: var(--c-primary-ai);
+        }
+
+        /* ── 개수 선택 버튼 ── */
+        .cnt-btn {
+            padding: 6px 14px;
+            font-size: 13px;
+            font-weight: 500;
+            border-radius: 10px;
+            border: 1.5px solid var(--c-border);
+            color: var(--c-text-sub);
+            background: white;
+            transition: all 0.25s cubic-bezier(0.23, 1, 0.32, 1);
+        }
+
+
+        .cnt-btn.active {
+            color: white;
+            background: var(--c-primary);
+            border-color: var(--c-primary);
+        }
+
+        .cnt-btn:hover:not(.active) {
+            background: var(--c-surface);
+            border-color: var(--c-muted);
+        }
+
+        /* ── 조합 리스트 ── */
+        .combo-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 14px;
+            border-radius: 14px;
+            border: 1px solid transparent;
+            background: var(--c-surface);
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .combo-row:active {
+            transform: scale(0.985);
+            opacity: 0.9;
+        }
+
+        .combo-row.selected {
+            background: #eff6ff;
+            border-color: #bfdbfe;
+        }
+
+        .combo-row.selected:hover {
+            background: #dbeafe;
+        }
+
+        /* ── 점수 바 ── */
+        .s-bar {
+            width: 100%;
+            height: 5px;
+            background: #e2e8f0;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .s-bar-fill {
+            height: 100%;
+            background: linear-gradient(to right, var(--c-primary), #60a5fa);
+            border-radius: 3px;
+            width: 0;
+            transition: width 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        /* 저장 스피너 */
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .spin {
+            animation: spin 0.8s linear infinite;
+            display: inline-block;
+        }
+
+        /* ── 애니메이션 ── */
+        @keyframes comboSlideUp {
+            from {
+                opacity: 0;
+                transform: translateY(12px);
+            }
+
+            to {
+                opacity: 1;
+                transform: none;
+            }
+        }
+
+        .combo-enter {
+            animation: comboSlideUp 0.4s cubic-bezier(0.23, 1, 0.32, 1) both;
+        }
+
+
+        @keyframes checkPop {
+            0% {
+                transform: scale(0) rotate(-20deg);
+                opacity: 0;
+            }
+
+            60% {
+                transform: scale(1.2) rotate(5deg);
+                opacity: 1;
+            }
+
+            100% {
+                transform: scale(1) rotate(0);
+                opacity: 1;
+            }
+        }
+
+        .check-pop {
+            animation: checkPop 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+
+        /* 전체 콘텐츠 fadeIn */
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(4px);
+            }
+
+            to {
+                opacity: 1;
+                transform: none;
+            }
+        }
+
+        .fade-in {
+            animation: fadeIn 0.3s ease-out;
+        }
+
+        /* 부유 애니메이션 (No Data 아이콘용) */
+        @keyframes floatIcon {
+
+            0%,
+            100% {
+                transform: translateY(0);
+            }
+
+            50% {
+                transform: translateY(-8px);
+            }
+        }
+
+        .float-icon {
+            animation: floatIcon 3s ease-in-out infinite;
+        }
+
+        /* 프리퍼 리듀스드 모션 */
+        @media (prefers-reduced-motion: reduce) {
+
+            *,
+            *::before,
+            *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+    </style>
+</head>
+
+<body class="antialiased">
+    <!-- GNB -->
+    <div id="gnb-container"></div>
+
+    <!-- 컨트롤 바 -->
+    <nav class="ctrl-bar sticky top-16 z-40 bg-white/95 backdrop-blur-md" role="toolbar" aria-label="조합 선택 도구">
+        <div class="max-w-4xl mx-auto px-3 sm:px-4 py-2 sm:py-3">
+            <!-- 1줄: 상위 선택 + 전체/해제 -->
+            <div class="flex items-center gap-2 sm:gap-3 flex-wrap">
+                <div class="flex items-center gap-1.5">
+                    <span class="text-[11px] sm:text-[12px] font-bold text-slate-500 whitespace-nowrap">상위 선택</span>
+                    <div class="flex gap-1" id="cntBtns">
+
+                        <button class="cnt-btn active" onclick="AIC.setCount(5)" data-cnt="5">5개</button>
+                        <button class="cnt-btn" onclick="AIC.setCount(10)" data-cnt="10">10개</button>
+                        <button class="cnt-btn" onclick="AIC.setCount(15)" data-cnt="15">15개</button>
+                        <button class="cnt-btn" onclick="AIC.setCount(20)" data-cnt="20">20개</button>
+                    </div>
+                </div>
+
+                <div class="flex gap-1 sm:gap-1.5">
+                    <button onclick="AIC.selectAll()"
+                        class="flex items-center gap-0.5 px-2 py-1.5 text-[11px] font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-all">
+                        <span class="material-symbols-outlined" style="font-size:12px;">check_box</span>전체
+                    </button>
+                    <button onclick="AIC.deselectAll()"
+                        class="flex items-center gap-0.5 px-2 py-1.5 text-[11px] font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-all">
+                        <span class="material-symbols-outlined" style="font-size:12px;">check_box_outline_blank</span>해제
+                    </button>
+                </div>
+
+                <!-- 선택 뜨지 + 저장 버튼 -->
+                <div class="flex items-center gap-2 ml-auto">
+                    <span id="selBadge"
+                        class="hidden px-2 py-0.5 bg-blue-100 text-blue-700 text-[11px] font-bold rounded-full"></span>
+                    <button id="btnSave" onclick="AIC.save()"
+                        class="flex items-center gap-1 sm:gap-1.5 px-3 sm:px-4 py-2 bg-[var(--c-primary)] hover:bg-[var(--c-primary-dark)] disabled:opacity-40 disabled:cursor-not-allowed text-white text-[12px] sm:text-[13px] font-bold rounded-xl transition-all shadow-sm shadow-blue-200">
+                        <span id="saveLabel" class="flex items-center gap-1">저장하기</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+
+    <!-- 메인 -->
+    <main class="max-w-4xl mx-auto px-3 sm:px-4 py-4 sm:py-6" id="mainArea" role="main">
+
+        <!-- 로딩 -->
+        <div id="stateLoading" class="flex flex-col items-center justify-center py-24 gap-4" role="status"
+            aria-live="polite">
+            <span class="material-symbols-outlined animate-spin text-blue-400" style="font-size:40px;"
+                aria-hidden="true">progress_activity</span>
+            <p class="text-[14px] font-bold text-slate-500">딥러닝 점수 계산 중...</p>
+        </div>
+
+
+        <!-- 조합 없음 (localStorage) -->
+        <div id="stateNoCombo" class="hidden flex-col items-center justify-center py-24 gap-4 text-center">
+            <span class="material-symbols-outlined text-slate-300 float-icon" style="font-size:52px;">tune</span>
+            <h3 class="text-[16px] font-black text-slate-500">생성된 조합이 없습니다</h3>
+            <p class="text-[13px] text-slate-400 leading-relaxed">
+                먼저 <a href="filter.html" class="text-blue-500 font-bold underline">필터 페이지</a>에서 조합을 생성해주세요.
+            </p>
+        </div>
+
+        <!-- 딥러닝 데이터 없음 -->
+        <div id="stateNoAI" class="hidden flex-col items-center justify-center py-24 gap-4 text-center">
+            <span class="material-symbols-outlined text-slate-300 float-icon"
+                style="font-size:52px;">psychology_alt</span>
+            <h3 class="text-[16px] font-black text-slate-500">딥러닝 분석 데이터가 없습니다</h3>
+            <p class="text-[13px] text-slate-400 leading-relaxed">
+                <a href="ai_deep_learning.html" class="text-blue-500 font-bold underline">딥러닝 분석</a> 페이지에서 먼저 분석을
+                실행해주세요.
+            </p>
+        </div>
+
+        <!-- 실제 콘텐츠 -->
+        <div id="stateContent" class="hidden fade-in space-y-4">
+            <!-- 헤더 -->
+            <header class="title-area bg-white sticky top-0 z-50">
+                <div class="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <button onclick="history.back()"
+                            class="p-2 -ml-2 text-slate-400 hover:text-slate-600 transition-colors" aria-label="뒤로 가기">
+                            <span class="material-symbols-outlined" style="font-size:24px;">arrow_back</span>
+                        </button>
+                        <div class="flex flex-col">
+                            <h1 class="text-[17px] font-semibold text-[#1e1b4b] leading-tight">AI 딥러닝 추천 조합</h1>
+                            <span class="text-[11px] font-medium text-slate-500/80">데이터 기반 상위 확률 조합 추출</span>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span
+                            class="px-2.5 py-1 bg-purple-50 text-purple-600 text-[11px] font-semibold rounded-lg border border-purple-100 flex items-center gap-1">
+
+                            <span class="material-symbols-outlined" style="font-size:14px;">psychology</span> AI분석중
+                        </span>
+                    </div>
+                </div>
+            </header>
+
+            <!-- 요약 정보 -->
+            <section class="bg-slate-50 border-b border-slate-200" aria-label="분석 전략 요약">
+                <div class="max-w-4xl mx-auto px-4 py-6">
+                    <div class="grid grid-cols-2 lg:grid-cols-3 gap-3">
+                        <!-- 대상 회차 (High Contrast 강조) -->
+                        <div class="info-card bg-white border-purple-100">
+                            <div class="flex items-center gap-3 mb-2">
+                                <div class="info-icon bg-purple-50 text-purple-500"><span
+                                        class="material-symbols-outlined">target</span></div>
+                                <span class="text-[11px] font-semibold text-slate-400 uppercase tracking-tight">분석
+                                    대상</span>
+                            </div>
+                            <div id="infoRound"
+                                class="text-[15px] sm:text-[16px] font-semibold text-[#1e1b4b] tabular-nums">-</div>
+                        </div>
+
+                        <!-- 분석 풀 -->
+                        <div class="info-card">
+                            <div class="flex items-center gap-3 mb-2">
+                                <div class="info-icon bg-blue-50 text-blue-500"><span
+                                        class="material-symbols-outlined">database</span></div>
+                                <span class="text-[11px] font-semibold text-slate-400 uppercase tracking-tight">필터 통과
+                                    풀</span>
+                            </div>
+                            <div id="infoTotal"
+                                class="text-[15px] sm:text-[16px] font-semibold text-[#1e1b4b] tabular-nums">-</div>
+                        </div>
+
+                        <!-- AI 고정수 (추락 방지 - 3열은 데스크탑에서만 보임) -->
+                        <div class="info-card col-span-2 lg:col-span-1 border-amber-100">
+                            <div class="flex items-center gap-3 mb-3">
+                                <div class="info-icon bg-amber-100 text-amber-600"><span
+                                        class="material-symbols-outlined">stars</span></div>
+                                <span class="text-[12px] font-black text-slate-400 uppercase tracking-tighter">AI
+                                    추천/고정수</span>
+                            </div>
+                            <div id="infoRec" class="flex items-center gap-1"></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 조합 리스트 -->
+            <div class="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+                <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-slate-50/40">
+                    <div class="flex items-center gap-2">
+                        <span class="material-symbols-outlined text-violet-400"
+                            style="font-size:18px;">auto_awesome</span>
+                        <span class="text-[14px] font-semibold text-slate-600">AI 점수 상위 조합</span>
+                        <span id="cntLabel"
+                            class="px-2 py-0.5 bg-blue-50 text-blue-500 text-[11px] font-semibold rounded-full"></span>
+                    </div>
+
+                    <span class="text-[11px] text-slate-400" id="poolLabel"></span>
+                </div>
+                <div id="comboList" class="p-3 flex flex-col gap-1.5"></div>
+            </div>
+        </div>
+
+    </main>
+
+    <script>
+        const AIC = (() => {
+            let allScoredCombos = [];   // 전체 조합 풀 (AI 점수 내림차순 정렬)
+            let displayed = [];   // 현재 표시 중 (상위 N개)
+            let selSet = new Set();
+            let targetCount = 5;
+            let aiData = null;
+            let filterCombosData = null;
+            let _cachedRound = null;
+            let _cachedUser = null;
+            let _cachedGroupNum = 0;
+
+            // ── Supabase ──
+            function getSB() {
+                return window.supabaseClient || null;
+            }
+
+            // ── 번호별 볼 색상 ──
+            function bc(n) {
+                if (n <= 10) return 'ball-y';
+                if (n <= 20) return 'ball-b';
+                if (n <= 30) return 'ball-r';
+                if (n <= 40) return 'ball-g';
+                return 'ball-gr';
+            }
+
+            // ── 상태 전환 ──
+            function showState(id) {
+                ['stateLoading', 'stateNoCombo', 'stateNoAI', 'stateContent'].forEach(s => {
+                    const el = document.getElementById(s);
+                    if (!el) return;
+                    el.classList.add('hidden');
+                    el.style.display = '';
+                });
+                const target = document.getElementById(id);
+                if (target) {
+                    target.classList.remove('hidden');
+                    if (id !== 'stateContent') target.style.display = 'flex';
+                }
+            }
+
+            // ── 초기화 ──
+            async function init() {
+                // 1. localStorage에서 필터 조합 읽기
+                try {
+                    const raw = localStorage.getItem('generated_filter_combos');
+                    if (!raw) { showState('stateNoCombo'); return; }
+                    filterCombosData = JSON.parse(raw);
+                    if (!filterCombosData?.combinations?.length) { showState('stateNoCombo'); return; }
+                } catch (e) { showState('stateNoCombo'); return; }
+
+                const sb = getSB();
+
+                // 2. 현재 유저 + 회차
+                try {
+                    const [{ data: { user } }, { data: draws }] = await Promise.all([
+                        sb.auth.getUser().catch(() => ({ data: { user: null } })),
+                        sb.from('lotto_draws').select('round').order('round', { ascending: false }).limit(1)
+                    ]);
+                    _cachedUser = user;
+                    _cachedRound = draws?.[0]?.round ? draws[0].round + 1 : null;
+                } catch (e) { }
+
+                // [추가] 회차 업데이트 시 로컬스토리지 비우기 로직 (일관성 유지)
+                if (_cachedRound) {
+                    // target_round가 아예 없거나(구버전 데이터), 현재 DB상 예정 회차와 다르면 무조건 리셋
+                    if (!filterCombosData.target_round || filterCombosData.target_round !== _cachedRound) {
+                        localStorage.removeItem('generated_filter_combos');
+                        showState('stateNoCombo');
+                        return;
+                    }
+                }
+
+                // 그룹 번호 파악 (같은 유저 기존 그룹 수)
+                try {
+                    const q = sb.from('saved_combination_groups').select('id', { count: 'exact', head: true });
+                    if (_cachedUser) q.eq('user_id', _cachedUser.id);
+                    else q.is('user_id', null);
+                    const { count } = await q;
+                    _cachedGroupNum = count || 0;
+                } catch (e) { }
+
+                // 3. 딥러닝 분석 데이터 (matrix_data 포함)
+                try {
+                    const { data, error } = await sb.from('deep_analysis_history')
+                        .select('id, target_round, confidence, recommended_numbers, excluded_numbers, analysis_data')
+                        .order('target_round', { ascending: false })
+                        .limit(1)
+                        .single();
+
+                    if (error || !data) { showState('stateNoAI'); return; }
+                    aiData = data;
+                } catch (e) { showState('stateNoAI'); return; }
+
+                // 4. 각 조합에 AI 점수 부여
+                scoreAndSort();
+
+                // 5. 화면 표시
+                renderSummary();
+                setCount(5);
+                showState('stateContent');
+            }
+
+            // ── AI 점수 계산 & 정렬 (다기준 채점) ──
+            let _parsedAI = null; // 파싱된 analysis_data 캐시
+            function scoreAndSort() {
+                // [수정] analysis_data는 DB에 JSON 문자열로 저장됨 → 반드시 파싱 필요
+                try { _parsedAI = JSON.parse(aiData?.analysis_data || '{}'); } catch (e) { _parsedAI = {}; }
+
+                const matrixData = _parsedAI.analysis?.matrix_data || [];
+                const filterRecs = _parsedAI.strategy?.filter_recommendations || [];
+                const fixedNums = new Set(_parsedAI.strategy?.fixed_numbers?.numbers || aiData?.recommended_numbers || []);
+                const exclNums = new Set(_parsedAI.strategy?.exclude_numbers?.numbers || aiData?.excluded_numbers || []);
+
+                // ① 번호별 앙상블 점수 맵 (total, 약 10,000~110,000 scale)
+                const scoreMap = {};
+                matrixData.forEach(d => { scoreMap[d.num] = d.total || 0; });
+                const totVals = Object.values(scoreMap);
+                const minS = totVals.length ? Math.min(...totVals) : 0;
+                const maxS = totVals.length ? Math.max(...totVals) : 1;
+                const normScore = n => maxS > minS ? ((scoreMap[n] || 0) - minS) / (maxS - minS) * 100 : 50;
+
+                // filter_recommendations 맵 (필터명 → 조건)
+                const filterMap = {};
+                filterRecs.forEach(f => { filterMap[f.filter] = f; });
+
+                // 소수 집합 (1~45 내)
+                const PRIMES = new Set([2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43]);
+
+                const allCombos = filterCombosData.combinations || [];
+
+                allScoredCombos = allCombos.map((combo, idx) => {
+                    const nums = combo.numbers || [];
+                    const sorted = [...nums].sort((a, b) => a - b);
+
+                    // ━━ (A) 번호별 AI 앙상블 점수 (0~100 평균) ━━
+                    const numScore = nums.reduce((s, n) => s + normScore(n), 0) / 6;
+
+                    // ━━ (B) AI 고정수 bonus & 제외수 penalty ━━
+                    const fixedCount = nums.filter(n => fixedNums.has(n)).length;
+                    const exclCount = nums.filter(n => exclNums.has(n)).length;
+                    const fixedBonus = fixedCount * 15;
+                    const exclPenalty = exclCount * 20;
+
+                    // ━━ (C) filter_recommendations 다기준 채점 ━━
+                    const sumV = nums.reduce((a, b) => a + b, 0);
+                    const oddV = nums.filter(n => n % 2 !== 0).length;
+                    const highV = nums.filter(n => n > 22).length;
+                    const primeV = nums.filter(n => PRIMES.has(n)).length;
+                    const sqV = nums.filter(n => [1, 4, 9, 16, 25, 36].includes(n)).length;
+                    const triV = nums.filter(n => [1, 3, 6, 10, 15, 21, 28, 36, 45].includes(n)).length;
+                    const tailSum = nums.reduce((a, n) => a + (n % 10), 0);
+                    let consecV = 0;
+                    for (let i = 1; i < sorted.length; i++) if (sorted[i] - sorted[i - 1] === 1) consecV++;
+                    const diffs = new Set();
+                    for (let i = 0; i < sorted.length; i++)
+                        for (let j = i + 1; j < sorted.length; j++) diffs.add(sorted[j] - sorted[i]);
+                    const acV = diffs.size - 5;
+
+                    // 각 필터 조건 pass 시 가점 (범위형: +8, 패턴형: +6)
+                    const inRange = (v, f) => f?.min !== undefined && f?.max !== undefined && v >= f.min && v <= f.max;
+                    let filterScore = 0;
+                    if (inRange(sumV, filterMap['총합'])) filterScore += 10;
+                    if (inRange(tailSum, filterMap['끝수합'])) filterScore += 8;
+                    if (inRange(acV, filterMap['AC값'])) filterScore += 8;
+                    if (inRange(primeV, filterMap['소수'])) filterScore += 6;
+                    if (inRange(sqV, filterMap['제곱수'])) filterScore += 4;
+                    if (inRange(triV, filterMap['삼각수'])) filterScore += 4;
+                    if (inRange(consecV, filterMap['연속수'])) filterScore += 5;
+                    // 홀짝 패턴
+                    const oddRec = filterMap['홀짝']?.pattern || '';
+                    if (oddRec.includes('3:3') && oddV === 3) filterScore += 8;
+                    else if ((oddRec.includes('4:2') || oddRec.includes('2:4')) && (oddV === 4 || oddV === 2)) filterScore += 6;
+                    // 저고 패턴
+                    const highRec = filterMap['저고']?.pattern || '';
+                    if (highRec.includes('3:3') && highV === 3) filterScore += 8;
+
+                    // ━━ 최종 점수 ━━
+                    const aiScore = numScore + fixedBonus - exclPenalty + filterScore;
+
+                    return { ...combo, aiScore, numScore, filterScore, fixedCount, exclCount, origRank: idx + 1 };
+                }).sort((a, b) => b.aiScore - a.aiScore);
+            }
+
+            // ── 요약 정보 렌더 ──
+            function renderSummary() {
+                // [수정] _parsedAI 기준으로 고정수/제외수 표시
+                const fixedNums = _parsedAI?.strategy?.fixed_numbers?.numbers || aiData?.recommended_numbers || [];
+                const confidence = _parsedAI?.strategy?.confidence ?? aiData?.confidence ?? '-';
+
+                document.getElementById('infoRound').textContent = aiData
+                    ? `${aiData.target_round}회 딥러닝 (신뢰도 ${confidence}%)`
+                    : '-';
+
+                const total = filterCombosData?.total_pool || filterCombosData?.combinations?.length || 0;
+                document.getElementById('infoTotal').textContent = `${total.toLocaleString()}개`;
+
+                const recEl = document.getElementById('infoRec');
+                fixedNums.slice(0, 5).forEach(n => {
+                    recEl.innerHTML += `<span class="ball ${bc(n)}" style="width:22px;height:22px;font-size:10px;">${n}</span>`;
+                });
+            }
+
+            // ── 개수 선택 ──
+            function setCount(n) {
+                targetCount = n;
+                document.querySelectorAll('#cntBtns .cnt-btn').forEach(btn => {
+                    btn.classList.toggle('active', parseInt(btn.dataset.cnt) === n);
+                });
+                displayed = allScoredCombos.slice(0, n);
+                selSet = new Set(displayed.map((_, i) => i));
+                renderList();
+                updateBadge();
+            }
+
+            // ── 조합 리스트 렌더 ──
+            function renderList() {
+                const maxScore = displayed.length ? Math.max(...displayed.map(c => c.aiScore)) || 1 : 1;
+                const recSet = new Set(aiData?.recommended_numbers || []);
+                const total = filterCombosData?.combinations?.length || 0;
+
+                document.getElementById('cntLabel').textContent = `${displayed.length}개`;
+                document.getElementById('poolLabel').textContent = `전체 ${total.toLocaleString()}개 중 AI 상위 ${displayed.length}개`;
+
+                // [애니] 스태거 쿼로 실제품 애니는 는림의 시간차를 제한
+                const STAGGER_DELAY_MS = 40;
+                const MAX_STAGGER = 8; // 8번까지만 스태거, 이후는 같은 시간
+
+                document.getElementById('comboList').innerHTML = displayed.map((combo, idx) => {
+                    const nums = [...(combo.numbers || [])].sort((a, b) => a - b);
+                    const pct = maxScore > 0 ? (combo.aiScore / maxScore) * 100 : 0;
+                    const isSel = selSet.has(idx);
+                    const sum = nums.reduce((a, b) => a + b, 0);
+                    const odd = nums.filter(n => n % 2 !== 0).length;
+                    // [애니] 스태거 딜레이 (idx가 MAX_STAGGER 이후는 같은 딜레이)
+                    const delay = Math.min(idx, MAX_STAGGER) * STAGGER_DELAY_MS;
+
+                    const ballsHtml = nums.map(n => {
+                        const isRec = recSet.has(n);
+                        return `
+                    <div style="position:relative; width: 32px; height: 32px;">
+                        <span class="ball ${bc(n)}">${n}</span>
+                        ${isRec ? '<div class="ball-halo"></div><div class="ball-dot"></div>' : ''}
+                    </div>`;
+                    }).join('');
+
+
+                    return `
+                <div class="combo-enter combo-row ${isSel ? 'selected' : ''}" style="animation-delay:${delay}ms" onclick="AIC.toggle(${idx})" id="cr${idx}">
+                    <!-- 번호 + 순위 -->
+                    <span class="text-[15px] font-medium w-10 text-center flex-shrink-0 tabular-nums ${isSel ? 'text-blue-500' : 'text-slate-300'}">${String(idx + 1).padStart(2, '0')}</span>
+                    <div class="flex gap-1.5 flex-wrap flex-1">${ballsHtml}</div>
+
+
+
+                    <!-- 점수 + 스탯 -->
+                    <div class="flex items-center gap-4 flex-shrink-0">
+                        <div class="hidden sm:flex flex-col gap-0.5 w-24">
+                            <div class="flex items-center justify-between text-[10px] font-bold">
+                                <span class="text-slate-400">AI점수</span>
+                                <span class="${pct >= 80 ? 'text-blue-600' : 'text-slate-500'} tabular-nums">${pct.toFixed(0)}</span>
+                            </div>
+                            <!-- [애니] width=0 시작 → data-pct로 실제 값 저장 -->
+                            <div class="s-bar"><div class="s-bar-fill" data-pct="${pct.toFixed(0)}"></div></div>
+                            <div class="text-[9px] text-slate-400 text-right">
+                                합${sum} · ${odd}홀${6 - odd}짝
+                                ${combo.fixedCount > 0 ? `<span class="text-amber-500">★${combo.fixedCount}</span>` : ''}
+                                ${combo.filterScore > 0 ? `<span class="text-green-500">F+${combo.filterScore}</span>` : ''}
+                            </div>
+                        </div>
+                        <!-- 선택 아이콘 -->
+                        <span class="material-symbols-outlined text-[20px] ${isSel ? 'text-blue-500' : 'text-slate-200'}">
+                            ${isSel ? 'check_circle' : 'radio_button_unchecked'}
+                        </span>
+                    </div>
+                </div>`;
+                }).join('');
+
+                // [애니] 렌더 직후 width=0으로 시작한 후,
+                // requestAnimationFrame으로 실제 너비 적용 (GPU 가속 fill)
+                requestAnimationFrame(() => {
+                    document.querySelectorAll('.s-bar-fill[data-pct]').forEach(el => {
+                        el.style.width = el.dataset.pct + '%';
+                    });
+                });
+            }
+
+            // ── 선택 토글 ──
+            function toggle(idx) {
+                if (selSet.has(idx)) selSet.delete(idx);
+                else selSet.add(idx);
+
+                const row = document.getElementById('cr' + idx);
+                if (row) {
+                    row.classList.toggle('selected', selSet.has(idx));
+                    const rankEl = row.querySelector('span:first-child');
+                    const iconEl = row.querySelector('.material-symbols-outlined:last-child');
+                    if (rankEl) rankEl.className = rankEl.className.replace(/text-(blue|slate)-\d+/g, selSet.has(idx) ? 'text-blue-500' : 'text-slate-200');
+                    if (iconEl) {
+                        iconEl.className = iconEl.className.replace(/text-(blue|slate)-\d+/g, selSet.has(idx) ? 'text-blue-500' : 'text-slate-200');
+                        iconEl.textContent = selSet.has(idx) ? 'check_circle' : 'radio_button_unchecked';
+                    }
+                }
+                updateBadge();
+            }
+
+            function selectAll() { selSet = new Set(displayed.map((_, i) => i)); renderList(); updateBadge(); }
+            function deselectAll() { selSet.clear(); renderList(); updateBadge(); }
+
+            function updateBadge() {
+                const badge = document.getElementById('selBadge');
+                const n = selSet.size;
+                badge.classList.toggle('hidden', n === 0);
+                if (n > 0) badge.textContent = `${n}개 선택`;
+            }
+
+            // ── 저장 ──
+            async function save() {
+                const sel = [...selSet].map(i => displayed[i]).filter(Boolean);
+                if (!sel.length) { alert('저장할 조합을 선택해주세요.'); return; }
+
+                const btn = document.getElementById('btnSave');
+                const label = document.getElementById('btnLabel');
+                btn.disabled = true;
+                label.innerHTML = '<span class="spin material-symbols-outlined" style="font-size:14px;">progress_activity</span>';
+
+                try {
+                    const sb = getSB();
+                    if (!sb) throw new Error('Supabase 연결 실패');
+
+                    _cachedGroupNum = (_cachedGroupNum || 0) + 1;
+                    const groupName = _cachedRound
+                        ? `${_cachedRound}회 AI조합 ${_cachedGroupNum}`
+                        : `AI조합 ${_cachedGroupNum}`;
+
+                    const payload = {
+                        user_id: _cachedUser?.id || null,
+                        round_number: _cachedRound,
+                        group_name: groupName,
+                        combinations: sel.map(c => ({
+                            numbers: [...(c.numbers || [])].sort((a, b) => a - b),
+                            score: c.aiScore
+                        })),
+                        combo_count: sel.length,
+                        total_pool: filterCombosData?.combinations?.length || 0,
+                        memo: 'ai_combination',      // [핵심] AI 조합 라벨
+                        filter_snapshot: {
+                            source: 'ai_deep_learning',
+                            analysis_id: aiData?.id,
+                            ai_target_round: aiData?.target_round,
+                            confidence: aiData?.confidence,
+                            recommended: aiData?.recommended_numbers,
+                            excluded: aiData?.excluded_numbers
+                        }
+                    };
+
+                    const { error } = await sb.from('saved_combination_groups').insert(payload);
+                    if (error) throw error;
+
+                    // [애니] 저장 성공 체크마크 애니메이션 표시
+                    label.innerHTML = '<span class="check-pop material-symbols-outlined" style="font-size:15px;color:#86efac;">check_circle</span> 저장완료';
+                    btn.style.background = '#059669';
+
+                    localStorage.setItem('output_combinations', JSON.stringify({
+                        timestamp: Date.now(),
+                        combinations: payload.combinations,
+                        total_pool: payload.total_pool,
+                        group_name: groupName,
+                        round_number: _cachedRound
+                    }));
+
+                    // 애니메이션이 보인 뒤 이동
+                    setTimeout(() => {
+                        window.location.href = 'output.html';
+                    }, 800);
+
+
+                } catch (err) {
+                    console.error('[AIC] 저장 실패:', err);
+                    btn.disabled = false;
+                    label.innerHTML = '저장하기';
+                    alert('⚠️ 저장 실패\n' + err.message);
+                }
+            }
+
+            return { init, setCount, toggle, selectAll, deselectAll, save };
+        })();
+
+        document.addEventListener('DOMContentLoaded', () => AIC.init());
+    </script>
+</body>
+
+</html>

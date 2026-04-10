@@ -1,0 +1,1192 @@
+﻿<!DOCTYPE html>
+<html class="light" lang="ko">
+
+<head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>Lotto Lab - 조합 목록</title>
+    <link href="css/tailwind.css" rel="stylesheet" />
+    <link rel="icon" href="data:,">
+    <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css"
+        rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
+        rel="stylesheet" />
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="js/config.js"></script>
+    <script src="js/theme.js"></script>
+    <script src="js/common_v2.js"></script>
+    <script src="js/filter/FilterService.js"></script>
+    <script src="js/layout.js"></script>
+
+    <style>
+        body { font-family: 'Pretendard', sans-serif; }
+
+        /* ── 로또 공 디자인 (완벽한 원형 유지 및 De-bolding) ── */
+        .ball {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 32px; height: 32px; border-radius: 50%;
+            font-size: 13px; font-weight: 500; color: #fff; flex-shrink: 0;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.12);
+        }
+        /* 화사한 그라데이션 고수 */
+        .ball-y  { background: linear-gradient(135deg, #f59e0b, #d97706); }
+        .ball-b  { background: linear-gradient(135deg, #3b82f6, #2563eb); }
+        .ball-r  { background: linear-gradient(135deg, #ef4444, #dc2626); }
+        .ball-g  { background: linear-gradient(135deg, #6b7280, #4b5563); }
+        .ball-gr { background: linear-gradient(135deg, #10b981, #059669); }
+
+
+        .combo-row { transition: background-color 0.1s ease; }
+        .combo-row:hover { background: #f1f5f9; }
+        .combo-row.selected { background: #eff6ff; }
+
+        .cbox { width: 17px; height: 17px; accent-color: #1d4ed8; cursor: pointer; }
+
+        /* ── 페이지네이션 버튼 ── */
+        .pbtn {
+            min-width: 32px; height: 33px; padding: 0 10px;
+            display: inline-flex; align-items: center; justify-content: center;
+            border-radius: 9px; font-size: 13px; font-weight: 600;
+            cursor: pointer; border: 1px solid #e2e8f0; color: #64748b;
+            transition: all 0.2s cubic-bezier(0.23, 1, 0.32, 1); background: #fff;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+        }
+        .pbtn:hover:not(:disabled):not(.cur) { background: #f8fafc; color: #2563eb; border-color: #bfdbfe; transform: translateY(-1px); }
+        .pbtn.cur { background: #1e1b4b; color: #fff; border-color: #1e1b4b; pointer-events: none; box-shadow: 0 4px 12px rgba(30, 27, 75, 0.15); }
+        .pbtn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+
+        /* ── 상단 컨트롤 바 (Glassmorphism) ── */
+        .ctrl-bar {
+            position: sticky; top: 64px; z-index: 40;
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            border-bottom: 1px solid rgba(226, 232, 240, 0.7);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+            transition: all 0.3s cubic-bezier(0.23, 1, 0.32, 1);
+        }
+
+
+        /* 저장 스피너 */
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .spin { animation: spin 0.8s linear infinite; display: inline-block; }
+
+        @keyframes fadeIn { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:none; } }
+        .fade-in { animation: fadeIn 0.25s ease; }
+
+        #pageSize { min-width: 90px; }
+
+        /* ── 그룹 카드 디자인 ── */
+        .group-card {
+            background:#fff; border:1px solid #f1f5f9; border-radius:16px;
+            padding:14px 18px; transition: all 0.25s cubic-bezier(0.23, 1, 0.32, 1);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.01);
+        }
+        .group-card:hover { 
+            transform: translateY(-2px);
+            box-shadow: 0 8px 16px -4px rgba(30, 27, 75, 0.08); 
+            border-color: #e2e8f0;
+        }
+
+
+        /* [추가] 타이포그래피 폴리시: 고정폭 숫자 및 자간 설정 */
+        .tabular-nums { font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+        .label-caps {
+            font-size: 11px; font-weight: 900; text-transform: uppercase;
+            letter-spacing: 0.15em; color: #94a3b8;
+        }
+    </style>
+</head>
+
+<body class="bg-slate-50 antialiased">
+
+    <div id="gnb-container"></div>
+
+    <!-- ── 컨트롤 바 ── -->
+    <div class="ctrl-bar">
+        <div class="max-w-5xl mx-auto px-6 py-3 flex items-center justify-between gap-3 flex-wrap">
+            <div class="flex items-center gap-3 min-w-0">
+                <div class="flex items-center gap-2">
+                    <span class="material-symbols-outlined text-[#1e1b4b] flex-shrink-0" style="font-size:22px;">format_list_numbered</span>
+                    <h1 class="text-[17px] font-semibold text-[#1e1b4b] whitespace-nowrap tracking-tight">조합 목록</h1>
+                </div>
+                <span class="px-2.5 py-0.5 bg-blue-50 text-blue-600 text-[12px] font-semibold rounded-full whitespace-nowrap flex-shrink-0 tabular-nums">
+                    전체 <span id="totalCount">0</span>개
+                </span>
+                <span id="selBadge" class="hidden px-2.5 py-0.5 bg-emerald-50 text-emerald-600 text-[12px] font-semibold rounded-full whitespace-nowrap flex-shrink-0 tabular-nums">
+                    선택 <span id="selCount">0</span>개
+                </span>
+
+            </div>
+            <div class="flex items-center gap-2 flex-shrink-0">
+                <button id="btnSelAll"
+                    class="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:border-blue-400 hover:text-blue-600 transition-all">
+                    <span class="material-symbols-outlined" style="font-size:15px;">select_all</span>전체선택
+                </button>
+                <button id="btnDesel"
+                    class="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:border-rose-400 hover:text-rose-500 transition-all">
+                    <span class="material-symbols-outlined" style="font-size:15px;">deselect</span>전체해제
+                </button>
+                <button id="btnSave"
+                    class="flex items-center gap-1.5 px-4 py-1.5 text-[12px] font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 active:scale-95 transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                    <span class="material-symbols-outlined" style="font-size:15px;">save</span>
+                    <span id="saveLabel">저장하기</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── 메인 ── -->
+    <div class="max-w-5xl mx-auto px-6 py-6 min-h-screen">
+
+        <!-- 데이터 없음 -->
+        <div id="emptyState" class="hidden flex-col items-center justify-center py-24 text-center fade-in">
+            <div class="w-20 h-20 bg-slate-100 rounded-2xl flex items-center justify-center mb-5 shadow-inner">
+                <span class="material-symbols-outlined text-slate-300" style="font-size:42px;">inventory_2</span>
+            </div>
+            <h2 class="text-xl font-semibold text-[#1e1b4b] mb-2">생성된 조합이 없습니다</h2>
+            <p class="text-sm text-slate-500 mb-6">필터를 설정하고 <strong>조합 생성</strong> 버튼을 눌러주세요.</p>
+
+            <div class="flex items-center gap-3 flex-wrap justify-center">
+                <a href="filter.html"
+                    class="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700 transition-all shadow-sm">
+                    <span class="material-symbols-outlined" style="font-size:16px;">tune</span>
+                    필터 설정하기
+                </a>
+                <!-- [추가] 빈 상태에서도 수동 조합 생성 가능 -->
+                <button onclick="CP.openManualModal()"
+                    class="inline-flex items-center gap-2 px-6 py-2.5 bg-indigo-600 text-white text-sm font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-sm">
+                    <span class="material-symbols-outlined" style="font-size:16px;">edit_square</span>
+                    수동 조합 생성
+                </button>
+            </div>
+        </div>
+
+        <!-- 테이블 영역 -->
+        <div id="tableArea" class="hidden fade-in">
+
+            <div class="flex items-center gap-3 bg-white border border-slate-200 rounded-xl px-5 py-3 mb-5 shadow-sm text-[12px]">
+                <span class="material-symbols-outlined text-blue-400 flex-shrink-0" style="font-size:18px;">info</span>
+                <span class="text-slate-500 flex-1" id="infoText"></span>
+                <span class="text-slate-400 flex-shrink-0" id="genTime"></span>
+            </div>
+
+            <div class="flex items-center justify-between mb-3 gap-3 flex-wrap">
+                <div class="flex items-center gap-2 text-[12px] text-slate-500">
+                    <span class="flex-shrink-0">페이지당</span>
+                    <select id="pageSize"
+                        class="px-3 py-1.5 border border-slate-200 rounded-lg text-[12px] font-bold text-slate-700 focus:ring-1 focus:ring-blue-400 focus:outline-none bg-white">
+                        <option value="50">50개</option>
+                        <option value="100" selected>100개</option>
+                        <option value="200">200개</option>
+                        <option value="500">500개</option>
+                    </select>
+                    <span id="pageInfoTop" class="text-slate-400 ml-1 whitespace-nowrap"></span>
+                </div>
+                <div id="paginationTop" class="flex items-center gap-1 flex-wrap"></div>
+            </div>
+
+            <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden mb-4">
+                <table class="w-full border-collapse">
+                    <thead>
+                        <tr class="bg-slate-50 border-b border-slate-200">
+                            <th class="w-12 px-4 py-3 text-center">
+                                <input type="checkbox" id="hdrCheck" class="cbox" onchange="CP.togglePage(this.checked)">
+                            </th>
+                            <th class="w-20 px-4 py-3 text-right"><span class="label-caps">순번</span></th>
+                            <th class="px-6 py-3 text-left"><span class="label-caps">조합 번호</span></th>
+                            <th class="w-16 px-4 py-3 text-center"><span class="label-caps">선택</span></th>
+                        </tr>
+                    </thead>
+                    <tbody id="tBody"></tbody>
+                </table>
+            </div>
+
+            <div class="flex items-center justify-between flex-wrap gap-3">
+                <span class="text-[12px] text-slate-400" id="pageInfoBot"></span>
+                <div id="paginationBot" class="flex items-center gap-1 flex-wrap"></div>
+            </div>
+        </div>
+
+        <!-- ── 저장된 그룹 목록 ── -->
+        <div id="groupsSection" class="hidden mt-10">
+            <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center gap-2">
+                    <span class="material-symbols-outlined text-slate-400" style="font-size:20px;">folder_open</span>
+                    <h2 class="text-[15px] font-semibold text-[#1e1b4b]">저장된 조합 그룹</h2>
+                    <span id="groupsBadge" class="px-2 py-0.5 bg-indigo-50 text-indigo-500 text-[11px] font-semibold rounded-full"></span>
+                </div>
+
+
+                <div class="flex items-center gap-3">
+                    <button onclick="CP.loadGroups()"
+                        class="text-[11px] text-slate-400 hover:text-blue-600 transition-colors flex items-center gap-1">
+                        <span class="material-symbols-outlined" style="font-size:14px;">refresh</span>새로고침
+                    </button>
+                    <a href="output.html"
+                        class="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-all">
+                        <span class="material-symbols-outlined" style="font-size:14px;">print</span>출력 페이지
+                    </a>
+                </div>
+            </div>
+            <div id="groupsList" class="flex flex-col gap-3"></div>
+        </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════
+         [추가] 수동 조합 생성 모달
+    ══════════════════════════════════════════════════════ -->
+    <div id="manualModal" class="hidden fixed inset-0 z-[200] flex items-center justify-center p-4">
+        <!-- Backdrop -->
+        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onclick="CP.closeManualModal()"></div>
+
+        <!-- Modal Body -->
+        <div class="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
+
+            <!-- Header -->
+            <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-indigo-50 to-white flex-shrink-0">
+                <div class="flex items-center gap-3">
+                    <div class="w-9 h-9 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow">
+                        <span class="material-symbols-outlined text-lg">edit_square</span>
+                    </div>
+                    <div>
+                        <h2 class="text-base font-black text-slate-900">수동 조합 생성</h2>
+                        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">번호를 선택하고 조합을 추가하세요</p>
+                    </div>
+                </div>
+                <button onclick="CP.closeManualModal()" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 text-slate-400 transition-colors">
+                    <span class="material-symbols-outlined text-lg">close</span>
+                </button>
+            </div>
+
+            <!-- 번호 선택 그리드 -->
+            <div class="p-5 overflow-y-auto flex-1">
+
+                <!-- 선택된 번호 미리보기 -->
+                <div class="mb-4 p-3 bg-slate-50 rounded-xl border border-slate-200 min-h-[52px] flex items-center gap-2 flex-wrap">
+                    <span class="text-[11px] font-bold text-slate-400 flex-shrink-0">선택:</span>
+                    <div id="manualPreview" class="flex items-center gap-1.5 flex-wrap flex-1">
+                        <span class="text-[11px] text-slate-300">최소 1개, 최대 6개 선택 (6개 = 1조합)</span>
+                    </div>
+                    <span id="manualCountBadge" class="text-[11px] font-black text-indigo-600 flex-shrink-0">0/6</span>
+                </div>
+
+                <!-- 1~45 번호 그리드 -->
+                <div class="grid grid-cols-9 gap-1.5 mb-5" id="manualGrid"></div>
+
+                <!-- 조합 목록 -->
+                <div id="manualComboListWrap" class="hidden">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-[11px] font-black text-slate-500 uppercase tracking-wider">추가된 조합 <span id="manualComboCount" class="text-indigo-600">0</span>개</span>
+                        <button onclick="CP.clearManualCombos()" class="text-[10px] text-rose-400 hover:text-rose-600 font-bold flex items-center gap-0.5 transition-colors">
+                            <span class="material-symbols-outlined" style="font-size:12px;">delete_sweep</span>전체 삭제
+                        </button>
+                    </div>
+                    <div id="manualComboList" class="flex flex-col gap-1.5 max-h-[180px] overflow-y-auto pr-1"></div>
+                </div>
+            </div>
+
+            <!-- Footer -->
+            <div class="px-5 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-3 flex-shrink-0">
+                <div class="flex items-center gap-2">
+                    <button onclick="CP.addManualCombo()"
+                        id="btnAddCombo"
+                        class="flex items-center gap-1.5 px-4 py-2 text-[12px] font-bold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 active:scale-95 transition-all shadow-sm disabled:opacity-40 disabled:cursor-not-allowed">
+                        <span class="material-symbols-outlined" style="font-size:14px;">add_circle</span>
+                        조합 추가
+                    </button>
+                    <button onclick="CP.clearManualSelection()"
+                        class="flex items-center gap-1.5 px-3 py-2 text-[12px] font-bold text-slate-500 bg-white border border-slate-200 rounded-lg hover:border-rose-300 hover:text-rose-500 active:scale-95 transition-all">
+                        <span class="material-symbols-outlined" style="font-size:14px;">backspace</span>
+                        초기화
+                    </button>
+                </div>
+                <button onclick="CP.saveManualCombos()"
+                    id="btnManualSave"
+                    class="flex items-center gap-1.5 px-5 py-2 text-[12px] font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 active:scale-95 transition-all shadow-sm disabled:opacity-40 disabled:cursor-not-allowed" disabled>
+                    <span class="material-symbols-outlined" style="font-size:14px;">save</span>
+                    <span id="manualSaveLabel">수파베이스 저장</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    const CP = (() => {
+        let combos    = [];
+        let selSet    = new Set();
+        let curPage   = 1;
+        let pgSize    = 100;
+        let totalPool = 0;
+
+        // ── 프리패치 캐시 (페이지 로드 시 미리 가져옴) ──
+        let _cachedRound = undefined;   // undefined=미조회, null=없음, number=회차
+        let _cachedUser  = undefined;   // undefined=미조회, null=비로그인, object=유저
+        let _cachedCount = undefined;   // undefined=미조회, number=그룹수
+        // [수정] localStorage로부터 접기 상태 로드
+        let collapsedRounds = new Set(JSON.parse(localStorage.getItem('collapsed_rounds') || '[]'));
+
+        function getSB() {
+            return window.supabaseClient
+                || supabase.createClient(CONFIG.SUPABASE.URL, CONFIG.SUPABASE.KEY);
+        }
+
+        /**
+         * [수정] 5. 읽기 쉽게 다듬은 유틸리티 함수들 (코드 폴리시)
+         */
+        // 로또 번호에 따른 공 색상 클래스 반환
+        function bc(n) {
+            if (n <= 10) return 'ball-y';
+            if (n <= 20) return 'ball-b';
+            if (n <= 30) return 'ball-r';
+            if (n <= 40) return 'ball-g';
+            return 'ball-gr';
+        }
+
+        // 로또 공 웹 요소 생성
+        function renderBalls(nums) {
+            return nums.map(n => {
+                const padNum = String(n).padStart(2, '0');
+                return `<span class="ball ${bc(n)}">${padNum}</span>`;
+            }).join('');
+        }
+
+        function updateBadge() {
+            const n = selSet.size;
+            document.getElementById('selCount').textContent = n.toLocaleString();
+            const b = document.getElementById('selBadge');
+            n > 0 ? b.classList.remove('hidden') : b.classList.add('hidden');
+        }
+
+        function buildPages(id) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            const total = Math.ceil(combos.length / pgSize);
+            if (total <= 1) { el.innerHTML = ''; return; }
+            const W = 5;
+            let s = Math.max(1, curPage - Math.floor(W/2));
+            let e = Math.min(total, s + W - 1);
+            if (e - s < W - 1) s = Math.max(1, e - W + 1);
+            let h = `<button class="pbtn" onclick="CP.go(${curPage-1})" ${curPage===1?'disabled':''}><span class="material-symbols-outlined" style="font-size:16px;">chevron_left</span></button>`;
+            if (s > 1) { h += `<button class="pbtn" onclick="CP.go(1)">1</button>`; if (s>2) h += `<span class="px-1 text-slate-400 text-xs self-center">…</span>`; }
+            for (let p = s; p <= e; p++) h += `<button class="pbtn${p===curPage?' cur':''}" onclick="CP.go(${p})">${p}</button>`;
+            if (e < total) { if (e<total-1) h += `<span class="px-1 text-slate-400 text-xs self-center">…</span>`; h += `<button class="pbtn" onclick="CP.go(${total})">${total}</button>`; }
+            h += `<button class="pbtn" onclick="CP.go(${curPage+1})" ${curPage===total?'disabled':''}><span class="material-symbols-outlined" style="font-size:16px;">chevron_right</span></button>`;
+            el.innerHTML = h;
+        }
+
+        function render() {
+            const start = (curPage-1)*pgSize;
+            const end   = Math.min(start+pgSize, combos.length);
+            const slice = combos.slice(start, end);
+            document.getElementById('tBody').innerHTML = slice.map((c, i) => {
+                const on = selSet.has(c.rank);
+                const delay = i * 20; // 스태거 딜레이
+                return `<tr class="combo-row fade-in border-b border-slate-100${on?' selected':''}" id="r${c.rank}" style="animation-delay:${delay}ms">
+                    <td class="px-4 py-2.5 text-center"><input type="checkbox" class="cbox" ${on?'checked':''} onchange="CP.one(${c.rank},this.checked)"></td>
+                    <td class="px-4 py-2.5 text-right text-[12px] font-semibold text-slate-400 tabular-nums">${c.rank.toLocaleString()}</td>
+                    <td class="px-6 py-2.5"><div class="flex items-center gap-1.5">${renderBalls(c.numbers)}</div></td>
+                    <td class="px-4 py-2.5 text-center"><span class="text-[11px] font-bold ${on?'text-blue-500':'text-slate-200'}">${on?'✓':'—'}</span></td>
+                </tr>`;
+            }).join('');
+
+            const ranks = slice.map(c=>c.rank);
+            const allOn = ranks.length>0 && ranks.every(r=>selSet.has(r));
+            const anyOn = ranks.some(r=>selSet.has(r));
+            const hdr = document.getElementById('hdrCheck');
+            hdr.checked = allOn; hdr.indeterminate = !allOn && anyOn;
+            const info = `${(start+1).toLocaleString()}–${end.toLocaleString()} / 전체 ${combos.length.toLocaleString()}개`;
+            document.getElementById('pageInfoTop').textContent = info;
+            document.getElementById('pageInfoBot').textContent = info;
+            buildPages('paginationTop'); buildPages('paginationBot');
+            updateBadge();
+        }
+
+        // ── 페이지 로드 시 백그라운드 프리패치 ──
+        async function prefetch() {
+            // 실패 시에도 반드시 값을 채워서 doSave가 무한 재시도하지 않도록
+            _cachedRound = _cachedRound ?? null;
+            _cachedUser  = _cachedUser  ?? null;
+            _cachedCount = _cachedCount ?? 0;
+            try {
+                const sb = getSB();
+                // round + user 병렬 조회 (각각 5초 타임아웃)
+                const withTimeout = (promise, ms) =>
+                    Promise.race([promise, new Promise((_, r) => setTimeout(() => r(new Error('timeout')), ms))]);
+
+                const [roundRes, userRes] = await Promise.all([
+                    withTimeout(
+                        sb.from('lotto_draws').select('round').order('round', {ascending:false}).limit(1).single(),
+                        5000
+                    ).catch(() => ({ data: null })),
+                    sb.auth.getUser().catch(() => ({data:{user:null}}))
+                ]);
+                _cachedRound = roundRes.data?.round ? roundRes.data.round + 1 : null;
+                _cachedUser  = userRes.data?.user || null;
+
+                // 그룹 수 조회
+                if (_cachedRound) {
+                    let q = sb.from('saved_combination_groups')
+                        .select('id', {count:'exact', head:true})
+                        .eq('round_number', _cachedRound);
+                    if (_cachedUser) q = q.eq('user_id', _cachedUser.id);
+                    else             q = q.is('user_id', null);
+                    const { count } = await withTimeout(q, 5000).catch(() => ({ count: 0 }));
+                    _cachedCount = count || 0;
+                } else {
+                    _cachedCount = 0;
+                }
+            } catch(e) {
+                console.warn('[prefetch]', e);
+            }
+        }
+
+        // ── 최신 회차 조회 ──
+        async function fetchLatestRound() {
+            try {
+                const sb = getSB();
+                const { data, error } = await sb
+                    .from('lotto_draws')
+                    .select('round')
+                    .order('round', { ascending: false })
+                    .limit(1)
+                    .single();
+                if (error || !data) return null;
+                return data.round + 1; // 다음 회차 = 대상 회차
+            } catch(e) { return null; }
+        }
+
+        // ── 해당 회차 기존 그룹 수 조회 ──
+        async function fetchGroupCount(roundNum) {
+            try {
+                const sb = getSB();
+                const { data: { user } } = await sb.auth.getUser().catch(() => ({data:{user:null}}));
+                let q = sb.from('saved_combination_groups').select('id', {count:'exact', head:true}).eq('round_number', roundNum);
+                if (user) q = q.eq('user_id', user.id);
+                else       q = q.is('user_id', null);
+                const { count } = await q;
+                return count || 0;
+            } catch(e) { return 0; }
+        }
+
+        // ── 저장 (캐시 활용으로 insert 1회만 호출) ──
+        async function doSave() {
+            const sel = combos.filter(c => selSet.has(c.rank));
+            if (sel.length === 0) {
+                alert('선택된 조합이 없습니다.\n체크박스로 조합을 선택하거나 전체선택 후 저장해주세요.');
+                return;
+            }
+
+            const btn   = document.getElementById('btnSave');
+            const label = document.getElementById('saveLabel');
+            btn.disabled = true;
+            // [수정] 버튼 전체의 HTML을 변경하여 아이콘 중복 현상 방지
+            btn.innerHTML = '<span class="spin material-symbols-outlined" style="font-size:14px;">refresh</span> <span>저장 중...</span>';
+
+            // try 바깥에서 선언해야 catch·finally·이후 코드에서도 참조 가능
+            let targetRound = null;
+            let groupName   = '';
+
+            try {
+                // 캐시 미완료 시 즉시 조회
+                if (_cachedRound === undefined || _cachedUser === undefined || _cachedCount === undefined) {
+                    await prefetch();
+                }
+
+                targetRound         = _cachedRound;
+                const user          = _cachedUser;
+                
+                // [수정] 단순 count + 1 대신, 기존 그룹명 중 가장 큰 번호를 찾아 +1 합니다.
+                let nextNum = 1;
+                try {
+                    const sb = getSB();
+                    let q = sb.from('saved_combination_groups')
+                        .select('group_name')
+                        .eq('round_number', targetRound);
+                    if (user) q = q.eq('user_id', user.id);
+                    else       q = q.is('user_id', null);
+                    
+                    const { data: gNames } = await q;
+                    if (gNames && gNames.length > 0) {
+                        const nums = gNames.map(g => {
+                            const m = (g.group_name || '').match(/조합 (\d+)/);
+                            return m ? parseInt(m[1]) : 0;
+                        });
+                        nextNum = Math.max(...nums, 0) + 1;
+                    }
+                } catch(e) { console.warn('[Save] 번호 추출 실패:', e); }
+
+                groupName = targetRound
+                    ? `${targetRound}회 조합 ${nextNum}`
+                    : `조합 ${new Date().toLocaleString('ko-KR',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}`;
+
+                // [추가] 필터 스냅샷 추출
+                let filterSnapshot = null;
+                try {
+                    const raw = localStorage.getItem('generated_filter_combos');
+                    if (raw) {
+                        const parsed = JSON.parse(raw);
+                        filterSnapshot = parsed.filter_snapshot || null;
+                    }
+                    console.log('📦 Saving group with snapshot:', filterSnapshot ? 'EXISTS' : 'EMPTY');
+                } catch(e) { console.warn('[Save] 스냅샷 추출 실패:', e); }
+
+                // Supabase insert — 10초 타임아웃
+                const sb = getSB();
+                const withTimeout = (p, ms) =>
+                    Promise.race([p, new Promise((_, rej) =>
+                        setTimeout(() => rej(new Error(`저장 시간 초과 (${ms/1000}초)`)), ms))]);
+
+                const { error } = await withTimeout(
+                    sb.from('saved_combination_groups').insert({
+                        user_id:      user ? user.id : null,
+                        round_number: targetRound,
+                        group_name:   groupName,
+                        combinations: sel,
+                        combo_count:  sel.length,
+                        total_pool:   totalPool,
+                        filter_snapshot: filterSnapshot // [추가]
+                    }),
+                    10000
+                );
+                if (error) throw error;
+
+                // 다음 저장을 위해 캐시 카운트 증가
+                _cachedCount = nextNum; // [수정] groupNum -> nextNum
+
+            } catch(err) {
+                console.error('[Save] Supabase 오류:', err);
+                // 버튼 상태 복원 → 사용자가 재시도 가능
+                btn.disabled = false;
+                btn.innerHTML = '<span class="material-symbols-outlined" style="font-size:15px;">save</span><span>저장하기</span>';
+                alert(`⚠️ DB 저장 실패\n${err.message}\n\n잠시 후 다시 시도해주세요.`);
+                return; // 저장 실패 시 페이지 이동하지 않음
+            }
+
+            // output 로컬 저장 (출력 버튼 클릭 시 사용)
+            localStorage.setItem('output_combinations', JSON.stringify({
+                timestamp:    Date.now(),
+                combinations: sel,
+                total_pool:   totalPool,
+                group_name:   groupName,
+                round_number: targetRound
+            }));
+
+            // [수정] 생성 조합 초기화 (저장됐으니 목록에서 제거)
+            localStorage.removeItem('generated_filter_combos');
+
+            // [수정] 저장 성공 후 바로 출력 페이지로 이동
+            window.location.href = 'output.html';
+
+            // 그룹 목록 새로고침 (새로 저장된 그룹이 바로 보이도록)
+            await loadGroups();
+        }
+
+        // ── 저장된 그룹 목록 로드 ──
+        async function loadGroups() {
+            try {
+                const sb = getSB();
+                const { data: { user } } = await sb.auth.getUser().catch(() => ({data:{user:null}}));
+                let q = sb.from('saved_combination_groups')
+                    .select('id, round_number, group_name, combo_count, total_pool, created_at')
+                    .order('round_number', { ascending: false, nullsFirst: false }) // [수정] 최신 회차부터
+                    .order('created_at', { ascending: false }) // [수정] 최신 생성순
+                    .limit(100);
+                if (user) q = q.eq('user_id', user.id);
+                else       q = q.is('user_id', null);
+                const { data, error } = await q;
+                if (error) { console.warn('[Groups] 쿼리 오류:', error); return; }
+                if (!data || data.length === 0) return;
+                renderGroups(data);
+            } catch(e) { console.warn('[Groups] 로드 실패:', e); }
+        }
+
+        function renderGroups(groups) {
+            document.getElementById('groupsSection').classList.remove('hidden');
+            document.getElementById('groupsBadge').textContent = `${groups.length}개`;
+            const byRound = {};
+            groups.forEach(g => {
+                const key = g.round_number ? `${g.round_number}회` : '미지정';
+                if (!byRound[key]) byRound[key] = [];
+                byRound[key].push(g);
+            });
+
+            document.getElementById('groupsList').innerHTML = Object.entries(byRound).map(([round, items]) => {
+                const isCollapsed = collapsedRounds.has(round); // [추가] 접힘 여부 확인
+                return `
+                <div class="mb-2">
+                    <!-- [수정] 회차 헤더: 클릭 시 토글 기능 추가 -->
+                    <div class="flex items-center gap-3 mb-2 cursor-pointer group/hdr" onclick="CP.toggleRound('${round}')">
+                        <span class="px-3 py-0.5 bg-blue-600 text-white text-[11px] font-black rounded-full flex-shrink-0 transition-transform active:scale-95">${round}</span>
+                        <div class="flex-1 border-t border-slate-200"></div>
+                        <div class="flex items-center gap-2 text-[11px] text-slate-400 group-hover/hdr:text-blue-500 transition-colors flex-shrink-0">
+                            <span>${items.length}개 그룹</span>
+                            <span class="material-symbols-outlined" style="font-size:16px;">
+                                ${isCollapsed ? 'expand_more' : 'expand_less'}
+                            </span>
+                        </div>
+                    </div>
+                    <!-- [수정] 그룹 카드 목록: 접힘 상태에 따라 숨김 처리 -->
+                    <div class="flex flex-col gap-2 mb-4 pl-1 ${isCollapsed ? 'hidden' : ''}">
+                        ${items.map(g => `
+                        <div class="group-card" id="gc-${g.id}">
+                            <div class="flex items-center justify-between gap-3">
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex items-center gap-2 flex-wrap mb-1">
+                                        <span class="text-[13px] font-semibold text-[#1e1b4b] tabular-nums">${escHtml(g.group_name||'이름 없음')}</span>
+                                        <span class="px-2 py-0.5 bg-emerald-50 text-emerald-600 text-[11px] font-semibold rounded-full">${(g.combo_count||0).toLocaleString()}개</span>
+                                    </div>
+
+                                    <span class="flex items-center gap-1 text-[11px] text-slate-400">
+                                        <span class="material-symbols-outlined" style="font-size:12px;">schedule</span>${fmtDate(g.created_at)}
+                                    </span>
+                                </div>
+                                <div class="flex items-center gap-1 flex-shrink-0">
+                                    <button onclick="CP.loadToTable('${g.id}')"
+                                        title="조합 번호 불러오기 (테이블에 표시)"
+                                        class="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all" aria-label="번호 불러오기">
+                                        <span class="material-symbols-outlined" style="font-size:20px;">list_alt</span>
+                                    </button>
+                                    ${g.filter_snapshot ? `
+                                    <button onclick="CP.restoreFilters('${g.id}')"
+                                        title="필터 설정(스냅샷) 복원하기"
+                                        class="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all" aria-label="필터 복원">
+                                        <span class="material-symbols-outlined" style="font-size:20px;">tune</span>
+                                    </button>` : ''}
+                                    <button onclick="CP.viewGroup('${g.id}')"
+                                        title="출력"
+                                        class="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all" aria-label="출력">
+                                        <span class="material-symbols-outlined" style="font-size:20px;">print</span>
+                                    </button>
+                                    <button onclick="CP.deleteGroup('${g.id}')"
+                                        title="삭제"
+                                        class="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all" aria-label="삭제">
+                                        <span class="material-symbols-outlined" style="font-size:20px;">delete</span>
+                                    </button>
+                                </div>
+
+                            </div>
+                        </div>`).join('')}
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        // [추가] 회차별 접기/펴기 토글 함수
+        function toggleRound(roundKey) {
+            if (collapsedRounds.has(roundKey)) {
+                collapsedRounds.delete(roundKey);
+            } else {
+                collapsedRounds.add(roundKey);
+            }
+            // [수정] 상태 변경 시 localStorage에 저장
+            localStorage.setItem('collapsed_rounds', JSON.stringify([...collapsedRounds]));
+            loadGroups(); 
+        }
+
+        async function viewGroup(id) {
+            try {
+                const sb = getSB();
+                const { data, error } = await sb.from('saved_combination_groups').select('*').eq('id', id).single();
+                if (error || !data) throw new Error('not found');
+                localStorage.setItem('output_combinations', JSON.stringify({
+                    timestamp: new Date(data.created_at).getTime(),
+                    combinations: data.combinations,
+                    total_pool: data.total_pool,
+                    round_number: data.round_number,
+                    group_name: data.group_name,
+                    group_id: id
+                }));
+                window.location.href = 'output.html';
+            } catch(e) { alert('로드 실패: ' + e.message); }
+        }
+
+        // [추가] 저장된 그룹을 메인 테이블에 불러오기
+        async function loadToTable(id) {
+            try {
+                const sb = getSB();
+                const { data, error } = await sb.from('saved_combination_groups').select('*').eq('id', id).single();
+                if (error || !data) throw new Error('not found');
+
+                const loadedCombos = (data.combinations || []).map((c, idx) => ({
+                    rank: idx + 1,
+                    numbers: c.numbers || [],
+                    score: c.score || 1.0,
+                    type: 'saved_group'
+                }));
+
+                // localStorage 갱신 (AI 조합 페이지에서 이 데이터를 소스로 사용)
+                localStorage.setItem('generated_filter_combos', JSON.stringify({
+                    timestamp:  Date.now(),
+                    total_pool: loadedCombos.length,
+                    combinations: loadedCombos,
+                    source_group: data.group_name,
+                    target_round: data.round_number, // [추가] 회차 확인용
+                    filter_snapshot: data.filter_snapshot || null // [수정] 불러올 때 스냅샷 정보도 유지
+                }));
+
+                // 메인 테이블 업데이트
+                combos    = loadedCombos;
+                totalPool = loadedCombos.length;
+                selSet.clear();
+
+                document.getElementById('totalCount').textContent = loadedCombos.length.toLocaleString();
+                document.getElementById('infoText').textContent =
+                    `저장된 그룹 「${data.group_name}」 · ${loadedCombos.length.toLocaleString()}개 조합`;
+                const genTimeEl = document.getElementById('genTime');
+                if (genTimeEl) genTimeEl.textContent = `불러온 시각 ${new Date().toLocaleTimeString('ko-KR', {hour:'2-digit',minute:'2-digit'})}`;
+
+                document.getElementById('tableArea').classList.remove('hidden');
+                curPage = 1;
+                render();
+                
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+
+            } catch(e) { alert('불러오기 실패: ' + e.message); }
+        }
+
+        // [추가] 저장된 그룹의 필터 스냅샷만 단독으로 복원
+        async function restoreFilters(id) {
+            try {
+                const sb = getSB();
+                const { data, error } = await sb.from('saved_combination_groups').select('filter_snapshot').eq('id', id).single();
+                if (error || !data) throw new Error('not found');
+
+                if (data.filter_snapshot) {
+                    applyFilterSnapshot(data.filter_snapshot);
+                    alert('성공적으로 과거 필터 상태가 복원되었습니다.\n상단 메뉴를 통해 필터 페이지로 이동하여 확인해보세요!');
+                } else {
+                    alert('이 조합 그룹에는 저장된 필터 스냅샷이 없습니다.');
+                }
+            } catch(e) { alert('필터 복원 실패: ' + e.message); }
+        }
+
+        async function deleteGroup(id) {
+            if (!confirm('이 그룹을 삭제할까요?')) return;
+            try {
+                const sb = getSB();
+                const { error } = await sb.from('saved_combination_groups').delete().eq('id', id);
+                if (error) throw error;
+                document.getElementById('gc-' + id)?.remove();
+            } catch(e) { alert('삭제 실패: ' + e.message); }
+        }
+
+        function fmtDate(iso) {
+            try {
+                return new Date(iso).toLocaleString('ko-KR',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+            } catch(e) { return iso; }
+        }
+        function escHtml(s) {
+            return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
+
+        async function init() {
+            let data;
+            try {
+                const raw = localStorage.getItem('generated_filter_combos');
+                if (!raw) throw new Error('empty');
+                data = JSON.parse(raw);
+                if (!data?.combinations?.length) throw new Error('empty');
+            } catch(e) {
+                document.getElementById('emptyState').classList.remove('hidden');
+                document.getElementById('emptyState').style.display = 'flex';
+                loadGroups();
+                return;
+            }
+
+            // [추가] 회차 업데이트 시 로컬스토리지 비우기 로직
+            const latestRound = await fetchLatestRound();
+            if (latestRound) {
+                // target_round가 아예 없거나(구버전 데이터), 현재 DB상 예정 회차와 다르면 무조건 리셋
+                if (!data.target_round || data.target_round !== latestRound) {
+                    localStorage.removeItem('generated_filter_combos');
+                    document.getElementById('emptyState').classList.remove('hidden');
+                    document.getElementById('emptyState').style.display = 'flex';
+                    loadGroups();
+                    return;
+                }
+            }
+
+            combos    = data.combinations;
+            totalPool = data.total_pool || combos.length;
+
+            document.getElementById('totalCount').textContent = combos.length.toLocaleString();
+            document.getElementById('infoText').textContent =
+                `필터 통과 조합 ${combos.length.toLocaleString()}개  ·  전체 ${totalPool.toLocaleString()}개 중`;
+            if (data.timestamp) {
+                const d = new Date(data.timestamp);
+                document.getElementById('genTime').textContent =
+                    `생성 ${d.toLocaleDateString('ko-KR')} ${d.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})}`;
+            }
+
+            document.getElementById('tableArea').classList.remove('hidden');
+
+            document.getElementById('pageSize').addEventListener('change', function() {
+                pgSize = parseInt(this.value); curPage = 1; render();
+            });
+            document.getElementById('btnSelAll').addEventListener('click', () => {
+                combos.forEach(c => selSet.add(c.rank)); render();
+            });
+            document.getElementById('btnDesel').addEventListener('click', () => {
+                selSet.clear(); render();
+            });
+            document.getElementById('btnSave').addEventListener('click', doSave);
+
+            render();
+            loadGroups();
+            prefetch(); // 백그라운드에서 round·user·count 미리 캐싱
+        }
+
+        // ══════════════════════════════════════════════════════
+        // [추가] 수동 조합 생성 관련 상태 및 함수
+        // ══════════════════════════════════════════════════════
+        let manualSelected = [];   // 현재 선택 중인 번호들
+        let manualCombos   = [];   // 추가된 조합 목록
+
+        function refreshManualPreview() {
+            const preview = document.getElementById('manualPreview');
+            const badge   = document.getElementById('manualCountBadge');
+            const btnAdd  = document.getElementById('btnAddCombo');
+            const btnSave = document.getElementById('btnManualSave');
+
+            if (preview) {
+                if (manualSelected.length === 0) {
+                    preview.innerHTML = '<span class="text-[11px] text-slate-300">최소 1개, 최대 6개 선택 (6개 = 1조합)</span>';
+                } else {
+                    preview.innerHTML = manualSelected.map(n =>
+                        `<span class="ball ${bc(n)} w-7 h-7 text-[11px]">${String(n).padStart(2,'0')}</span>`
+                    ).join('');
+                }
+            }
+            if (badge) badge.textContent = `${manualSelected.length}/6`;
+
+            // 조합 추가 버튼: 1~6개 선택 시 활성
+            if (btnAdd)  btnAdd.disabled  = manualSelected.length < 1 || manualSelected.length > 6;
+            // 저장 버튼: 조합이 1개 이상일 때 활성
+            if (btnSave) btnSave.disabled = manualCombos.length === 0;
+
+            // 그리드 버튼 스타일 갱신
+            for (let i = 1; i <= 45; i++) {
+                const btn = document.getElementById(`mb-${i}`);
+                if (!btn) continue;
+                const on = manualSelected.includes(i);
+                if (on) {
+                    btn.className = `ball ${bc(i)} w-8 h-8 text-[11px] font-bold cursor-pointer ring-2 ring-offset-1 ring-indigo-400 scale-110 transition-all`;
+                } else {
+                    const canAdd = manualSelected.length < 6;
+                    btn.className = `w-8 h-8 rounded-full text-[11px] font-bold cursor-pointer border-2 transition-all ${
+                        canAdd
+                            ? 'border-slate-200 text-slate-400 hover:border-indigo-400 hover:text-indigo-600 bg-white'
+                            : 'border-slate-100 text-slate-200 bg-white cursor-not-allowed'
+                    }`;
+                }
+            }
+        }
+
+        function refreshManualComboList() {
+            const wrap  = document.getElementById('manualComboListWrap');
+            const list  = document.getElementById('manualComboList');
+            const count = document.getElementById('manualComboCount');
+            const btnSave = document.getElementById('btnManualSave');
+
+            if (count)  count.textContent = manualCombos.length;
+            if (btnSave) btnSave.disabled = manualCombos.length === 0;
+
+            if (manualCombos.length === 0) {
+                if (wrap) wrap.classList.add('hidden');
+                return;
+            }
+            if (wrap) wrap.classList.remove('hidden');
+            if (!list) return;
+
+            list.innerHTML = manualCombos.map((combo, idx) => `
+                <div class="flex items-center justify-between px-3 py-2 bg-white border border-slate-100 rounded-lg">
+                    <div class="flex items-center gap-1.5">
+                        <span class="text-[10px] font-black text-slate-300 w-5 text-center">${idx+1}</span>
+                        <div class="flex gap-1">
+                            ${combo.numbers.map(n => `<span class="ball ${bc(n)} w-6 h-6 text-[10px]">${String(n).padStart(2,'0')}</span>`).join('')}
+                        </div>
+                    </div>
+                    <button onclick="CP.removeManualCombo(${idx})" class="w-6 h-6 flex items-center justify-center rounded-full text-slate-300 hover:text-rose-500 hover:bg-rose-50 transition-colors flex-shrink-0">
+                        <span class="material-symbols-outlined" style="font-size:14px;">close</span>
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        // ── 수동 저장 (Supabase) ──
+        async function doSaveManual() {
+            if (manualCombos.length === 0) return;
+            const btn   = document.getElementById('btnManualSave');
+            const label = document.getElementById('manualSaveLabel');
+            btn.disabled = true;
+            // [수정] 버튼 전체 HTML 업데이트로 아이콘 중첩 방지
+            btn.innerHTML = '<span class="spin material-symbols-outlined" style="font-size:14px;">refresh</span> <span>저장 중...</span>';
+
+            try {
+                if (_cachedRound === undefined || _cachedUser === undefined) await prefetch();
+                const targetRound = _cachedRound;
+                const user        = _cachedUser;
+
+                // 그룹명 자동 생성
+                let nextNum = 1;
+                try {
+                    const sb = getSB();
+                    let q = sb.from('saved_combination_groups').select('group_name').eq('round_number', targetRound);
+                    if (user) q = q.eq('user_id', user.id); else q = q.is('user_id', null);
+                    const { data: gNames } = await q;
+                    if (gNames && gNames.length > 0) {
+                        const nums = gNames.map(g => { const m=(g.group_name||'').match(/조합 (\d+)/); return m?parseInt(m[1]):0; });
+                        nextNum = Math.max(...nums, 0) + 1;
+                    }
+                } catch(e) {}
+
+                const groupName = targetRound
+                    ? `${targetRound}회 수동조합 ${nextNum}`
+                    : `수동조합 ${new Date().toLocaleString('ko-KR',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}`;
+
+                const sb = getSB();
+                const { error } = await sb.from('saved_combination_groups').insert({
+                    user_id:      user ? user.id : null,
+                    round_number: targetRound,
+                    group_name:   groupName,
+                    combinations: manualCombos,
+                    combo_count:  manualCombos.length,
+                    total_pool:   manualCombos.length,
+                    filter_snapshot: null
+                });
+                if (error) throw error;
+
+                // 출력용 localStorage 저장
+                localStorage.setItem('output_combinations', JSON.stringify({
+                    timestamp:    Date.now(),
+                    combinations: manualCombos,
+                    total_pool:   manualCombos.length,
+                    group_name:   groupName,
+                    round_number: targetRound
+                }));
+
+                // [수정] 저장 성공 시 즉시 출력 페이지로 이동
+                window.location.href = 'output.html';
+
+            } catch(err) {
+                console.error('[ManualSave]', err);
+                // 버튼 복구
+                btn.disabled = false;
+                btn.innerHTML = '<span class="material-symbols-outlined" style="font-size:14px;">save</span> <span id="manualSaveLabel">수파베이스 저장</span>';
+                alert(`저장 실패: ${err.message}`);
+            }
+        }
+
+        function openManualModal() {
+            manualSelected = [];
+            manualCombos   = [];
+            document.getElementById('manualModal').classList.remove('hidden');
+            document.getElementById('manualComboListWrap').classList.add('hidden');
+
+            // 그리드 생성
+            const grid = document.getElementById('manualGrid');
+            grid.innerHTML = '';
+            for (let i = 1; i <= 45; i++) {
+                const btn = document.createElement('button');
+                btn.id = `mb-${i}`;
+                btn.textContent = String(i).padStart(2, '0');
+                btn.className = 'w-8 h-8 rounded-full text-[11px] font-bold cursor-pointer border-2 border-slate-200 text-slate-400 hover:border-indigo-400 hover:text-indigo-600 bg-white transition-all';
+                btn.onclick = () => {
+                    const idx = manualSelected.indexOf(i);
+                    if (idx >= 0) {
+                        manualSelected.splice(idx, 1);
+                    } else {
+                        if (manualSelected.length >= 6) return; // 6개 초과 방지
+                        manualSelected.push(i);
+                    }
+                    refreshManualPreview();
+                };
+                grid.appendChild(btn);
+            }
+            refreshManualPreview();
+            refreshManualComboList();
+        }
+
+        function closeManualModal() {
+            document.getElementById('manualModal').classList.add('hidden');
+        }
+
+        function addManualCombo() {
+            if (manualSelected.length < 1 || manualSelected.length > 6) return;
+            // 정렬된 번호로 저장
+            const sorted = [...manualSelected].sort((a, b) => a - b);
+            // 중복 체크
+            const key = sorted.join(',');
+            if (manualCombos.some(c => c.numbers.join(',') === key)) {
+                alert('이미 추가된 조합입니다.');
+                return;
+            }
+            manualCombos.push({ rank: manualCombos.length + 1, numbers: sorted, score: 1.0, type: 'manual' });
+            manualSelected = [];
+            refreshManualPreview();
+            refreshManualComboList();
+        }
+
+        function removeManualCombo(idx) {
+            manualCombos.splice(idx, 1);
+            // rank 재정렬
+            manualCombos.forEach((c, i) => c.rank = i + 1);
+            refreshManualComboList();
+            refreshManualPreview();
+        }
+
+        function clearManualCombos() {
+            if (!confirm('추가된 조합을 모두 삭제할까요?')) return;
+            manualCombos = [];
+            refreshManualComboList();
+            refreshManualPreview();
+        }
+
+        function clearManualSelection() {
+            manualSelected = [];
+            refreshManualPreview();
+        }
+
+        return {
+            init, loadGroups, viewGroup, loadToTable, deleteGroup, toggleRound,
+            openManualModal, closeManualModal,
+            addManualCombo, removeManualCombo, clearManualCombos, clearManualSelection,
+            saveManualCombos: doSaveManual,
+            go(p) {
+                const total = Math.ceil(combos.length/pgSize);
+                if (p<1||p>total) return;
+                curPage=p; render();
+                window.scrollTo({top:64,behavior:'smooth'});
+            },
+            one(rank, on) {
+                on ? selSet.add(rank) : selSet.delete(rank);
+                const row = document.getElementById('r'+rank);
+                if (row) {
+                    on ? row.classList.add('selected') : row.classList.remove('selected');
+                    const mark = row.querySelector('td:last-child span');
+                    if (mark) { mark.textContent=on?'✓':'—'; mark.className=`text-[11px] font-bold ${on?'text-blue-500':'text-slate-200'}`; }
+
+                }
+                const start=(curPage-1)*pgSize;
+                const ranks=combos.slice(start,Math.min(start+pgSize,combos.length)).map(c=>c.rank);
+                const allOn=ranks.every(r=>selSet.has(r));
+                const hdr=document.getElementById('hdrCheck');
+                hdr.checked=allOn; hdr.indeterminate=!allOn&&ranks.some(r=>selSet.has(r));
+                updateBadge();
+            },
+            togglePage(on) {
+                const start=(curPage-1)*pgSize;
+                combos.slice(start,Math.min(start+pgSize,combos.length)).forEach(c=>on?selSet.add(c.rank):selSet.delete(c.rank));
+                render();
+            },
+
+            /**
+             * [추가] 필터 스냅샷을 localStorage에 적용하고 이벤트를 트리거합니다.
+             * 다른 탭(필터 대시보드 등)에서 실시간으로 변경 사항을 감지할 수 있도록 합니다.
+             */
+            applyFilterSnapshot(snapshot) {
+                if (!snapshot) return;
+                console.log('🔄 [Restoration] Applying full filter snapshot...', snapshot);
+
+                try {
+                    // 1. 기초 분석 필터 (Foundation Filters)
+                    if (snapshot.userSettings) {
+                        // 레거시 키 매핑 (개별 분석 페이지 동기화용)
+                        const legacyMap = {
+                            'total_sum': ['total_sum_filter', 'total_sum'],
+                            'last_digit_sum': ['tail_sum_filter', 'last_digit_sum'],
+                            'ac_value': ['ac_value_filter', 'ac_value'],
+                            'high_low_pattern': ['high_low_pattern_filter', 'high_low_filter', 'low_high_filter'],
+                            'odd_even_pattern': ['odd_even_pattern_filter', 'odd_even_filter'],
+                            'prime_number_patterns': ['prime_number_filter'],
+                            'composite_count': ['composite_number_filter'],
+                            'square_number_patterns': ['square_number_filter'],
+                            'triangular_number_patterns': ['triangular_number_filter'],
+                            'twin_number_patterns': ['twin_number_filter'],
+                            'neighbor_count': ['neighbor_number_filter'],
+                            'neighbor_number_patterns': ['neighbor_number_filter'],
+                            'carryover_count': ['carryover_filter'],
+                            'consecutive_count': ['consecutive_number_filter'],
+                            'tail_digit_patterns': ['tail_digit_filter'],
+                            'missing_period': ['filter_settings_missing_period', 'missing_period_filter'],
+                            'multiple_3_count': ['multiple_filter'],
+                            'number_range_patterns': ['number_range_filter'],
+                            'lotto_paper_pattern': ['lotto_paper_filter'],
+                            'magic_square_pattern': ['magic_square_filter']
+                        };
+
+                        Object.entries(snapshot.userSettings).forEach(([id, s]) => {
+                            // [추가] 과거 복원 시 '최근 10회차' 자동 적용 모드 강제 해제 (저장된 실제 값 우선 적용)
+                            if (s && s.settings) {
+                                s.settings.recent10FilterActive = false;
+                            } else if (s) {
+                                s.recent10FilterActive = false;
+                            }
+                            
+                            const valStr = JSON.stringify(s);
+                            // 신규 인터페이스 키 저장
+                            localStorage.setItem(`filter_settings_${id}`, valStr);
+                            // 레거시 키 저장 (개별 페이지 실시간 동기화 트리거)
+                            if (legacyMap[id]) {
+                                legacyMap[id].forEach(key => localStorage.setItem(key, valStr));
+                            }
+                        });
+                    }
+
+                    // 2. 바스켓 (고정수/제외수)
+                    if (snapshot.basket) {
+                        localStorage.setItem('basket_settings', JSON.stringify(snapshot.basket));
+                        // 레거시 UI용 (lotto_basket 형식으로 변환)
+                        const basketData = {
+                            fixed: snapshot.basket.fixed || [],
+                            exclude: snapshot.basket.excluded || []
+                        };
+                        localStorage.setItem('lotto_basket', JSON.stringify(basketData));
+                    }
+
+                    // 3. 커스텀 필터 (통합 확장 유지)
+                    if (snapshot.customFilters) {
+                        localStorage.setItem('custom_filters', JSON.stringify(snapshot.customFilters));
+                        
+                        // 개별 분석 페이지(custom_analysis.html) 동기화를 위해 개별 ID 키도 업데이트
+                        if (Array.isArray(snapshot.customFilters)) {
+                            snapshot.customFilters.forEach(cf => {
+                                if (cf.id) {
+                                    localStorage.setItem(`custom_filter_${cf.id}`, JSON.stringify(cf));
+                                }
+                            });
+                        }
+                    }
+
+                    // 4. 회귀 분석
+                    if (snapshot.regressionSettings) {
+                        localStorage.setItem('regression_settings', JSON.stringify(snapshot.regressionSettings));
+                        // 레거시 호환성
+                        localStorage.setItem('regression_analysis', JSON.stringify({
+                            settings: snapshot.regressionSettings,
+                            enabled: true
+                        }));
+                    }
+
+                    // 5. 수동 필터
+                    if (snapshot.manualFilters) {
+                        localStorage.setItem('manual_filters_state', JSON.stringify(snapshot.manualFilters));
+                    }
+
+                    // [핵심] 탭 간 실시간 업데이트를 위해 storage 이벤트 수동 트리거
+                    window.dispatchEvent(new Event('storage'));
+                    console.log('✅ [Restoration] Full filter restore success');
+
+                } catch (e) {
+                    console.error('[Restoration] 필터 복구 중 오류:', e);
+                }
+            }
+        };
+    })();
+
+    document.addEventListener('DOMContentLoaded', () => CP.init());
+    </script>
+</body>
+</html>
+

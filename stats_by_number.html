@@ -1,11 +1,11 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html class="light" lang="ko">
 
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Lotto Lab - 번호별 출현 통계</title>
-    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="css/tailwind.css" rel="stylesheet" />
 
     <link rel="icon" href="data:,">
     <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css"
@@ -31,6 +31,7 @@
     <script src="js/BasicAnalysisNLP.js"></script>
 
     <script src="js/layout.js"></script>
+    <script src="js/deep_insight_panel.js"></script>
 
     <script>
         // ✅ Supabase 설정 (오류 해결을 위해 명시적 추가)
@@ -50,7 +51,7 @@
         let selectedHeaderNumbers = new Set();
 
         // [수정] 필터 설정 저장 함수 (Utils.saveFilter → DB + localStorage + 브로드캐스트)
-        async function saveFilterSettings() {
+        async function saveFilterSettings(targetRoundOverride = null) {
             const toggle = document.getElementById('filterToggle');
             const basket = window.Basket.get();
             const data = {
@@ -59,35 +60,66 @@
                 sortByMissCount: sortByMissCount
             };
             const enabled = toggle ? toggle.checked : true;
+            
+            // [표준화] 최신 회차 + 1을 타겟 회차로 설정하여 고정 저장
+            const latestRound = (allData && allData.length > 0) ? allData[0].round : 0;
+            const targetRound = targetRoundOverride || (latestRound + 1);
+
+            console.log(`[stats_by_number] Saving filters for round: ${targetRound}`);
 
             // [동기화] Utils.saveFilter 사용 → DB + localStorage 동시 저장 + storage 이벤트 브로드캐스트
             if (window.Utils && window.Utils.saveFilter) {
-                await window.Utils.saveFilter('stats_by_number_filter', data, enabled);
+                // targetRound를 명시적으로 전달하기 위해 settings 객체에 포함하거나 wrapper 사용 권장
+                // Utils.saveFilter(pageKey, settings, enabled) 구조이므로 settings 내부에 targetRound 주입
+                await window.Utils.saveFilter('stats_by_number_filter', { settings: data, enabled, targetRound }, enabled);
             } else if (window.filterService && window.filterService.initialized) {
-                await window.filterService.saveSetting('stats_by_number_patterns', data, enabled);
+                await window.filterService.saveSetting('stats_by_number_patterns', data, enabled, targetRound);
             }
         }
 
         // [수정] 필터 설정 불러오기 함수 (DB 로드)
-        async function loadFilterSettings() {
+        async function loadFilterSettings(currentRound = null) {
             let saved = null;
+            let finalEnabled = true;
 
-            // DB에서 로드 (FilterService 사용)
-            if (window.filterService && window.filterService.initialized) {
-                const data = await window.filterService.loadSetting('stats_by_number_patterns');
-                if (data) {
-                    saved = { ...data.settings, enabled: data.enabled };
-                }
+            // [표준화] currentRound가 명시되지 않으면 최신회차+1 로드 시도
+            if (!currentRound && allData && allData.length > 0) {
+                currentRound = allData[0].round + 1;
             }
 
-            // Fallback: localStorage
-            if (!saved && window.Utils && window.Utils.loadFilter) {
-                saved = window.Utils.loadFilter('stats_by_number_filter');
+            // 1. Utils.loadFilter를 통해 Supabase(우선) 및 localStorage에서 로드
+            if (window.Utils && window.Utils.loadFilter) {
+                const combined = await window.Utils.loadFilter('stats_by_number_filter', currentRound);
+                if (combined) {
+                    // [표준화] 저장된 타겟 회차와 현재 회차 비교
+                    const savedTargetRound = combined.targetRound;
+                    if (savedTargetRound && currentRound && savedTargetRound < currentRound) {
+                        console.log(`[stats_by_number] Old round filter detected (${savedTargetRound} < ${currentRound}). Resetting.`);
+                        return false;
+                    }
+
+                    const { enabled, ...settings } = combined;
+                    saved = settings;
+                    finalEnabled = enabled;
+                }
+            }
+            
+            // Fallback: FilterService 직접 사용 (Utils 실패 시)
+            if (!saved && window.filterService && window.filterService.initialized) {
+                const data = await window.filterService.loadSetting('stats_by_number_patterns', currentRound);
+                if (data) {
+                    saved = data.settings;
+                    finalEnabled = data.enabled;
+                }
             }
 
             if (saved) {
                 // Basket API에 병합 (고정수/제외수)
                 const basket = window.Basket.get();
+                // 불러오기 전 초기화 (중복 방지)
+                basket.fixed = [];
+                basket.exclude = [];
+
                 if (saved.fixedNumbers) {
                     saved.fixedNumbers.forEach(n => {
                         if (!basket.fixed.includes(n)) window.Basket.addFixed(n);
@@ -100,8 +132,8 @@
                 }
 
                 const toggle = document.getElementById('filterToggle');
-                if (toggle && saved.enabled !== undefined) {
-                    toggle.checked = saved.enabled;
+                if (toggle) {
+                    toggle.checked = finalEnabled;
                 }
                 if (saved.sortByMissCount !== undefined) {
                     sortByMissCount = saved.sortByMissCount;
@@ -109,9 +141,35 @@
                 }
 
                 renderFilterBoxes();
+                console.log(`[stats_by_number] Filter loaded for round: ${currentRound}`);
                 return true;
             }
             return false;
+        }
+
+        // [전문가] 새 회차 감지 및 필터 리셋/이월 로직
+        async function checkAndResetOnNewDraw() {
+            if (!allData || allData.length === 0) return;
+            
+            const latestRound = allData[0].round;
+            const targetRound = latestRound + 1;
+            
+            // loadFilterSettings에서 false를 리턴하면 (새 회차 감지 등) 초기화 후 저장
+            const isLoaded = await loadFilterSettings(targetRound);
+            
+            if (!isLoaded) {
+                console.log(`[stats_by_number] New draw detected (${latestRound}). Initializing filters for ${targetRound}.`);
+                
+                // 바구니 비우기
+                const basket = window.Basket.get();
+                basket.fixed = [];
+                basket.exclude = [];
+                
+                // 설정 초기화 및 즉시 저장
+                await saveFilterSettings(targetRound);
+                renderFilterBoxes();
+                renderTable();
+            }
         }
 
         function updateSortButtonUI() {
@@ -468,129 +526,12 @@
                             </div>
                         </div>
 
-                        <div class="ai-section p-8 pb-10 mb-8 shadow-sm border border-gray-200">
-                            <div class="flex items-center justify-between mb-6">
-                                <div class="flex items-baseline gap-2">
-                                    <h3 class="text-2xl font-extrabold text-gray-900 tracking-tight">AI Insight</h3>
-                                    <span id="aiTargetInfo" class="text-sm text-gray-500 font-medium"></span>
-                                </div>
-                                <button onclick="window.AIAnalysis.openPromptLibraryModal('stats_by_number', event)"
-                                    class="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-blue-200 text-blue-600 rounded-lg text-sm font-medium hover:bg-blue-50 transition-colors">
-                                    <span class="material-symbols-outlined text-lg">library_books</span>
-                                    프롬프트 라이브러리
-                                </button>
-                            </div>
-
-                            <div id="aiAnalysisContent"
-                                class="min-h-[100px] bg-white rounded-xl border-none overflow-hidden flex items-center justify-center">
-                                <div class="flex items-center gap-2 text-gray-500">
-                                    <span
-                                        class="material-symbols-outlined text-lg animate-spin">progress_activity</span>
-                                    <span>AI가 번호별 통계 데이터를 분석하고 있습니다...</span>
-                                </div>
-                            </div>
-
-                            <div id="nlp-input-container" class="mt-6 border-t border-gray-100 pt-6">
-                                <div class="flex flex-col gap-3">
-                                    <div class="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='역대 가장 많이 나온 번호(Best 5)는?'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-white border border-blue-200 text-blue-600 rounded-full hover:bg-blue-50 transition-colors whitespace-nowrap">
-                                            👑 최다 출현
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='역대 가장 적게 나온 번호(Worst 5)는?'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-white border border-purple-200 text-purple-600 rounded-full hover:bg-purple-50 transition-colors whitespace-nowrap">
-                                            📉 최소 출현
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='가장 오랫동안 안 나온 장기 미출현 번호는?'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-white border border-red-200 text-red-600 rounded-full hover:bg-red-50 transition-colors whitespace-nowrap">
-                                            🧊 장기 미출현
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='다음 회차에 나올 가능성이 높은 번호 3개 추천해줘'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-white border border-green-200 text-green-600 rounded-full hover:bg-green-50 transition-colors whitespace-nowrap">
-                                            ✨ 번호 추천
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='최근 10회차 동안 가장 뜨거운(Hot) 번호는?'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-white border border-orange-200 text-orange-600 rounded-full hover:bg-orange-50 transition-colors whitespace-nowrap">
-                                            🔥 최근 Hot
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='특정 번호대(예: 10번대)의 출현 빈도는 어떤가?'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-white border border-indigo-200 text-indigo-600 rounded-full hover:bg-indigo-50 transition-colors whitespace-nowrap">
-                                            📊 번호대별 빈도
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='한번 나오면 연속으로 자주 나오는(이월) 번호는?'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-white border border-teal-200 text-teal-600 rounded-full hover:bg-teal-50 transition-colors whitespace-nowrap">
-                                            🔄 연속(이월) 분석
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='전체 회차 대비 최근 10회차에 급상승한 번호는?'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-white border border-amber-200 text-amber-600 rounded-full hover:bg-amber-50 transition-colors whitespace-nowrap">
-                                            📅 추세 분석
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='보너스볼로 가장 많이 나온 번호는?'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-white border border-pink-200 text-pink-600 rounded-full hover:bg-pink-50 transition-colors whitespace-nowrap">
-                                            🎱 보너스볼 통계
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='다음 회차에 쉴 가능성이 높은(제외 예상) 번호는?'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-white border border-cyan-200 text-cyan-600 rounded-full hover:bg-cyan-50 transition-colors whitespace-nowrap">
-                                            📉 제외 예상
-                                        </button>
-                                        <!-- 🔹 [New] 추가 퀵버튼 5종 -->
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='소수(Prime) 번호의 최근 출현 경향은?'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-white border border-yellow-200 text-yellow-600 rounded-full hover:bg-yellow-50 transition-colors whitespace-nowrap">
-                                            💎 소수(Prime) 분석
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='3의 배수 번호들의 당첨 확률은 어떤가?'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-white border border-emerald-200 text-emerald-600 rounded-full hover:bg-emerald-50 transition-colors whitespace-nowrap">
-                                            🔢 3의 배수 분석
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='최근 당첨번호 합계의 흐름을 분석해줘'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-white border border-rose-200 text-rose-600 rounded-full hover:bg-rose-50 transition-colors whitespace-nowrap">
-                                            📊 합계 추이 분석
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='저번호(1-22)와 고번호(23-45)의 균형은?'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-white border border-lime-200 text-lime-600 rounded-full hover:bg-lime-50 transition-colors whitespace-nowrap">
-                                            ⚖️ 고저비 분석
-                                        </button>
-                                        <button
-                                            onclick="document.getElementById('aiUserPrompt').value='최근 반복되는 패턴이나 숫자 조합이 있나?'; submitCustomAIAnalysis()"
-                                            class="px-3 py-1.5 text-xs font-medium bg-white border border-violet-200 text-violet-600 rounded-full hover:bg-violet-50 transition-colors whitespace-nowrap">
-                                            🧬 패턴 중복 분석
-                                        </button>
-                                    </div>
-                                    <div id="nlp-input-wrapper" class="relative">
-                                        <!-- NLP 컴포넌트가 여기에 주입됩니다 -->
-                                        <div id="nlp-main-input"></div>
-
-                                        <!-- [Backup] 기존 AI 입력창 (NLP 로드 실패 시 노출용 또는 구조 유지용) -->
-                                        <div id="original-ai-input" class="hidden">
-                                            <input type="text" id="aiUserPrompt"
-                                                class="w-full pl-4 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder-gray-400"
-                                                placeholder="번호 통계에 대해 궁금한 점을 물어보세요..."
-                                                onkeyup="if(event.key === 'Enter') submitCustomAIAnalysis()">
-                                            <button onclick="submitCustomAIAnalysis()"
-                                                class="absolute right-4 top-1/2 -translate-y-1/2 text-blue-500 hover:text-blue-600 active:scale-90 transition-all">
-                                                <svg viewBox="0 0 24 24" class="w-5 h-5" fill="none"
-                                                    xmlns="http://www.w3.org/2000/svg">
-                                                    <path d="M2.01 21L23 12L2.01 3L2 10L17 12L2 14L2.01 21Z"
-                                                        stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                                        stroke-linejoin="round" />
-                                                </svg>
-                                            </button>
-                                        </div>
-                                    </div>
+                        <div class="ai-section p-8 pb-10 mb-6 font-sans">
+                            <h3 class="text-lg font-bold text-gray-900 mb-4">딥러닝 Insight</h3>
+                            <div id="dlInsightContainer">
+                                <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
+                                    <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
+                                    <span class="text-sm">딥러닝 모델 분석 중 (7개 모델)...</span>
                                 </div>
                             </div>
                         </div>
@@ -639,7 +580,7 @@
                                     </div>
 
                                     <a href="filter.html?tab=foundation"
-                                        class="text-sm font-medium text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
+                                        class="text-sm font-medium text-slate-500 hover:text-blue-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
                                         <span class="material-symbols-outlined text-[18px]">tune</span>
                                         필터 페이지 가기
                                     </a>
@@ -944,8 +885,7 @@
                 document.getElementById('btn1203').setAttribute('onclick', `setRange(${totalCount})`);
 
                 // 초기화
-                // 초기화
-                await loadFilterSettings();
+                await checkAndResetOnNewDraw();
                 updateRange(currentRange);
 
                 // [New] NLP 모듈 초기화 (UI 파괴 방지를 위해 전용 컨테이너 사용)
@@ -1077,6 +1017,18 @@
         // Basket 변경 감지 시 리렌더링 (같은 탭 내)
         window.addEventListener('basketChanged', renderFilterBoxes);
 
+        // 로그아웃 시 필터 UI 초기화
+        function resetFilterUI() {
+            const tog = document.getElementById('filterToggle');
+            if (tog) tog.checked = false;
+            const btn = document.getElementById('recent10FilterBtn');
+            const btnText = document.getElementById('recent10BtnText');
+            if (btn) btn.className = 'flex items-center justify-center gap-1.5 px-3 py-1.5 bg-white text-blue-600 border border-blue-200 rounded-lg shadow-sm hover:bg-blue-50 transition-all active:scale-95 text-[11px] font-bold min-w-[140px]';
+            if (btnText) btnText.textContent = '최근 10회차 강조';
+            if (isMissedGroupHighlight) toggleMissedGroupHighlight();
+            renderFilterBoxes();
+        }
+
         // [동기화] 필터대시보드(filter.html) 또는 다른 탭에서 설정 변경 시 실시간 반영
         window.addEventListener('storage', async (e) => {
             // stats_by_number 필터 설정 변경 동기화
@@ -1084,6 +1036,10 @@
                 if (!e.newValue) return;
                 try {
                     const saved = JSON.parse(e.newValue);
+                    // 로그아웃 감지
+                    if (saved.enabled === false && !saved.settings) {
+                        resetFilterUI(); return;
+                    }
                     const data = (saved.settings !== undefined) ? saved.settings : saved;
                     const toggle = document.getElementById('filterToggle');
                     if (toggle && saved.enabled !== undefined) toggle.checked = saved.enabled;
@@ -1342,19 +1298,12 @@ ${userPrompt}
             inputEl.value = '';
         }
 
-        async function refreshAIAnalysis() {
-            if (!allData || allData.length === 0) return;
-
-            const latestDraw = allData[0];
-            const subjectRound = latestDraw.round;
-            const targetRound = subjectRound + 1;
-
-            const displayData = allData.slice(0, currentRange);
-            const hitCounts = new Array(46).fill(0);
-            displayData.forEach(draw => draw.numbers.forEach(num => hitCounts[num]++));
-
-            let sortedNums = [];
-            for (let i = 1; i <= 45; i++) sortedNums.push({ num: i, count: hitCounts[i] });
+        // 딥러닝 인사이트 패널 초기화
+        function initDeepInsight() {
+            if (window.DeepInsightPanel) {
+                DeepInsightPanel.render('dlInsightContainer', 'hot10', '번호별 통계');
+            }
+        });
             sortedNums.sort((a, b) => b.count - a.count);
 
             const hotNums = sortedNums.slice(0, 5).map(x => x.num).join(', ');
@@ -1427,9 +1376,9 @@ ${targetRound}회차 기준으로 다음을 작성하세요:
                 toggleMissedGroupHighlight();
             }
 
-            // 토글: 이미 켜져있으면 끄기 (indigo-600 클래스 존재 여부로 판단)
-            if (btn.classList.contains('bg-indigo-600')) {
-                btn.className = "flex items-center justify-center gap-1.5 px-3 py-1.5 bg-white text-indigo-600 border border-indigo-200 rounded-lg shadow-sm hover:bg-indigo-50 transition-all active:scale-95 text-[11px] font-bold min-w-[140px]";
+            // 토글: 이미 켜져있으면 끄기 (blue-600 클래스 존재 여부로 판단)
+            if (btn.classList.contains('bg-blue-600')) {
+                btn.className = "flex items-center justify-center gap-1.5 px-3 py-1.5 bg-white text-blue-600 border border-blue-200 rounded-lg shadow-sm hover:bg-blue-50 transition-all active:scale-95 text-[11px] font-bold min-w-[140px]";
                 btnText.textContent = '최근 10회차 강조';
 
                 // 메인 필터 체크박스 해제
@@ -1443,7 +1392,7 @@ ${targetRound}회차 기준으로 다음을 작성하세요:
             if (!allData || allData.length < 10) return;
 
             // 1. UI 업데이트 (Indigo/Purple Active)
-            btn.className = "flex items-center justify-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-lg shadow-md hover:bg-indigo-700 transition-all active:scale-95 text-[11px] font-bold min-w-[140px]";
+            btn.className = "flex items-center justify-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg shadow-md hover:bg-blue-700 transition-all active:scale-95 text-[11px] font-bold min-w-[140px]";
             btnText.textContent = '강조 해제';
 
             // 메인 필터 체크박스 자동 활성화
@@ -1681,7 +1630,7 @@ ${targetRound}회차 기준으로 다음을 작성하세요:
             updateRangeButtons(e);
             renderTable();
             renderChart();
-            refreshAIAnalysis();
+            initDeepInsight();
         }
 
         function setRange(e) {

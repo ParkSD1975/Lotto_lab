@@ -1,11 +1,11 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html class="light" lang="ko">
 
 <head>
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>Lotto Lab - 미출현 그룹 (Supabase AI)</title>
-    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="css/tailwind.css" rel="stylesheet" />
 
     <link rel="icon" href="data:,">
 
@@ -24,6 +24,7 @@
     <script src="js/aiProxy.js"></script>
     <script src="js/filter/FilterService.js"></script>
     <script src="js/layout.js"></script>
+    <script src="js/deep_insight_panel.js"></script>
 
     <!-- NLP Modules -->
     <script src="js/NLPProcessor.js"></script>
@@ -31,89 +32,158 @@
     <script src="js/BasicAnalysisNLP.js"></script>
 
     <script>
-        // [수정] 필터 설정 저장 함수 (DB 저장 + targetRound)
-        async function saveFilterSettings() {
-            const targetRound = (allData && allData.length > 0) ? allData[0].round : null;
+        // [수정] 필터 설정 저장 함수 (표준화 적용)
+        async function saveFilterSettings(targetRoundOverride = null) {
+            if (_missingSelfSaving) return; // [추가] 자체 저장 중 중복 실행 방지
+            _missingSelfSaving = true;      // [추가] 플래그 활성화
 
-            const data = {
-                useRangeFilter: document.getElementById('rangeFilterToggle').checked,
-                useCustomFilter: document.getElementById('customFilterToggle').checked,
-                targetRound: targetRound,
-                ranges: {
-                    r1Min: parseInt(document.getElementById('range1Min').value) || 0,
-                    r1Max: parseInt(document.getElementById('range1Max').value) || 6,
-                    r2Min: parseInt(document.getElementById('range2Min').value) || 0,
-                    r2Max: parseInt(document.getElementById('range2Max').value) || 6,
-                    r3Min: parseInt(document.getElementById('range3Min').value) || 0,
-                    r3Max: parseInt(document.getElementById('range3Max').value) || 6,
-                    r4Min: parseInt(document.getElementById('range4Min').value) || 0,
-                    r4Max: parseInt(document.getElementById('range4Max').value) || 6
+            try {
+                const latestRound = (allData && allData.length > 0) ? allData[0].round : null;
+                const targetRound = targetRoundOverride || (latestRound ? latestRound + 1 : null);
+                if (!targetRound) return;
+
+
+                const settings = {
+                    // [수정] 대시보드와 데이터 구조 통일 (r1Min, r1Max 등)
+                    ranges: {
+                        r1Min: parseInt(document.getElementById('range1Min').value),
+                        r1Max: parseInt(document.getElementById('range1Max').value),
+                        r2Min: parseInt(document.getElementById('range2Min').value),
+                        r2Max: parseInt(document.getElementById('range2Max').value),
+                        r3Min: parseInt(document.getElementById('range3Min').value),
+                        r3Max: parseInt(document.getElementById('range3Max').value),
+                        r4Min: parseInt(document.getElementById('range4Min').value),
+                        r4Max: parseInt(document.getElementById('range4Max').value)
+                    },
+                    useRangeFilter: useRangeFilter,
+                    useCustomFilter: useCustomFilter,
+                    targetRound: targetRound,
+                    recent10FilterActive: isRecentTenFilter
+                };
+
+                if (window.Utils && window.Utils.saveFilter) {
+                    await window.Utils.saveFilter(storageKey, settings, useRangeFilter, targetRound);
+                } else if (window.filterService && window.filterService.initialized) {
+                    await window.filterService.saveSetting(storageKey, settings, useRangeFilter, targetRound);
                 }
-            };
-            const enabled = data.useRangeFilter;
 
-            // 공통 Utils를 통해 DB 및 localStorage 동시 저장 (실시간 동기화 'storage' 이벤트 트리거)
-            if (window.Utils && window.Utils.saveFilter) {
-                await window.Utils.saveFilter('missing_period', data, enabled);
+                console.log(`✅ 미출현 기간 필터 저장 완료 (${targetRound}회, manual: ${localStorage.getItem('missing_period_is_manual')})`);
+            } catch (error) {
+                console.error('❌ 필터 저장 중 오류:', error);
+            } finally {
+                _missingSelfSaving = false; // [추가] 플래그 해제
             }
         }
 
-        // [수정] 필터 설정 불러오기 함수 - 새 회차 시 자동 최근 10회차 기본값 적용
-        async function loadFilterSettings() {
-            let saved = null;
-            let enabled = true;
-            const currentRound = (allData && allData.length > 0) ? allData[0].round : null;
+        // [수정] 필터 설정 불러오기 함수 (표준화 적용)
+        async function loadFilterSettings(targetRoundOverride = null) {
+            try {
+                const latestRound = (allData && allData.length > 0) ? allData[0].round : null;
+                const currentRound = targetRoundOverride || (latestRound ? latestRound + 1 : null);
+                if (!currentRound) return false;
 
-            // 공통 Utils를 통해 DB 및/또는 localStorage에서 로드
-            if (window.Utils && window.Utils.loadFilter) {
-                const data = await window.Utils.loadFilter('missing_period');
-                if (data && data.settings) {
-                    // [New] 새 회차 감지: savedRound ≠ currentRound 시 자동 초기화
-                    if (data.settings.targetRound && currentRound && data.settings.targetRound !== currentRound) {
-                        console.log('🔄 새 회차 감지 - 최근 10회차 필터 자동 초기화');
+                let data = null;
+
+                if (window.Utils && window.Utils.loadFilter) {
+                    data = await window.Utils.loadFilter(storageKey, currentRound);
+                } else if (window.filterService && window.filterService.initialized) {
+                    data = await window.filterService.loadSetting(storageKey);
+                }
+                // [Cache-busting fallback] Utils.loadFilter 구버전 캐시 대비: long_term_miss 직접 읽기
+                if (!data) {
+                    try {
+                        const raw = localStorage.getItem('long_term_miss');
+                        if (raw) {
+                            const parsed = JSON.parse(raw);
+                            data = (parsed && parsed.settings !== undefined)
+                                ? { ...parsed.settings, enabled: parsed.enabled }
+                                : parsed;
+                        }
+                    } catch(e) {}
+                }
+
+                if (data) {
+                    const settings = (data.settings !== undefined) ? data.settings : data;
+                    if (!settings || Object.keys(settings).length === 0) return false;
+                    const s = settings;
+                    const enabled = data.enabled;
+
+                    // [표준] 회차 불일치 검사
+                    if (s.targetRound && currentRound && s.targetRound !== currentRound) {
+                        console.log(`🔄 회차 불일치 (${s.targetRound} vs ${currentRound}) - 로드 건너뜀`);
                         return false;
                     }
-                    saved = data.settings;
-                    enabled = data.enabled !== false;
-                } else if (data) {
-                    if (data.targetRound && currentRound && data.targetRound !== currentRound) {
-                        return false;
+
+                    // UI 반영
+                    useRangeFilter = (enabled !== false);
+                    const rangeToggle = document.getElementById('rangeFilterToggle');
+                    if (rangeToggle) rangeToggle.checked = useRangeFilter;
+
+                    if (s.useCustomFilter !== undefined) {
+                        useCustomFilter = s.useCustomFilter;
+                        const customToggle = document.getElementById('customFilterToggle');
+                        if (customToggle) customToggle.checked = useCustomFilter;
                     }
-                    saved = data;
-                    enabled = data.enabled !== false;
-                }
-            }
 
-            if (saved) {
-                const rangeToggle = document.getElementById('rangeFilterToggle');
-                if (rangeToggle) {
-                    rangeToggle.checked = enabled;
-                    useRangeFilter = enabled;
-                }
-
-                const customToggle = document.getElementById('customFilterToggle');
-                if (customToggle) {
-                    // 커스텀 필터는 별도로 관리되나, 여기서는 동기화 상태만 반영
-                    if (saved.useCustomFilter !== undefined) {
-                        customToggle.checked = saved.useCustomFilter;
-                        useCustomFilter = saved.useCustomFilter;
+                    // [수정] 대시보드 구조(ranges) 대응
+                    if (s.ranges) {
+                        const r = s.ranges;
+                        document.getElementById('range1Min').value = r.r1Min ?? 0;
+                        document.getElementById('range1Max').value = r.r1Max ?? 6;
+                        document.getElementById('range2Min').value = r.r2Min ?? 0;
+                        document.getElementById('range2Max').value = r.r2Max ?? 6;
+                        document.getElementById('range3Min').value = r.r3Min ?? 0;
+                        document.getElementById('range3Max').value = r.r3Max ?? 6;
+                        document.getElementById('range4Min').value = r.r4Min ?? 0;
+                        document.getElementById('range4Max').value = r.r4Max ?? 6;
+                    } else {
+                        // 레거시 구조 대응
+                        if (s.range1) {
+                            document.getElementById('range1Min').value = s.range1.min ?? 0;
+                            document.getElementById('range1Max').value = s.range1.max ?? 6;
+                        }
+                        if (s.range2) {
+                            document.getElementById('range2Min').value = s.range2.min ?? 0;
+                            document.getElementById('range2Max').value = s.range2.max ?? 6;
+                        }
+                        if (s.range3) {
+                            document.getElementById('range3Min').value = s.range3.min ?? 0;
+                            document.getElementById('range3Max').value = s.range3.max ?? 6;
+                        }
+                        if (s.range4) {
+                            document.getElementById('range4Min').value = s.range4.min ?? 0;
+                            document.getElementById('range4Max').value = s.range4.max ?? 6;
+                        }
                     }
-                }
 
-                if (saved.ranges) {
-                    const r = saved.ranges;
-                    if (document.getElementById('range1Min')) document.getElementById('range1Min').value = r.r1Min ?? 0;
-                    if (document.getElementById('range1Max')) document.getElementById('range1Max').value = r.r1Max ?? 6;
-                    if (document.getElementById('range2Min')) document.getElementById('range2Min').value = r.r2Min ?? 0;
-                    if (document.getElementById('range2Max')) document.getElementById('range2Max').value = r.r2Max ?? 6;
-                    if (document.getElementById('range3Min')) document.getElementById('range3Min').value = r.r3Min ?? 0;
-                    if (document.getElementById('range3Max')) document.getElementById('range3Max').value = r.r3Max ?? 6;
-                    if (document.getElementById('range4Min')) document.getElementById('range4Min').value = r.r4Min ?? 0;
-                    if (document.getElementById('range4Max')) document.getElementById('range4Max').value = r.r4Max ?? 6;
+                    // [Fix] recent10 버튼 상태 복원
+                    if (s.recent10FilterActive !== undefined) {
+                        isRecentTenFilter = !!s.recent10FilterActive;
+                        const btn = document.getElementById('recent10FilterBtn');
+                        const btnText = document.getElementById('recent10FilterText');
+                        if (btn && btnText) {
+                            if (isRecentTenFilter) {
+                                btn.classList.remove('from-blue-500', 'to-blue-600', 'shadow-blue-200');
+                                btn.classList.add('from-purple-500', 'to-purple-700', 'shadow-purple-200');
+                                btnText.textContent = '필터 해제';
+                                highlightStartIndex = 0;
+                            } else {
+                                btn.classList.remove('from-purple-500', 'to-purple-700', 'shadow-purple-200');
+                                btn.classList.add('from-blue-500', 'to-blue-600', 'shadow-blue-200');
+                                btnText.textContent = '최근 10회차 필터 적용';
+                                highlightStartIndex = null;
+                            }
+                        }
+                    }
+
+                    console.log(`ℹ️ 미출현 기간 필터 로드 완료 (${currentRound}회)`);
+                    return true;
                 }
-                return true;
+                return false;
+            } catch (error) {
+                console.error('❌ 필터 로드 중 오류:', error);
+                return false;
             }
-            return false;
         }
     </script>
 
@@ -583,80 +653,15 @@
                         <p class="text-sm text-gray-600">각 번호의 미출현 기간을 분석하여 통계적 회귀 가능성을 식별합니다</p>
                     </div>
 
-                    <div class="ai-section p-8 pb-10 mb-6">
-                        <div class="flex items-center justify-between mb-6">
-                            <div class="flex items-center gap-2">
-                                <h3 class="text-2xl font-extrabold text-gray-900 tracking-tight">AI Insight</h3>
-                                <span id="aiTargetInfo" class="text-sm text-gray-500 font-medium"></span>
-                            </div>
-                            <!-- [Layout] Prompt Library: Top Right -->
-                            <button onclick="window.AIAnalysis.openPromptLibraryModal('missing_number', event)"
-                                class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors">
-                                <span class="material-symbols-outlined text-lg">library_books</span>
-                                프롬프트 라이브러리
-                            </button>
-                        </div>
-
-                        <div id="aiAnalysisContent" class="min-h-[100px] flex items-center justify-center">
-                            <div class="flex items-center gap-2 text-gray-500">
-                                <span class="material-symbols-outlined text-lg animate-spin">progress_activity</span>
-                                <span>AI가 미출현 번호 데이터를 분석하고 있습니다...</span>
-                            </div>
-                        </div>
-
-                        <div class="mt-6 border-t border-gray-100 pt-6">
-                            <div class="flex flex-col gap-3">
-                                <div class="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-                                    <button onclick="openChatWithPrompt('다음 회차 추천 미출현 번호는?')"
-                                        class="px-3 py-1.5 text-xs font-medium bg-blue-50 text-blue-600 rounded-full hover:bg-blue-100 transition-colors whitespace-nowrap">
-                                        ✨ 추천 미출현수
-                                    </button>
-                                    <button onclick="openChatWithPrompt('장기 미출현(10회 이상) 번호 중 나올 가능성이 높은 것은?')"
-                                        class="px-3 py-1.5 text-xs font-medium bg-purple-50 text-purple-600 rounded-full hover:bg-purple-100 transition-colors whitespace-nowrap">
-                                        🧊 장기 미출수 부활?
-                                    </button>
-                                    <button onclick="openChatWithPrompt('최근 5회 이내 나온 번호(Hot) vs 안 나온 번호(Cold) 비율 추천해줘')"
-                                        class="px-3 py-1.5 text-xs font-medium bg-green-50 text-green-600 rounded-full hover:bg-green-100 transition-colors whitespace-nowrap">
-                                        ⚖️ 신구(Hot:Cold) 비율
-                                    </button>
-                                    <button onclick="openChatWithPrompt('가장 오랫동안 안 나온 최장기 미출수(Top 1)는 언제 나올까?')"
-                                        class="px-3 py-1.5 text-xs font-medium bg-red-50 text-red-600 rounded-full hover:bg-red-100 transition-colors whitespace-nowrap">
-                                        👑 최장기 미출수 공략
-                                    </button>
-                                    <button onclick="openChatWithPrompt('미출현 기간 5~10회 사이(보합세) 번호들의 당첨 확률은?')"
-                                        class="px-3 py-1.5 text-xs font-medium bg-orange-50 text-orange-600 rounded-full hover:bg-orange-100 transition-colors whitespace-nowrap">
-                                        🤔 보합 구간(5~10회)
-                                    </button>
-                                    <button onclick="openChatWithPrompt('특정 번호대(예: 30번대)가 통째로 미출현 중인가?')"
-                                        class="px-3 py-1.5 text-xs font-medium bg-indigo-50 text-indigo-600 rounded-full hover:bg-indigo-100 transition-colors whitespace-nowrap">
-                                        🏘️ 번호대별 미출현
-                                    </button>
-                                    <button onclick="openChatWithPrompt('미출현 번호들이 특정 구간(예: 10번대)에 쏠려 있나요?')"
-                                        class="px-3 py-1.5 text-xs font-medium bg-teal-50 text-teal-600 rounded-full hover:bg-teal-100 transition-colors whitespace-nowrap">
-                                        📉 미출현 쏠림 현상?
-                                    </button>
-                                    <button onclick="openChatWithPrompt('이번 회차에 절대 안 나올 것 같은 제외수는?')"
-                                        class="px-3 py-1.5 text-xs font-medium bg-gray-100 text-gray-600 rounded-full hover:bg-gray-200 transition-colors whitespace-nowrap">
-                                        🚫 제외수 추천
-                                    </button>
-                                    <button onclick="openChatWithPrompt('이월수(직전 당첨)와 장기 미출수 중 어디에 비중을 둘까요?')"
-                                        class="px-3 py-1.5 text-xs font-medium bg-cyan-50 text-cyan-600 rounded-full hover:bg-cyan-100 transition-colors whitespace-nowrap">
-                                        🔄 이월수 vs 미출수
-                                    </button>
-                                </div>
-                                <div id="nlp-main-input-container" class="relative">
-                                    <input type="text" id="aiUserPrompt"
-                                        class="w-full pl-4 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder-gray-400"
-                                        placeholder="미출현 번호에 대해 궁금한 점을 물어보세요..."
-                                        onkeyup="if(event.key === 'Enter') submitCustomAIAnalysis()">
-                                    <button onclick="openChatWithPrompt(document.getElementById('aiUserPrompt').value)"
-                                        class="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors">
-                                        <span class="material-symbols-outlined text-xl">send</span>
-                                    </button>
+                        <div class="ai-section p-8 pb-10 mb-6 font-sans">
+                            <h3 class="text-lg font-bold text-gray-900 mb-4">딥러닝 Insight</h3>
+                            <div id="dlInsightContainer">
+                                <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
+                                    <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
+                                    <span class="text-sm">딥러닝 모델 분석 중 (7개 모델)...</span>
                                 </div>
                             </div>
                         </div>
-                    </div>
 
                     <div class="bg-white rounded-xl border border-gray-200">
                         <div class="p-6 border-b border-gray-200">
@@ -677,8 +682,8 @@
                     <div class="bg-white rounded-xl p-6 border border-gray-200">
                         <div class="flex items-center justify-between mb-4">
                             <h3 class="text-lg font-bold text-gray-900">미출현 그룹 현황 및 조합 필터</h3>
-                            <a href="filter.html?tab=foundation&id=missing_period"
-                                class="text-sm font-medium text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
+                            <a href="filter.html?tab=foundation&id=missing_period" target="_blank"
+                                class="text-sm font-medium text-slate-500 hover:text-blue-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
                                 <span class="material-symbols-outlined text-[18px]">tune</span>
                                 필터 페이지 가기
                             </a>
@@ -746,44 +751,44 @@
                                             <div class="flex items-center justify-center gap-2">
                                                 <input type="number" id="range1Min" min="0" max="6" value="0"
                                                     class="px-2 py-1 text-sm border border-gray-300 rounded w-16 text-center"
-                                                    onchange="updateFilters()">
+                                                    onchange="applyFilterManual()">
                                                 <span class="text-sm text-gray-500">~</span>
                                                 <input type="number" id="range1Max" min="0" max="6" value="6"
                                                     class="px-2 py-1 text-sm border border-gray-300 rounded w-16 text-center"
-                                                    onchange="updateFilters()">
+                                                    onchange="applyFilterManual()">
                                             </div>
                                         </td>
                                         <td class="py-3 px-3 border border-gray-200">
                                             <div class="flex items-center justify-center gap-2">
                                                 <input type="number" id="range2Min" min="0" max="6" value="0"
                                                     class="px-2 py-1 text-sm border border-gray-300 rounded w-16 text-center"
-                                                    onchange="updateFilters()">
+                                                    onchange="applyFilterManual()">
                                                 <span class="text-sm text-gray-500">~</span>
                                                 <input type="number" id="range2Max" min="0" max="6" value="6"
                                                     class="px-2 py-1 text-sm border border-gray-300 rounded w-16 text-center"
-                                                    onchange="updateFilters()">
+                                                    onchange="applyFilterManual()">
                                             </div>
                                         </td>
                                         <td class="py-3 px-3 border border-gray-200">
                                             <div class="flex items-center justify-center gap-2">
                                                 <input type="number" id="range3Min" min="0" max="6" value="0"
                                                     class="px-2 py-1 text-sm border border-gray-300 rounded w-16 text-center"
-                                                    onchange="updateFilters()">
+                                                    onchange="applyFilterManual()">
                                                 <span class="text-sm text-gray-500">~</span>
                                                 <input type="number" id="range3Max" min="0" max="6" value="6"
                                                     class="px-2 py-1 text-sm border border-gray-300 rounded w-16 text-center"
-                                                    onchange="updateFilters()">
+                                                    onchange="applyFilterManual()">
                                             </div>
                                         </td>
                                         <td class="py-3 px-3 border border-gray-200">
                                             <div class="flex items-center justify-center gap-2">
                                                 <input type="number" id="range4Min" min="0" max="6" value="0"
                                                     class="px-2 py-1 text-sm border border-gray-300 rounded w-16 text-center"
-                                                    onchange="updateFilters()">
+                                                    onchange="applyFilterManual()">
                                                 <span class="text-sm text-gray-500">~</span>
                                                 <input type="number" id="range4Max" min="0" max="6" value="6"
                                                     class="px-2 py-1 text-sm border border-gray-300 rounded w-16 text-center"
-                                                    onchange="updateFilters()">
+                                                    onchange="applyFilterManual()">
                                             </div>
                                         </td>
                                     </tr>
@@ -794,9 +799,10 @@
                         <div class="flex items-center justify-between mt-4">
                             <!-- [Layout] Apply Filter: Bottom Left -->
                             <!-- [Layout] Recent 10 Filters: Bottom Left (Swapped) -->
+                            <!-- [수정] 버튼 디자인 통일: rounded-xl, font-black, shadow-lg 적용 -->
                             <button id="recent10FilterBtn" onclick="applyRecent10Filters()" style="min-width: 210px;"
-                                class="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-lg shadow-md hover:shadow-lg transition-all active:scale-95 text-sm font-bold">
-                                <span class="material-symbols-outlined text-[18px]">auto_fix_high</span>
+                                class="flex items-center justify-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 transition-all active:scale-95 text-sm font-black ring-2 ring-white/20">
+                                <span class="material-symbols-outlined text-[20px]">auto_fix_high</span>
                                 <span id="recent10FilterText">최근 10회차 필터 적용</span>
                             </button>
 
@@ -920,8 +926,8 @@
 
     <script>
         // 전역 상태 변수
+        const storageKey = 'missing_period';
         let allData = [];
-        let featuresMap = new Map(); // 🔥 DB 캐시 추가
         let useRangeFilter = true;
         let useCustomFilter = false;
 
@@ -930,13 +936,39 @@
         let currentMiss = {};
         let missHistory = {};
         let hitCounts = new Array(46).fill(0);
-        let customFilters = [];
         let filterIdCounter = 1;
+        let _missingSelfSaving = false; // saveFilters 중 storage 이벤트 루프 방지
         let maxMissCount = 0;
         let selectedStatGroup = null; // 선택된 통계 그룹 (1, 2, 3, 4)
+        let isRecentTenFilter = false; // [추가] '최근 10회차' 모드 상태값
 
         // 🔥 추가된 상태: 셀 하이라이트 (컬럼 타입, 값)
         let selectedCellHighlight = { type: null, val: null };
+
+        // [추가] 최근 10회차 필터를 비활성화하고 UI를 초기화하는 함수
+        function deactivateRecent10IfActive() {
+            if (isRecentTenFilter) {
+                isRecentTenFilter = false;
+                highlightStartIndex = null;
+
+                const btn = document.getElementById('recent10FilterBtn');
+                const btnText = document.getElementById('recent10FilterText');
+                if (btn) {
+                    btn.classList.remove('from-purple-500', 'to-purple-700', 'shadow-purple-200');
+                    btn.classList.add('from-blue-500', 'to-blue-600', 'shadow-blue-200');
+                }
+                if (btnText) btnText.textContent = '최근 10회차 필터 적용';
+
+                localStorage.setItem('missing_period_is_manual', 'true');
+                saveFilterSettings();
+            }
+        }
+
+        // [추가] 수동 조작 마킹
+        function markManual() {
+            localStorage.setItem('missing_period_is_manual', 'true');
+            deactivateRecent10IfActive();
+        }
 
         async function loadData() {
             try {
@@ -953,16 +985,11 @@
 
                 const client = window.supabaseClient;
 
-                // 🔥 DB 병렬 조회: 당첨번호 + 미출현 데이터(DB)
-                const [drawsResult, featuresResult] = await Promise.all([
-                    client.from('lotto_draws')
-                        .select('*')
-                        .order('round', { ascending: false })
-                        .range(0, 5000),
-                    client.from('number_features_by_round')
-                        .select('round, number, missing_count, last_appearance_round')
-                        .range(0, 60000)  // 충분한 범위 설정
-                ]);
+                // 🔥 DB 데이터 조회: 당첨번호
+                const drawsResult = await client.from('lotto_draws')
+                    .select('*')
+                    .order('round', { ascending: false })
+                    .range(0, 5000);
 
                 // FilterService 초기화 (DB 필터 저장용)
                 if (window.initFilterService) {
@@ -970,27 +997,11 @@
                 }
 
                 if (drawsResult.error) throw drawsResult.error;
-                if (featuresResult.error) console.warn('미출현 DB 로드 실패 (Fallback 사용):', featuresResult.error);
 
                 const data = drawsResult.data;
                 if (!data || data.length === 0) {
                     document.getElementById('drawsList').innerHTML = '<tr><td colspan="10" class="p-10 text-center">데이터가 없습니다.</td></tr>';
                     return;
-                }
-
-                // 🔥 DB 데이터를 Map으로 변환
-                featuresMap = new Map();
-                if (featuresResult.data && featuresResult.data.length > 0) {
-                    featuresResult.data.forEach(row => {
-                        if (!featuresMap.has(row.round)) {
-                            featuresMap.set(row.round, {});
-                        }
-                        featuresMap.get(row.round)[row.number] = {
-                            missing_count: row.missing_count,
-                            last_appearance_round: row.last_appearance_round
-                        };
-                    });
-                    console.log(`✅ 미출현 DB 데이터 로드: ${featuresResult.data.length}개`);
                 }
 
                 allData = data;
@@ -1005,42 +1016,29 @@
                 renderMissStatsTable();
 
                 updateAnalysis();
-                refreshAIAnalysis();
+                initDeepInsight();
 
                 renderMissGroupTable();
-
-                // [수정됨] 저장된 필터 로드 시도, 없으면 기본값(최근 10회 기준) 적용
-                // [수정됨] 저장된 필터 로드 시도, 없으면 기본값(최근 10회 기준) 적용
-                if (!await loadFilterSettings()) {
-                    applyRecent10Stats();
-                }
 
                 updateFilterMaxValues();
                 renderDrawsList();
 
+                // [Fix] 커스텀 필터를 먼저 로드 후, 새 회차 감지 로직 실행 (순서 중요)
+                await loadSavedFilters();
+                await checkAndResetOnNewDraw();
+
                 const displaySlider = document.getElementById('displayRange');
-                displaySlider.max = allData.length;
-                updateDisplayRange(displayLimit);
+                if (displaySlider) {
+                    displaySlider.max = allData.length;
+                    updateDisplayRange(displayLimit);
+                }
 
                 selectRound(selectedRound);
 
-                const savedLatestRound = localStorage.getItem('latestLottoRound');
-                if (allData.length > 0) {
-                    const currentLatest = allData[0].round;
-                    if (savedLatestRound && parseInt(savedLatestRound) < currentLatest) {
-                        localStorage.removeItem('missGroupFilters');
-                        localStorage.removeItem('missGroupFilterCounter');
-                        customFilters = [];
-                        filterIdCounter = 1;
-                    } else {
-                        loadSavedFilters();
-                    }
-                    localStorage.setItem('latestLottoRound', currentLatest.toString());
-                }
-
                 renderFiltersList();
 
-                // [수정됨] 저장된 필터 로드로 인해 불필요할 수 있으나 안전장치로 유지
+                document.getElementById('customFilterToggle').checked = useCustomFilter;
+
                 document.getElementById('customFilterToggle').checked = useCustomFilter;
 
             } catch (err) {
@@ -1049,27 +1047,36 @@
             }
         }
 
-        function updateFilters() {
-            saveFilterSettings(); // [추가됨] 변경사항 저장
+
+        function applyFilterManual() {
+            markManual(); // [수정] markManual 적용
+            updateFilters();
+        }
+
+        function updateFilters(skipSave = false) {
+            if (!skipSave) saveFilterSettings(); // [추가됨] 변경사항 저장
             if (useRangeFilter) renderDrawsList();
         }
 
-        function toggleRangeFilter() {
+        function toggleRangeFilter(skipSave = false) {
+            markManual(); // [추가] 수동 조작 마킹
             const toggle = document.getElementById('rangeFilterToggle');
             useRangeFilter = toggle.checked;
-            saveFilterSettings(); // [추가됨] 변경사항 저장
+            if (!skipSave) saveFilterSettings(); // [추가됨] 변경사항 저장
             renderDrawsList();
         }
 
-        function toggleCustomFilter() {
+        function toggleCustomFilter(skipSave = false) {
+            markManual(); // [추가] 수동 조작 마킹
             const toggle = document.getElementById('customFilterToggle');
             useCustomFilter = toggle.checked;
-            saveFilterSettings(); // [추가됨] 변경사항 저장
+            if (!skipSave) saveFilterSettings(); // [추가됨] 변경사항 저장
             renderDrawsList();
         }
 
         // --- 통계 카드 하이라이트 기능 ---
         function highlightStatCard(range) {
+            markManual(); // [추가] 수동 조작 마킹
             // 이미 선택된 것을 다시 누르면 해제
             if (selectedStatGroup === range) {
                 selectedStatGroup = null;
@@ -1114,30 +1121,6 @@
 
         // ... 기존 함수들 ...
 
-        function applyRecent10Stats() {
-            if (allData.length < 10) return;
-            const recent10 = allData.slice(0, 10);
-            const stats = { 1: { min: 6, max: 0 }, 2: { min: 6, max: 0 }, 3: { min: 6, max: 0 }, 4: { min: 6, max: 0 } };
-
-            recent10.forEach(draw => {
-                const miss = missHistory[draw.round];
-                if (!miss) return;
-                const counts = { 1: 0, 2: 0, 3: 0, 4: 0 };
-                draw.numbers.forEach(num => {
-                    const range = getMissRange(miss[num]);
-                    counts[range]++;
-                });
-                for (let i = 1; i <= 4; i++) {
-                    stats[i].min = Math.min(stats[i].min, counts[i]);
-                    stats[i].max = Math.max(stats[i].max, counts[i]);
-                }
-            });
-
-            for (let i = 1; i <= 4; i++) {
-                document.getElementById(`range${i}Min`).value = stats[i].min;
-                document.getElementById(`range${i}Max`).value = stats[i].max;
-            }
-        }
 
         function calculateHitCounts() {
             allData.forEach(draw => {
@@ -1148,34 +1131,10 @@
         }
 
         function calculateMissData() {
-            // 🔥 DB 데이터 우선 사용 (최적화)
-            if (featuresMap.size > 0) {
-                missHistory = {};
-                maxMissCount = 0;
+            missHistory = {};
+            maxMissCount = 0;
 
-                // DB에서 missHistory 생성 (매우 빠름)
-                for (const [round, features] of featuresMap) {
-                    missHistory[round] = {};
-                    for (let num = 1; num <= 45; num++) {
-                        const miss = features[num]?.missing_count || 1;
-                        missHistory[round][num] = miss;
-                        maxMissCount = Math.max(maxMissCount, miss);
-                    }
-                }
-
-                // currentMiss 설정 (가장 최신 회차 데이터)
-                if (allData.length > 0) {
-                    const latestRound = allData[0].round + 1;
-                    // 최신 데이터가 있다면 매핑, 없다면 빈 객체
-                    currentMiss = missHistory[latestRound] || {};
-                }
-
-                console.log(`✅ 미출현 히스토리 생성 완료 (DB 기반)`);
-                return;
-            }
-
-            // ⚠️ Fallback: 기존 계산 방식 (DB 데이터 없을 시 안전장치)
-            console.log(`⚠️ DB 데이터 없음 - Fallback 계산 사용`);
+            console.log(`✅ 프론트엔드 계산 방식으로 미출현 히스토리 생성중...`);
             const missCount = {};
             for (let i = 1; i <= 45; i++) { missCount[i] = 1; }
 
@@ -1399,6 +1358,7 @@
         function dropNumber(event, filterId) {
             event.preventDefault();
             event.currentTarget.classList.remove('drag-over');
+            markManual(); // [추가] 수동 조작 마킹
             const number = parseInt(event.dataTransfer.getData('number'));
             const filter = customFilters.find(f => f.id === filterId);
 
@@ -1415,6 +1375,7 @@
         }
 
         function removeNumberFromFilter(filterId, number) {
+            markManual(); // [추가] 수동 조작 마킹
             const filter = customFilters.find(f => f.id === filterId);
             if (filter) {
                 filter.numbers = filter.numbers.filter(n => n !== number);
@@ -1423,6 +1384,7 @@
         }
 
         function addNewFilter() {
+            markManual(); // [추가] 수동 조작 마킹
             customFilters.push({
                 id: filterIdCounter++,
                 name: `미출현그룹${customFilters.length + 1}`,
@@ -1435,6 +1397,7 @@
         }
 
         function updateFilterMinMax(filterId, type, value) {
+            markManual(); // [추가] 수동 조작 마킹
             const filter = customFilters.find(f => f.id === filterId);
             if (filter) {
                 const numValue = parseInt(value) || 0;
@@ -1445,16 +1408,19 @@
         }
 
         function toggleFilter(filterId) {
+            markManual(); // [추가] 수동 조작 마킹
             const filter = customFilters.find(f => f.id === filterId);
             if (filter) filter.enabled = !filter.enabled;
         }
 
         function updateFilterName(filterId, newName) {
+            markManual(); // [추가] 수동 조작 마킹
             const filter = customFilters.find(f => f.id === filterId);
             if (filter) filter.name = newName;
         }
 
         function deleteFilter(filterId) {
+            markManual(); // [추가] 수동 조작 마킹
             customFilters = customFilters.filter(f => f.id !== filterId);
             renderFiltersList();
             saveFilters(); // 삭제 즉시 DB/localStorage에 반영 (카드 동기화)
@@ -1464,50 +1430,139 @@
             customFilters.forEach(filter => {
                 filter.numbers = [...new Set(filter.numbers)].sort((a, b) => a - b);
             });
-            const currentRound = (allData && allData.length > 0) ? allData[0].round : null;
-            const payload = { filters: customFilters, counter: filterIdCounter, targetRound: currentRound };
+            const latestRound = (allData && allData.length > 0) ? allData[0].round : null;
+            const targetRound = latestRound ? latestRound + 1 : null;
+            const payload = { filters: customFilters, counter: filterIdCounter, targetRound };
 
-            // Supabase 저장 (FilterService 사용)
-            if (window.filterService && window.filterService.initialized) {
-                await window.filterService.saveSetting('missing_custom_filter', payload, useCustomFilter);
-                console.log('✅ 커스텀 필터 Supabase 저장 완료');
+            try {
+                _missingSelfSaving = true;
+
+                // [표준] NULL row 저장 + StorageEvent + BroadcastChannel 발송
+                if (window.Utils && window.Utils.saveFilter) {
+                    await window.Utils.saveFilter('missing_custom_filter', payload, useCustomFilter);
+                } else {
+                    // Fallback
+                    if (window.filterService?.initialized) {
+                        await window.filterService.saveSetting('missing_custom_filter', payload, useCustomFilter);
+                    }
+                    const envelope = { settings: payload, enabled: useCustomFilter, _ts: Date.now() };
+                    localStorage.setItem('missing_custom_filter', JSON.stringify(envelope));
+                }
+
+                // [표준] targetRound row 저장 (대시보드 연동용)
+                if (window.filterService?.initialized && targetRound) {
+                    await window.filterService.saveSetting('missing_custom_filter', payload, useCustomFilter, targetRound);
+                }
+
+                // 레거시 키 병행 유지 (하위호환)
+                localStorage.setItem('missGroupFilters', JSON.stringify(customFilters));
+                localStorage.setItem('missGroupFilterCounter', filterIdCounter.toString());
+                console.log('✅ 커스텀 필터 저장 완료 (missing_custom_filter)');
+            } finally {
+                _missingSelfSaving = false;
             }
-            // Fallback: localStorage 병행 저장
-            localStorage.setItem('missGroupFilters', JSON.stringify(customFilters));
-            localStorage.setItem('missGroupFilterCounter', filterIdCounter.toString());
         }
 
         async function loadSavedFilters() {
-            const currentRound = (allData && allData.length > 0) ? allData[0].round : null;
+            const latestRound = (allData && allData.length > 0) ? allData[0].round : null;
+            const currentRound = latestRound ? latestRound + 1 : null;
 
-            // Supabase에서 로드 시도
-            if (window.filterService && window.filterService.initialized) {
-                const data = await window.filterService.loadSetting('missing_custom_filter');
-                if (data && data.settings) {
-                    const s = data.settings;
-                    // 새 회차이면 커스텀 필터 초기화 + DB에도 즉시 저장
-                    if (s.targetRound && currentRound && s.targetRound !== currentRound) {
-                        console.log('🔄 새 회차 - 커스텀 필터 초기화');
-                        customFilters = [];
-                        filterIdCounter = 1;
-                        renderFiltersList();
-                        await saveFilters(); // 초기화된 빈 상태를 DB에도 반영
-                        return;
-                    }
-                    if (Array.isArray(s.filters)) {
+            // [표준] Utils.loadFilter 우선 (localStorage _ts vs DB updated_at 비교)
+            if (window.Utils && window.Utils.loadFilter) {
+                const loaded = await window.Utils.loadFilter('missing_custom_filter', currentRound);
+                if (loaded) {
+                    const s = loaded.settings !== undefined ? loaded.settings : loaded;
+                    if (s && Array.isArray(s.filters) && s.filters.length > 0) {
                         customFilters = s.filters.map(f => ({
                             ...f,
                             numbers: [...new Set(f.numbers || [])].sort((a, b) => a - b)
                         }));
                         filterIdCounter = s.counter || (customFilters.length + 1);
-                        renderFiltersList();
+                        if (loaded.enabled !== undefined) {
+                            useCustomFilter = loaded.enabled;
+                            const tog = document.getElementById('customFilterToggle');
+                            if (tog) tog.checked = useCustomFilter;
+                        }
+                        console.log(`✅ 커스텀 필터 로드 완료 (Utils): ${customFilters.length}개 그룹`);
                         return;
                     }
                 }
             }
 
-            // Fallback: localStorage
-            const saved = localStorage.getItem('missGroupFilters');
+            // Supabase에서 로드 시도 (Fallback)
+            if (window.filterService && window.filterService.initialized) {
+                const data = await window.filterService.loadSetting('missing_custom_filter');
+                if (data && data.settings) {
+                    const s = data.settings;
+                    // [Fix] 새 회차여도 커스텀 그룹은 유지 - targetRound만 갱신
+                    // (커스텀 그룹은 사용자가 직접 만든 것으로 회차 변경과 무관하게 유지)
+                    if (s.targetRound && currentRound && s.targetRound !== currentRound) {
+                        console.log(`🔄 새 회차 감지 - 커스텀 그룹 유지, targetRound 갱신: ${s.targetRound} → ${currentRound}`);
+                        s.targetRound = currentRound; // settings 내 targetRound 갱신
+                        // 갱신된 targetRound를 DB에 저장 (filters는 유지)
+                        await window.filterService.saveSetting('missing_custom_filter', s, data.enabled);
+                    }
+                    if (Array.isArray(s.filters)) {
+                        let filtersToUse = s.filters;
+                        let counterToUse = s.counter;
+                        let enabledToUse = data.enabled;
+
+                        // [Fix] Supabase가 빈 배열인 경우, localStorage에 동일 회차 데이터가 있으면 우선 사용 후 Supabase 재동기화
+                        if (s.filters.length === 0) {
+                            try {
+                                const mcRaw = localStorage.getItem('missing_custom_filter');
+                                if (mcRaw) {
+                                    const mcParsed = JSON.parse(mcRaw);
+                                    const mcSettings = mcParsed?.settings;
+                                    if (mcSettings && Array.isArray(mcSettings.filters) && mcSettings.filters.length > 0
+                                        && mcSettings.targetRound === currentRound) {
+                                        console.log('🔄 Supabase 빈 배열 → localStorage 복원 후 재동기화');
+                                        filtersToUse = mcSettings.filters;
+                                        counterToUse = mcSettings.counter;
+                                        if (mcParsed.enabled !== undefined) enabledToUse = mcParsed.enabled;
+                                        // 재동기화: Supabase에 localStorage 데이터 저장
+                                        customFilters = filtersToUse.map(f => ({ ...f, numbers: [...new Set(f.numbers || [])].sort((a, b) => a - b) }));
+                                        filterIdCounter = counterToUse || (customFilters.length + 1);
+                                        await saveFilters();
+                                    }
+                                }
+                            } catch(e) { console.warn('localStorage 복원 실패:', e); }
+                        }
+
+                        customFilters = filtersToUse.map(f => ({
+                            ...f,
+                            numbers: [...new Set(f.numbers || [])].sort((a, b) => a - b)
+                        }));
+                        filterIdCounter = counterToUse || (customFilters.length + 1);
+                        // [Fix] enabled 상태 복원
+                        if (enabledToUse !== undefined) {
+                            useCustomFilter = enabledToUse;
+                            const tog = document.getElementById('customFilterToggle');
+                            if (tog) tog.checked = useCustomFilter;
+                        }
+                        renderFiltersList();
+                        if (useCustomFilter) renderDrawsList();
+                        return;
+                    }
+                }
+            }
+
+            // Fallback: localStorage - [Fix] 'missing_custom_filter' 키 우선 읽기
+            let saved = null;
+            let savedEnabled = undefined;
+            try {
+                const mcRaw = localStorage.getItem('missing_custom_filter');
+                if (mcRaw) {
+                    const mcParsed = JSON.parse(mcRaw);
+                    const mcSettings = mcParsed?.settings;
+                    if (mcSettings && Array.isArray(mcSettings.filters)) {
+                        saved = JSON.stringify(mcSettings.filters);
+                        if (mcSettings.counter) filterIdCounter = mcSettings.counter;
+                    }
+                    if (mcParsed?.enabled !== undefined) savedEnabled = mcParsed.enabled;
+                }
+            } catch(e) {}
+            if (!saved) saved = localStorage.getItem('missGroupFilters');
             const savedCounter = localStorage.getItem('missGroupFilterCounter');
             if (saved) {
                 customFilters = JSON.parse(saved);
@@ -1516,7 +1571,14 @@
                 });
             }
             if (savedCounter) filterIdCounter = parseInt(savedCounter);
+            // [Fix] enabled 상태 복원 (localStorage)
+            if (savedEnabled !== undefined) {
+                useCustomFilter = savedEnabled;
+                const tog = document.getElementById('customFilterToggle');
+                if (tog) tog.checked = useCustomFilter;
+            }
             renderFiltersList();
+            if (useCustomFilter) renderDrawsList();
         }
 
 
@@ -1542,6 +1604,7 @@
         }
 
         function addGroupToFilter(range) {
+            markManual(); // [추가] 수동 조작 마킹
             if (customFilters.length === 0) addNewFilter();
 
             const miss = missHistory[selectedRound] || currentMiss;
@@ -1593,9 +1656,9 @@
                                     <span class="text-gray-500">구간:</span>
                                     <input type="number" min="0" max="6" value="${filter.minCount || 0}" onchange="updateFilterMinMax(${filter.id}, 'min', this.value); renderFiltersList();" class="px-1 py-0.5 text-xs border border-gray-300 rounded w-10 text-center">
                                     <span class="text-gray-400">~</span>
-                                    <input type="number" min="0" max="15" value="${filter.maxCount === undefined ? 6 : filter.maxCount}" onchange="updateFilterMinMax(${filter.id}, 'max', this.value); renderFiltersList();" class="px-1 py-0.5 text-xs border border-gray-300 rounded w-10 text-center">
+                                    <input type="number" min="0" max="15" value="${filter.maxCount === undefined ? 0 : filter.maxCount}" onchange="updateFilterMinMax(${filter.id}, 'max', this.value); renderFiltersList();" class="px-1 py-0.5 text-xs border border-gray-300 rounded w-10 text-center">
                                 </div>
-                                <button onclick="saveFilters(); alert('필터가 저장되었습니다')" class="p-1 text-blue-600 hover:text-blue-700 transition-colors" title="저장">
+                                <button onclick="saveFilters().then(() => alert('필터가 저장되었습니다')).catch(e => alert('저장 실패: ' + e.message))" class="p-1 text-blue-600 hover:text-blue-700 transition-colors" title="저장">
                                     <span class="material-symbols-outlined text-lg">save</span>
                                 </button>
                                 <button onclick="deleteFilter(${filter.id})" class="p-1 text-red-500 hover:text-red-700 transition-colors" title="삭제">
@@ -1740,6 +1803,7 @@
         let rangeUpdateTimeout;
 
         function updateDisplayRange(value) {
+            markManual(); // [수정] markManual 공통 함수 사용
             const val = parseInt(value);
             displayLimit = val;
 
@@ -1751,6 +1815,8 @@
 
             renderDrawsList();
         }
+
+        // (deactivateRecent10IfActive relocated to top)
 
         function updateSliderBackground(value) {
             const total = allData.length;
@@ -1883,6 +1949,7 @@
         let highlightStartIndex = null;
 
         function highlightRows(startIndex) {
+            markManual(); // [수정] markManual 적용
             if (highlightStartIndex === startIndex) {
                 highlightStartIndex = null;
                 document.querySelectorAll('.row-highlight').forEach(el => el.classList.remove('row-highlight'));
@@ -1903,25 +1970,13 @@
         }
 
         // [New] 최근 10회차 필터 자동 적용
-        function applyRecent10Filters() {
+        function applyRecent10Filters(force = null) {
             const btn = document.getElementById('recent10FilterBtn');
             const btnText = document.getElementById('recent10FilterText');
 
-            // 토글: 이미 켜져있으면 끄기
-            if (btn.classList.contains('from-purple-500')) {
-                btn.classList.remove('from-purple-500', 'to-purple-700');
-                btn.classList.add('from-blue-500', 'to-indigo-600');
-                btnText.textContent = '최근 10회차 필터 적용';
-
-                // 필터 초기화 (기본값)
-                for (let i = 1; i <= 4; i++) {
-                    document.getElementById(`range${i}Min`).value = 0;
-                    document.getElementById(`range${i}Max`).value = 6;
-                }
-                useRangeFilter = false;
-                document.getElementById('rangeFilterToggle').checked = false;
-                highlightStartIndex = null;
-                renderDrawsList();
+            // 토글: 이미 켜져있으면 끄기 (force가 true인 경우 강제로 켬)
+            if (force !== true && isRecentTenFilter) {
+                deactivateRecent10IfActive(); // [수정] 공통 함수 사용
                 return;
             }
 
@@ -1949,7 +2004,7 @@
                 counts[4].push(hitCounts[4]);
             });
 
-            // 3. 필터 입력창에 값 적용
+            // 3. 필터 입력창에 값 적용 (Safety Margin ±1 적용하여 과도한 필터링 방지)
             for (let i = 1; i <= 4; i++) {
                 const minVal = Math.min(...counts[i]);
                 const maxVal = Math.max(...counts[i]);
@@ -1958,8 +2013,9 @@
                 document.getElementById(`range${i}Max`).value = maxVal;
             }
 
-            // 4. UI 및 필터 활성화
-            btn.classList.remove('from-blue-500', 'to-indigo-600');
+            // 4. UI 및 필터 활성화 (표준: 보라색 그라디언트)
+            isRecentTenFilter = true;
+            btn.classList.remove('from-blue-500', 'to-blue-600');
             btn.classList.add('from-purple-500', 'to-purple-700');
             btnText.textContent = '필터 해제';
 
@@ -1970,7 +2026,8 @@
             renderDrawsList();
             highlightRows(0);
 
-            console.log('최근 10회차 미출현 필터 적용 완료');
+            localStorage.setItem('missing_period_is_manual', 'false');
+            saveFilterSettings(); // [Fix] 활성화 상태 저장 (force=true 경로 제외, checkAndResetOnNewDraw에서 별도 저장)
         }
 
         // 🔹 [AI 분석 엔진 - 미출현 전용 로직 개선]
@@ -2037,141 +2094,140 @@
             }
         }
 
-        async function refreshAIAnalysis() {
-            if (!allData || allData.length === 0) return;
-
-            // 1. 데이터 준비
-            const subjectData = allData[0];
-            const subjectRound = subjectData.round;
-            const targetRound = subjectRound + 1;
-
-            // [심화 데이터 추출]
-            // 장기 미출현(Range 3, 4) 번호의 '부활' Gap (1개 이상 출현한 지 얼마나 됐나)
-            let longMissingGap = 0;
-            // 최근 미출현(Range 1) 번호의 '쏠림' Streak (4개 이상 연속 출현 여부)
-            let recentHitStreak = 0;
-
-            for (let i = 0; i < allData.length; i++) {
-                const draw = allData[i];
-                const missAtThatTime = missHistory[draw.round];
-                if (!missAtThatTime) break;
-
-                const longHitCount = draw.numbers.filter(num => getMissRange(missAtThatTime[num]) >= 3).length;
-                if (longHitCount >= 1) break;
-                longMissingGap++;
-            }
-
-            for (let i = 0; i < allData.length; i++) {
-                const draw = allData[i];
-                const missAtThatTime = missHistory[draw.round];
-                if (!missAtThatTime) break;
-
-                const recentHitCount = draw.numbers.filter(num => getMissRange(missAtThatTime[num]) === 1).length;
-                if (recentHitCount < 4) break;
-                recentHitStreak++;
-            }
-
-            // 미출현 통계 요약
-            const missValues = Object.values(currentMiss);
-            const maxMiss = Math.max(...missValues);
-            const maxMissNum = Object.keys(currentMiss).find(k => currentMiss[k] === maxMiss);
-            const groups = { 1: [], 2: [], 3: [], 4: [] };
-            for (let num = 1; num <= 45; num++) {
-                const range = getMissRange(currentMiss[num]);
-                groups[range].push(num);
-            }
-
-            // 2. 헤더 정보 업데이트 제거 (요청에 따름)
-            // const targetEl = document.getElementById('aiTargetInfo');
-            // if (targetEl) targetEl.textContent = `Target ${targetRound}회차 (based on ${subjectRound}회)`;
-
-            // 3. AI 엔진 실행 (기존 common_v2.js 활용)
-            if (window.AIAnalysis) {
-                const customRules = `
-# [분석 특명: 데이터 논리(Why)]
-1. 도덕책 같은 뻔한 소리, "운에 맡기라", "확률은 공평하다" 등은 절대 금지하며 즉각 폐기하시오.
-2. 반드시 "왜(Why)" 그런 예상치가 나왔는지 longMissingGap(${longMissingGap})과 recentHitStreak(${recentHitStreak}) 데이터를 근거로 논리적으로 설명하시오.
-3. [임계점 진단]: 장기 미출현 번호가 '통계적 한계'에 도달하여 필출할 타이밍인지, 아니면 '정체'가 지속될지 단호하게 진단하시오.
-4. [구체적 전략]: ${targetRound}회차에서 추천하는 미출현 구간별 개수 필터(Min/Max 권장 범위)를 명확한 수치로 제안하시오.
-5. 수치는 {{trend:내용}}, 결론은 {{recommendation:내용}} 태그를 사용하시오.
-                `;
-
-                const contextData = `
-# [미출현 정밀 데이터]
-- 기준 회차: ${subjectRound}회
-- 최장기 미출현: ${maxMissNum}번 (${maxMiss}회 미출)
-- 장기 미출현(11회+) 부활 Gap: ${longMissingGap}회차 경과
-- 최근 미출현(1~5회) 다출 Streak: ${recentHitStreak}회차 연속
-- 구간별 현황: 1~5회(${groups[1].length}), 6~10회(${groups[2].length}), 11~15회(${groups[3].length}), 16회+(${groups[4].length})
-                `;
-
-                await window.AIAnalysis.executeAnalysis({
-                    containerId: 'aiAnalysisContent',
-                    analysisType: '미출현 패턴 정밀 분석',
-                    subjectRound,
-                    targetRound,
-                    userPrompt: customRules,
-                    contextData: contextData
-                });
-            } else {
-                console.error("Window.AIAnalysis modules are missing.");
+        // 딥러닝 인사이트 패널 초기화
+        function initDeepInsight() {
+            if (window.DeepInsightPanel) {
+                DeepInsightPanel.render('dlInsightContainer', 'missing', '미출현수 개수');
             }
         }
 
         function updateAnalysis() { }
 
-        document.addEventListener('DOMContentLoaded', function () {
-            loadData();
-
-            // [추가] 대시보드(filter.html) 또는 다른 탭에서 필터를 변경했을 때 실시간 반영
-            window.addEventListener('storage', (e) => {
-                if (e.key === 'missing_period' || e.key === 'missing_filter') {
-                    console.log('🔄 미출현 필터 변경 감지 - UI 갱신');
-                    loadFilterSettings().then(() => {
-                        if (useRangeFilter) renderDrawsList();
-                    });
-                }
-                if (e.key === 'missing_custom_filter') {
-                    console.log('🔄 커스텀 미출현 필터 변경 감지 - UI 갱신');
-                    loadSavedFilters().then(() => {
-                        if (useCustomFilter) renderDrawsList();
-                    });
-                }
-            });
-
-            // [New] NLP Initialize
-            if (window.BasicAnalysisNLP) {
-                new BasicAnalysisNLP('#nlp-main-input-container', {
-                    onNavigate: (round) => {
-                        selectRound(round);
-                    },
-                    onHighlight: (params) => {
-                        console.log('Highlight requested:', params);
-                    }
-                });
-            }
-
-            // [추가] 새 회차 감합 시 자동 필터 적용
-            checkAndResetOnNewDraw();
+        document.addEventListener('DOMContentLoaded', async function () {
+            await initializeMainLogic();
         });
 
-        // [추가] 새 회차 감합 시 자동 필터 갱신 로직
-        function checkAndResetOnNewDraw() {
+        async function initializeMainLogic() {
+            try {
+                // 레이아웃 초기화
+                if (window.initLayout) window.initLayout();
+                
+                // 데이터 로드
+                await loadData();
+
+                // [마이그레이션] long_term_miss → missing_period (localStorage 키 통일)
+                const _ltmRaw = localStorage.getItem('long_term_miss');
+                if (_ltmRaw && !localStorage.getItem('missing_period')) {
+                    localStorage.setItem('missing_period', _ltmRaw);
+                    console.log('🔄 [migrate] long_term_miss → missing_period');
+                }
+                localStorage.removeItem('long_term_miss');
+
+                // 필터 서비스 초기화
+                if (window.initFilterService) {
+                    await window.initFilterService();
+                }
+                
+                // 나머지 UI 렌더링
+                renderMissStatsTable();
+                renderMissGroupTable();
+                renderDrawsList();
+                populateRoundSelect();
+                initDeepInsight();
+                
+                console.log('✅ 미출현 그룹 분석 페이지 초기화 완료');
+
+                // 로그아웃 시 필터 UI 초기화
+                function resetFilterUI() {
+                    isRecentTenFilter = false;
+                    useCustomFilter = false;
+                    const btn = document.getElementById('recent10FilterBtn');
+                    if (btn) {
+                        btn.classList.remove('from-purple-500', 'to-purple-700');
+                        btn.classList.add('from-blue-500', 'to-blue-600');
+                    }
+                    const customTog = document.getElementById('customFilterToggle');
+                    if (customTog) customTog.checked = false;
+                    renderDrawsList();
+                }
+
+                // [추가] 대시보드(filter.html) 또는 다른 탭에서 필터를 변경했을 때 실시간 반영
+                window.addEventListener('storage', async (e) => {
+                    if (_missingSelfSaving) return; // [표준] 자체 저장 중 이벤트 무시
+                    if (!e.key || !e.newValue) return;
+
+                    // 1. 미출현 관련 필터 통합 동기화
+                    if (['missing_period', 'missing_filter', 'long_term_miss', 'missing_custom_filter'].includes(e.key)) {
+                        try {
+                            const _p = JSON.parse(e.newValue);
+                            const s = (_p.settings !== undefined) ? _p.settings : _p;
+
+                            // [표준] 로그아웃 감지 (empty or default-state payload)
+                            if ((_p.enabled === false && !s.ranges && !s.filters) || 
+                                (e.key === 'missing_period' && _p.enabled === false && Object.keys(s).length === 0)) {
+                                console.log('🔒 로그아웃 감지: 미출현 필터 초기화');
+                                resetFilterUI(); 
+                                return;
+                            }
+
+                            console.log('🔄 [Sync] 미출현 필터 변경 감지:', e.key);
+                            if (e.key === 'missing_custom_filter') {
+                                await loadSavedFilters();
+                            } else {
+                                await loadFilterSettings();
+                            }
+                            renderDrawsList();
+                            renderFiltersList();
+                            initDeepInsight();
+                        } catch(err) { console.error('🔄 [Sync] Error:', err); }
+                    }
+                });
+
+                // [New] NLP Initialize
+                if (window.BasicAnalysisNLP) {
+                    new BasicAnalysisNLP('#nlp-main-input-container', {
+                        onNavigate: (round) => {
+                            selectRound(round);
+                        },
+                        onHighlight: (params) => {
+                            console.log('Highlight requested:', params);
+                        }
+                    });
+                }
+            } catch (error) {
+                console.error('❌ 페이지 초기화 오류:', error);
+            }
+        }
+
+        async function checkAndResetOnNewDraw() {
             if (!allData || allData.length === 0) return;
             const latestRound = allData[0].round;
-            const lastProcessed = localStorage.getItem('missing_last_processed_round');
+            const targetRound = latestRound + 1;
 
-            // 신규 회차 감지 시
-            if (!lastProcessed || parseInt(lastProcessed) < latestRound) {
-                console.log(`✨ 신규 회차 감지: ${latestRound}회 - 최근 10회차 필터 자동 적용`);
+            // 새 회차 감지 (localStorage 비교)
+            const lastStoredRound = parseInt(localStorage.getItem('missing_period_last_round') || '0');
+            const isNewRound = latestRound > lastStoredRound;
 
-                // 최근 10회차 필터 적용 함수 호출
-                applyRecent10Filters();
+            // 1. 현재 회차 필터 로드 시도
+            const isLoaded = await loadFilterSettings(targetRound);
 
-                localStorage.setItem('missing_last_processed_round', latestRound.toString());
-                saveFilters(); // 필터 상태 저장
-                saveFilterSettings(); // 기준 필터 설정 저장
+            // 2. 로드 실패(새 회차) 또는 새 회차 감지 시 자동 최적화 수행
+            if (!isLoaded || isNewRound) {
+                console.log(`✨ 신규 회차 감지 (${targetRound}회) - 필터 자동 최적화 수행`);
+
+                // 수동 모드 해제
+                localStorage.setItem('missing_period_is_manual', 'false');
+
+                // 최근 10회차 필터 적용 (표준 로직)
+                await applyRecent10Filters(true);
+
+                // 초기화된 값 저장 (Supabase 포함)
+                await saveFilterSettings(targetRound);
+            } else {
+                console.log(`ℹ️ ${targetRound}회차 기존 필터 유지`);
             }
+
+            localStorage.setItem('missing_period_last_round', latestRound.toString());
         }
     </script>
     <!-- AI Q&A Sidebar (Floating Right) -->

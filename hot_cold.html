@@ -1,11 +1,11 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html class="light" lang="ko">
 
 <head>
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>Lotto Lab - 핫/콜드 (Supabase AI)</title>
-    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="css/tailwind.css" rel="stylesheet" />
 
     <link rel="icon" href="data:,">
 
@@ -28,6 +28,7 @@
     <script src="js/common_v2.js"></script>
     <script src="js/filter/FilterService.js"></script>
     <script src="js/layout.js"></script>
+    <script src="js/deep_insight_panel.js"></script>
     <script src="js/NLPProcessor.js"></script>
     <script src="js/NLPInputComponent.js"></script>
     <script src="js/BasicAnalysisNLP.js"></script>
@@ -64,8 +65,17 @@
             20: { hot: 5, neutral: [4, 2], cold: [1, 0] }
         };
 
-        // [추가] 필터 UI 값 변경 시 저장
+        let _hotColdSelfSaving = false; // [표준] 무한 루프 방지 플래그
+
+        // [추가] 수동 조작 마킹
+        function markManual() {
+            localStorage.setItem('hot_cold_filter_isManual', 'true');
+            deactivateRecent10IfActive();
+        }
+
+        // [수정] 필터 UI 값 변경 시 저장 (수동 변경 시 recent10 비활성화)
         async function updateFilters() {
+            markManual();
             await saveFilterSettings();
         }
 
@@ -73,115 +83,126 @@
             await saveFilterSettings();
         }
 
-        // [수정] 필터 저장 함수 - 기간별 키(hot_cold_5/10/15/20)로 각각 저장
-        async function saveFilterSettings() {
-            // GNB 바스켓 동기화: 로쫬스토리에서 읽어 전역 변수 업데이트
+        // [수정] 필터 저장 함수 (Utils.saveFilter → DB + localStorage + 브로드캐스트)
+        async function saveFilterSettings(targetRoundOverride = null) {
+            if (_hotColdSelfSaving) return; // 자체 저장 중 이벤트 무시
+            _hotColdSelfSaving = true;
+
             try {
-                const basket = JSON.parse(localStorage.getItem('lotto_basket') || '{}');
-                if (basket.exclude && Array.isArray(basket.exclude)) excludeNumbers = [...basket.exclude];
-                if (basket.fixed && Array.isArray(basket.fixed)) fixedNumbers = [...basket.fixed];
-            } catch (e) { }
+                // [동기화] GNB 바스켓과 전역 변수 동기화
+                try {
+                    const basket = JSON.parse(localStorage.getItem('lotto_basket') || '{}');
+                    if (basket.exclude && Array.isArray(basket.exclude)) excludeNumbers = [...basket.exclude];
+                    if (basket.fixed && Array.isArray(basket.fixed)) fixedNumbers = [...basket.fixed];
+                } catch (e) { }
 
-            // 현재 UI의 설정값을 periodFilters 객체의 해당 기간(currentPeriod)에 저장
-            periodFilters[currentPeriod] = {
-                enabled: document.getElementById('filterToggle').checked,
-                hotMin: document.getElementById('hotMin').value,
-                hotMax: document.getElementById('hotMax').value,
-                neutralMin: document.getElementById('neutralMin').value,
-                neutralMax: document.getElementById('neutralMax').value,
-                coldMin: document.getElementById('coldMin').value,
-                coldMax: document.getElementById('coldMax').value,
-                excludeNumbers: [...excludeNumbers],
-                fixedNumbers: [...fixedNumbers]
-            };
+                // [표준화] 최신 회차 + 1을 타겟 회차로 설정
+                const latestRound = (allData && allData.length > 0) ? allData[0].round : 0;
+                const targetRound = targetRoundOverride || (latestRound + 1);
 
-            // [New] 현재 회차 함께 저장 (새 회차 갱신 시 자동 최근 10회차 필터 적용을 위함)
-            const targetRound = (allData && allData.length > 0) ? allData[0].round : null;
+                // 현재 UI의 설정값을 periodFilters 객체의 해당 기간(currentPeriod)에 저장
+                // [수정] 0~6 범위 제한 추가
+                periodFilters[currentPeriod] = {
+                    enabled: document.getElementById('filterToggle').checked,
+                    hotMin: Math.max(0, Math.min(6, parseInt(document.getElementById('hotMin').value || 0))),
+                    hotMax: Math.max(0, Math.min(6, parseInt(document.getElementById('hotMax').value || 0))),
+                    neutralMin: Math.max(0, Math.min(6, parseInt(document.getElementById('neutralMin').value || 0))),
+                    neutralMax: Math.max(0, Math.min(6, parseInt(document.getElementById('neutralMax').value || 0))),
+                    coldMin: Math.max(0, Math.min(6, parseInt(document.getElementById('coldMin').value || 0))),
+                    coldMax: Math.max(0, Math.min(6, parseInt(document.getElementById('coldMax').value || 0))),
+                    excludeNumbers: [...excludeNumbers],
+                    fixedNumbers: [...fixedNumbers],
+                    recent10FilterActive: isRecentTenFilter
+                };
 
-            const settings = {
-                lastPeriod: currentPeriod,
-                periodFilters: periodFilters,
-                targetRound: targetRound
-            };
-            const enabled = document.getElementById('filterToggle').checked;
+                const enabled = document.getElementById('filterToggle').checked;
+                const periodKey = `hot_cold_${currentPeriod}`;
 
-            // DB 및 로컬스토리지 저장 (기간별 키 hot_cold_5/10/15/20)
-            const periodKey = `hot_cold_${currentPeriod}`;
-            if (window.Utils && window.Utils.saveFilter) {
-                await window.Utils.saveFilter(periodKey, {
-                    periodFilter: periodFilters[currentPeriod],
-                    targetRound: targetRound
-                }, enabled);
+                console.log(`[hot_cold] Saving filters for round: ${targetRound} (Period: ${currentPeriod})`);
 
-                // 구버전 호환성을 위해 v2 키에도 동시에 백업
-                // window.Utils.saveFilter('hot_cold_filter_v2', { ...settings, filterApplied: enabled });
+                // [동기화] Utils.saveFilter 사용 → DB + localStorage 동시 저장 + storage 이벤트 브로드캐스트
+                if (window.Utils && window.Utils.saveFilter) {
+                    await window.Utils.saveFilter(periodKey, {
+                        periodFilter: periodFilters[currentPeriod],
+                        targetRound: targetRound
+                    }, enabled);
+                } else if (window.filterService && window.filterService.initialized) {
+                    await window.filterService.saveSetting(periodKey, {
+                        periodFilter: periodFilters[currentPeriod],
+                        targetRound: targetRound
+                    }, enabled, targetRound);
+                }
+            } catch (err) {
+                console.error('❌ 필터 저장 중 오류:', err);
+            } finally {
+                _hotColdSelfSaving = false;
             }
         }
 
-        // [수정] 필터 로드 함수 - 현재 기간의 키로 로드, 새 회차카드지 시 최근 10회차 기본값 적용
+        // [수정] 필터 로드 함수 - 현재 기간의 키로 로드, 새 회차 감지 시 초기화
         async function loadFilterSettings() {
             let saved = null;
+            const latestRound = (allData && allData.length > 0) ? allData[0].round : 0;
+            const targetRound = latestRound + 1;
 
-            // 현재 회차 참조
-            const currentRound = (allData && allData.length > 0) ? allData[0].round : null;
+            // 모든 기간 키(5, 10, 15, 20)를 순회하며 로드
+            for (const period of [5, 10, 15, 20]) {
+                const periodKey = `hot_cold_${period}`;
+                let data = null;
 
-            // 모든 기간 키를 순서대로 로드
-            if (window.filterService && window.filterService.initialized) {
-                for (const period of [5, 10, 15, 20]) {
-                    const periodKey = `hot_cold_${period}`;
-                    const data = await window.filterService.loadSetting(periodKey);
-
-                    if (data) {
-                        // [New] 새 회차 인지: targetRound가 다르면 해당 기간 필터 초기화
-                        const settings = data.settings || {};
-                        if (settings.targetRound && currentRound && settings.targetRound !== currentRound) {
-                            console.log(`🔄 [${periodKey}] 새 회차 감지, 해당 기간 필터 초기화`);
-                            continue;
-                        }
-
-                        const periodFilter = settings.periodFilter;
-                        let finalPF = null;
-
-                        if (periodFilter) {
-                            finalPF = periodFilter;
-                        } else if (settings.hotRange || settings.warmRange || settings.coldRange) {
-                            // Dashboard 포맷 (배열) 대응
-                            finalPF = {
-                                hotMin: settings.hotRange?.[0] ?? 0,
-                                hotMax: settings.hotRange?.[1] ?? 6,
-                                neutralMin: settings.warmRange?.[0] ?? 0,
-                                neutralMax: settings.warmRange?.[1] ?? 6,
-                                coldMin: settings.coldRange?.[0] ?? 0,
-                                coldMax: settings.coldRange?.[1] ?? 6
-                            };
-                        }
-
-                        if (finalPF) {
-                            periodFilters[period] = {
-                                enabled: data.enabled !== undefined ? data.enabled : true,
-                                hotMin: parseInt(finalPF.hotMin ?? 0),
-                                hotMax: parseInt(finalPF.hotMax ?? 6),
-                                neutralMin: parseInt(finalPF.neutralMin ?? 0),
-                                neutralMax: parseInt(finalPF.neutralMax ?? 6),
-                                coldMin: parseInt(finalPF.coldMin ?? 0),
-                                coldMax: parseInt(finalPF.coldMax ?? 6)
-                            };
-                        }
-
-                        // 현재 기간의 설정이라면 saved에 기록 (나중에 applyPeriodSettings에서 사용)
-                        if (period === currentPeriod) {
-                            saved = { filterApplied: data.enabled !== undefined ? data.enabled : true, lastPeriod: period };
-                        }
-                    }
+                // 1. Utils.loadFilter 우선 사용
+                if (window.Utils && window.Utils.loadFilter) {
+                    data = await window.Utils.loadFilter(periodKey, targetRound);
                 }
-            }
 
-            // Fallback: localStorage (v2 키)
-            if (!saved && window.Utils && window.Utils.loadFilter) {
-                const local = window.Utils.loadFilter('hot_cold_filter_v2');
-                if (local) {
-                    saved = { filterApplied: local.filterApplied, lastPeriod: local.lastPeriod };
-                    if (local.periodFilters) periodFilters = local.periodFilters;
+                // Fallback: FilterService 직접 사용
+                if (!data && window.filterService && window.filterService.initialized) {
+                    data = await window.filterService.loadSetting(periodKey, targetRound);
+                }
+
+                if (data) {
+                    // [표준화] 타겟 회차 비교 및 리셋
+                    const savedTargetRound = data.targetRound;
+                    if (savedTargetRound && targetRound && savedTargetRound < targetRound) {
+                        console.log(`[hot_cold] Old round filter detected for period ${period} (${savedTargetRound} < ${targetRound}). Resetting.`);
+                        continue;
+                    }
+
+                    const settings = data.settings || data;
+                    const periodFilter = settings.periodFilter;
+                    let finalPF = null;
+
+                    if (periodFilter) {
+                        finalPF = periodFilter;
+                    } else if (settings.hotRange || settings.warmRange || settings.coldRange) {
+                        finalPF = {
+                            hotMin: settings.hotRange?.[0] ?? 0,
+                            hotMax: settings.hotRange?.[1] ?? 6,
+                            neutralMin: settings.warmRange?.[0] ?? 0,
+                            neutralMax: settings.warmRange?.[1] ?? 6,
+                            coldMin: settings.coldRange?.[0] ?? 0,
+                            coldMax: settings.coldRange?.[1] ?? 6
+                        };
+                    }
+
+                    if (finalPF) {
+                        periodFilters[period] = {
+                            enabled: data.enabled !== undefined ? data.enabled : true,
+                            hotMin: parseInt(finalPF.hotMin ?? 0),
+                            hotMax: parseInt(finalPF.hotMax ?? 6),
+                            neutralMin: parseInt(finalPF.neutralMin ?? 0),
+                            neutralMax: parseInt(finalPF.neutralMax ?? 6),
+                            coldMin: parseInt(finalPF.coldMin ?? 0),
+                            coldMax: parseInt(finalPF.coldMax ?? 6),
+                            excludeNumbers: finalPF.excludeNumbers || [],
+                            fixedNumbers: finalPF.fixedNumbers || [],
+                            recent10FilterActive: finalPF.recent10FilterActive || false
+                        };
+                    }
+
+                    if (period === currentPeriod) {
+                        saved = { filterApplied: data.enabled !== undefined ? data.enabled : true, lastPeriod: period };
+                    }
                 }
             }
 
@@ -190,21 +211,21 @@
                     document.getElementById('filterToggle').checked = saved.filterApplied;
                     filterApplied = saved.filterApplied;
                 }
-
                 currentPeriod = saved.lastPeriod || 10;
                 applyPeriodSettings(currentPeriod);
                 updatePeriodButtonUI(currentPeriod);
                 updateListCriteriaDisplay(currentPeriod);
 
-                // 🔄 UI 갱신 추가
                 updateAnalysis();
                 renderCountTable();
                 renderDrawsList();
                 renderFilterZones();
+                return true;
             }
 
             // GNB 바스켓 동기화
             syncBasketFromGNB();
+            return false;
         }
 
         // [New] GNB 제외수/고정수 바스켓과 동기화
@@ -243,6 +264,13 @@
                 // 제외수/고정수 복원
                 excludeNumbers = savedSettings.excludeNumbers || [];
                 fixedNumbers = savedSettings.fixedNumbers || [];
+
+                // recent10 버튼 상태 복원
+                isRecentTenFilter = savedSettings.recent10FilterActive || false;
+                if (isRecentTenFilter && allData && allData.length > 0) {
+                    highlightStartRound = allData[0].round;
+                }
+                updateRecent10FilterUI();
             } else {
                 // 저장된 설정이 없으면 해당 기간에 대해 자동 계산 실행 및 필터 초기화
                 calculateAndSetMinMax(period);
@@ -254,36 +282,6 @@
                 if (toggle) toggle.checked = true;
                 filterApplied = true;
             }
-        }
-
-        // [신규] 최근 10회차를 기반으로 필터 최소/최대값 자동 계산
-        function calculateAndSetMinMax(period) {
-            if (!allData || allData.length === 0) return;
-            const recent10 = allData.slice(0, 10);
-            let hMin = 6, hMax = 0, nMin = 6, nMax = 0, cMin = 6, cMax = 0;
-
-            recent10.forEach(draw => {
-                const { hot, neutral, cold } = getClassifiedNumbers(period, draw.round);
-                let hCount = 0, nCount = 0, cCount = 0;
-                draw.numbers.forEach(num => {
-                    if (hot.includes(num)) hCount++;
-                    else if (neutral.includes(num)) nCount++;
-                    else if (cold.includes(num)) cCount++;
-                });
-                if (hCount < hMin) hMin = hCount;
-                if (hCount > hMax) hMax = hCount;
-                if (nCount < nMin) nMin = nCount;
-                if (nCount > nMax) nMax = nCount;
-                if (cCount < cMin) cMin = cCount;
-                if (cCount > cMax) cMax = cCount;
-            });
-
-            if (document.getElementById('hotMin')) document.getElementById('hotMin').value = hMin;
-            if (document.getElementById('hotMax')) document.getElementById('hotMax').value = hMax;
-            if (document.getElementById('neutralMin')) document.getElementById('neutralMin').value = nMin;
-            if (document.getElementById('neutralMax')) document.getElementById('neutralMax').value = nMax;
-            if (document.getElementById('coldMin')) document.getElementById('coldMin').value = cMin;
-            if (document.getElementById('coldMax')) document.getElementById('coldMax').value = cMax;
         }
 
         // [신규] 기간 버튼 UI 업데이트 함수
@@ -318,7 +316,13 @@
 
             // 새로운 period로 전환
             currentPeriod = period;
-            applyPeriodSettings(period);
+            
+            // [수정] 최근 10회차 필터를 적용 중이라면 연동하여 재계산, 아니면 저장된 값 불러오기
+            if (isRecentTenFilter) {
+                calculateAndSetMinMax(period);
+            } else {
+                applyPeriodSettings(period);
+            }
 
             // UI 업데이트
             updatePeriodButtonUI(period);
@@ -330,7 +334,7 @@
             renderDrawsList();
 
             // 로딩 속도 최적화를 위해 자동 AI 분석(타이틀 분석) 실행 제거
-            // await refreshAIAnalysis();
+            // initDeepInsight();
         }
 
         // [신규] 분석 업데이트 함수
@@ -343,11 +347,11 @@
         // 대시보드의 해당 핫/콜드 세션으로 바로 이동 + 하이라이트
         function goToFilterPage() {
             const periodKey = `hot_cold_${currentPeriod}`;
-            window.location.href = `filter.html?tab=foundation&id=${periodKey}`;
+            window.open(`filter.html?tab=foundation&id=${periodKey}`, '_blank');
         }
 
         // 🔹 페이지 전용 Tailwind 설정
-        tailwind.config = {
+        if(typeof tailwind !== "undefined") tailwind.config = {
             darkMode: "class",
             theme: {
                 extend: {
@@ -562,6 +566,18 @@
             justify-content: center;
         }
 
+        /* 🔹 [추가] 당첨수 값 하이라이트 (다크그레이 원형) */
+        .val-highlight {
+            background-color: #6B7280 !important; /* Standard Gray */
+            color: white !important;
+            border-radius: 9999px !important;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            transform: scale(1.1);
+            display: inline-flex !important;
+            align-items: center;
+            justify-content: center;
+        }
+
         input[type=number]::-webkit-inner-spin-button,
         input[type=number]::-webkit-outer-spin-button {
             -webkit-appearance: none;
@@ -593,91 +609,21 @@
                         <p class="text-sm text-gray-600">번호별 출현 빈도를 분석하여 핫, 중립, 콜드 그룹으로 분류합니다.</p>
                     </div>
 
-                    <div class="ai-section p-8 pb-10 mb-6">
-                        <div class="flex items-center justify-between mb-6">
-                            <div class="flex items-center gap-2">
-                                <h3 class="text-2xl font-extrabold text-gray-900 tracking-tight">AI Insight</h3>
-                                <span id="aiTargetInfo" class="text-sm text-gray-500 font-medium"></span>
-                            </div>
-                            <button onclick="window.AIAnalysis.openPromptLibraryModal('hot_cold', event)"
-                                class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors">
-                                <span class="material-symbols-outlined text-lg">library_books</span>
-                                프롬프트 라이브러리
-                            </button>
-                        </div>
-
-                        <div id="aiAnalysisContent" class="min-h-[100px] flex items-center justify-center">
-                            <!-- 기본 안내 문구 -->
-                            <div class="text-center text-gray-500">
-                                <span class="material-symbols-outlined text-4xl mb-2 opacity-50">smart_toy</span>
-                                <p>질문을 선택하거나 입력하여 AI 분석을 시작하세요.</p>
-                            </div>
-                        </div>
-
-                        <div class="mt-6 border-t border-gray-100 pt-6">
-                            <div class="flex flex-col gap-3">
-                                <div class="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-                                    <button onclick="openChatWithPrompt('최근 핫/콜드 번호의 출현 흐름 및 규칙 상세 분석')"
-                                        class="px-3 py-1.5 text-xs font-medium bg-blue-50 text-blue-600 rounded-full hover:bg-blue-100 transition-colors whitespace-nowrap">
-                                        ✨ 핫/콜드綜合 진단
-                                    </button>
-                                    <button onclick="openChatWithPrompt('각 그룹(핫, 중립, 콜드)의 당첨 비중 통계 분석')"
-                                        class="px-3 py-1.5 text-xs font-medium bg-indigo-50 text-indigo-600 rounded-full hover:bg-indigo-100 transition-colors whitespace-nowrap">
-                                        📊 패턴별 비중 분석
-                                    </button>
-                                    <button onclick="openChatWithPrompt('특정 그룹의 과출현 또는 장기 미출현 후의 평균 회귀 지점 진단')"
-                                        class="px-3 py-1.5 text-xs font-medium bg-purple-50 text-purple-600 rounded-full hover:bg-purple-100 transition-colors whitespace-nowrap">
-                                        🔄 평균 회귀 분석
-                                    </button>
-                                    <button onclick="openChatWithPrompt('이번 회차에 특정 그룹(핫,중립,콜드) 중 전멸할 가능성이 있는 구간 분석')"
-                                        class="px-3 py-1.5 text-xs font-medium bg-red-50 text-red-600 rounded-full hover:bg-red-100 transition-colors whitespace-nowrap">
-                                        🚫 멸(Zero) 구간 예측
-                                    </button>
-                                    <button onclick="openChatWithPrompt('최근 10회차 핫/콜드 데이터의 상하 이동 추세 분석')"
-                                        class="px-3 py-1.5 text-xs font-medium bg-teal-50 text-teal-600 rounded-full hover:bg-teal-100 transition-colors whitespace-nowrap">
-                                        📈 그룹별 추세 추적
-                                    </button>
-                                    <button onclick="openChatWithPrompt('최근 100회차 기준 각 그룹별 가장 안정적인 개수 범위 추천')"
-                                        class="px-3 py-1.5 text-xs font-medium bg-orange-50 text-orange-600 rounded-full hover:bg-orange-100 transition-colors whitespace-nowrap">
-                                        🎯 최적 필터 범위 추천
-                                    </button>
-                                    <button onclick="openChatWithPrompt('동일한 핫/콜드 패턴이 연속으로 나올 확률 및 기록 분석')"
-                                        class="px-3 py-1.5 text-xs font-medium bg-green-50 text-green-600 rounded-full hover:bg-green-100 transition-colors whitespace-nowrap">
-                                        ⚠️ 연속성 감지
-                                    </button>
-                                    <button
-                                        onclick="document.getElementById('aiUserPrompt').value='현재 중립 구간 번호 중 Hot으로 진입할 가능성이 높은 번호 식별'; submitCustomAIAnalysis()"
-                                        class="px-3 py-1.5 text-xs font-medium bg-yellow-50 text-yellow-600 rounded-full hover:bg-yellow-100 transition-colors whitespace-nowrap">
-                                        🔍 중립 상승세 분석
-                                    </button>
-                                    <button onclick="openChatWithPrompt('최근 통계상 출현 확률이 가장 낮은 핫/콜드 조합 패턴 식별')"
-                                        class="px-3 py-1.5 text-xs font-medium bg-slate-50 text-slate-600 rounded-full hover:bg-slate-100 transition-colors whitespace-nowrap">
-                                        🧼 제외 전략
-                                    </button>
-                                    <button onclick="openChatWithPrompt('분석된 비중을 반영한 최적의 핫/콜드 조합 필터링 전략 제안')"
-                                        class="px-3 py-1.5 text-xs font-medium bg-pink-50 text-pink-600 rounded-full hover:bg-pink-100 transition-colors whitespace-nowrap">
-                                        💡 조합 최적화 전략
-                                    </button>
-                                </div>
-                                <div class="relative">
-                                    <input type="text" id="aiUserPrompt"
-                                        class="w-full pl-4 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder-gray-400"
-                                        placeholder="핫/콜드 분석에 대해 궁금한 점을 물어보세요..."
-                                        onkeyup="if(event.key === 'Enter') submitCustomAIAnalysis()">
-                                    <button onclick="submitCustomAIAnalysis()"
-                                        class="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors">
-                                        <span class="material-symbols-outlined text-xl">send</span>
-                                    </button>
+                        <div class="ai-section p-8 pb-10 mb-6 font-sans">
+                            <h3 class="text-lg font-bold text-gray-900 mb-4">딥러닝 Insight</h3>
+                            <div id="dlInsightContainer">
+                                <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
+                                    <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
+                                    <span class="text-sm">딥러닝 모델 분석 중 (7개 모델)...</span>
                                 </div>
                             </div>
                         </div>
-                    </div>
 
                     <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
                         <div class="flex items-center justify-between mb-4">
                             <h3 class="text-lg font-bold text-gray-900">기간 당첨 개수별 번호 및 필터</h3>
                             <button onclick="goToFilterPage()"
-                                class="text-sm font-medium text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
+                                class="text-sm font-medium text-slate-500 hover:text-blue-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
                                 <span class="material-symbols-outlined text-[18px]">tune</span>
                                 필터 페이지 가기
                             </button>
@@ -772,7 +718,7 @@
                                 </label>
                             </label>
                             <button onclick="applyRecent10Filters()" id="recent10FilterBtn" style="min-width: 210px;"
-                                class="flex items-center justify-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 transition-all active:scale-95 text-sm font-black">
+                                class="flex items-center justify-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 transition-all active:scale-95 text-sm font-black">
                                 <span class="material-symbols-outlined text-[18px]">auto_fix_high</span>
                                 <span id="recent10BtnText">최근 10회차 필터 적용</span>
                             </button>
@@ -994,7 +940,7 @@
                 document.getElementById('loadingOverlay').style.display = 'none';
 
                 // AI 분석 실행
-                await refreshAIAnalysis();
+                initDeepInsight();
 
             } catch (err) {
                 console.error('데이터 로드 실패:', err);
@@ -1002,29 +948,40 @@
             }
         });
 
-        // [추가] 새 회차 감지 및 필터 자동 갱신
+        // [전문가] 새 회차 감지 및 필터 리셋/이월 로직
         async function checkAndResetOnNewDraw() {
             if (!allData || allData.length === 0) return;
+
             const latestRound = allData[0].round;
-            const lastProcessed = localStorage.getItem('hot_cold_last_processed_round');
+            const targetRound = latestRound + 1;
 
-            // 신규 회차 감지 시
-            if (!lastProcessed || parseInt(lastProcessed) < latestRound) {
-                console.log(`✨ 신규 회차 감지: ${latestRound}회 - 모든 기준 회차 필터 자동 재계산`);
+            // 새 회차 감지 (localStorage 비교)
+            const lastStoredRound = parseInt(localStorage.getItem('hot_cold_last_round') || '0');
+            const isNewRound = latestRound > lastStoredRound;
 
-                // 모든 기준 회차(5, 10, 15, 20)에 대해 필터 자동 계산 및 저장
-                const periods = [5, 10, 15, 20];
-                for (const p of periods) {
+            // loadFilterSettings를 호출하여 내부적으로 회차 비교 및 로드 수행
+            const isLoaded = await loadFilterSettings();
+
+            // 로드 실패, 기간 필터 없음, 또는 새 회차 감지 시 초기화
+            if (!isLoaded || !periodFilters[currentPeriod] || isNewRound) {
+                console.log(`[hot_cold] New draw detected (${latestRound}). Initializing filters for ${targetRound}.`);
+
+                // 모든 기준 회차(5, 10, 15, 20)에 대해 자동 재계산 및 차기 회차용으로 저장
+                const originalPeriod = currentPeriod;
+                for (const p of [5, 10, 15, 20]) {
+                    currentPeriod = p;
                     calculateAndSetMinMax(p);
+                    await saveFilterSettings(targetRound);
                 }
+                currentPeriod = originalPeriod;
 
-                localStorage.setItem('hot_cold_last_processed_round', latestRound.toString());
-
-                // 변경 사항 즉시 반영을 위해 업데이트 호출
-                updateAnalysis();
-                renderCountTable();
+                // UI 갱신 (현재 선택된 기간 기준)
+                applyPeriodSettings(currentPeriod);
                 renderFilterZones();
+                renderCountTable();
             }
+
+            localStorage.setItem('hot_cold_last_round', latestRound.toString());
         }
 
         // [New] GNB 바스켓 실시간 동기화 (같은 탭 내 바스켓 변경 감지)
@@ -1038,78 +995,66 @@
             renderFilterZones();
         });
 
+        // 로그아웃 시 필터 UI 초기화
+        function resetFilterUI() {
+            periodFilters = {};
+            filterApplied = false;
+            isRecentTenFilter = false;
+            highlightStartRound = null;
+            const tog = document.getElementById('filterToggle');
+            if (tog) tog.checked = false;
+            ['hotMin','hotMax','neutralMin','neutralMax','coldMin','coldMax'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.value = 0;
+            });
+            const btn = document.getElementById('recent10FilterBtn');
+            const btnText = document.getElementById('recent10BtnText');
+            if (btn) {
+                btn.classList.remove('from-purple-500', 'to-purple-700');
+                btn.classList.add('from-blue-500', 'to-blue-600');
+            }
+            if (btnText) btnText.textContent = '최근 10회차 필터 적용';
+            renderDrawsList();
+        }
+
         // [New] 다른 탭/창에서 바스켓 변경 및 필터 변경 시도 감지 (localStorage 이벤트)
-        window.addEventListener('storage', (e) => {
+        // [표준] 다른 탭/창에서 바스켓 변경 및 필터 변경 시도 감지 (localStorage 이벤트)
+        window.addEventListener('storage', async (e) => {
             if (e.key === 'lotto_basket') {
                 syncBasketFromGNB();
                 return;
             }
 
-            if (e.key && e.key.startsWith('hot_cold_')) {
-                const period = parseInt(e.key.replace('hot_cold_', ''));
-                if ([5, 10, 15, 20].includes(period)) {
+            const keysToWatch = ['hot_cold_filter', 'hot_cold_pattern'];
+            const periodRegex = /^hot_cold_(5|10|15|20)$/;
+            
+            if (keysToWatch.includes(e.key) || periodRegex.test(e.key)) {
+                console.log(`[hot_cold] Storage event detected for: ${e.key}, reloading...`);
+                
+                if (periodRegex.test(e.key)) {
+                    const period = parseInt(e.key.replace('hot_cold_', ''));
                     try {
                         const parsed = JSON.parse(e.newValue);
                         if (!parsed) return;
-
-                        const settings = parsed.settings || parsed;
-                        const enabled = parsed.enabled !== undefined ? parsed.enabled : true;
-
-                        // [수정] Dashboard 포맷(배열)과 분석페이지 포맷(객체) 모두 대응
-                        let pf = settings.periodFilter;
-                        if (!pf && (settings.hotRange || settings.warmRange || settings.coldRange)) {
-                            pf = {
-                                hotMin: settings.hotRange?.[0] ?? 0,
-                                hotMax: settings.hotRange?.[1] ?? 6,
-                                neutralMin: settings.warmRange?.[0] ?? 0,
-                                neutralMax: settings.warmRange?.[1] ?? 6,
-                                coldMin: settings.coldRange?.[0] ?? 0,
-                                coldMax: settings.coldRange?.[1] ?? 6
-                            };
+                        // 로그아웃 감지
+                        if (parsed.enabled === false && !parsed.settings && !parsed.periodFilter && !parsed.hotRange) {
+                            resetFilterUI(); return;
                         }
+                    } catch(err) {}
+                }
 
-                        if (pf) {
-                            periodFilters[period] = {
-                                enabled: enabled,
-                                hotMin: parseInt(pf.hotMin ?? 0),
-                                hotMax: parseInt(pf.hotMax ?? 6),
-                                neutralMin: parseInt(pf.neutralMin ?? 0),
-                                neutralMax: parseInt(pf.neutralMax ?? 6),
-                                coldMin: parseInt(pf.coldMin ?? 0),
-                                coldMax: parseInt(pf.coldMax ?? 6)
-                            };
+                await loadFilterSettings();
+                
+                // 🔄 실시간 UI 갱신 (전체 갱신)
+                updateAnalysis();
+                renderCountTable();
+                updateFilterMaxValues();
+                renderFilterZones();
+                renderDrawsList();
 
-                            // 현재 보고 있는 기준 회차 탭과 동일할 경우 UI 즉시 업데이트
-                            if (currentPeriod === period) {
-                                if (document.getElementById('hotMin')) document.getElementById('hotMin').value = periodFilters[period].hotMin;
-                                if (document.getElementById('hotMax')) document.getElementById('hotMax').value = periodFilters[period].hotMax;
-                                if (document.getElementById('neutralMin')) document.getElementById('neutralMin').value = periodFilters[period].neutralMin;
-                                if (document.getElementById('neutralMax')) document.getElementById('neutralMax').value = periodFilters[period].neutralMax;
-                                if (document.getElementById('coldMin')) document.getElementById('coldMin').value = periodFilters[period].coldMin;
-                                if (document.getElementById('coldMax')) document.getElementById('coldMax').value = periodFilters[period].coldMax;
-
-                                const toggle = document.getElementById('filterToggle');
-                                if (toggle) toggle.checked = enabled;
-                                filterApplied = enabled;
-
-                                updateAnalysis(); // 값이 바뀌었으므로 분석 리스트 갱신 시도
-                            }
-                        }
-
-                        // 🔄 실시간 UI 갱신 (전체 갱신)
-                        updateAnalysis();
-                        renderCountTable();
-                        updateFilterMaxValues();
-                        renderFilterZones();
-                        renderDrawsList();
-
-                        // 하이라이트 유지 (있는 경우)
-                        if (highlightStartRound) {
-                            highlightTenDraws(highlightStartRound);
-                        }
-                    } catch (err) {
-                        console.error('필터 실시간 동기화 파싱 오류:', err);
-                    }
+                // 하이라이트 유지 (있는 경우)
+                if (highlightStartRound) {
+                    highlightTenDraws(highlightStartRound);
                 }
             }
         });
@@ -1196,18 +1141,16 @@
             const fixedZone = document.getElementById('fixedZone');
             const { hot, neutral, cold } = getClassifiedNumbers(currentPeriod, selectedRound);
 
-            const getNumberClass = (n) => {
-                if (hot.includes(n)) return 'hot-bg';
-                if (neutral.includes(n)) return 'neutral-bg';
-                if (cold.includes(n)) return 'cold-bg';
-                return 'neutral-bg';
+            const getNumberStyle = (n) => {
+                const color = window.Utils.getBallColor(n);
+                return `background-color: ${color}; border-color: ${color};`;
             };
 
             if (excludeNumbers.length === 0) excludeZone.innerHTML = '<p class="text-sm text-gray-400 text-center">번호를 드래그하여 추가하세요</p>';
-            else excludeZone.innerHTML = excludeNumbers.map(n => `<span class="filter-number ${getNumberClass(n)}" onclick="removeFilterNumber(${n}, 'exclude')">${n}</span>`).join('');
+            else excludeZone.innerHTML = excludeNumbers.map(n => `<span class="filter-number text-white" style="${getNumberStyle(n)}" onclick="removeFilterNumber(${n}, 'exclude')">${n}</span>`).join('');
 
             if (fixedNumbers.length === 0) fixedZone.innerHTML = '<p class="text-sm text-gray-400 text-center">번호를 드래그하여 추가하세요</p>';
-            else fixedZone.innerHTML = fixedNumbers.map(n => `<span class="filter-number ${getNumberClass(n)}" onclick="removeFilterNumber(${n}, 'fixed')">${n}</span>`).join('');
+            else fixedZone.innerHTML = fixedNumbers.map(n => `<span class="filter-number text-white" style="${getNumberStyle(n)}" onclick="removeFilterNumber(${n}, 'fixed')">${n}</span>`).join('');
         }
 
         function updateFilterMaxValues() {
@@ -1279,44 +1222,56 @@
             return { hot, neutral, cold };
         }
 
+        // [표준화] 최근 10회차를 기반으로 필터 최소/최대값 자동 계산
         function calculateAndSetMinMax(period) {
-            if (allData.length === 0) return;
-            let hMin = 99, hMax = -1;
-            let nMin = 99, nMax = -1;
-            let cMin = 99, cMax = -1;
-            const analyzeLimit = period;
+            if (!allData || allData.length === 0) return;
+            
+            // [수정] 분석 범위를 명시적으로 최근 10회차로 고정
+            const analyzeLimit = 10;
             const targetData = allData.slice(0, analyzeLimit);
+            
+            let hMin = 6, hMax = 0, nMin = 6, nMax = 0, cMin = 6, cMax = 0;
+            let found = false;
 
-            for (const draw of targetData) {
+            targetData.forEach(draw => {
                 const { hot, neutral, cold } = getClassifiedNumbers(period, draw.round);
-                const hotCount = draw.numbers.filter(n => hot.includes(n)).length;
-                const neutralCount = draw.numbers.filter(n => neutral.includes(n)).length;
-                const coldCount = draw.numbers.filter(n => cold.includes(n)).length;
+                let hCount = 0, nCount = 0, cCount = 0;
+                draw.numbers.forEach(num => {
+                    if (hot.includes(num)) hCount++;
+                    else if (neutral.includes(num)) nCount++;
+                    else if (cold.includes(num)) cCount++;
+                });
 
-                if (hotCount < hMin) hMin = hotCount;
-                if (hotCount > hMax) hMax = hotCount;
-                if (neutralCount < nMin) nMin = neutralCount;
-                if (neutralCount > nMax) nMax = neutralCount;
-                if (coldCount < cMin) cMin = coldCount;
-                if (coldCount > cMax) cMax = coldCount;
+                if (hCount < hMin) hMin = hCount;
+                if (hCount > hMax) hMax = hCount;
+                if (nCount < nMin) nMin = nCount;
+                if (nCount > nMax) nMax = nCount;
+                if (cCount < cMin) cMin = cCount;
+                if (cCount > cMax) cMax = cCount;
+                found = true;
+            });
+
+            if (!found) {
+                hMin = 0; hMax = 6; nMin = 0; nMax = 6; cMin = 0; cMax = 6;
             }
-            if (hMin === 99) { hMin = 0; hMax = 6; nMin = 0; nMax = 6; cMin = 0; cMax = 6; }
-            document.getElementById('hotMin').value = hMin;
-            document.getElementById('hotMax').value = hMax;
-            document.getElementById('neutralMin').value = nMin;
-            document.getElementById('neutralMax').value = nMax;
-            document.getElementById('coldMin').value = cMin;
-            document.getElementById('coldMax').value = cMax;
+
+            if (document.getElementById('hotMin')) document.getElementById('hotMin').value = hMin;
+            if (document.getElementById('hotMax')) document.getElementById('hotMax').value = hMax;
+            if (document.getElementById('neutralMin')) document.getElementById('neutralMin').value = nMin;
+            if (document.getElementById('neutralMax')) document.getElementById('neutralMax').value = nMax;
+            if (document.getElementById('coldMin')) document.getElementById('coldMin').value = cMin;
+            if (document.getElementById('coldMax')) document.getElementById('coldMax').value = cMax;
         }
 
         async function selectRound(round) {
+            markManual(); // [수정] 수동 선택 시 recent10 해제
             selectedRound = parseInt(round);
             updateAnalysis();
             renderCountTable();
             updateFilterMaxValues();
             updateSelectedRoundDisplay();
             renderFilterZones();
-            await refreshAIAnalysis();
+            initDeepInsight();
         }
 
         function updateSelectedRoundDisplay() {
@@ -1335,27 +1290,19 @@
                     let className = '';
                     let style = '';
 
-                    // [Modified] 색상 로직 (미래 회차 vs 과거/최근 회차)
-                    // 1. 미래 회차 (isDraggable): 모든 번호에 Hot/Neutral/Cold 색상 적용 (분석용)
-                    // 2. 과거/최근 회차 (!isDraggable): 결과 확인용
-                    //    - 당첨번호: 최근이면 기본색, 과거면 핫/콜드색
-                    //    - 미당첨: 옅은 회색
-
+                    // [수정] 모든 번호에 수동 필터 표준 색상 적용
+                    const color = window.Utils.getBallColor(n);
+                    
                     if (isDraggable) {
-                        // 미래 회차: 모든 번호를 분류 색상으로 표시
-                        className = typeClass + ' font-bold shadow-sm ring-1 ring-inset ring-black/10 cursor-grab active:cursor-grabbing';
+                        // 미래 회차: 드래그 가능
+                        className = 'font-bold shadow-sm ring-1 ring-inset ring-black/10 cursor-grab active:cursor-grabbing text-white';
+                        style = `background-color: ${color}; border-color: ${color};`;
                     } else {
                         // 과거/최근 회차
                         if (isWinning) {
-                            if (isLatest) {
-                                // 최근 회차(1210): 기본 공 색상
-                                const color = window.Utils.getBallColor(n);
-                                className = 'font-bold shadow-sm ring-1 ring-inset ring-black/10 text-white';
-                                style = `background-color: ${color}; border-color: ${color};`;
-                            } else {
-                                // 과거 회차: 분류 색상
-                                className = typeClass + ' font-bold shadow-sm ring-1 ring-inset ring-black/10';
-                            }
+                            // 당첨번호: 표준 색상
+                            className = 'font-bold shadow-sm ring-1 ring-inset ring-black/10 text-white';
+                            style = `background-color: ${color}; border-color: ${color};`;
                         } else {
                             // 미당첨: 옅은 회색
                             className = 'bg-gray-50 text-gray-300 border border-gray-100';
@@ -1456,12 +1403,38 @@
 
         // 표시 범위 변경 (리스트 표시용)
         function updateDisplayRange(value) {
+            markManual(); // [수정] 범위 조정 시 수동 마킹 및 필터 해제
             displayLimit = parseInt(value);
             document.getElementById('rangeLabel').textContent = value + '회';
             const dispCount = document.getElementById('displayedCount');
             if (dispCount) dispCount.textContent = value;
             updateSliderBackground(value, 'displayRange');
             renderDrawsList();
+        }
+
+        // [표준화] 최근 10회차 필터를 비활성화하고 UI를 초기화하는 함수
+        function deactivateRecent10IfActive() {
+            if (isRecentTenFilter) {
+                isRecentTenFilter = false;
+                highlightStartRound = null;
+                
+                const btn = document.getElementById('recent10FilterBtn');
+                const btnText = document.getElementById('recent10BtnText');
+                if (btn) {
+                    btn.classList.remove('from-purple-500', 'to-purple-700', 'shadow-purple-200');
+                    btn.classList.add('from-blue-500', 'to-blue-600', 'shadow-blue-200');
+                }
+                if (btnText) btnText.textContent = '최근 10회차 필터 적용';
+                
+                const toggle = document.getElementById('filterToggle');
+                if (toggle) toggle.checked = true;
+
+                // 하이라이트 즉시 해제
+                document.querySelectorAll('.row-highlight').forEach(el => el.classList.remove('row-highlight'));
+                
+                localStorage.setItem('hot_cold_filter_isManual', 'true');
+                saveFilterSettings();
+            }
         }
 
         function updateSliderBackground(value, sliderId = 'displayRange') {
@@ -1474,6 +1447,7 @@
         }
 
         function toggleCellHighlight(col, val) {
+            markManual(); // [수정] 수동 선택 시 recent10 해제
             if (selectedHighlight.col === col && selectedHighlight.val === val) {
                 selectedHighlight = { col: null, val: null };
             } else {
@@ -1570,6 +1544,7 @@
 
         // 🔹 행 하이라이트 (10회차) - 표준화 적용
         function highlightTenDraws(round) {
+            deactivateRecent10IfActive(); // [추가] 수동 선택 시 recent10 해제
             // [New] 토글 기능: 동일 회차 재클릭 시 해제
             if (highlightStartRound === round) {
                 highlightStartRound = null;
@@ -1597,62 +1572,10 @@
         // ==========================================================
         // [Merged] AI 분석 함수 (NLP + QnA Sidebar)
 
-        async function refreshAIAnalysis() {
-            if (!allData || allData.length === 0) return;
-
-            // UI 상태 제어
-            const loader = document.getElementById('aiLoadingIndicator');
-            const content = document.getElementById('aiAnalysisContent');
-
-            // 기존 3-Section UI가 아닌 단일 로딩 메시지 구조일 수 있으므로 ID 확인
-            // hot_cold.html은 <div id="aiAnalysisContent">...<span class="...animate-spin">...</span></div> 구조임.
-            // 따라서 로딩 인디케이터를 별도로 제어하기보다, aiAnalysisContent 내부를 로딩 상태로 변경하는 것이 안전함.
-            const analysisContent = document.getElementById('aiAnalysisContent');
-            if (analysisContent) {
-                analysisContent.innerHTML = `
-                <div class="flex items-center gap-2 text-gray-500">
-                    <span class="material-symbols-outlined text-lg animate-spin">progress_activity</span>
-                    <span>AI가 핫/콜드 패턴을 정밀 분석하고 있습니다...</span>
-                </div>
-            `;
-            }
-
-            const subjectData = allData[0];
-            const subjectRound = subjectData.round;
-            const targetRound = subjectRound + 1;
-
-            // Context 생성
-            const contextData = generateAnalysisContext(currentPeriod);
-
-            // 2. 헤더 정보 업데이트 제거 (요청에 따름)
-            // const targetText = `Target ${targetRound}회차 (based on ${subjectRound}회)`;
-            // const targetEl = document.getElementById('aiTargetInfo');
-            // if (targetEl) targetEl.textContent = targetText;
-
-            // 실행 Config
-            const analysisConfig = {
-                containerId: 'aiAnalysisContent',
-                analysisType: 'hot_cold', // AIProxy에서 인식하는 type
-                topic: '핫/콜드',
-                subjectRound: subjectRound,
-                targetRound: targetRound,
-                userPrompt: "현재 핫/콜드 데이터를 바탕으로 다음 회차의 출현 경향을 예측하고 전략을 제시해줘.",
-                contextData: contextData,
-                customRules: `
-# [분석 미션]
-1. 핫/콜드 숫자의 흐름(Gap, Streak)과 분포 비율을 근거로 "타이밍"을 진단하시오.
-2. [전략 제안]: 이번 회차에 Hot/Neutral/Cold 그룹별로 몇 개씩 가져가는 것이 좋을지 필터 범위(Min~Max)를 수치로 제안하시오.
-3. [패턴]: 특정 그룹의 과열/침체 여부를 판단하고, 평균 회귀 관점에서의 변화 가능성을 서술하시오.
-4. 절대 "에너지", "기운", "운세" 같은 비과학적 용어를 사용하지 마시오. 철저히 통계 데이터에 기반하시오.
-`
-            };
-
-            // AI 실행 (AIProxy 우선)
-            if (window.AIAnalysis && window.AIAnalysis.executeAnalysis) {
-                await window.AIAnalysis.executeAnalysis(analysisConfig);
-            } else {
-                // Fallback if AIAnalysis not available (should not happen with common_v2.js)
-                await executeLocalAIAnalysis(analysisConfig);
+        // 딥러닝 인사이트 패널 초기화
+        function initDeepInsight() {
+            if (window.DeepInsightPanel) {
+                DeepInsightPanel.render('dlInsightContainer', 'hot10', '핫번호 개수');
             }
         }
 
@@ -1701,6 +1624,19 @@
 
                 qnaContent.scrollTop = qnaContent.scrollHeight;
                 inputEl.value = '';
+            }
+        }
+
+        /**
+         * [표준화] AI 통합 분석 실행 함수
+         * @param {string} query - 사용자의 질문 또는 분석 명령
+         */
+        async function runAIAnalysis(query) {
+            if (!query) return;
+            
+            // 챗봇 모달 오픈
+            if (typeof openQnaModal === 'function') {
+                openQnaModal(query);
             }
         }
 
@@ -1822,14 +1758,7 @@
 
             if (isRecentTenFilter) {
                 isRecentTenFilter = false;
-                ['hotMin', 'hotMax', 'neutralMin', 'neutralMax', 'coldMin', 'coldMax'].forEach(id => {
-                    const el = document.getElementById(id);
-                    if (el) el.value = (id.includes('Max') ? 6 : 0);
-                });
-                if (toggle) toggle.checked = false;
-                filterApplied = false;
                 highlightStartRound = null;
-                updateFilters();
                 saveFilterSettings();
                 updateRecent10FilterUI();
                 renderDrawsList();
@@ -1861,11 +1790,11 @@
 
             if (isRecentTenFilter) {
                 btn.classList.add('from-purple-500', 'to-purple-700');
-                btn.classList.remove('from-blue-500', 'to-indigo-600');
+                btn.classList.remove('from-blue-500', 'to-blue-600');
                 btnText.textContent = '필터 적용 해제';
             } else {
                 btn.classList.remove('from-purple-500', 'to-purple-700');
-                btn.classList.add('from-blue-500', 'to-indigo-600');
+                btn.classList.add('from-blue-500', 'to-blue-600');
                 btnText.textContent = '최근 10회차 필터 적용';
             }
         }
@@ -2077,6 +2006,29 @@ ${recent30}
                 qnaContent.scrollTop = qnaContent.scrollHeight;
             }
         }
+        // [추가] 필터 설정 로드 함수
+        async function loadFilterSettings(targetRound = null) {
+            try {
+                if (!window.Utils || !window.Utils.loadFilter) return;
+                const settings = await window.Utils.loadFilter('hot_cold_filter', targetRound);
+                if (settings) {
+                    if (settings.period !== undefined) {
+                        currentPeriod = settings.period;
+                        updatePeriodLabel(currentPeriod);
+                    }
+                    if (settings.displayLimit !== undefined) {
+                        displayLimit = settings.displayLimit;
+                        const slider = document.getElementById('displayRange');
+                        if (slider) slider.value = displayLimit;
+                        updateDisplayRange(displayLimit);
+                    }
+                    renderDrawsList();
+                }
+            } catch (e) {
+                console.error('핫/콜드 필터 로드 실패:', e);
+            }
+        }
+
     </script>
 
     <!-- AI Q&A Sidebar (Floating Right) -->
@@ -2120,3 +2072,4 @@ ${recent30}
 </body>
 
 </html>
+
