@@ -28,7 +28,10 @@
     <script src="js/aiProxy.js"></script>
     <script src="js/filter/FilterService.js"></script>
     <script src="js/layout.js"></script>
-    <script src="js/deep_insight_panel.js"></script>
+    <script>
+        // [캐시 버스터] 최신 분석 로직 강제 적용
+        document.write('<script src="js/deep_insight_panel.js?v=' + Date.now() + '"><\/script>');
+    </script>
     <script src="js/NLPInputComponent.js"></script>
     <script src="js/NLPProcessor.js"></script>
     <script src="js/BasicAnalysisNLP.js"></script>
@@ -509,13 +512,10 @@
                             </div>
                         </div>
 
-                        <div class="ai-section p-8 pb-10 mb-6 font-sans">
-                            <h3 class="text-lg font-bold text-gray-900 mb-4">딥러닝 Insight</h3>
-                            <div id="dlInsightContainer">
-                                <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
-                                    <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
-                                    <span class="text-sm">딥러닝 모델 분석 중 (7개 모델)...</span>
-                                </div>
+                        <div id="dlInsightContainer" class="mb-6">
+                            <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
+                                <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
+                                <span class="text-sm">딥러닝 모델 분석 중 (7개 모델)...</span>
                             </div>
                         </div>
 
@@ -781,6 +781,11 @@
                     const sum = (item.sum !== undefined && item.sum !== null) ? item.sum : calculateSum(numbers);
                     return { ...item, numbers: numbers, sum: sum };
                 });
+                
+                // [표준] 전역 AppState 동기화 (AI 인사이트 패널 연동용)
+                if (!window.AppState) window.AppState = {};
+                window.AppState.allDrawData = allDrawData;
+                window.AppState.currentRange = currentRange;
 
                 const totalCount = allDrawData.length;
                 const rangeSlider = document.getElementById('rangeSlider');
@@ -826,6 +831,9 @@
                     // 사용자가 이전에 해제한 상태 → 재활성화 안 함, 배지만 렌더링
                     renderExcludedSumsBadges();
                 }
+
+                // [추가] 통계 카드 업데이트 (초기 로드 시 반영)
+                updateStatistics(currentRange);
 
             } catch (err) {
                 console.error('데이터 로드 실패:', err);
@@ -1473,40 +1481,6 @@
             }
         }
 
-        let chatHistory = [];
-
-        async function submitModalFollowUp() {
-            const input = document.getElementById('aiModalInput');
-            if (!input || !input.value.trim()) return;
-
-            const userMessage = input.value.trim();
-            input.value = '';
-
-            const content = document.getElementById('aiQnaContent');
-            content.innerHTML += `<div class="flex justify-end mb-4"><div class="bg-blue-600 text-white px-4 py-2 rounded-2xl shadow-sm text-sm">${userMessage}</div></div>`;
-
-            const uniqueId = 'ai-res-' + Date.now();
-            content.innerHTML += `<div class="flex mb-4"><div class="w-7 h-7 rounded-full bg-blue-500 flex items-center justify-center text-white text-[10px] mr-2 flex-shrink-0">AI</div><div id="${uniqueId}" class="bg-white border text-gray-800 px-4 py-2 rounded-2xl shadow-sm text-sm min-h-[40px] flex-1"></div></div>`;
-
-            // 컨텍스트 데이터 준비
-            const latestDraw = allDrawData[0];
-            const subjectRound = latestDraw.round;
-            const targetRound = subjectRound + 1;
-            const recentDraws = allDrawData.slice(0, 10).map(d => `[${d.round}회: ${d.sum}]`).join(', ');
-            const sums = allDrawData.slice(0, currentRange).map(d => d.sum);
-            const chatAvg = (sums.reduce((a, b) => a + b, 0) / sums.length).toFixed(1);
-            const contextData = `최근 10회차 총합: ${recentDraws}\n전체 평균(${currentRange}회): ${chatAvg}`;
-
-            await executeLocalAIAnalysis({
-                containerId: uniqueId,
-                subjectRound: subjectRound,
-                targetRound: targetRound,
-                userPrompt: userMessage,
-                contextData: contextData
-            });
-
-            content.scrollTop = content.scrollHeight;
-        }
 
         // 2. executeLocalAIAnalysis Function
         async function executeLocalAIAnalysis(params) {
@@ -1614,40 +1588,6 @@ ${safeContent}</div>`;
             }
         }
 
-        // 3. submitCustomAIAnalysis Custom Function
-        async function submitCustomAIAnalysis() {
-            const inputEl = document.getElementById('aiUserPrompt');
-            const userPrompt = inputEl.value.trim();
-            if (!userPrompt) return;
-
-            openAIModal(userPrompt);
-            inputEl.value = '';
-
-            // 컨텍스트 데이터 준비
-            const latestDraw = allDrawData[0];
-            const subjectRound = latestDraw.round;
-            const targetRound = subjectRound + 1;
-            const recentDraws = allDrawData.slice(0, 10).map(d => `[${d.round}회: ${d.sum}]`).join(', ');
-            const sums = allDrawData.slice(0, currentRange).map(d => d.sum);
-            const chatAvg = (sums.reduce((a, b) => a + b, 0) / sums.length).toFixed(1);
-            const contextData = `최근 10회차 총합: ${recentDraws}\n전체 평균(${currentRange}회): ${chatAvg}`;
-
-            const qnaContent = document.getElementById('aiQnaContent');
-            if (qnaContent) {
-                const uniqueId = 'ai-res-' + Date.now();
-                qnaContent.innerHTML += `<div class="flex mb-4"><div class="w-7 h-7 rounded-full bg-blue-500 flex items-center justify-center text-white text-[10px] mr-2 flex-shrink-0">AI</div><div id="${uniqueId}" class="bg-white border text-gray-800 px-4 py-2 rounded-2xl shadow-sm text-sm min-h-[40px] flex-1"></div></div>`;
-
-                executeLocalAIAnalysis({
-                    containerId: uniqueId,
-                    subjectRound,
-                    targetRound,
-                    userPrompt,
-                    contextData
-                });
-
-                qnaContent.scrollTop = qnaContent.scrollHeight;
-            }
-        }
 
         // 4. Highlight Functions
         // 현재 하이라이트된 회차 추적 (토글 지원)
@@ -1742,7 +1682,7 @@ ${safeContent}</div>`;
             if (window.BasicAnalysisNLP) {
                 const nlp = new BasicAnalysisNLP('#nlp-main-input-container', {
                     onHighlight: (params) => {
-                        const targetRound = params.round || (allDrawData[0]?.round);
+                        const targetRound = params.round || (allDrawData[0] && allDrawData[0].round);
                         highlightRecent10Rows(targetRound);
                     },
                     onNavigate: (round) => {

@@ -1271,8 +1271,15 @@ Format: JSON
 
             try {
                 // 활성화된 커스텀분석 필터 조회
-                const _v2UserId = window.filterService?.userId
-                    || (await window.supabaseClient.auth.getUser()).data?.user?.id;
+                let _v2UserId = null;
+                if (window.filterService && window.filterService.userId) {
+                    _v2UserId = window.filterService.userId;
+                } else {
+                    const userData = await window.supabaseClient.auth.getUser();
+                    if (userData && userData.data && userData.data.user) {
+                        _v2UserId = userData.data.user.id;
+                    }
+                }
                 let _v2Query = window.supabaseClient
                     .from('ai_custom_analyses')
                     .select('id, title, target_numbers, type, rules, config, filter_config')
@@ -1283,7 +1290,7 @@ Format: JSON
                 if (error) throw error;
 
                 // enabled가 true인 것만 필터링
-                const activeFilters = (data || []).filter(item => item.filter_config?.enabled === true);
+                const activeFilters = (data || []).filter(item => item.filter_config && item.filter_config.enabled === true);
 
                 if (activeFilters.length === 0) {
                     return { valid: true, message: '활성 필터 없음' };
@@ -1309,7 +1316,9 @@ Format: JSON
                         : (filter.target_numbers || []);
 
                     const matchCount = combination.filter(n => targetNumbers.includes(n)).length;
-                    const { min = 0, max = 6 } = filter.filter_config || {};
+                    const fConfig = filter.filter_config || {};
+                    const min = fConfig.min !== undefined ? fConfig.min : 0;
+                    const max = fConfig.max !== undefined ? fConfig.max : 6;
 
                     if (matchCount < min || matchCount > max) {
                         return {
@@ -1337,8 +1346,15 @@ Format: JSON
             if (!window.supabaseClient) return 0;
 
             try {
-                const _cntUserId = window.filterService?.userId
-                    || (await window.supabaseClient.auth.getUser()).data?.user?.id;
+                let _cntUserId = null;
+                if (window.filterService && window.filterService.userId) {
+                    _cntUserId = window.filterService.userId;
+                } else {
+                    const userData = await window.supabaseClient.auth.getUser();
+                    if (userData && userData.data && userData.data.user) {
+                        _cntUserId = userData.data.user.id;
+                    }
+                }
                 let _cntQuery = window.supabaseClient
                     .from('ai_custom_analyses')
                     .select('id, filter_config')
@@ -1346,7 +1362,7 @@ Format: JSON
                 if (_cntUserId) _cntQuery = _cntQuery.eq('user_id', _cntUserId);
                 const { data } = await _cntQuery;
 
-                return (data || []).filter(item => item.filter_config?.enabled === true).length;
+                return (data || []).filter(item => item.filter_config && item.filter_config.enabled === true).length;
             } catch (err) {
                 console.error('활성 필터 개수 조회 실패:', err);
                 return 0;
@@ -1553,8 +1569,15 @@ Format: JSON
                 }
 
                 // [RLS수정] user_id 포함하여 삽입 (RLS 정책: auth.uid() = user_id)
-                const _uid = window.filterService?.userId
-                    || (await window.supabaseClient.auth.getUser())?.data?.user?.id;
+                let _uid = null;
+                if (window.filterService && window.filterService.userId) {
+                    _uid = window.filterService.userId;
+                } else {
+                    const userData = await window.supabaseClient.auth.getUser();
+                    if (userData && userData.data && userData.data.user) {
+                        _uid = userData.data.user.id;
+                    }
+                }
                 const { error } = await window.supabaseClient.from('user_checkpoints').insert([
                     { round: parseInt(round), memo: memo, user_id: _uid }
                 ]);

@@ -459,9 +459,9 @@ class IntentClassifier {
         if (minMatch) filters.min = parseInt(minMatch[1]);
         if (maxMatch) filters.max = parseInt(maxMatch[1]);
 
-        const excludeMatch = input.match(/(?:제외|빼고|없이)\s*([\d,\s]+)/i);
         if (excludeMatch) {
-            filters.exclude = excludeMatch[1].match(/\d+/g)?.map(Number) || [];
+            const matches = excludeMatch[1].match(/\d+/g);
+            filters.exclude = matches ? matches.map(Number) : [];
         }
         return { filter_config: filters };
     }
@@ -511,7 +511,7 @@ class NLPErrorHandler {
         this.errorPatterns = [
             {
                 name: 'out_of_range',
-                detector: (params) => params.target_numbers?.some(n => n < 1 || n > 45),
+                detector: (params) => params.target_numbers && params.target_numbers.some(n => n < 1 || n > 45),
                 message: '로또 번호는 1~45 사이여야 합니다. 범위 밖 번호는 자동으로 제거됩니다.',
                 fixer: (params) => {
                     if (params.target_numbers) {
@@ -618,11 +618,11 @@ class SlotFiller {
             let value;
             if (intent === 'dynamic_formula') {
                 if (['formula', 'value', 'expression'].includes(slotName)) {
-                    value = result.rules?.[slotName];
+                    value = (result.rules && result.rules[slotName]) ? result.rules[slotName] : undefined;
                 }
             } else if (intent === 'group_condition') {
                 if (['groups', 'combineLogic'].includes(slotName)) {
-                    value = result.config?.[slotName];
+                    value = (result.config && result.config[slotName]) ? result.config[slotName] : undefined;
                 }
             } else if (intent === 'static_numbers') {
                 if (slotName === 'target_numbers') value = result.target_numbers;
@@ -722,7 +722,8 @@ class ContextAwareParser {
         const modification = JSON.parse(JSON.stringify(lastAnalysis.params));
         let modType = 'modification';
         let confidence = 0.8;
-        const numbers = input.match(/\d+/g)?.map(Number) || [];
+        const matches = input.match(/\d+/g);
+        const numbers = matches ? matches.map(Number) : [];
 
         if (/(?:추가|더해|넣어)/.test(input)) {
             if (modification.target_numbers) {

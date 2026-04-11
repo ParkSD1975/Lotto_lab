@@ -44,8 +44,8 @@ class FilterService {
             if (!user) {
                 console.log('🔐 FilterService: 익명 로그인 시도...');
                 const { data: anonData, error: anonErr } = await this.supabase.auth.signInAnonymously();
-                if (anonErr || !anonData?.user) {
-                    console.warn('⚠️ FilterService: 익명 로그인 실패', anonErr?.message);
+                if (anonErr || !(anonData && anonData.user)) {
+                    console.warn('⚠️ FilterService: 익명 로그인 실패', anonErr && anonErr.message);
                     // [Fix] 익명 로그인 불가 시 (localhost 등) → 저장된 preset_id로 읽기 전용 초기화
                     // filter_definitions(category=system)과 filter_settings(anon role 허용)은 인증 없이 읽기 가능
                     const savedPresetId = localStorage.getItem('_lotto_preset_id');
@@ -588,7 +588,7 @@ class FilterService {
 
         switch (type) {
             case 'discrete_select':
-                if (settings.selectedValues?.length > 0) {
+                if (settings.selectedValues && settings.selectedValues.length > 0) {
                     return `- ${name}: ${settings.selectedValues.join(', ')} 선택`;
                 } else if (settings.min !== undefined && settings.max !== undefined) {
                     return `- ${name}: ${settings.min}~${settings.max} 범위`;
@@ -596,19 +596,19 @@ class FilterService {
                 return `- ${name}: 설정됨`;
 
             case 'range':
-                if (settings.useDiscreteSelection && settings.selectedValues?.length > 0) {
+                if (settings.useDiscreteSelection && settings.selectedValues && settings.selectedValues.length > 0) {
                     return `- ${name}: ${settings.selectedValues.join(', ')} 선택 (불연속)`;
                 }
                 return `- ${name}: ${settings.min}~${settings.max} 범위`;
 
             case 'pattern_select':
-                if (settings.selectedPatterns?.length > 0) {
+                if (settings.selectedPatterns && settings.selectedPatterns.length > 0) {
                     return `- ${name}: ${settings.selectedPatterns.join(', ')} 패턴`;
                 }
                 return `- ${name}: 패턴 설정됨`;
 
             case 'number_selector':
-                if (settings.numbers?.length > 0) {
+                if (settings.numbers && settings.numbers.length > 0) {
                     return `- ${name}: ${settings.numbers.join(', ')}`;
                 }
                 return `- ${name}: 미설정`;
@@ -636,7 +636,7 @@ class FilterService {
             const def = definitions.find(d => d.filter_key === key);
             return {
                 filter_key: key,
-                filter_name: def?.filter_name || key,
+                filter_name: (def && def.filter_name) || key,
                 settings: data.settings,
                 enabled: data.enabled
             };
@@ -656,7 +656,7 @@ class FilterService {
                 target_round: targetRound,
                 analysis_type: analysisType,
                 preset_id: this.currentPresetId,
-                preset_name: preset?.preset_name,
+                preset_name: preset && preset.preset_name,
                 filter_snapshot: filterSnapshot,
                 result_summary: resultSummary,
                 notes
@@ -749,7 +749,7 @@ class FilterService {
         }
 
         // enabled가 true인 것만 필터링
-        return (data || []).filter(item => item.filter_config?.enabled === true);
+        return (data || []).filter(item => item.filter_config && item.filter_config.enabled === true);
     }
 
     /**
@@ -828,7 +828,7 @@ async function initFilterService() {
         return null;
     }
 
-    if (window.filterService?.initialized) {
+    if (window.filterService && window.filterService.initialized) {
         return window.filterService;
     }
 
@@ -836,7 +836,7 @@ async function initFilterService() {
         // 이미 다른 곳에서 초기화 중이면 대기
         return new Promise(resolve => {
             const checkT = setInterval(() => {
-                if (window.filterService?.initialized) {
+                if (window.filterService && window.filterService.initialized) {
                     clearInterval(checkT);
                     resolve(window.filterService);
                 }

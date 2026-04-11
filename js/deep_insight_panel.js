@@ -16,7 +16,9 @@
 
     const CACHE_KEY = 'dl_analysis_cache_v3';
     const CACHE_TTL = 60 * 60 * 1000;  // 1시간 — 같은 회차 내 값 고정
-
+ 
+    let _lastContainerId = ''; // [추가] 새로고침 버튼 대응용
+    
     const MODEL_META = {
         lstm:        { label: 'LSTM',        dot: '#3b82f6', tag: '시계열' },
         xgboost:     { label: 'XGBoost',     dot: '#22c55e', tag: '빈도통계' },
@@ -79,52 +81,137 @@
         const mids = entries.map(e => (e.min + e.max) / 2);
         const mean = mids.reduce((a, b) => a + b, 0) / mids.length;
         const std = Math.sqrt(mids.reduce((acc, v) => acc + Math.pow(v - mean, 2), 0) / mids.length);
-        return entries.filter((e, i) => Math.abs(mids[i] - mean) > std * 1.5).map(e => MODEL_META[e.key]?.label || e.key);
+        return entries.filter((e, i) => Math.abs(mids[i] - mean) > std * 1.5).map(e => (MODEL_META[e.key] && MODEL_META[e.key].label) || e.key);
     }
 
-    // ── 앙상블 min/max 계산 ───────────────────────────────────────────────────
+    // ── 앙상블 min/max 및 합의도 계산 ───────────────────────────────────────────
     function _ensembleRange(modelExp) {
         const mins = Object.values(modelExp).map(e => e.min).filter(v => v !== undefined);
         const maxs = Object.values(modelExp).map(e => e.max).filter(v => v !== undefined);
-        if (!mins.length) return { cMin: '-', cMax: '-' };
-        return {
-            cMin: Math.round(mins.reduce((a, b) => a + b, 0) / mins.length),
-            cMax: Math.round(maxs.reduce((a, b) => a + b, 0) / maxs.length)
+        if (!mins.length) return { cMin: '-', cMax: '-', agreement: 0 };
+        
+        const cMin = Math.round(mins.reduce((a, b) => a + b, 0) / mins.length);
+        const cMax = Math.round(maxs.reduce((a, b) => a + b, 0) / maxs.length);
+
+        // 합의도 계산 (표준편차 기반)
+        const mids = Object.values(modelExp).map(e => (e.min + e.max) / 2);
+        const mean = mids.reduce((a, b) => a + b, 0) / mids.length;
+        const variance = mids.reduce((acc, v) => acc + Math.pow(v - mean, 2), 0) / mids.length;
+        const stdDev = Math.sqrt(variance);
+        // 합의도 0~100 (표준편차가 작을수록 높음)
+        const agreement = Math.max(0, Math.min(100, Math.round(100 - (stdDev * 5))));
+
+        return { cMin, cMax, agreement };
+    }
+
+    // ── 통계 계산 (분석 범위 기반) ───────────────────────────────────────────
+    function _calculateQuantitativeStats(filterKey, range) {
+        // AppState 또는 전역 allDrawData 모두 체크 (폴백 강화)
+        let rawData = (window.AppState && window.AppState.allDrawData) || window.allDrawData;
+        if (!rawData || !rawData.length) return null;
+        
+        // 필터 키 매핑 (내부 속성명으로 변환)
+        const keyMap = {
+            'total_sum': 'sum',
+            'sum': 'sum',
+            'ac_value': 'ac',
+            'ac': 'ac',
+            'odd_even': 'odd_count',
+            'high_low': 'high_count',
+            'end_sum': 'end_sum',
+            'missing_count': 'missing_count'
         };
+        const dataKey = keyMap[filterKey] || filterKey;
+        
+        const data = rawData.slice(0, range);
+        if (!data.length) return null;
+
+        const values = data.map(d => d[dataKey]).filter(v => typeof v === 'number');
+        if (!values.length) return null;
+
+        const avg = values.reduce((a, b) => a + b, 0) / values.length;
+        const min = Math.min(...values);
+        const max = Math.max(...values);
+        const stdDev = Math.sqrt(values.reduce((acc, v) => acc + Math.pow(v - avg, 2), 0) / values.length);
+
+        // 추세 (최적 분석 범위 내의 상반기 vs 하반기 비교)
+        const half = Math.floor(values.length / 2);
+        const recentHalf = values.slice(0, half);
+        const olderHalf = values.slice(half);
+        if (recentHalf.length === 0 || olderHalf.length === 0) return { avg: avg.toFixed(1), min, max, stdDev: stdDev.toFixed(1), trend: '안정적', range };
+        
+        const recentAvg = recentHalf.reduce((a, b) => a + b, 0) / recentHalf.length;
+        const olderAvg = olderHalf.reduce((a, b) => a + b, 0) / olderHalf.length;
+        
+        let trend = '안정적';
+        const diff = recentAvg - olderAvg;
+        const threshold = (max - min > 0) ? (max - min) * 0.1 : 1; 
+        if (diff > threshold) trend = '상승세';
+        else if (diff < -threshold) trend = '하락세';
+
+        return { avg: avg.toFixed(1), min, max, stdDev: stdDev.toFixed(1), trend, range };
     }
 
     // ── LLM 비동기 분석 호출 ──────────────────────────────────────────────────
-    async function _requestLLMAnalysis(aiBodyId, filterKey, filterLabel, modelExp, cMin, cMax, targetRound, strategy) {
-        const aiBody = document.getElementById(aiBodyId);
-        if (!aiBody) return;
+    async function _requestLLMAnalysis(aiBodyId, filterKey, filterLabel, modelExp, cMin, cMax, targetRound, strategy, analysisRange = 100) {
+        const flowEl   = document.getElementById('dip-v3-content-flow');
+        const patternEl = document.getElementById('dip-v3-content-pattern');
+        const strategyEl = document.getElementById('dip-v3-content-strategy');
 
-        aiBody.innerHTML = `<div class="dip-ai-loading">
-            <span class="material-symbols-outlined dip-spin" style="font-size:15px;color:#475569">progress_activity</span>
-            <span>흐름분석 중...</span>
-        </div>`;
+        if (!flowEl || !patternEl || !strategyEl) return;
+
+        // 1. 통계 계산 및 UI 업데이트 (패턴 분석 섹션 상단에 즉시 표시)
+        const stats = _calculateQuantitativeStats(filterKey, analysisRange);
+        if (stats) {
+            const statsHTML = `
+                <div style="background:rgba(241, 245, 249, 0.5); border:1px solid #e2e8f0; border-radius:12px; padding:12px; margin-bottom:12px; display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
+                    <div style="font-size:0.75rem; color:#64748b; font-weight:700; width:100%; border-bottom:1px solid #f1f5f9; padding-bottom:4px; margin-bottom:4px">
+                        ${analysisRange}회 분석 범위 통계 요약
+                    </div>
+                    <div style="flex:1; min-width:80px">
+                        <div style="font-size:0.7rem; color:#94a3b8">평균</div>
+                        <div style="font-size:0.9rem; font-weight:800; color:#1e293b">${stats.avg}</div>
+                    </div>
+                    <div style="flex:1; min-width:80px">
+                        <div style="font-size:0.7rem; color:#94a3b8">범위(Min~Max)</div>
+                        <div style="font-size:0.9rem; font-weight:800; color:#1e293b">${stats.min}~${stats.max}</div>
+                    </div>
+                    <div style="flex:1; min-width:80px">
+                        <div style="font-size:0.7rem; color:#94a3b8">표준편차</div>
+                        <div style="font-size:0.9rem; font-weight:800; color:#1e293b">±${stats.stdDev}</div>
+                    </div>
+                    <div style="flex:1; min-width:80px">
+                        <div style="font-size:0.7rem; color:#94a3b8">최근 추세</div>
+                        <div style="font-size:0.9rem; font-weight:800; color:${stats.trend==='상승세'?'#ef4444':(stats.trend==='하락세'?'#3b82f6':'#1e293b')}">${stats.trend}</div>
+                    </div>
+                </div>
+            `;
+            patternEl.innerHTML = statsHTML + `<div id="dip-pattern-llm-text" class="italic text-gray-400" style="font-size:0.85rem">데이터의 통계적 패턴을 심층 해석 중입니다...</div>`;
+        }
 
         const modelSummary = MODEL_ORDER
             .filter(k => modelExp[k])
             .map(k => `${MODEL_META[k].label}: ${modelExp[k].min}~${modelExp[k].max}`)
             .join(', ');
 
-        // [추가] 필터 유형에 따른 단위 안내 (총합/끝수합은 단위 없음, 나머지는 '개')
-        const _UNIT_LESS = ['sum', 'tail_sum'];  // 단위 없이 숫자만
-        const unitHint = _UNIT_LESS.includes(filterKey)
-            ? `(단위: 숫자 값 그대로 — 절대 '개', '번' 등 단위 붙이지 말 것)`
-            : `(단위: 개수 기준)`;
-
         const prompt =
-`[${targetRound || ''}회차 ${filterLabel} 딥러닝 분석 결과]
-모델별 예측: ${modelSummary}
-앙상블 평균: ${cMin}~${cMax}
-${unitHint}
+`# Role: 최고의 로또 통계 분석 전문가이자 데이터 과학자
+# Target: ${targetRound || ''}회차 ${filterLabel} 심층 분석 보고서
+# Data Context:
+- 분석 범위: 최근 ${analysisRange}회차 전수 데이터 로드 완료
+- 통계 분석 결과: 평균 ${stats?.avg || 'N/A'}, 범위 ${stats?.min || 'N/A'}~${stats?.max || 'N/A'}, 표준편차 ${stats?.stdDev || 'N/A'}, 추세 ${stats?.trend || 'N/A'}
+- 7개 개별 모델 예측: ${modelSummary}
+- AI 앙상블 종합 예측 범위: ${cMin}~${cMax}
+- 현재 전략 가이드 (기본): ${(strategy.overall_strategy && strategy.overall_strategy.short_advice) || 'N/A'}
 
-위 딥러닝 결과를 바탕으로 3~4문장으로 답변해주세요:
-1. 모델 합의 수준 및 이탈 모델이 있다면 평가
-2. 이 범위를 권장하는 핵심 근거
-3. 최종 적용 권장 범위와 주의사항
-※ 숫자 강조 시 {{good:값}} 또는 {{warn:값}} 형식으로 표시하세요.`;
+# 분석 요청 사항:
+1. [흐름진단]: 최근 ${analysisRange}회차의 통계 지표와 현재 AI 모델들의 예측치를 교차 검증하여, 현재 ${filterLabel} 구간이 "과열(과출현)" 상태인지 "침체(미출현)" 상태인지 진단하고, 반등 가능성을 전문가답게 분석하세요.
+2. [패턴분석]: 위에서 제공된 통계 지표(특히 표준편차와 최근 추세)를 기반으로, 이번 회차에서 발생할 확률이 가장 높은 '패턴의 변곡점'을 제시하세요. 사람이 직관적으로 놓치기 쉬운 숫자의 침묵 상태를 명확히 짚어주어야 합니다.
+3. [필승공략]: 모든 AI 모델의 합의점(Ensemble)과 방금 계산된 통계적 추세를 융합하여, ${targetRound}회차에서 사용자가 반드시 적용해야 할 **최종 필터 범위**를 확정하고 확신 있는 가이드를 제공하세요.
+
+# 주의사항:
+- 강조할 수치나 키워드는 반드시 {{good:값}} (유리), {{info:값}} (관찰), {{warn:위험}} (주의) 태그로 감싸세요.
+- 답변은 전문적이고 단호해야 하며, "발생 가능성이 매우 높습니다"와 같이 근거에 기반한 확신 있는 종결 어미를 사용하세요.`;
 
         try {
             const result = await window.AIProxy.invoke({
@@ -135,24 +222,75 @@ ${unitHint}
             });
             const text = _extractLLMText(result, filterKey);
             if (text) {
-                  const recHTML = _llmRecHTML(strategy, filterLabel);
-                  const contentHTML = text.replace(/\n/g, '<br>');
-                  
-                  if (recHTML) {
-                      aiBody.innerHTML = `
-                          <div class="dip-ai-unified-box">
-                              ${recHTML}
-                              <div class="dip-ai-unified-text">${contentHTML}</div>
-                          </div>
-                      `;
-                  } else {
-                      aiBody.innerHTML = `<div class="dip-ai-unified-box"><div class="dip-ai-unified-text">${contentHTML}</div></div>`;
-                  }
-                  return;
-              }
+                const parts = _splitPremiumText(text);
+                flowEl.innerHTML     = _cleanLLMText(parts.flow);
+                
+                // 패턴 분석 섹션은 통계 UI를 유지하면서 텍스트만 업데이트
+                const patternTextEl = document.getElementById('dip-pattern-llm-text');
+                if (patternTextEl) {
+                    patternTextEl.innerHTML = _cleanLLMText(parts.pattern);
+                    patternTextEl.classList.remove('italic', 'text-gray-400');
+                    patternTextEl.style.color = '#475569';
+                } else {
+                    patternEl.innerHTML = _cleanLLMText(parts.pattern);
+                }
+                
+                strategyEl.innerHTML = _cleanLLMText(parts.strategy);
+                return;
+            }
         } catch (e) { /* fallback */ }
 
-        _fillFallbackAI(aiBody, strategy, filterLabel);
+        const advice = (strategy.overall_strategy && strategy.overall_strategy.short_advice) || '분석 데이터를 불러오고 있습니다.';
+        flowEl.innerHTML = `현재 ${filterLabel} 패턴의 흐름을 분석하고 있습니다.`;
+        const pTextFallback = document.getElementById('dip-pattern-llm-text');
+        if (pTextFallback) pTextFallback.innerHTML = '과거 데이터와의 연관 패턴을 도출하는 중입니다.';
+        strategyEl.innerHTML = _cleanLLMText(advice);
+    }
+
+    // 프리미엄 리포트용 텍스트 분할 유틸리티 (유연한 섹션 감지 및 내용 추출)
+    function _splitPremiumText(text) {
+        if (!text) return { flow: '', pattern: '', strategy: '' };
+
+        const lines = text.split('\n');
+        let flow = '', pattern = '', strategy = '';
+        let current = '';
+
+        lines.forEach(line => {
+            let l = line.trim();
+            if (!l) return;
+            
+            // 1. 섹션 전환 감지 (앞부분의 **, #, [ 등 특수문자 및 공백 유연하게 허용)
+            let isHeader = false;
+            if (l.match(/[#*\s]*[1]\.?\s*\[?(흐름|진단)\]?/i) || l.match(/^[#*\s]*흐름\s*진단/i)) { 
+                current = 'flow'; 
+                isHeader = true; 
+            } 
+            else if (l.match(/[#*\s]*[2]\.?\s*\[?(패턴|분석)\]?/i) || l.match(/^[#*\s]*패턴\s*분석/i)) { 
+                current = 'pattern'; 
+                isHeader = true; 
+            } 
+            else if (l.match(/[#*\s]*[3]\.?\s*\[?(전략|제언|공략|필승)\]?/i) || l.match(/^[#*\s]*(전략\s*제언|필승\s*공략)/i)) { 
+                current = 'strategy'; 
+                isHeader = true; 
+            }
+            
+            if (isHeader) return; // 헤더 라인 자체는 본문에 포함하지 않음
+
+            // 2. 내용 누적 (불필요한 마크다운/불렛 기호 정제)
+            const cleanLine = l.replace(/^[#*\-\+\s]+/, '').trim();
+            if (!cleanLine) return;
+
+            if (current === 'flow') flow += cleanLine + ' ';
+            else if (current === 'pattern') pattern += cleanLine + ' ';
+            else if (current === 'strategy') strategy += cleanLine + ' ';
+            else if (!current) flow += cleanLine + ' '; // 헤더 전 텍스트는 흐름진단에 포함
+        });
+
+        return {
+            flow: flow.trim()     || 'AI 흐름 진단 분석을 진행하고 있습니다.',
+            pattern: pattern.trim()   || 'AI 패턴 분석 결과 도출 중입니다.',
+            strategy: strategy.trim() || 'AI 최종 전략 가이드를 수립하고 있습니다.'
+        };
     }
 
     // AIProxy 응답에서 텍스트 추출 — 다양한 응답 구조 대응
@@ -169,30 +307,17 @@ ${unitHint}
         return null;
     }
 
-    // LLM 텍스트 정제 — 소수 확률 → %, 태그 치환
-    // [수정] filterKey를 받아 단위 동적 결정
-    const _UNIT_LESS_KEYS = ['sum', 'tail_sum'];
-    function _cleanLLMText(text, filterKey) {
+    // LLM 텍스트 정제 — 강조 태그 스타일링 및 범위 태그 지원
+    function _cleanLLMText(text) {
         if (!text) return text;
-        const isUnitLess = _UNIT_LESS_KEYS.includes(filterKey);
         return text
-            // [수정] {{range:2~3}} → 단위 없는 필터는 숫자만, 나머지는 '개' 붙임
-            .replace(/\{\{range:([^}]+)\}\}/g, (_, r) => {
-                const display = isUnitLess ? r : `${r}개`;
-                return `<strong style="color:#db2777">${display}</strong>`;
-            })
-            // [추가] {{good:값}} → 초록색 강조 (총합 등 숫자형은 단위 없음)
-            .replace(/\{\{good:([^}]+)\}\}/g, (_, v) => {
-                return `<strong style="color:#22c55e">${v}</strong>`;
-            })
-            // [추가] {{warn:값}} → 노란색 경고 강조
-            .replace(/\{\{warn:([^}]+)\}\}/g, (_, v) => {
-                return `<strong style="color:#ec4899">${v}</strong>`;
-            })
-            // 앙상블 확률 소수 → % (0.XXXX 형태)
+            .replace(/\{\{good:([^}]+)\}\}/g, '<strong class="dip-v3-hl-good">$1</strong>')
+            .replace(/\{\{warn:([^}]+)\}\}/g, '<strong class="dip-v3-hl-warn">$1</strong>')
+            .replace(/\{\{info:([^}]+)\}\}/g, '<strong class="dip-v3-hl-info">$1</strong>')
+            .replace(/\{\{range:([^}]+)\}\}/g, '<strong class="dip-v3-hl-range">$1</strong>') // [추가] 범위 강조 지원
             .replace(/\b0\.(\d{3,4})\b/g, (_, d) => {
                 const pct = (parseFloat('0.' + d) * 100).toFixed(1);
-                return `<span style="color:#93c5fd">${pct}%</span>`;
+                return `<span class="dip-v3-hl-info">${pct}%</span>`;
             });
     }
 
@@ -206,7 +331,7 @@ ${unitHint}
     function _llmRecHTML(strategy, filterLabel) {
         const rec = (strategy.filter_recommendations || []).find(r =>
             r.filter === filterLabel ||
-            r.filter?.replace(/\s/g, '') === filterLabel.replace(/\s/g, '')
+            (r.filter && r.filter.replace(/\s/g, '') === filterLabel.replace(/\s/g, ''))
         );
         if (!rec) return '';
         const val = rec.min !== undefined ? `${rec.min} ~ ${rec.max}` : (rec.pattern || '');
@@ -219,7 +344,7 @@ ${unitHint}
     }
 
     function _actionTagsHTML(strategy) {
-        const actions = (strategy.overall_strategy?.key_actions || []).slice(0, 3);
+        const actions = (strategy.overall_strategy && strategy.overall_strategy.key_actions ? strategy.overall_strategy.key_actions : []).slice(0, 3);
         if (!actions.length) return '';
         return `<div class="dip-actions">${actions.map(a => `<span class="dip-action-tag">✓ ${a}</span>`).join('')}</div>`;
     }
@@ -234,91 +359,87 @@ ${unitHint}
     // ═══════════════════════════════════════════════════════════════════════════
     // HTML 빌더 — 단일 필터 (Category A)
     // ═══════════════════════════════════════════════════════════════════════════
-    function _buildFilterHTML(filterKey, filterLabel, modelExp, strategy, overallRange) {
-        const agreement     = _computeAgreement(modelExp);
-        const agreePct      = Math.round(agreement * 100);
-        const outliers      = _findOutliers(modelExp);
-        const { cMin, cMax } = _ensembleRange(modelExp);
-
-        // LLM 필터 권장 추출
-        const filterRec = (strategy.filter_recommendations || []).find(r =>
-            r.filter && (
-                r.filter === filterLabel ||
-                r.filter.replace(/\s/g, '') === filterLabel.replace(/\s/g, '') ||
-                r.filter.includes(filterKey.replace('_', ''))
-            )
-        );
-
-        // 모델 행 HTML
-        const modelRows = MODEL_ORDER.map(key => {
-            const meta = MODEL_META[key];
-            const exp  = modelExp[key];
-            if (!exp) return '';
-            const lo = exp.min, hi = exp.max;
-            return `
-            <div class="dip-model-row">
-                <span class="dip-dot" style="background:${meta.dot}"></span>
-                <span class="dip-model-name">${meta.label}</span>
-                <span class="dip-model-tag">${meta.tag}</span>
-                <span class="dip-range" style="color:${meta.dot}">${lo}<span class="dip-range-sep"> ~ </span>${hi}</span>
-            </div>`;
-        }).join('');
-
-        // 합의도 색상 — 항상 빨간색
-        const agreeColor = '#ef4444';
-        const agreeLabel = agreePct >= 75 ? '높음' : agreePct >= 50 ? '보통' : '낮음';
-
-        const outlierNote = outliers.length
-            ? `<p class="dip-note">⚠ 이탈 모델: <strong>${outliers.join(', ')}</strong> — 범위 설정 시 참고</p>`
-            : `<p class="dip-note">✓ 7개 모델이 유사한 범위를 예측합니다</p>`;
+    function _buildFilterHTML(filterKey, filterLabel, modelExp, strategy, currentRange) {
+        const { cMin, cMax, agreement } = _ensembleRange(modelExp);
+        const targetRound = _memCache?.target_round || '';
 
         return `
         <div class="dip-root">
-            <!-- [제거] 내부 제목 제거 -->
-
-            <!-- Section 1: 모델별 예측 -->
-            <section class="dip-section">
-                <div class="dip-model-list">${modelRows}</div>
-            </section>
-
-            <!-- Section 2: 앙상블 종합 -->
-            <section class="dip-section dip-ensemble-section">
-                <div class="dip-ensemble-row">
-                    <div class="dip-ensemble-left">
-                        <span class="dip-ensemble-title">앙상블 종합</span>
-                        <span class="dip-ensemble-sub">7개 모델 평균</span>
-                    </div>
-                    <div class="dip-ensemble-right">
-                        <span class="dip-ensemble-range">${cMin}<span class="dip-range-sep"> ~ </span>${cMax}</span>
-                        ${overallRange ? `<span class="dip-sim-badge">${Array.isArray(overallRange) ? overallRange[0]+'~'+overallRange[1] : overallRange} 시뮬레이션</span>` : ''}
+            <!-- [Header] -->
+            <header class="dip-v3-header">
+                <div class="dip-v3-title-group">
+                    <div>
+                        <h2>AI 프리미엄 전략 리포트</h2>
+                        <p>INTELLIGENT ANALYSIS — ${filterLabel}</p>
                     </div>
                 </div>
-                <div class="dip-agree-row">
-                    <span class="dip-agree-label">모델 합의도</span>
-                    <div class="dip-agree-bar-wrap">
-                        <div class="dip-agree-bar" style="width:${agreePct}%;background:${agreeColor}"></div>
-                    </div>
-                    <span class="dip-agree-pct" style="color:${agreeColor}">${agreePct}% · ${agreeLabel}</span>
-                </div>
-            </section>
+            </header>
 
-            <!-- Section 3: AI 분석 & 최종 제안 -->
-            <section class="dip-ai-section">
-                <div class="dip-ai-header">
-                    <span class="dip-ai-icon">✦</span>
-                    <span class="dip-ai-label">AI 흐름분석 &amp; 최종 제안</span>
-                    <span class="dip-ai-filter-tag">${filterLabel}</span>
+            <!-- [Ensemble Summary] - [추가] 앙상블 섹션 복구 -->
+            <div class="dip-v3-ensemble-box">
+                <div class="dip-v3-ens-main">
+                    <div class="dip-v3-ens-info">
+                        <span class="dip-v3-ens-label">앙상블 종합 예측 범위</span>
+                        <div class="dip-v3-ens-value">
+                            <span class="dip-v3-ens-range">${cMin} ~ ${cMax}</span>
+                            <span class="dip-v3-ens-avg">평균 ${((cMin + cMax) / 2).toFixed(1)}</span>
+                        </div>
+                    </div>
+                    <div class="dip-v3-ens-gauge">
+                        <div class="dip-v3-gauge-label">모델 합의도</div>
+                        <div class="dip-v3-gauge-track">
+                            <div class="dip-v3-gauge-bar" style="width: ${agreement}%"></div>
+                        </div>
+                        <div class="dip-v3-gauge-text">${agreement}% 합의</div>
+                    </div>
                 </div>
-                <div class="dip-ai-body">
-                  ${outlierNote}
-                  <div id="dip-ai-llm-body" style="min-height: 160px; width: 100%; box-sizing: border-box;">
-                      <div class="dip-ai-loading">
-                          <span class="material-symbols-outlined dip-spin" style="font-size:15px;color:#94a3b8">progress_activity</span>
-                          <span>흐름분석 중...</span>
-                      </div>
-                  </div>
+            </div>
+
+            <div style="padding: 1rem 2rem 2rem 2rem;">
+                <!-- [Middle] Compact Model Grid -->
+                <div class="dip-v3-model-grid">
+                    ${MODEL_ORDER.map(key => {
+                        const meta = MODEL_META[key];
+                        const exp  = modelExp[key];
+                        if (!exp) return '';
+                        return `
+                        <div class="dip-v3-model-card">
+                            <span class="dip-v3-m-label">${meta.label}</span>
+                            <span class="dip-v3-m-val">${exp.min}~${exp.max}</span>
+                        </div>`;
+                    }).join('')}
                 </div>
-            </section>
+
+                <!-- [Body] AI Analysis Slots -->
+                <div class="dip-v3-body" style="display: block;">
+                    <div class="dip-v3-col" style="margin-bottom: 2rem;">
+                        <div class="dip-v3-col-header">
+                            <span class="dip-v3-col-title">흐름 진단</span>
+                        </div>
+                        <div class="dip-v3-col-content" id="dip-v3-content-flow">
+                            전체 모델 데이터와 최근 추세를 종합하여 흐름을 진단 중입니다...
+                        </div>
+                    </div>
+                    <div class="dip-v3-col" style="border-top: 1px solid #f1f5f9; padding-top: 2rem; margin-bottom: 1rem;">
+                        <div class="dip-v3-col-header">
+                            <span class="dip-v3-col-title">패턴 분석</span>
+                        </div>
+                        <div class="dip-v3-col-content" id="dip-v3-content-pattern">
+                            통계적 범위 내 특이 패턴 및 소외 구간을 분석 중입니다...
+                        </div>
+                    </div>
+                </div>
+
+                <!-- [Bottom] Winning Strategy -->
+                <div class="dip-v3-strategy">
+                    <div class="dip-v3-strat-header">
+                        <span class="dip-v3-strat-title">${targetRound}회차 전략 제언</span>
+                    </div>
+                    <div class="dip-v3-strat-content" id="dip-v3-content-strategy">
+                        최적의 분석 가이드를 생성하고 있습니다.
+                    </div>
+                </div>
+            </div>
         </div>`;
     }
 
@@ -332,6 +453,27 @@ ${unitHint}
         let isSectioned = false;  // true when bodyHTML already contains <section> elements
 
         switch (groupType) {
+            case 'custom_analysis': {
+                groupLabel = '맞춤형 전략 분석';
+                recFilter  = '맞춤분석';
+                
+                // 맞춤형 분석은 별도의 통계 그리드 대신, 
+                // 현재 설정된 필터 조건과 번호들의 매칭률을 강조하는 UI
+                const targets = analysis.target_numbers || [];
+                
+                bodyHTML = `
+                    <section class="dip-section">
+                        <div class="dip-section-label">필터 대상 번호 분석</div>
+                        <div class="flex flex-wrap gap-2 p-4 bg-[#f8fafc] border border-slate-100 rounded-xl">
+                            ${targets.length > 0 ? targets.map(num => {
+                                const ballColor = (window.Utils && window.Utils.getBallColor) ? window.Utils.getBallColor(num) : '#64748b';
+                                return `<div class="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm" style="background-color: ${ballColor}">${num}</div>`;
+                            }).join('') : '<span class="text-slate-400 text-xs">선택된 번호가 없습니다.</span>'}
+                        </div>
+                    </section>
+                `;
+                break;
+            }
             case 'number_band': {
                 groupLabel = '번호대별 분포';
                 recFilter  = '번호대별';
@@ -356,7 +498,7 @@ ${unitHint}
                 const squares = analysis.magic_square_analysis || [];
                 if (!squares.length) { bodyHTML = _noDataHTML(); break; }
                 const sorted = [...squares].sort((a, b) => (b.exp || 0) - (a.exp || 0));
-                const max = sorted[0]?.exp || 1;
+                const max = (sorted[0] && sorted[0].exp) || 1;
                 const COLORS = ['#3b82f6','#22c55e','#f97316','#a855f7','#ef4444','#14b8a6','#f59e0b','#ec4899','#6366f1'];
                 bodyHTML = `<div class="dip-palace-grid">
                     ${squares.map((s, i) => {
@@ -409,22 +551,22 @@ ${unitHint}
                 const recs = (strategy.filter_recommendations || [])
                     .filter(r => REGRESSION_FILTERS.some(name => r.filter?.includes(name.replace('비율',''))))
                     .slice(0, 10);
-                const regData = analysis.regression_analysis;
+                
+                // [수리] regression_analysis 데이터가 없을 경우 recs를 기반으로 기본 그리드 구성
+                const regData = (analysis.regression_analysis && Array.isArray(analysis.regression_analysis)) 
+                                ? analysis.regression_analysis 
+                                : recs.map(r => ({ filter_name: r.filter, predicted: r.pattern || `${r.min}~${r.max}` }));
+
                 bodyHTML = `
-                    ${regData && Array.isArray(regData) && regData.length ? `
+                    ${regData.length ? `
                     <div class="dip-group-list dip-regression-list">
-                        ${regData.slice(0, 6).map(r => `
+                        ${regData.slice(0, 8).map(r => `
                         <div class="dip-reg-row">
                             <span class="dip-reg-name">${r.filter_name || r.name || r.label || '항목'}</span>
                             <span class="dip-reg-val">${r.predicted !== undefined ? r.predicted : (r.range || r.value || '-')}</span>
                         </div>`).join('')}
-                    </div>` : ''}
-                    ${recs.length ? `<div class="dip-rec-grid">
-                        ${recs.map(r => `<div class="dip-rec-item">
-                            <span class="dip-rec-item-label">${r.filter}</span>
-                            <span class="dip-rec-item-val">${r.min !== undefined ? `${r.min}~${r.max}` : (r.pattern || '-')}</span>
-                        </div>`).join('')}
-                    </div>` : ''}`;
+                    </div>` : '<div class="text-slate-400 text-xs text-center py-4">분석 데이터 생성 중입니다.</div>'}
+                `;
                 break;
             }
             case 'tail_digit': {
@@ -479,7 +621,7 @@ ${unitHint}
             }
         }
 
-        const rec = (strategy.filter_recommendations || []).find(r => r.filter === recFilter || r.filter?.includes(recFilter));
+        const rec = (strategy.filter_recommendations || []).find(r => r.filter === recFilter || (r.filter && r.filter.includes(recFilter)));
         const recBlock = rec ? `<div class="dip-rec-badge" style="margin-top:12px">
             <span class="dip-rec-label">권장</span>
             <span class="dip-rec-value">${rec.pattern || (rec.min !== undefined ? `${rec.min}~${rec.max}` : '')}</span>
@@ -502,36 +644,86 @@ ${unitHint}
     }
 
     function _wrapGroup(label, content, extra) {
-        return `<div class="dip-root">${content}${extra}</div>`;
+        const targetRound = _memCache?.target_round || '';
+        return `
+        <div class="dip-root">
+            <!-- [Header] -->
+            <header class="dip-v3-header">
+                <div class="dip-v3-title-group">
+                    <div class="dip-v3-icon-main">
+                        <span class="material-symbols-outlined" style="font-size:24px; color:white;">analytics</span>
+                    </div>
+                    <div>
+                        <h2>AI 프리미엄 전략 리포트</h2>
+                        <p>INTELLIGENT GROUP ANALYSIS — ${label}</p>
+                    </div>
+                </div>
+                <!-- 그룹분석 새로고침은 현재 미지원하거나 별도 로직 필요 (필요시 추가) -->
+            </header>
+
+            <!-- [Stats/Content] -->
+            <div style="padding: 2rem 2rem 1rem 2rem;">
+                ${content}
+            </div>
+
+            ${extra}
+        </div>`;
     }
 
     function _aiSection(sectionLabel) {
+        const targetRound = _memCache?.target_round || '';
         return `
-        <section class="dip-ai-section">
-            <div class="dip-ai-header">
-                <span class="dip-ai-icon">✦</span>
-                <span class="dip-ai-label">AI 흐름분석 &amp; 최종 제안</span>
-                <span class="dip-ai-filter-tag">${sectionLabel}</span>
-            </div>
-            <div class="dip-ai-body">
-                <div id="dip-ai-llm-body" style="min-height: 160px; width: 100%; box-sizing: border-box;">
-                    <div class="dip-ai-loading">
-                    <span class="material-symbols-outlined dip-spin" style="font-size:15px;color:#475569">progress_activity</span>
-                    <span>흐름분석 중...</span>
+            <!-- [Ensemble Summary] - [추가] 앙상블 섹션 복구 -->
+            <div class="dip-v3-ensemble-box" style="margin-top:0; border-top:none;">
+                <div class="dip-v3-ens-main">
+                    <div class="dip-v3-ens-info">
+                        <span class="dip-v3-ens-label">종합 흐름 분석</span>
+                        <div class="dip-v3-ens-value">
+                            <span class="dip-v3-ens-range" style="font-size:1.1rem">데이터 정밀 진단 중</span>
+                        </div>
+                    </div>
                 </div>
             </div>
-        </section>`;
+
+            <!-- [Body] AI Analysis Slots -->
+            <div class="dip-v3-body" style="padding: 1rem 2rem 1rem 2rem; display: block;">
+                <div class="dip-v3-col" style="margin-bottom: 2rem;">
+                    <div class="dip-v3-col-header">
+                        <span class="dip-v3-col-title">흐름 진단</span>
+                    </div>
+                    <div class="dip-v3-col-content" id="dip-v3-group-flow">
+                        종합 통계 데이터의 흐름을 분석 중입니다...
+                    </div>
+                </div>
+                <div class="dip-v3-col" style="border-top: 1px solid #f1f5f9; padding-top: 2rem; margin-bottom: 1rem;">
+                    <div class="dip-v3-col-header">
+                        <span class="dip-v3-col-title">패턴 분석</span>
+                    </div>
+                    <div class="dip-v3-col-content" id="dip-v3-group-pattern">
+                        과거 데이터와의 상관 관계 및 특이 패턴을 분석 중입니다...
+                    </div>
+                </div>
+            </div>
+
+            <!-- [Bottom] Winning Strategy -->
+            <div class="dip-v3-strategy" style="margin: 0 2rem 2rem 2rem; border-radius: 1rem;">
+                <div class="dip-v3-strat-header">
+                    <span class="dip-v3-strat-title">${targetRound}회차 전략 제언</span>
+                </div>
+                <div class="dip-v3-strat-content" id="dip-v3-group-strategy">
+                    가장 유력한 필터 값을 도출하고 있습니다.
+                </div>
+            </div>
+        `;
     }
 
     // ── 그룹용 LLM 비동기 분석 호출 ───────────────────────────────────────────
     async function _requestGroupLLMAnalysis(aiBodyId, groupType, groupLabel, analysis, strategy, targetRound) {
-        const aiBody = document.getElementById(aiBodyId);
-        if (!aiBody) return;
+        const flowEl   = document.getElementById('dip-v3-group-flow');
+        const patternEl = document.getElementById('dip-v3-group-pattern');
+        const strategyEl = document.getElementById('dip-v3-group-strategy');
 
-        aiBody.innerHTML = `<div class="dip-ai-loading">
-            <span class="material-symbols-outlined dip-spin" style="font-size:15px;color:#475569">progress_activity</span>
-            <span>흐름분석 중...</span>
-        </div>`;
+        if (!flowEl || !patternEl || !strategyEl) return;
 
         let summaryText = '';
         switch (groupType) {
@@ -560,10 +752,15 @@ ${unitHint}
                 summaryText = recs.map(r => `${r.filter}: ${r.min !== undefined ? r.min + '~' + r.max : (r.pattern || '')}`).join(', ');
                 break;
             }
+            case 'custom_analysis': {
+                const targets = analysis.target_numbers || [];
+                summaryText = `분석 대상 번호: [${targets.join(', ')}], 설정 필터: ${(strategy.filter_recommendations || []).map(r => r.filter).join(', ')}`;
+                break;
+            }
             case 'tail_digit': {
                 const tailData = analysis.tail_analysis || [];
                 if (tailData.length) {
-                    summaryText = tailData.map((d, i) => `${i}끝:${d.exp?.toFixed(2)}개`).join(', ');
+                    summaryText = tailData.map((d, i) => `${i}끝:${(d && d.exp ? d.exp.toFixed(2) : '0.00')}개`).join(', ');
                 } else {
                     summaryText = "데이터 없음";
                 }
@@ -572,13 +769,18 @@ ${unitHint}
         }
 
         const prompt =
-`[${targetRound || ''}회차 ${groupLabel} 딥러닝 분석 결과]
-분석 데이터: ${summaryText}
+`# Role: 최고의 로또 통계 분석 전문가이자 데이터 과학자
+# Target: ${targetRound || ''}회차 ${groupLabel} 그룹 리포트
+# Analysis Summary: ${summaryText}
 
-위 딥러닝 결과를 바탕으로 3~4문장으로 답변해주세요:
-1. 현재 패턴의 특이사항 및 경향 분석
-2. 이 분포가 의미하는 핵심 전략적 시사점
-3. 다음 회차 적용 시 주의사항과 권장 접근법`;
+# 분석 요청 사항:
+1. [흐름진단]: 위 요약된 ${groupLabel} 통계 데이터를 기반으로 최근 로또 당첨번호의 전체적인 흐름과 추세를 과학적으로 진단해주세요. (3~4문장)
+2. [패턴분석]: 제공된 데이터를 통해 도출할 수 있는 특이 패턴이나 과거 유사 회차들과의 연계성, 그리고 사람이 직관적으로 보기 어려운 숨겨진 통계적 의미를 분석해주세요. (3~4문장)
+3. [필승공략]: 이 분석 결과를 실제 번호 조합 시 ${targetRound}회차에서 어떻게 필터링 전략으로 활용해야 할지 구체적인 팁과 최종 의사결정 가이드를 제안해주세요. (2~3문장)
+
+# 주의사항:
+- 강조할 수치나 키워드는 반드시 {{good:값}} 또는 {{info:값}}, {{warn:위험}} 태그로 감싸주세요.
+- 전문가답게 단정적이고 확신 있는 어조를 사용하고, 추상적인 설명을 배제하세요.`;
 
         try {
             const result = await window.AIProxy.invoke({
@@ -587,25 +789,19 @@ ${unitHint}
                 targetRound: targetRound || 0,
                 responseStyle: 'expert'
             });
-            const text = _extractLLMText(result);
-              if (text) {
-                  aiBody.innerHTML = `<div class="dip-ai-unified-box"><div class="dip-ai-unified-text">${text.replace(/\n/g, '<br>')}</div></div>`;
-                  return;
-              }
+            const text = _extractLLMText(result, groupType);
+            if (text) {
+                const parts = _splitPremiumText(text);
+                flowEl.innerHTML     = _cleanLLMText(parts.flow);
+                patternEl.innerHTML  = _cleanLLMText(parts.pattern);
+                strategyEl.innerHTML = _cleanLLMText(parts.strategy);
+                return;
+            }
         } catch (e) { /* fallback */ }
 
-        const advice = strategy.overall_strategy?.short_advice || '';
-          const recHTML = _llmRecHTML(strategy, filterLabel);
-          if (advice) {
-              aiBody.innerHTML = `
-                  <div class="dip-ai-unified-box">
-                      ${recHTML}
-                      <div class="dip-ai-unified-text">${advice}</div>
-                  </div>
-              `;
-          } else {
-              aiBody.innerHTML = '<p class="dip-note">분석 데이터를 불러오는 중입니다.</p>';
-          }
+        flowEl.innerHTML = `현재 ${groupLabel} 흐름을 면밀히 분석하고 있습니다.`;
+        patternEl.innerHTML = '패턴 일치 여부를 검증 중입니다.';
+        strategyEl.innerHTML = '최적의 조합 전략을 수립하여 제공할 예정입니다.';
     }
 
     function _noDataHTML() {
@@ -618,211 +814,133 @@ ${unitHint}
         const style = document.createElement('style');
         style.id = 'dip-styles';
         style.textContent = `
+        /* ── DeepInsightPanel Premium V3 Styles ── */
         .dip-root {
+            font-family: 'Pretendard', sans-serif;
+            border-radius: 2rem;
+            overflow: hidden;
+            background: #ffffff;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+            margin-bottom: 2rem;
+            border: 1px solid #f1f5f9;
             width: 100%; box-sizing: border-box;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
-            color: #24292f; line-height: 1.5; font-size: 14px;
         }
 
-        /* ── Section Dividers ── */
-        .dip-section { padding: 16px 0; border-bottom: 1px solid #d0d7de; }
-        .dip-section:last-child { border-bottom: none; }
-        .dip-section-label {
-            font-size: 15px; font-weight: 600; color: #24292f; margin-bottom: 20px;
-            padding-bottom: 8px; border-bottom: 1px solid #d0d7de; display: inline-block;
+        /* [Header] Dark Premium */
+        .dip-v3-header {
+            background: #1e293b;
+            padding: 1.25rem 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            color: white;
         }
+        .dip-v3-title-group h2 { font-size: 1.1rem; font-weight: 800; margin: 0; letter-spacing: -0.02em; }
+        .dip-v3-title-group p { font-size: 0.7rem; color: rgba(255,255,255,0.6); margin: 2px 0 0 0; font-weight: 600; text-transform: uppercase; }
 
-        /* ── Model Boxes (1 row, 7 columns) ── */
-        /* 점선 제거: border-bottom: none */
-        .dip-model-list { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; padding-bottom: 24px; border-bottom: none; }
-        .dip-model-row {
-            display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
-            padding: 8px 12px; background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px;
+        /* [Ensemble Summary Section] */
+        .dip-v3-ensemble-box {
+            padding: 1.5rem 2rem;
+            background: #f8fafc;
+            border-bottom: 1px solid #f1f5f9;
         }
-        .dip-model-name { font-size: 13px; font-weight: 700; color: #24292f; }
-        .dip-range {
-            font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
-            font-size: 14px; font-weight: 600; color: #24292f; font-variant-numeric: tabular-nums;
+        .dip-v3-ens-main {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 2rem;
         }
-        .dip-range-sep { font-weight: 400; color: #57606a; margin: 0 4px; }
-        .dip-dot, .dip-model-tag { display: none; }
+        .dip-v3-ens-info { flex: 1; }
+        .dip-v3-ens-label { font-size: 0.75rem; color: #64748b; font-weight: 600; text-transform: uppercase; margin-bottom: 4px; display: block; }
+        .dip-v3-ens-value { display: flex; align-items: baseline; gap: 12px; }
+        .dip-v3-ens-range { font-size: 1.75rem; font-weight: 800; color: #1e293b; font-family: 'Pretendard', sans-serif; }
+        .dip-v3-ens-avg { font-size: 0.9rem; color: #2563eb; font-weight: 700; background: #dbeafe; padding: 2px 8px; border-radius: 6px; }
 
-        /* ── Ensemble ── */
-        .dip-ensemble-section { padding-top: 24px !important; border-bottom: none; }
-        .dip-ensemble-row { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
-        .dip-ensemble-left { display: flex; align-items: baseline; gap: 8px; }
-        .dip-ensemble-title { font-size: 16px; font-weight: 600; color: #24292f; }
-        .dip-ensemble-sub { font-size: 13px; color: #57606a; }
-        .dip-ensemble-right { }
-        .dip-ensemble-range { 
-            font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
-            font-size: 26px; font-weight: 700; color: #0969da; 
-            background: transparent; padding: 0; border: none; border-bottom: 2px solid #0969da;
-            font-variant-numeric: tabular-nums;
+        .dip-v3-ens-gauge { width: 220px; }
+        .dip-v3-gauge-label { font-size: 0.65rem; color: #94a3b8; font-weight: 700; text-align: right; margin-bottom: 6px; }
+        .dip-v3-gauge-track { height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden; }
+        .dip-v3-gauge-bar { height: 100%; background: linear-gradient(90deg, #3b82f6, #2563eb); transition: width 1s ease-out; }
+        .dip-v3-gauge-text { font-size: 0.75rem; color: #475569; font-weight: 600; text-align: right; margin-top: 4px; }
+
+        /* [Grid] Compact Models */
+        .dip-v3-model-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 12px;
+            margin-bottom: 2rem;
         }
-        .dip-sim-badge { display: none; }
-        
-        .dip-agree-row { display: flex; align-items: center; gap: 12px; margin-top: 16px; font-size: 13px; }
-        .dip-agree-label { font-weight: 600; color: #57606a; min-width: 70px; }
-        .dip-agree-bar-wrap { flex: 1; height: 8px; background: #ebecf0; overflow: hidden; border-radius: 4px; }
-        .dip-agree-bar { height: 100%; background: #2da44e; transition: width 1s ease; border-radius: 4px; }
-        .dip-agree-pct { font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace; font-weight: 600; color: #24292f; width: 85px; text-align: right; white-space: nowrap; }
-
-        /* ── AI Insight Section ── */
-        .dip-ai-section {
-            padding: 24px 0 16px 0; margin-top: 24px; border-top: 1px solid #d0d7de; position: relative;
+        .dip-v3-model-card {
+            background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px;
+            padding: 10px 8px; text-align: center; transition: all 0.2s;
         }
-        .dip-ai-header { display: flex; align-items: center; gap: 8px; margin-bottom: 20px; }
-        .dip-ai-icon { font-size: 18px; }
-        .dip-ai-label { font-size: 16px; font-weight: 600; color: #24292f; }
-        .dip-ai-filter-tag { font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace; font-size: 12px; font-weight: 500; color: #57606a; margin-left: auto; background: #f6f8fa; border: 1px solid #d0d7de; padding: 2px 6px; border-radius: 6px; }
-        .dip-ai-body { display: flex; flex-direction: column; gap: 16px; } /* gap 확대 */
+        .dip-v3-model-card:hover { border-color: #cbd5e1; transform: translateY(-2px); box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+        .dip-v3-m-label { font-size: 0.6rem; color: #94a3b8; font-weight: 700; text-transform: uppercase; display: block; margin-bottom: 4px; }
+        .dip-v3-m-val { font-size: 0.8rem; font-weight: 800; color: #334155; font-family: monospace; }
 
-        /* Meta Row (Callouts) - 테두리선 완전히 제거 */
-        .dip-meta-row { display: flex; flex-direction: column; gap: 10px; border: none; overflow: visible; }
+        /* [Body] 1-Column Content */
+        .dip-v3-body { display: block; margin-bottom: 2rem; }
+        .dip-v3-col { width: 100%; }
+        .dip-v3-col-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+        .dip-v3-col-title { font-size: 1rem; font-weight: 800; color: #1e293b; }
+        .dip-v3-col-content { font-size: 0.9rem; color: #475569; line-height: 1.7; word-break: keep-all; }
 
-        /* 이탈모델: 깊이있고 고급스러운 플라밍고 레드 배경 */
-        .dip-note {
-            display: flex; align-items: baseline; justify-content: flex-start; gap: 8px;
-            background: #fff1f2; border: none; border-radius: 8px; padding: 14px 18px; margin: 0;
-            font-size: 13px; color: #9f1239; font-weight: 500;
+        /* [Strategy] Bottom Box (Dark Strategy) */
+        .dip-v3-strategy {
+            background: #1e293b;
+            padding: 1.5rem 2rem;
+            border-radius: 1.25rem;
+            color: rgba(255,255,255,0.9);
+            margin-top: 1rem;
         }
-        .dip-note strong { font-weight: 700; color: #9f1239; }
+        .dip-v3-strat-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+        .dip-v3-strat-title { font-size: 0.95rem; font-weight: 800; color: #38bdf8; }
+        .dip-v3-strat-content { font-size: 0.9rem; line-height: 1.7; font-weight: 400; color: #e2e8f0; }
 
-        /* LLM 권장: 깊이있고 고급스러운 스카이 블루 배경 */
-        .dip-llm-rec {
-            display: flex; align-items: baseline; justify-content: flex-start; gap: 8px;
-            background: #f0f9ff; border: none; border-radius: 8px; padding: 14px 18px; margin: 0;
-        }
-        .dip-llm-rec-label { font-size: 13px; font-weight: 700; color: #0369a1; min-width: 70px; display: flex; align-items: center; gap: 6px; }
-        .dip-llm-rec-label::before { content: '💡'; font-size: 12px; }
-        .dip-llm-rec-val { font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace; font-size: 16px; font-weight: 700; color: #0369a1; font-variant-numeric: tabular-nums; }
-        .dip-llm-rec-ev { font-size: 12px; color: #475569; font-weight: 400; margin-left: auto; }
+        /* Highlighting Tags */
+        .dip-v3-hl-good { color: #2563eb; font-weight: 800; border-bottom: 2px solid #dbeafe; }
+        .dip-v3-hl-warn { color: #e11d48; font-weight: 800; }
+        .dip-v3-hl-info { color: #0891b2; font-weight: 800; }
+        .dip-v3-hl-range { color: #7c3aed; font-weight: 800; background: #f5f3ff; padding: 2px 6px; border-radius: 4px; border: 1px solid #ede9fe; }
 
-        
-        /* 일체화된 LLM 분석 박스 */
-        .dip-ai-unified-box {
-            background: #f0f9ff; border-radius: 8px; overflow: hidden;
-            border: none; width: 100%; box-sizing: border-box;
-        }
-        .dip-ai-unified-box .dip-llm-rec {
-            background: transparent; border-bottom: 1px dashed #bae6fd; border-radius: 0;
-            padding: 16px 20px;
-        }
-        .dip-ai-unified-text {
-            padding: 16px 20px; font-size: 14px; line-height: 1.6; color: #334155;
-        }
-
-        /* Quote text block */
-        .dip-advice {
-            font-size: 14px; font-weight: 400; color: #24292f; line-height: 1.6;
-            margin: 12px 0 0 0; padding: 4px 0 4px 16px;
-            border-left: 4px solid #d0d7de; background: transparent;
-        }
-
-        /* ── Group views ── */
-        .dip-group-list { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
-        .dip-group-row { display: flex; align-items: center; gap: 12px; }
-        .dip-group-name { font-size: 13px; font-weight: 600; color: #24292f; width: 65px; flex-shrink: 0; }
-        .dip-group-bar-wrap { flex: 1; height: 8px; background: #ebecf0; overflow: hidden; border-radius: 4px; }
-        .dip-group-bar { height: 100%; background: #0969da; transition: width 0.8s ease; border-radius: 4px;}
-        .dip-group-val { font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace; font-size: 12px; font-weight: 600; color: #24292f; width: 60px; text-align: right; flex-shrink: 0; }
-
-        /* ── Palace grid ── */
-        .dip-palace-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-        .dip-palace-cell { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px; padding: 20px 12px; text-align: center; position: relative; }
-        .dip-palace-top { background: transparent; border-color: #0969da; border-width: 2px; }
-        .dip-palace-num { font-size: 13px; color: #57606a; margin-bottom: 4px; font-weight: 600; }
-        .dip-palace-exp { font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace; font-size: 20px; font-weight: 600; color: #24292f; }
-        .dip-palace-badge { display: none; }
-
-        /* ── Paper grid ── */
-        .dip-paper-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
-        .dip-paper-subtitle { font-size: 13px; font-weight: 600; color: #24292f; border-bottom: 1px solid #d0d7de; padding-bottom: 8px; margin-bottom: 16px; display: block; }
-
-        /* ── Regression ── */
-        .dip-regression-list { margin-bottom: 24px; display: flex; flex-direction: column; }
-        .dip-reg-row {
-            display: flex; align-items: center; justify-content: space-between;
-            padding: 10px 12px; border-bottom: 1px solid #d0d7de;
-        }
-        .dip-reg-name { font-size: 13px; font-weight: 600; color: #24292f; }
-        .dip-reg-val { font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace; font-size: 14px; font-weight: 600; color: #0969da; }
-        
-        .dip-rec-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; border-top: 1px solid #d0d7de; padding-top: 16px; }
-        .dip-rec-item { display: flex; flex-direction: column; gap: 4px; padding: 12px; background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px; }
-        .dip-rec-item-label { font-size: 12px; font-weight: 600; color: #57606a; }
-        .dip-rec-item-val { font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace; font-size: 14px; font-weight: 600; color: #24292f; }
-
-        /* ── Badge / Rec Block ── */
-        .dip-rec-badge {
-            display: inline-flex; align-items: baseline; gap: 10px;
-            padding: 10px 16px; border: none; background: transparent; border-radius: 0; margin-top: 8px; width: 100%; padding: 0;
-        }
-        .dip-rec-label { font-size: 12px; font-weight: 600; color: #0969da; border: 1px solid #0969da; padding: 2px 6px; border-radius: 4px; }
-        .dip-rec-value { font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace; font-size: 15px; font-weight: 600; color: #0969da; }
-        .dip-rec-evidence { font-size: 12px; color: #57606a; margin-left: auto; }
-
-        
+        /* [States] Loading / Empty */
         .dip-ai-loading {
-            display: flex; align-items: center; justify-content: center; gap: 8px;
-            padding: 32px 0; background: transparent; border: none; border-radius: 6px;
-            color: #57606a; font-size: 14px; font-weight: 500; min-height: 50px; width: 100%; box-sizing: border-box;
-            background-color: #f8fafc;
-        }
-
-        /* ── States / Skeleton ── */
-        .dip-skel { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px; animation: dip-pulse 1.5s infinite; }
-        @keyframes dip-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-        #dip-ai-llm-body { min-height: 0; }
-        
-        .dip-loading, .dip-offline, .dip-error, .dip-empty {
-            text-align: center; padding: 48px 0; color: #57606a; font-size: 14px; font-weight: 500; background: transparent; border-top: 1px solid #d0d7de; margin-top: 24px;
+            padding: 4rem 2rem; text-align: center; color: #94a3b8; font-size: 0.9rem;
+            display: flex; flex-direction: column; align-items: center; gap: 1rem;
         }
         .dip-spin { animation: dip-spin 1s linear infinite; }
-        .dip-spin { animation: dip-spin 1s linear infinite; }
-        .dip-spin { animation: dip-spin 1s linear infinite; }
-        .dip-spin { animation: dip-spin 1s linear infinite; }
-        .dip-spin { animation: dip-spin 1s linear infinite; }
-        .dip-offline-icon, .dip-error-icon { display: none; }
-        .dip-offline p, .dip-error p { color: #111827; font-weight: 500; font-size: 15px; margin-bottom: 8px; }
+        @keyframes dip-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .dip-offline, .dip-error {
+            padding: 3rem 2rem; text-align: center; background: #fff1f2; border-radius: 1.5rem; margin: 1.5rem;
+        }
+        .dip-offline p, .dip-error p { color: #9f1239; font-weight: 700; margin-bottom: 4px; }
+        .dip-offline span, .dip-error span { color: #e11d48; font-size: 0.8rem; }
         `;
         document.head.appendChild(style);
     }
 
     // ── 상태 UI ───────────────────────────────────────────────────────────────
     function _showLoading(el) {
-        el.style.minHeight = '';
-        el.innerHTML = `<div style="padding:4px 0">
-            <!-- 제목 스켈레톤 -->
-            <div class="dip-skel" style="width:140px;height:22px;margin-bottom:18px"></div>
-            <!-- 모델 카드 7열 스켈레톤 -->
-            <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:7px;margin-bottom:16px">
-                ${Array(7).fill('<div class="dip-skel" style="height:72px;border-radius:12px"></div>').join('')}
-            </div>
-            <!-- 앙상블 스켈레톤 -->
-            <div class="dip-skel" style="height:72px;border-radius:12px;margin-bottom:14px"></div>
-            <!-- AI 섹션 스켈레톤 -->
-            <div class="dip-skel" style="height:120px;border-radius:12px;background:#1e293b;opacity:0.4"></div>
-        </div>`;
+        el.innerHTML = `
+            <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
+                <span class="material-symbols-outlined dip-spin text-2xl">progress_activity</span>
+                <span class="text-sm font-medium">AI 딥러닝 분석 레포트 생성 중...</span>
+            </div>`;
     }
 
     function _showOffline(el) {
-        el.style.minHeight = '';
-        el.innerHTML = `<div class="dip-offline">
-            <span class="dip-offline-icon">🔌</span>
-            <p style="font-weight:700;color:#64748b">AI 서버 오프라인</p>
-            <p style="color:#94a3b8;font-size:12px">AI 딥러닝 서버 기동 대기 중입니다. 잠시 후 새로고침 해주세요.</p>
-        </div>`;
+        el.innerHTML = `
+            <div class="dip-offline">
+                <p>AI 서버 오프라인</p>
+                <span>서버 기동 대기 중입니다. 잠시 후 새로고침 해주세요.</span>
+            </div>`;
     }
 
     function _showError(el, msg) {
-        el.style.minHeight = '';
-        el.innerHTML = `<div class="dip-error">
-            <span class="dip-error-icon">⚠️</span>
-            <p style="font-weight:700;color:#92400e">분석 오류</p>
-            <p style="color:#94a3b8;font-size:12px">${msg || '잠시 후 다시 시도해주세요'}</p>
-        </div>`;
+        el.innerHTML = `
+            <div class="dip-error">
+                <p>분석 오류</p>
+                <span>${msg || '잠시 후 다시 시도해주세요'}</span>
+            </div>`;
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -833,6 +951,7 @@ ${unitHint}
         async render(containerId, filterKey, filterLabel, force = false) {
             const el = document.getElementById(containerId);
             if (!el) return;
+            _lastContainerId = containerId; // ID 기억
             _injectStyles();
             _showLoading(el);
 
@@ -844,10 +963,10 @@ ${unitHint}
                 if (!data) { _showError(el, 'API 응답 없음'); return; }
                 _updateHeader(data);
 
-                const rangeAna   = data?.analysis?.range_analysis || {};
+                const rangeAna   = (data && data.analysis && data.analysis.range_analysis) || {};
                 const filterData = rangeAna[filterKey] || {};
                 const modelExp   = filterData.model_expectations || {};
-                const strategy   = data?.strategy || {};
+                const strategy   = (data && data.strategy) || {};
                 const { cMin, cMax } = _ensembleRange(modelExp);
 
                 // modelExp 비어있으면 캐시 무효화 후 1회 강제 재시도
@@ -858,14 +977,14 @@ ${unitHint}
                     if (fresh) {
                         _memCache = fresh;
                         try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ data: fresh, ts: Date.now() })); } catch(e) {}
-                        const fd2 = (fresh?.analysis?.range_analysis || {})[filterKey] || {};
+                        const fd2 = (fresh && fresh.analysis && fresh.analysis.range_analysis ? fresh.analysis.range_analysis : {})[filterKey] || {};
                         const me2 = fd2.model_expectations || {};
                         if (Object.keys(me2).length) {
-                            const st2 = fresh?.strategy || {};
+                            const st2 = (fresh && fresh.strategy) || {};
                             const { cMin: c2, cMax: x2 } = _ensembleRange(me2);
                             el.style.minHeight = '';
                             el.innerHTML = _buildFilterHTML(filterKey, filterLabel, me2, st2, fd2.range);
-                            _requestLLMAnalysis('dip-ai-llm-body', filterKey, filterLabel, me2, c2, x2, fresh.target_round, st2);
+                            _requestLLMAnalysis('dip-ai-llm-body', filterKey, filterLabel, me2, c2, x2, fresh.target_round, st2, fd2.range);
                             return;
                         }
                     }
@@ -884,7 +1003,7 @@ ${unitHint}
                 el.innerHTML = _buildFilterHTML(filterKey, filterLabel, modelExp, strategy, filterData.range);
 
                 // 2단계: LLM 비동기 흐름분석 (병렬)
-                _requestLLMAnalysis('dip-ai-llm-body', filterKey, filterLabel, modelExp, cMin, cMax, data.target_round, strategy);
+                _requestLLMAnalysis('dip-ai-llm-body', filterKey, filterLabel, modelExp, cMin, cMax, data.target_round, strategy, filterData.range);
 
             } catch (e) {
                 console.error('[DeepInsightPanel]', e);
@@ -896,7 +1015,7 @@ ${unitHint}
             this.render(containerId, filterKey, filterLabel, true);
         },
 
-        async renderGroup(containerId, groupType, force = false) {
+        async renderGroup(containerId, groupType, force = false, payload = null) {
             const el = document.getElementById(containerId);
             if (!el) return;
             _injectStyles();
@@ -915,17 +1034,22 @@ ${unitHint}
                     magic_square: '9궁 분석',
                     lotto_paper: '로또용지 분석',
                     regression: '회귀분석 종합',
-                    tail_digit: '끝수 분포'
+                    tail_digit: '끝수 분포',
+                    custom_analysis: '맞춤형 분석'
                 };
                 const groupLabel = GROUP_LABELS[groupType] || groupType;
 
                 // tail_digit needs range_analysis injected into analysis
-                const analysis = { ...data.analysis, range_analysis: data.analysis?.range_analysis || {} };
+                const analysis = { 
+                    ...data.analysis, 
+                    ...payload, // [추가] 외부 페이로드 주입 (예: custom_analysis의 타겟 번호)
+                    range_analysis: (data.analysis && data.analysis.range_analysis) || {} 
+                };
                 el.style.minHeight = '';
-                el.innerHTML = _buildGroupHTML(groupType, analysis, data?.strategy || {});
+                el.innerHTML = _buildGroupHTML(groupType, analysis, (data && data.strategy) || {});
 
                 // 2-phase: LLM async analysis
-                _requestGroupLLMAnalysis('dip-ai-llm-body', groupType, groupLabel, analysis, data?.strategy || {}, data.target_round);
+                _requestGroupLLMAnalysis('dip-ai-llm-body', groupType, groupLabel, analysis, (data && data.strategy) || {}, data.target_round);
 
             } catch (e) {
                 console.error('[DeepInsightPanel.renderGroup]', e);

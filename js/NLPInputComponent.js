@@ -45,7 +45,10 @@ class NLPInputComponent {
         this.bindEvents();
 
         if (this.options.autoFocus) {
-            setTimeout(() => this.container.querySelector('#nlpInput')?.focus(), 100);
+            setTimeout(() => {
+                const el = this.container.querySelector('#nlpInput');
+                if (el) el.focus();
+            }, 100);
         }
     }
 
@@ -246,7 +249,8 @@ class NLPInputComponent {
     }
 
     highlightMatch(text) {
-        const input = this.container.querySelector('#nlpInput')?.value || '';
+        const inputEl = this.container.querySelector('#nlpInput');
+        const input = inputEl ? inputEl.value : '';
         if (!input) return text;
 
         const regex = new RegExp(`(${this.escapeRegex(input)})`, 'gi');
@@ -361,7 +365,7 @@ class NLPInputComponent {
                             </svg>
                         </div>
                         <div class="flex-1">
-                            <div class="font-bold text-red-900 mb-1">${result.errors[0]?.message || '명령을 이해하지 못했습니다'}</div>
+                            <div class="font-bold text-red-900 mb-1">${(result.errors && result.errors[0]) ? result.errors[0].message : '명령을 이해하지 못했습니다'}</div>
                             <div class="text-sm text-red-700">아래 예시를 참고하여 다시 입력해주세요.</div>
                         </div>
                     </div>
@@ -408,7 +412,7 @@ class NLPInputComponent {
     renderParams(params) {
         const parts = [];
 
-        if (params.target_numbers?.length > 0) {
+        if (params.target_numbers && params.target_numbers.length > 0) {
             parts.push(`<div><span class="font-medium">번호:</span> ${params.target_numbers.join(', ')}</div>`);
         }
 
@@ -430,7 +434,7 @@ class NLPInputComponent {
             parts.push(`<div><span class="font-medium">수식:</span> ${formulaText}</div>`);
         }
 
-        if (params.config?.groups?.length > 0) {
+        if (params.config && params.config.groups && params.config.groups.length > 0) {
             const groupTexts = params.config.groups.map(g => {
                 if (g.type === 'hot') return '고온수';
                 if (g.type === 'cold') return '저온수';
@@ -481,7 +485,8 @@ class NLPInputComponent {
 
     // Public API
     getValue() {
-        return this.container.querySelector('#nlpInput')?.value || '';
+        const el = this.container.querySelector('#nlpInput');
+        return el ? el.value : '';
     }
 
     setValue(value) {
@@ -491,12 +496,14 @@ class NLPInputComponent {
 
     clear() {
         this.setValue('');
-        this.container.querySelector('#nlpFeedback')?.classList.add('hidden');
+        const feedback = this.container.querySelector('#nlpFeedback');
+        if (feedback) feedback.classList.add('hidden');
         this.currentResult = null;
     }
 
     focus() {
-        this.container.querySelector('#nlpInput')?.focus();
+        const el = this.container.querySelector('#nlpInput');
+        if (el) el.focus();
     }
 }
 
@@ -521,10 +528,10 @@ window.createAnalysis = window.createAnalysis || async function (params) {
         if (!title) {
             switch (params.type) {
                 case 'static':
-                    title = `번호 분석: ${params.target_numbers?.slice(0, 3).join(', ')}...`;
+                    title = `번호 분석: ${(params.target_numbers && params.target_numbers.length > 0) ? params.target_numbers.slice(0, 3).join(', ') : ''}...`;
                     break;
                 case 'dynamic':
-                    const formula = params.rules?.formula;
+                    const formula = params.rules ? params.rules.formula : undefined;
                     if (formula === 'round_end_digit') {
                         title = `회차 끝수 분석`;
                     } else {
@@ -532,14 +539,15 @@ window.createAnalysis = window.createAnalysis || async function (params) {
                     }
                     break;
                 case 'group':
-                    title = `그룹 분석: ${params.config?.groups?.length || 0}개 그룹`;
+                    title = `그룹 분석: ${(params.config && params.config.groups) ? params.config.groups.length : 0}개 그룹`;
                     // [New] 그룹 번호 자동 채움 (번호가 비어있을 경우 상구 상수로 보정)
-                    if (params.config?.groups) {
+                    if (params.config && params.config.groups) {
                         params.config.groups.forEach(group => {
                             if (!group.numbers || group.numbers.length === 0) {
-                                const standardKey = Object.keys(window.LOTTO_CONSTANTS?.GROUPS || {}).find(k => group.name.includes(k));
+                                const standardGroups = (window.LOTTO_CONSTANTS && window.LOTTO_CONSTANTS.GROUPS) ? window.LOTTO_CONSTANTS.GROUPS : {};
+                                const standardKey = Object.keys(standardGroups).find(k => group.name.includes(k));
                                 if (standardKey) {
-                                    group.numbers = window.LOTTO_CONSTANTS.GROUPS[standardKey];
+                                    group.numbers = standardGroups[standardKey];
                                     console.log(`[createAnalysis] Auto-populated group numbers for: ${group.name}`);
                                 }
                             }
@@ -557,8 +565,8 @@ window.createAnalysis = window.createAnalysis || async function (params) {
             ...(params.config ? { config: params.config } : {})
         };
 
-        const _nlpUserId = window.filterService?.userId
-            || (await window.supabaseClient.auth.getUser()).data?.user?.id;
+        const _nlpUserId = window.filterService ? window.filterService.userId : null
+            || (await window.supabaseClient.auth.getUser()).data ? (await window.supabaseClient.auth.getUser()).data.user ? (await window.supabaseClient.auth.getUser()).data.user.id : null : null;
         const { data, error } = await window.supabaseClient
             .from('ai_custom_analyses')
             .insert({

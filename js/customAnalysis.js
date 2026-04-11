@@ -1550,6 +1550,16 @@ window.refreshAIAnalysis = async function () {
     const content = document.getElementById('aiAnalysisContent');
     if (!section || !content) return;
 
+    // [추가] 딥러닝 인사이트 패널 렌더링
+    if (window.DeepInsightPanel) {
+        // [성능] stats 결과 캐시 → refreshAIAnalysis에서 중복 연산 방지
+        const stats = (_lastStatsId === (currentAnalysis?.id || 'default') && _lastStats) ? _lastStats : calculateStats(currentAnalysis, allDrawData);
+        const nextRow = stats?.rows?.[0]; // isUpcoming = true
+        const payload = { target_numbers: nextRow?.targets || [] };
+        
+        DeepInsightPanel.renderGroup('dlInsightContainer', 'custom_analysis', false, payload);
+    }
+
     section.classList.remove('hidden');
 
     const subjectRound = allDrawData[0]?.round || 0;
