@@ -1,26 +1,11 @@
-# Environment variables (API keys)
-.env
-.env.local
-.env.production
-
-# Python
+# Python virtual environment
+.venv/
 __pycache__/
 *.pyc
-*.pyo
-venv/
-.venv/
 
-# Model files (large)
-# langchain-backend/saved_models/
-langchain-backend/chroma_db/
+# AI Agent internal files (to prevent indexing lag)
+.agents/
+.claude/
 
-# Node
-node_modules/
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Problematic files
-langchain-backend/nul
-nul
+# Temporary files
+.ipynb_checkpoints/

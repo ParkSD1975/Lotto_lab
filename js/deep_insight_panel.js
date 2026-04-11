@@ -135,11 +135,21 @@ ${unitHint}
             });
             const text = _extractLLMText(result, filterKey);
             if (text) {
-                aiBody.innerHTML = `<p class="dip-advice">${text.replace(/\n/g, '<br>')}</p>`;
-                const slot = document.getElementById('dip-ai-rec-slot');
-                if (slot) slot.innerHTML = _llmRecHTML(strategy, filterLabel);
-                return;
-            }
+                  const recHTML = _llmRecHTML(strategy, filterLabel);
+                  const contentHTML = text.replace(/\n/g, '<br>');
+                  
+                  if (recHTML) {
+                      aiBody.innerHTML = `
+                          <div class="dip-ai-unified-box">
+                              ${recHTML}
+                              <div class="dip-ai-unified-text">${contentHTML}</div>
+                          </div>
+                      `;
+                  } else {
+                      aiBody.innerHTML = `<div class="dip-ai-unified-box"><div class="dip-ai-unified-text">${contentHTML}</div></div>`;
+                  }
+                  return;
+              }
         } catch (e) { /* fallback */ }
 
         _fillFallbackAI(aiBody, strategy, filterLabel);
@@ -169,7 +179,7 @@ ${unitHint}
             // [수정] {{range:2~3}} → 단위 없는 필터는 숫자만, 나머지는 '개' 붙임
             .replace(/\{\{range:([^}]+)\}\}/g, (_, r) => {
                 const display = isUnitLess ? r : `${r}개`;
-                return `<strong style="color:#fbbf24">${display}</strong>`;
+                return `<strong style="color:#db2777">${display}</strong>`;
             })
             // [추가] {{good:값}} → 초록색 강조 (총합 등 숫자형은 단위 없음)
             .replace(/\{\{good:([^}]+)\}\}/g, (_, v) => {
@@ -177,7 +187,7 @@ ${unitHint}
             })
             // [추가] {{warn:값}} → 노란색 경고 강조
             .replace(/\{\{warn:([^}]+)\}\}/g, (_, v) => {
-                return `<strong style="color:#f59e0b">${v}</strong>`;
+                return `<strong style="color:#ec4899">${v}</strong>`;
             })
             // 앙상블 확률 소수 → % (0.XXXX 형태)
             .replace(/\b0\.(\d{3,4})\b/g, (_, d) => {
@@ -300,14 +310,13 @@ ${unitHint}
                     <span class="dip-ai-filter-tag">${filterLabel}</span>
                 </div>
                 <div class="dip-ai-body">
-                    <div class="dip-meta-row">
-                        ${outlierNote}
-                        <div id="dip-ai-rec-slot"></div>
-                    </div>
-                    <div id="dip-ai-llm-body" class="dip-ai-loading">
-                        <span class="material-symbols-outlined dip-spin" style="font-size:15px;color:#94a3b8">progress_activity</span>
-                        <span>흐름분석 중...</span>
-                    </div>
+                  ${outlierNote}
+                  <div id="dip-ai-llm-body" style="min-height: 160px; width: 100%; box-sizing: border-box;">
+                      <div class="dip-ai-loading">
+                          <span class="material-symbols-outlined dip-spin" style="font-size:15px;color:#94a3b8">progress_activity</span>
+                          <span>흐름분석 중...</span>
+                      </div>
+                  </div>
                 </div>
             </section>
         </div>`;
@@ -420,38 +429,52 @@ ${unitHint}
             }
             case 'tail_digit': {
                 groupLabel = '끝수 분포';
-                recFilter  = '끝수합';
-                const rangeAna = analysis.range_analysis || {};
-                const tailData = rangeAna['tail_sum'] || {};
-                const tdModelExp = tailData.model_expectations || {};
-                const { cMin: tdMin, cMax: tdMax } = _ensembleRange(tdModelExp);
-                const tdAgreement = _computeAgreement(tdModelExp);
-                const tdAgreePct  = Math.round(tdAgreement * 100);
-                const tdAgreeColor = tdAgreePct >= 75 ? '#22c55e' : tdAgreePct >= 50 ? '#f59e0b' : '#ef4444';
-                const tdModelRows = MODEL_ORDER.map(key => {
-                    const meta = MODEL_META[key]; const exp = tdModelExp[key];
-                    if (!exp) return '';
-                    return `<div class="dip-model-row">
-                        <span class="dip-dot" style="background:${meta.dot}"></span>
-                        <span class="dip-model-name">${meta.label}</span>
-                        <span class="dip-model-tag">${meta.tag}</span>
-                        <span class="dip-range" style="color:${meta.dot}">${exp.min}<span class="dip-range-sep"> ~ </span>${exp.max}</span>
+                recFilter  = '끝수 분석';
+                
+                const tailData = analysis.tail_analysis || [];
+                if (!tailData || !tailData.length) {
+                    bodyHTML = _noDataHTML();
+                    break;
+                }
+                
+                const _deriveRecommendedRange = (exp) => {
+                    if (exp < 0.3) return "0 ~ 1";
+                    if (exp >= 0.3 && exp < 1.2) return "0 ~ 2";
+                    if (exp >= 1.2 && exp < 1.8) return "1 ~ 2";
+                    if (exp >= 1.8 && exp < 2.3) return "1 ~ 3";
+                    if (exp >= 2.3 && exp < 2.8) return "2 ~ 3";
+                    return "1 ~ 4"; 
+                };
+                
+                const tdModelRows = tailData.map((item, index) => {
+                    const exp = typeof item.exp === 'number' ? item.exp : 0;
+                    const recRange = _deriveRecommendedRange(exp);
+                    
+                    return `<div class="dip-model-row" style="flex-direction:column; align-items:stretch; padding:10px 12px; gap:8px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <div style="display:flex;align-items:center;gap:6px;">
+                                <span class="dip-dot" style="background:${exp >= 1.2 ? '#db2777' : '#0ea5e9'};width:8px;height:8px;"></span>
+                                <span class="dip-model-name" style="font-size:14px;">${index}끝</span>
+                            </div>
+                            <span style="font-size:11px;color:#94a3b8;font-weight:600;">출현 확률: ${(exp*100).toFixed(0)}%</span>
+                        </div>
+                        <div style="background:${exp >= 1.2 ? '#fdf2f8' : '#f0f9ff'}; border:1px solid ${exp >= 1.2 ? '#fbcfe8' : '#e0f2fe'}; border-radius:8px; padding:6px; text-align:center;">
+                            <span style="font-size:11px;color:${exp >= 1.2 ? '#be185d' : '#0369a1'};font-weight:700;margin-right:4px;">추천 필터범위</span>
+                            <span style="font-size:14px;color:${exp >= 1.2 ? '#9d174d' : '#0284c7'};font-weight:900;letter-spacing:1px;font-family:monospace;">[ ${recRange} ]</span>
+                        </div>
                     </div>`;
                 }).join('');
+                
                 isSectioned = true;
                 bodyHTML = `
-                    <section class="dip-section"><div class="dip-section-label">끝수합 — 모델별 예측</div><div class="dip-model-list">${tdModelRows}</div></section>
-                    <section class="dip-section dip-ensemble-section">
-                        <div class="dip-ensemble-row">
-                            <div class="dip-ensemble-left"><span class="dip-ensemble-title">앙상블 종합</span><span class="dip-ensemble-sub">끝수합 예측</span></div>
-                            <div class="dip-ensemble-right"><span class="dip-ensemble-range">${tdMin}<span class="dip-range-sep"> ~ </span>${tdMax}</span></div>
+                    <section class="dip-section" style="padding-bottom:10px;">
+                        <div class="dip-section-label" style="display:flex; justify-content:space-between; align-items:center;">
+                            <span>끝수 독립 출현 예측 (0~9끝)</span>
+                            <span style="font-size:11px; color:#ef4444; font-weight:bold; background:#fee2e2; padding:2px 6px; border-radius:4px;">🔥 직접 입력(Actionable) 데이터</span>
                         </div>
-                        <div class="dip-agree-row">
-                            <span class="dip-agree-label">모델 합의도</span>
-                            <div class="dip-agree-bar-wrap"><div class="dip-agree-bar" style="width:${tdAgreePct}%;background:${tdAgreeColor}"></div></div>
-                            <span class="dip-agree-pct" style="color:${tdAgreeColor}">${tdAgreePct}%</span>
-                        </div>
-                    </section>`;
+                        <div class="dip-model-list" style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px">${tdModelRows}</div>
+                    </section>
+                `;
                 break;
             }
         }
@@ -491,7 +514,8 @@ ${unitHint}
                 <span class="dip-ai-filter-tag">${sectionLabel}</span>
             </div>
             <div class="dip-ai-body">
-                <div id="dip-ai-llm-body" class="dip-ai-loading">
+                <div id="dip-ai-llm-body" style="min-height: 160px; width: 100%; box-sizing: border-box;">
+                    <div class="dip-ai-loading">
                     <span class="material-symbols-outlined dip-spin" style="font-size:15px;color:#475569">progress_activity</span>
                     <span>흐름분석 중...</span>
                 </div>
@@ -537,11 +561,12 @@ ${unitHint}
                 break;
             }
             case 'tail_digit': {
-                const rangeAna = analysis.range_analysis || {};
-                const tailData = rangeAna['tail_sum'] || {};
-                const modelExp = tailData.model_expectations || {};
-                const { cMin, cMax } = _ensembleRange(modelExp);
-                summaryText = `끝수합 앙상블: ${cMin}~${cMax}`;
+                const tailData = analysis.tail_analysis || [];
+                if (tailData.length) {
+                    summaryText = tailData.map((d, i) => `${i}끝:${d.exp?.toFixed(2)}개`).join(', ');
+                } else {
+                    summaryText = "데이터 없음";
+                }
                 break;
             }
         }
@@ -563,14 +588,24 @@ ${unitHint}
                 responseStyle: 'expert'
             });
             const text = _extractLLMText(result);
-            if (text) {
-                aiBody.innerHTML = `<p class="dip-advice">${text.replace(/\n/g, '<br>')}</p>`;
-                return;
-            }
+              if (text) {
+                  aiBody.innerHTML = `<div class="dip-ai-unified-box"><div class="dip-ai-unified-text">${text.replace(/\n/g, '<br>')}</div></div>`;
+                  return;
+              }
         } catch (e) { /* fallback */ }
 
         const advice = strategy.overall_strategy?.short_advice || '';
-        aiBody.innerHTML = advice ? `<p class="dip-advice">"${advice}"</p>` : '<p class="dip-note">분석 데이터를 불러오는 중입니다.</p>';
+          const recHTML = _llmRecHTML(strategy, filterLabel);
+          if (advice) {
+              aiBody.innerHTML = `
+                  <div class="dip-ai-unified-box">
+                      ${recHTML}
+                      <div class="dip-ai-unified-text">${advice}</div>
+                  </div>
+              `;
+          } else {
+              aiBody.innerHTML = '<p class="dip-note">분석 데이터를 불러오는 중입니다.</p>';
+          }
     }
 
     function _noDataHTML() {
@@ -584,227 +619,173 @@ ${unitHint}
         style.id = 'dip-styles';
         style.textContent = `
         .dip-root {
-            font-family: 'Pretendard', -apple-system, sans-serif;
+            width: 100%; box-sizing: border-box;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+            color: #24292f; line-height: 1.5; font-size: 14px;
         }
 
-        /* ── Section ── */
-        .dip-section { padding: 14px 0; border-bottom: 1px solid #f1f5f9; }
+        /* ── Section Dividers ── */
+        .dip-section { padding: 16px 0; border-bottom: 1px solid #d0d7de; }
         .dip-section:last-child { border-bottom: none; }
         .dip-section-label {
-            font-size: 11px; font-weight: 500; letter-spacing: 0.08em;
-            text-transform: uppercase; color: #94a3b8; margin-bottom: 12px;
+            font-size: 15px; font-weight: 600; color: #24292f; margin-bottom: 20px;
+            padding-bottom: 8px; border-bottom: 1px solid #d0d7de; display: inline-block;
         }
 
-        /* ── Panel Title ── */
-        .dip-panel-title {
-            font-size: 20px; font-weight: 700; color: #1e293b;
-            margin-bottom: 16px; letter-spacing: -0.01em;
-        }
-
-        /* ── Model Boxes (1 row, 7 columns) — Glassmorphism ── */
-        .dip-model-list { display: grid; grid-template-columns: repeat(7, 1fr); gap: 7px; }
+        /* ── Model Boxes (1 row, 7 columns) ── */
+        /* 점선 제거: border-bottom: none */
+        .dip-model-list { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; padding-bottom: 24px; border-bottom: none; }
         .dip-model-row {
-            display: flex; flex-direction: column; align-items: center;
-            gap: 6px; padding: 12px 6px; border-radius: 12px;
-            background: rgba(255,255,255,0.55);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            border: 1px solid rgba(255,255,255,0.85);
-            box-shadow: 0 2px 10px rgba(99,102,241,0.08), inset 0 1px 0 rgba(255,255,255,0.9);
-            text-align: center;
+            display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+            padding: 8px 12px; background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px;
         }
-        .dip-dot { display: none; }
-        .dip-model-name { font-size: 13px; font-weight: 500; color: #334155; }
-        .dip-model-tag { display: none; }
+        .dip-model-name { font-size: 13px; font-weight: 700; color: #24292f; }
         .dip-range {
-            font-size: 14px; font-weight: 500;
-            font-variant-numeric: tabular-nums; letter-spacing: -0.01em;
+            font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
+            font-size: 14px; font-weight: 600; color: #24292f; font-variant-numeric: tabular-nums;
         }
-        .dip-range-sep { font-weight: 300; color: #94a3b8; }
+        .dip-range-sep { font-weight: 400; color: #57606a; margin: 0 4px; }
+        .dip-dot, .dip-model-tag { display: none; }
 
         /* ── Ensemble ── */
-        .dip-ensemble-section { padding: 14px 0 !important; }
-        .dip-ensemble-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-        .dip-ensemble-left { display: flex; flex-direction: column; gap: 2px; }
-        .dip-ensemble-title { font-size: 14px; font-weight: 500; color: #334155; letter-spacing: 0; }
-        .dip-ensemble-sub { font-size: 10px; color: #94a3b8; }
-        .dip-ensemble-right { display: flex; align-items: center; gap: 10px; }
-        .dip-ensemble-range {
-            font-size: 30px; font-weight: 500; color: #0f172a;
-            font-variant-numeric: tabular-nums; letter-spacing: -0.03em;
-        }
-        .dip-sim-badge {
-            font-size: 10px; font-weight: 500; color: #6366f1;
-            background: #eef2ff; padding: 3px 8px; border-radius: 6px;
-        }
-        .dip-agree-row { display: flex; align-items: center; gap: 10px; }
-        .dip-agree-label { font-size: 10px; font-weight: 500; color: #94a3b8; width: 56px; flex-shrink: 0; }
-        .dip-agree-bar-wrap { flex: 1; height: 4px; background: #e2e8f0; border-radius: 99px; overflow: hidden; }
-        .dip-agree-bar { height: 100%; border-radius: 99px; transition: width 1s ease; }
-        .dip-agree-pct { font-size: 11px; font-weight: 500; width: 70px; text-align: right; flex-shrink: 0; }
-
-        /* ── AI Section ── */
-        .dip-ai-section {
-            background: linear-gradient(145deg, #0d1526 0%, #131029 55%, #0d1a2e 100%);
-            border-radius: 16px;
-            padding: 18px 20px;
-            margin-top: 14px;
-            border: 1px solid rgba(99,102,241,0.22);
-            box-shadow: 0 8px 32px rgba(15,23,42,0.45), inset 0 1px 0 rgba(125,211,252,0.1);
-            position: relative;
-            overflow: hidden;
-        }
-        .dip-ai-section::before {
-            content: '';
-            position: absolute;
-            top: 0; left: 15%; right: 15%; height: 1px;
-            background: linear-gradient(90deg, transparent, rgba(125,211,252,0.5), rgba(99,102,241,0.6), rgba(125,211,252,0.5), transparent);
-        }
-        .dip-ai-section::after {
-            content: '';
-            position: absolute;
-            bottom: -40px; right: -40px;
-            width: 140px; height: 140px;
-            background: radial-gradient(circle, rgba(99,102,241,0.08) 0%, transparent 70%);
-            pointer-events: none;
-        }
-        .dip-ai-header {
-            display: flex; align-items: center; gap: 10px;
-            margin-bottom: 14px; position: relative;
-        }
-        .dip-ai-icon {
-            width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0;
-            background: linear-gradient(135deg, #6366f1, #38bdf8);
-            display: flex; align-items: center; justify-content: center;
-            font-size: 14px; box-shadow: 0 2px 8px rgba(99,102,241,0.4);
-        }
-        .dip-ai-label {
-            font-size: 14px; font-weight: 500; color: #e2e8f0;
-            letter-spacing: 0;
-        }
-        .dip-ai-filter-tag {
-            font-size: 10px; font-weight: 500; color: #0f172a;
-            background: linear-gradient(135deg, #38bdf8, #818cf8);
-            padding: 3px 10px; border-radius: 99px; margin-left: auto;
-            letter-spacing: 0.02em;
-        }
-        .dip-ai-body { display: flex; flex-direction: column; gap: 8px; position: relative; }
-
-        /* 이탈모델(좌) + LLM권장(우) 1행 */
-        .dip-meta-row { display: flex; gap: 8px; align-items: stretch; }
-        .dip-meta-row > * { flex: 1; }
-
-        #dip-ai-llm-body { min-height: 0; }
-        .dip-ai-loading { display: flex; align-items: center; gap: 8px; color: #94a3b8; font-size: 13px; padding: 4px 0; }
-
-        /* 이탈 모델 노트 — 세로선 스타일 */
-        .dip-note {
-            display: flex; align-items: center; gap: 8px;
-            font-size: 12px; color: #f1f5f9; line-height: 1.4; margin: 0;
-            background: rgba(255,255,255,0.05);
-            border-left: 3px solid #f59e0b;
-            border-radius: 0 8px 8px 0;
-            padding: 8px 12px;
-        }
-        .dip-note strong { color: #fbbf24; font-weight: 500; }
-
-        /* LLM 본문 */
-        .dip-advice {
-            font-size: 14px; font-weight: 400; color: #f1f5f9; line-height: 1.8;
-            margin: 0;
-            background: rgba(255,255,255,0.04);
-            border-left: 3px solid #6366f1;
-            border-radius: 0 8px 8px 0;
-            padding: 10px 14px;
-        }
-
-        /* LLM 권장값 — 세로선 스타일 (이탈모델과 동일 구조) */
-        .dip-llm-rec {
-            display: flex; align-items: center; gap: 8px;
-            padding: 8px 12px; margin: 0;
-            background: rgba(99,102,241,0.08);
-            border-left: 3px solid #6366f1;
-            border-radius: 0 8px 8px 0;
-        }
-        .dip-llm-rec-label {
-            font-size: 10px; font-weight: 500; text-transform: uppercase;
-            color: #818cf8; letter-spacing: 0.08em; flex-shrink: 0;
-        }
-        .dip-llm-rec-val {
-            font-size: 16px; font-weight: 500; color: #fbbf24;
+        .dip-ensemble-section { padding-top: 24px !important; border-bottom: none; }
+        .dip-ensemble-row { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
+        .dip-ensemble-left { display: flex; align-items: baseline; gap: 8px; }
+        .dip-ensemble-title { font-size: 16px; font-weight: 600; color: #24292f; }
+        .dip-ensemble-sub { font-size: 13px; color: #57606a; }
+        .dip-ensemble-right { }
+        .dip-ensemble-range { 
+            font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
+            font-size: 26px; font-weight: 700; color: #0969da; 
+            background: transparent; padding: 0; border: none; border-bottom: 2px solid #0969da;
             font-variant-numeric: tabular-nums;
         }
-        .dip-llm-rec-ev { font-size: 11px; color: #94a3b8; }
+        .dip-sim-badge { display: none; }
+        
+        .dip-agree-row { display: flex; align-items: center; gap: 12px; margin-top: 16px; font-size: 13px; }
+        .dip-agree-label { font-weight: 600; color: #57606a; min-width: 70px; }
+        .dip-agree-bar-wrap { flex: 1; height: 8px; background: #ebecf0; overflow: hidden; border-radius: 4px; }
+        .dip-agree-bar { height: 100%; background: #2da44e; transition: width 1s ease; border-radius: 4px; }
+        .dip-agree-pct { font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace; font-weight: 600; color: #24292f; width: 85px; text-align: right; white-space: nowrap; }
+
+        /* ── AI Insight Section ── */
+        .dip-ai-section {
+            padding: 24px 0 16px 0; margin-top: 24px; border-top: 1px solid #d0d7de; position: relative;
+        }
+        .dip-ai-header { display: flex; align-items: center; gap: 8px; margin-bottom: 20px; }
+        .dip-ai-icon { font-size: 18px; }
+        .dip-ai-label { font-size: 16px; font-weight: 600; color: #24292f; }
+        .dip-ai-filter-tag { font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace; font-size: 12px; font-weight: 500; color: #57606a; margin-left: auto; background: #f6f8fa; border: 1px solid #d0d7de; padding: 2px 6px; border-radius: 6px; }
+        .dip-ai-body { display: flex; flex-direction: column; gap: 16px; } /* gap 확대 */
+
+        /* Meta Row (Callouts) - 테두리선 완전히 제거 */
+        .dip-meta-row { display: flex; flex-direction: column; gap: 10px; border: none; overflow: visible; }
+
+        /* 이탈모델: 깊이있고 고급스러운 플라밍고 레드 배경 */
+        .dip-note {
+            display: flex; align-items: baseline; justify-content: flex-start; gap: 8px;
+            background: #fff1f2; border: none; border-radius: 8px; padding: 14px 18px; margin: 0;
+            font-size: 13px; color: #9f1239; font-weight: 500;
+        }
+        .dip-note strong { font-weight: 700; color: #9f1239; }
+
+        /* LLM 권장: 깊이있고 고급스러운 스카이 블루 배경 */
+        .dip-llm-rec {
+            display: flex; align-items: baseline; justify-content: flex-start; gap: 8px;
+            background: #f0f9ff; border: none; border-radius: 8px; padding: 14px 18px; margin: 0;
+        }
+        .dip-llm-rec-label { font-size: 13px; font-weight: 700; color: #0369a1; min-width: 70px; display: flex; align-items: center; gap: 6px; }
+        .dip-llm-rec-label::before { content: '💡'; font-size: 12px; }
+        .dip-llm-rec-val { font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace; font-size: 16px; font-weight: 700; color: #0369a1; font-variant-numeric: tabular-nums; }
+        .dip-llm-rec-ev { font-size: 12px; color: #475569; font-weight: 400; margin-left: auto; }
+
+        
+        /* 일체화된 LLM 분석 박스 */
+        .dip-ai-unified-box {
+            background: #f0f9ff; border-radius: 8px; overflow: hidden;
+            border: none; width: 100%; box-sizing: border-box;
+        }
+        .dip-ai-unified-box .dip-llm-rec {
+            background: transparent; border-bottom: 1px dashed #bae6fd; border-radius: 0;
+            padding: 16px 20px;
+        }
+        .dip-ai-unified-text {
+            padding: 16px 20px; font-size: 14px; line-height: 1.6; color: #334155;
+        }
+
+        /* Quote text block */
+        .dip-advice {
+            font-size: 14px; font-weight: 400; color: #24292f; line-height: 1.6;
+            margin: 12px 0 0 0; padding: 4px 0 4px 16px;
+            border-left: 4px solid #d0d7de; background: transparent;
+        }
 
         /* ── Group views ── */
-        .dip-group-list { display: flex; flex-direction: column; gap: 8px; }
-        .dip-group-row { display: flex; align-items: center; gap: 10px; }
-        .dip-group-name { font-size: 11px; font-weight: 500; color: #475569; width: 50px; flex-shrink: 0; }
-        .dip-group-bar-wrap { flex: 1; height: 6px; background: #e2e8f0; border-radius: 99px; overflow: hidden; }
-        .dip-group-bar { height: 100%; border-radius: 99px; transition: width 0.8s ease; }
-        .dip-group-val { font-size: 11px; font-weight: 500; color: #334155; width: 55px; text-align: right; flex-shrink: 0; }
+        .dip-group-list { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+        .dip-group-row { display: flex; align-items: center; gap: 12px; }
+        .dip-group-name { font-size: 13px; font-weight: 600; color: #24292f; width: 65px; flex-shrink: 0; }
+        .dip-group-bar-wrap { flex: 1; height: 8px; background: #ebecf0; overflow: hidden; border-radius: 4px; }
+        .dip-group-bar { height: 100%; background: #0969da; transition: width 0.8s ease; border-radius: 4px;}
+        .dip-group-val { font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace; font-size: 12px; font-weight: 600; color: #24292f; width: 60px; text-align: right; flex-shrink: 0; }
 
         /* ── Palace grid ── */
-        .dip-palace-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-        .dip-palace-cell {
-            border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px 8px;
-            text-align: center; position: relative; transition: box-shadow .2s;
-        }
-        .dip-palace-cell:hover { box-shadow: 0 2px 8px rgba(0,0,0,.08); }
-        .dip-palace-top { border-width: 2px !important; background: #fafafa; }
-        .dip-palace-num { font-size: 13px; font-weight: 500; margin-bottom: 2px; }
-        .dip-palace-exp { font-size: 18px; font-weight: 500; font-variant-numeric: tabular-nums; }
-        .dip-palace-badge {
-            position: absolute; top: -6px; right: 6px;
-            font-size: 9px; font-weight: 500; color: white;
-            padding: 1px 6px; border-radius: 99px; letter-spacing: 0.05em;
-        }
+        .dip-palace-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+        .dip-palace-cell { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px; padding: 20px 12px; text-align: center; position: relative; }
+        .dip-palace-top { background: transparent; border-color: #0969da; border-width: 2px; }
+        .dip-palace-num { font-size: 13px; color: #57606a; margin-bottom: 4px; font-weight: 600; }
+        .dip-palace-exp { font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace; font-size: 20px; font-weight: 600; color: #24292f; }
+        .dip-palace-badge { display: none; }
 
         /* ── Paper grid ── */
-        .dip-paper-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-        .dip-paper-subtitle { font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; color: #94a3b8; margin-bottom: 10px; }
+        .dip-paper-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
+        .dip-paper-subtitle { font-size: 13px; font-weight: 600; color: #24292f; border-bottom: 1px solid #d0d7de; padding-bottom: 8px; margin-bottom: 16px; display: block; }
 
         /* ── Regression ── */
-        .dip-regression-list { margin-bottom: 14px; }
+        .dip-regression-list { margin-bottom: 24px; display: flex; flex-direction: column; }
         .dip-reg-row {
             display: flex; align-items: center; justify-content: space-between;
-            padding: 8px 12px; border-radius: 8px; background: #f8fafc;
-            border-left: 3px solid #6366f1; margin-bottom: 4px;
+            padding: 10px 12px; border-bottom: 1px solid #d0d7de;
         }
-        .dip-reg-name { font-size: 12px; font-weight: 500; color: #475569; }
-        .dip-reg-val { font-size: 14px; font-weight: 500; color: #4f46e5; font-variant-numeric: tabular-nums; }
-        .dip-rec-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
-        .dip-rec-item {
-            display: flex; align-items: center; justify-content: space-between;
-            background: #f1f5f9; border-radius: 7px; padding: 7px 11px;
-        }
-        .dip-rec-item-label { font-size: 11px; font-weight: 500; color: #64748b; }
-        .dip-rec-item-val { font-size: 12px; font-weight: 500; color: #1e293b; font-variant-numeric: tabular-nums; }
+        .dip-reg-name { font-size: 13px; font-weight: 600; color: #24292f; }
+        .dip-reg-val { font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace; font-size: 14px; font-weight: 600; color: #0969da; }
+        
+        .dip-rec-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; border-top: 1px solid #d0d7de; padding-top: 16px; }
+        .dip-rec-item { display: flex; flex-direction: column; gap: 4px; padding: 12px; background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px; }
+        .dip-rec-item-label { font-size: 12px; font-weight: 600; color: #57606a; }
+        .dip-rec-item-val { font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace; font-size: 14px; font-weight: 600; color: #24292f; }
 
-        /* ── Skeleton ── */
-        .dip-skel {
-            background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
-            background-size: 200% 100%;
-            animation: dip-shimmer 1.4s infinite;
-            border-radius: 8px;
+        /* ── Badge / Rec Block ── */
+        .dip-rec-badge {
+            display: inline-flex; align-items: baseline; gap: 10px;
+            padding: 10px 16px; border: none; background: transparent; border-radius: 0; margin-top: 8px; width: 100%; padding: 0;
         }
-        @keyframes dip-shimmer { 0% { background-position: 200% 0 } 100% { background-position: -200% 0 } }
+        .dip-rec-label { font-size: 12px; font-weight: 600; color: #0969da; border: 1px solid #0969da; padding: 2px 6px; border-radius: 4px; }
+        .dip-rec-value { font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace; font-size: 15px; font-weight: 600; color: #0969da; }
+        .dip-rec-evidence { font-size: 12px; color: #57606a; margin-left: auto; }
 
-        /* ── States ── */
-        .dip-loading {
-            display: flex; align-items: center; justify-content: center;
-            gap: 10px; padding: 48px 0; color: #94a3b8;
-            font-size: 13px; font-weight: 500;
+        
+        .dip-ai-loading {
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+            padding: 32px 0; background: transparent; border: none; border-radius: 6px;
+            color: #57606a; font-size: 14px; font-weight: 500; min-height: 50px; width: 100%; box-sizing: border-box;
+            background-color: #f8fafc;
+        }
+
+        /* ── States / Skeleton ── */
+        .dip-skel { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px; animation: dip-pulse 1.5s infinite; }
+        @keyframes dip-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        #dip-ai-llm-body { min-height: 0; }
+        
+        .dip-loading, .dip-offline, .dip-error, .dip-empty {
+            text-align: center; padding: 48px 0; color: #57606a; font-size: 14px; font-weight: 500; background: transparent; border-top: 1px solid #d0d7de; margin-top: 24px;
         }
         .dip-spin { animation: dip-spin 1s linear infinite; }
-        @keyframes dip-spin { to { transform: rotate(360deg); } }
-        .dip-offline, .dip-error {
-            text-align: center; padding: 32px; border-radius: 12px;
-            border: 1px dashed #e2e8f0;
-        }
-        .dip-offline-icon, .dip-error-icon { font-size: 32px; display: block; margin-bottom: 8px; }
-        .dip-offline p, .dip-error p { margin: 4px 0; font-size: 13px; }
-        .dip-empty { color: #94a3b8; font-size: 13px; text-align: center; padding: 20px 0; }
+        .dip-spin { animation: dip-spin 1s linear infinite; }
+        .dip-spin { animation: dip-spin 1s linear infinite; }
+        .dip-spin { animation: dip-spin 1s linear infinite; }
+        .dip-spin { animation: dip-spin 1s linear infinite; }
+        .dip-offline-icon, .dip-error-icon { display: none; }
+        .dip-offline p, .dip-error p { color: #111827; font-weight: 500; font-size: 15px; margin-bottom: 8px; }
         `;
         document.head.appendChild(style);
     }
@@ -831,7 +812,7 @@ ${unitHint}
         el.innerHTML = `<div class="dip-offline">
             <span class="dip-offline-icon">🔌</span>
             <p style="font-weight:700;color:#64748b">AI 서버 오프라인</p>
-            <p style="color:#94a3b8;font-size:12px">Railway 서버 연결 후 다시 시도해주세요</p>
+            <p style="color:#94a3b8;font-size:12px">AI 딥러닝 서버 기동 대기 중입니다. 잠시 후 새로고침 해주세요.</p>
         </div>`;
     }
 

@@ -1082,8 +1082,8 @@
                     let content = "";
 
                     if (count === 1) { badgeClass += "bg-gray-600 text-white"; content = count; }
-                    else if (count === 2) { badgeClass += "bg-dark-navy text-white"; content = count; }
-                    else if (count >= 3) { badgeClass += "bg-dark-red text-white"; content = count; }
+                    else if (count === 2) { badgeClass += "bg-blue-600 text-white"; content = count; }
+                    else if (count >= 3) { badgeClass += "bg-red-600 text-white"; content = count; }
                     else {
                         const missedCount = missedCounts[digit][index];
                         badgeClass += "text-gray-400 font-bold text-xs";
@@ -1143,7 +1143,6 @@
             updatePresetButtons(value);
             updateStats();
             renderList();
-            initDeepInsight();
         }
 
         // [표준화] 최근 10회차 필터를 비활성화하고 UI를 초기화하는 함수

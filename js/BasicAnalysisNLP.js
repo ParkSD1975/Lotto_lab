@@ -23,7 +23,7 @@ class BasicAnalysisNLP {
     init() {
         const target = document.querySelector(this.targetSelector);
         if (!target) {
-            console.warn(`[BasicAnalysisNLP] Target selector "${this.targetSelector}" not found.`);
+            // 아직 HTML에 nlp 컨테이너가 없으면 조용히 종료합니다 (콘솔 경고 삭제)
             return;
         }
 

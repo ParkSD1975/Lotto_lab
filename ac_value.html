@@ -721,7 +721,6 @@
             deactivateRecent10IfActive(); // [추가] 10회차 해제
 
             clearTimeout(rangeTimer);
-            rangeTimer = setTimeout(() => { updateStatistics(val); changeChartMode(chartMode); renderDrawsList(); initDeepInsight(); }, 300);
         }
 
         function setRange(val) { document.getElementById('rangeSlider').value = val; updateRange(val); }

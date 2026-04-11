@@ -1,0 +1,231 @@
+commit d67b860f45511595610c3ecdd4338d9d9fbec71b
+Author: ParkSD1975 <vica7454@gmail.com>
+Date:   Tue Mar 10 02:44:32 2026 +0900
+
+    feat: 다중 기능 개선 - 성능 최적화, 필터 우선순위 수정, UI 통일
+    
+    - fix(ai_deep_learning): 회귀분석 대상번호 볼 크기 커스텀분석과 통일 (w-6→w-7)
+    - perf(aiProxy): invoke 경로 health check 5초 타임아웃으로 빠른 폴백
+    - fix(common_v2): user_checkpoints RLS 정책 - user_id 포함 삽입
+    - perf(customAnalysis): lotto_draws sessionStorage 캐시(5분), AI 리포트 localStorage 캐시(72h)
+    - feat(customAnalysis): 회차 업데이트 후 전체 필터 자동 보정(batchCalibrateAllFilters)
+    - fix(FilterService): 필터 조회 우선순위 개선 - 특정 회차 > NULL(기본값)
+    - fix(FilterService): saveFilter targetRound 추출 로직 개선
+    - feat(filter_dashboard): 커스텀 분석 필터 저장소 키 감지 추가
+    
+    Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+
+diff --git a/js/customAnalysis.js b/js/customAnalysis.js
+index ee5ec23..9591904 100644
+--- a/js/customAnalysis.js
++++ b/js/customAnalysis.js
+@@ -5,6 +5,42 @@ let historyViewLimit = 100; // [New] 히스토리 조회 제한 (기본 100)
+ 
+ const aiCache = new Map(); // [New] AI 예측 데이터 캐시
+ 
++// [성능] calculateStats 결과 캐시 → refreshAIAnalysis에서 중복 연산 방지
++let _lastStats = null;
++let _lastStatsId = null;
++
++// [성능] AI 리포트 localStorage 캐시 헬퍼 (TTL: 72시간, 회차 변경 시 자동 무효화)
++const AI_CACHE_TTL = 72 * 60 * 60 * 1000; // 72시간
++function _getAICache(key) {
++    try {
++        const raw = localStorage.getItem('ai_rpt_' + key);
++        if (!raw) return null;
++        const { ts, html } = JSON.parse(raw);
++        if (Date.now() - ts > AI_CACHE_TTL) { localStorage.removeItem('ai_rpt_' + key); return null; }
++        return html;
++    } catch (e) { return null; }
++}
++function _setAICache(key, html) {
++    try { localStorage.setItem('ai_rpt_' + key, JSON.stringify({ ts: Date.now(), html })); } catch (e) { }
++}
++
++// [성능] lotto_draws sessionStorage 캐시 (동일 탭 내 분석 전환 시 재사용)
++const DRAWS_SS_KEY = 'lotto_draws_ss_cache';
++async function loadLottoDrawsCached() {
++    try {
++        const raw = sessionStorage.getItem(DRAWS_SS_KEY);
++        if (raw) {
++            const { ts, data } = JSON.parse(raw);
++            if (Date.now() - ts < 5 * 60 * 1000) return data; // 5분 유효
++        }
++    } catch (e) { }
++    const { data } = await window.supabaseClient.from('lotto_draws')
++        .select('*').order('round', { ascending: false }).range(0, 5000);
++    const result = data || [];
++    try { sessionStorage.setItem(DRAWS_SS_KEY, JSON.stringify({ ts: Date.now(), data: result })); } catch (e) { }
++    return result;
++}
++
+ // Highlighting State
+ let highlightState = { col: null, val: null };
+ let rangeHighlightIndex = -1; // [New] 10회차 구간 하이라이트 시작 인덱스
+@@ -76,18 +112,21 @@ async function initAnalysis(analysisId) {
+         rangeHighlightIndex = -1;
+         editingRound = null;
+ 
+-        // 1. 데이터 로드 (분석 설정 + 전체 회차)
+-        const [analysisRes, drawsRes] = await Promise.all([
++        // 1. 데이터 로드 (분석 설정 + 전체 회차) - lotto_draws는 SS캐시 우선
++        const [analysisRes, cachedDraws] = await Promise.all([
+             window.supabaseClient.from('ai_custom_analyses').select('*').eq('id', analysisId).single(),
+-            window.supabaseClient.from('lotto_draws')
+-                .select('*')
+-                .order('round', { ascending: false })
+-                .range(0, 5000) // 👈 전체 데이터 로딩 (필수)
++            loadLottoDrawsCached() // [성능] sessionStorage 캐시 적용 (5분 유효)
+         ]);
+ 
+         if (analysisRes.error || !analysisRes.data) throw new Error("분석 로드 실패");
+         currentAnalysis = analysisRes.data;
+-        allDrawData = drawsRes.data || [];
++        allDrawData = cachedDraws;
++
++        // [자동보정] 회차 업데이트 후 첫 방문 시 전체 필터 일괄 재설정 (1회만 실행)
++        if (!_hasRunAutoCalibrate) {
++            _hasRunAutoCalibrate = true;
++            batchCalibrateAllFilters(); // await 없이 백그라운드 실행 (UI 블로킹 없음)
++        }
+ 
+         // 데이터 보정 (안전 장치)
+         if (!currentAnalysis.target_numbers) currentAnalysis.target_numbers = [];
+@@ -498,6 +537,10 @@ async function updateAnalysisDisplay(skipAI = false) {
+     const stats = calculateStats(currentAnalysis, allDrawData);
+     if (!stats) return;
+ 
++    // [성능] stats 결과 캐시 → refreshAIAnalysis에서 중복 연산 방지
++    _lastStats = stats;
++    _lastStatsId = currentAnalysis?.id;
++
+     renderDashboard(stats);
+     renderHeaderBalls(stats);
+     renderFilterUI();
+@@ -869,6 +912,94 @@ async function saveFilterConfig() {
+     }
+ }
+ 
++// ─────────────────────────────────────────────────────────────────────────────
++// [자동보정] 매주 회차 업데이트 시 전체 커스텀 분석 필터 min/max 자동 재설정
++// filter_config.last_calibrated_round < 최신 회차인 분석만 업데이트
++// ─────────────────────────────────────────────────────────────────────────────
++let _hasRunAutoCalibrate = false; // 탭 세션 내 1회만 실행
++
++async function batchCalibrateAllFilters() {
++    if (!allDrawData || allDrawData.length === 0) return;
++    const latestRound = allDrawData[0].round;
++
++    try {
++        // 전체 커스텀 분석 목록 로드
++        let query = window.supabaseClient.from('ai_custom_analyses').select('*');
++        const userId = window.filterService?.userId;
++        if (userId) query = query.or(`user_id.eq.${userId},user_id.is.null`);
++
++        const { data: allAnalyses, error } = await query;
++        if (error || !allAnalyses || allAnalyses.length === 0) return;
++
++        // 보정이 필요한 분석만 선별 (last_calibrated_round < latestRound)
++        const toUpdate = allAnalyses.filter(a => {
++            try {
++                const fc = typeof a.filter_config === 'string'
++                    ? JSON.parse(a.filter_config)
++                    : (a.filter_config || {});
++                return (fc.last_calibrated_round || 0) < latestRound;
++            } catch (e) { return true; }
++        });
++
++        if (toUpdate.length === 0) {
++            console.log(`[AutoCalibrate] 전체 분석 최신 상태 (회차: ${latestRound})`);
++            return;
++        }
++
++        console.log(`[AutoCalibrate] ${toUpdate.length}개 분석 필터 자동 보정 시작 (기준 회차: ${latestRound}회)`);
++
++        for (const analysis of toUpdate) {
++            try {
++                const fc = typeof analysis.filter_config === 'string'
++                    ? JSON.parse(analysis.filter_config)
++                    : (analysis.filter_config || { min: 1, max: 3, enabled: false });
++
++                // calculateStats로 최근 10회차 적중 분포 계산
++                const tempStats = calculateStats(analysis, allDrawData);
++                if (!tempStats || !tempStats.rows || tempStats.rows.length < 3) continue;
++
++                // Upcoming(다음 회차) 제외한 최근 10회차 hit count
++                const last10 = tempStats.rows.filter(r => !r.isUpcoming).slice(0, 10);
++                if (last10.length < 3) continue;
++
++                const hits = last10.map(r => r.hitCount);
++                const minHit = Math.min(...hits);
++                const maxHit = Math.max(...hits);
++
++                // 새 filter_config: min/max 보정 + last_calibrated_round 기록
++                const newFc = { ...fc, min: minHit, max: maxHit, last_calibrated_round: latestRound };
++                delete newFc.values; // values 초기화 (min-max 범위 모드로 리셋)
++
++                // DB 저장
++                const { error: updateErr } = await window.supabaseClient
++                    .from('ai_custom_analyses')
++                    .update({ filter_config: newFc, updated_at: new Date().toISOString() })
++                    .eq('id', analysis.id);
++
++                if (updateErr) { console.warn(`[AutoCalibrate] ${analysis.id} 저장 실패:`, updateErr.message); continue; }
++
++                // 현재 열린 분석이면 메모리·UI·대시보드 동기화
++                if (currentAnalysis && currentAnalysis.id === analysis.id) {
++                    currentAnalysis.filter_config = newFc;
++                    renderFilterUI();
++                    if (window.Utils && window.Utils.saveFilter) {
++                        window.Utils.saveFilter(`custom_filter_${analysis.id}`, newFc);
++                    }
++                }
++
++                console.log(`[AutoCalibrate] ✅ ${analysis.title || analysis.id}: min=${minHit}, max=${maxHit}`);
++            } catch (e) {
++                console.warn(`[AutoCalibrate] ${analysis.id} 처리 실패:`, e.message);
++            }
++        }
++
++        console.log(`[AutoCalibrate] 완료 — ${toUpdate.length}개 분석 필터 재설정 (${latestRound}회차 기준)`);
++
++    } catch (e) {
++        console.error('[AutoCalibrate] 일괄 보정 오류:', e);
++    }
++}
++
+ // Zone F: 히스토리 테이블
+ function renderHistoryTable(stats) {
+     const headerGrid = document.getElementById('historyHeader');
+@@ -1477,16 +1608,17 @@ window.refreshAIAnalysis = async function () {
+     const targetRound = subjectRound + 1;
+     const analysisId = currentAnalysis?.id || 'default';
+ 
+-    // ── sessionStorage 캐싱: 같은 회차+분석 결과는 재사용 ──
++    // ── [성능] 캐시 체크: localStorage(TTL 72h) 우선, sessionStorage 폴백 ──
+     const cacheKey = `custom_insight_${targetRound}_${analysisId}`;
+-    const cached = sessionStorage.getItem(cacheKey);
++    const cached = _getAICache(cacheKey) || sessionStorage.getItem(cacheKey);
+     if (cached) {
+         content.innerHTML = cached;
+         return;
+     }
+ 
+     try {
+-        const stats = calculateStats(currentAnalysis, allDrawData);
++        // [성능] 중복 calculateStats 방지: updateAnalysisDisplay에서 계산된 캐시 재사용
++        const stats = (_lastStatsId === analysisId && _lastStats) ? _lastStats : calculateStats(currentAnalysis, allDrawData);
+         if (!stats || !stats.rows) throw new Error("통계 데이터 없음");
+ 
+         // ── 1. 다음 회차 타겟 번호 추출 ──
+@@ -1593,8 +1725,9 @@ ${recent20}`;
+             return;
+         }
+ 
+-        // AI 실행 후 결과를 sessionStorage에 캐싱
++        // [성능] AI 실행 후 결과를 localStorage(TTL 72h) + sessionStorage 이중 캐싱
+         if (content && content.innerHTML && !content.innerHTML.includes('animate-spin')) {
++            _setAICache(cacheKey, content.innerHTML);
+             try { sessionStorage.setItem(cacheKey, content.innerHTML); } catch (e) { }
+         }
+     } catch (err) {
