@@ -11,8 +11,8 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
 
 # ── Google / Gemini ──
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
-EMBEDDING_MODEL = "models/gemini-embedding-001"
-LLM_MODEL = "gemini-2.0-flash"
+EMBEDDING_MODEL = "models/text-embedding-004"
+LLM_MODEL = "gemma-4-31b-it"
 
 # ── ChromaDB ──
 # Note: Korean characters in path can cause HNSW native library issues.

@@ -23,7 +23,7 @@ serve(async (req: Request) => {
         const aiApiKey = Deno.env.get("GEMINI_API_KEY");
         if (!aiApiKey) throw new Error('API Key가 설정되지 않았습니다.');
 
-        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${aiApiKey}`;
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent?key=${aiApiKey}`;
 
         // ========================================
         // ✅ [신규] 커스텀 분석 해석 모드

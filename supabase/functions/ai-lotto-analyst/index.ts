@@ -38,7 +38,7 @@ serve(async (req: Request) => {
         const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
         const supabaseClient = createClient(supabaseUrl, supabaseKey);
 
-        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${aiApiKey}`;
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent?key=${aiApiKey}`;
 
         // ========================================
         // ✅ [신규] 커스텀 분석 해석 모드

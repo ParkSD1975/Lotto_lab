@@ -160,22 +160,13 @@
 
         if (!flowEl || !patternEl || !strategyEl) return;
 
-        // [핵심] 데이터 로드 대기 로직 (최대 5초)
-        let stats = null;
-        let retryCount = 0;
-        while (!stats && retryCount < 10) {
-            stats = _calculateQuantitativeStats(filterKey, analysisRange);
-            if (stats) break;
-            await new Promise(r => setTimeout(r, 500));
-            retryCount++;
-        }
-
-        // 1. 통계 요약 UI 렌더링 (초기에 미리 배치)
+        // 1. 통계 계산 및 UI 업데이트 (패턴 분석 섹션 상단에 즉시 표시)
+        const stats = _calculateQuantitativeStats(filterKey, analysisRange);
         if (stats) {
             const statsHTML = `
-                <div id="dip-stats-box" style="background:rgba(241, 245, 249, 0.7); border:1px solid #e2e8f0; border-radius:12px; padding:12px; margin-bottom:12px; display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
-                    <div style="font-size:0.75rem; color:#64748b; font-weight:700; width:100%; border-bottom:1px solid #e2e8f0; padding-bottom:4px; margin-bottom:4px">
-                        ${analysisRange}회 분석 범위 통계 분석
+                <div style="background:rgba(241, 245, 249, 0.5); border:1px solid #e2e8f0; border-radius:12px; padding:12px; margin-bottom:12px; display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
+                    <div style="font-size:0.75rem; color:#64748b; font-weight:700; width:100%; border-bottom:1px solid #f1f5f9; padding-bottom:4px; margin-bottom:4px">
+                        ${analysisRange}회 분석 범위 통계 요약
                     </div>
                     <div style="flex:1; min-width:80px">
                         <div style="font-size:0.7rem; color:#94a3b8">평균</div>
@@ -194,11 +185,8 @@
                         <div style="font-size:0.9rem; font-weight:800; color:${stats.trend==='상승세'?'#ef4444':(stats.trend==='하락세'?'#3b82f6':'#1e293b')}">${stats.trend}</div>
                     </div>
                 </div>
-                <div id="dip-pattern-llm-text" class="italic text-gray-400" style="font-size:0.85rem">데이터 패턴을 통한 변곡점을 분석 중입니다...</div>
             `;
-            patternEl.innerHTML = statsHTML;
-        } else {
-            patternEl.innerHTML = '<div style="color:#94a3b8; font-size:0.85rem;">통계 데이터를 불러올 수 없습니다.</div>';
+            patternEl.innerHTML = statsHTML + `<div id="dip-pattern-llm-text" class="italic text-gray-400" style="font-size:0.85rem">데이터의 통계적 패턴을 심층 해석 중입니다...</div>`;
         }
 
         const modelSummary = MODEL_ORDER
@@ -271,31 +259,31 @@
             let l = line.trim();
             if (!l) return;
             
-            // 1. 섹션 전환 감지 (번호나 키워드 기반)
+            // 1. 섹션 전환 감지 (앞부분의 **, #, [ 등 특수문자 및 공백 유연하게 허용)
             let isHeader = false;
-            if (l.match(/^[#*\s]*1\.?\s*\[?(흐름|진단)\]?/i) || l.includes('흐름진단') || l.includes('흐름 진단')) { 
+            if (l.match(/[#*\s]*[1]\.?\s*\[?(흐름|진단)\]?/i) || l.match(/^[#*\s]*흐름\s*진단/i)) { 
                 current = 'flow'; 
                 isHeader = true; 
             } 
-            else if (l.match(/^[#*\s]*2\.?\s*\[?(패턴|분석)\]?/i) || l.includes('패턴분석') || l.includes('패턴 분석')) { 
+            else if (l.match(/[#*\s]*[2]\.?\s*\[?(패턴|분석)\]?/i) || l.match(/^[#*\s]*패턴\s*분석/i)) { 
                 current = 'pattern'; 
                 isHeader = true; 
             } 
-            else if (l.match(/^[#*\s]*3\.?\s*\[?(전략|제언|공략|필승)\]?/i) || l.includes('필승공략') || l.includes('전략제언') || l.includes('전략 제언')) { 
+            else if (l.match(/[#*\s]*[3]\.?\s*\[?(전략|제언|공략|필승)\]?/i) || l.match(/^[#*\s]*(전략\s*제언|필승\s*공략)/i)) { 
                 current = 'strategy'; 
                 isHeader = true; 
             }
             
-            if (isHeader) return; // 헤더 라인 본문 제외
+            if (isHeader) return; // 헤더 라인 자체는 본문에 포함하지 않음
 
-            // 2. 내용 누적 (다양한 불렛/기호 완벽 제거)
-            const cleanLine = l.replace(/^[#*\-\+>\s\d\.\[\]]+/, '').trim();
-            if (!cleanLine || cleanLine.length < 2) return;
+            // 2. 내용 누적 (불필요한 마크다운/불렛 기호 정제)
+            const cleanLine = l.replace(/^[#*\-\+\s]+/, '').trim();
+            if (!cleanLine) return;
 
             if (current === 'flow') flow += cleanLine + ' ';
             else if (current === 'pattern') pattern += cleanLine + ' ';
             else if (current === 'strategy') strategy += cleanLine + ' ';
-            else if (!current) flow += cleanLine + ' ';
+            else if (!current) flow += cleanLine + ' '; // 헤더 전 텍스트는 흐름진단에 포함
         });
 
         return {
