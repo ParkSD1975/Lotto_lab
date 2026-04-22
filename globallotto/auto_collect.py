@@ -383,6 +383,97 @@ def collect_netherlands(lottery_id: str, last_date: date | None) -> int:
     print(f"  Netherlands: {len(draws)}건 신규")
     return upsert_draws(lottery_id, draws)
 
+# ─────────────── 수집 함수: Netherlands Lotto XL ───────────────
+
+def collect_netherlands_xl(lottery_id: str, last_date: date | None) -> int:
+    draws = {}
+
+    # Source 1: lotteryextreme.com — "Lotto XL|..." 행 파싱
+    try:
+        r = requests.get("https://www.lotteryextreme.com/netherlands/lotto-results",
+                         headers=HEADERS, timeout=15)
+        if r.status_code == 200:
+            soup = BeautifulSoup(r.text, "lxml")
+            tables = soup.find_all("table")
+            if len(tables) >= 2:
+                current_date_str = None
+                for tr in tables[1].find_all("tr"):
+                    text = tr.get_text(separator="|", strip=True)
+                    if re.match(r"^\d{2}-\d{2}-\d{4}$", text.strip()):
+                        m = re.match(r"(\d{2})-(\d{2})-(\d{4})", text.strip())
+                        current_date_str = f"{m.group(3)}-{m.group(2)}-{m.group(1)}"
+                    elif current_date_str and text.startswith("Lotto XL|"):
+                        d = date.fromisoformat(current_date_str)
+                        if not (last_date and d <= last_date):
+                            parts = text.split("|")
+                            nums = [int(p) for p in parts[1:] if p.isdigit()]
+                            if len(nums) >= 6:
+                                draws[current_date_str] = {
+                                    "draw_date": current_date_str,
+                                    "n1":nums[0],"n2":nums[1],"n3":nums[2],
+                                    "n4":nums[3],"n5":nums[4],"n6":nums[5],
+                                    "b1": nums[6] if len(nums)>6 else None,
+                                }
+                        current_date_str = None
+    except Exception as e:
+        print(f"  NL XL lotteryextreme err: {e}")
+
+    # Source 2: lotteryguru — nl-lotto-xl 페이지
+    try:
+        for page in range(1, 8):
+            r2 = requests.get(
+                f"https://lotteryguru.com/netherlands-lottery-results/nl-lotto-xl/nl-lotto-xl-results-history?page={page}",
+                headers=HEADERS, timeout=15)
+            if r2.status_code != 200:
+                break
+            soup2 = BeautifulSoup(r2.text, "lxml")
+            blocks = soup2.select("div.lg-line")
+            if not blocks:
+                break
+            page_new = 0
+            for block in blocks:
+                date_div = block.select_one("div.lg-date.has-text-right")
+                if not date_div:
+                    continue
+                try:
+                    txt = date_div.get_text(separator=" ", strip=True).split()
+                    draw_date = date(int(txt[2]), MONTH_MAP[txt[1].lower()[:3]], int(txt[0]))
+                except:
+                    continue
+                if last_date and draw_date <= last_date:
+                    continue
+                lis = block.select("li.lg-number")
+                main_nums, bonus = [], None
+                for li in lis:
+                    n_txt = li.get_text(strip=True)
+                    if not n_txt.isdigit():
+                        continue
+                    n = int(n_txt)
+                    if "lg-reversed" in li.get("class", []):
+                        bonus = n
+                    else:
+                        main_nums.append(n)
+                if len(main_nums) < 6:
+                    continue
+                ds = draw_date.isoformat()
+                if ds not in draws:
+                    draws[ds] = {
+                        "draw_date": ds,
+                        "n1":main_nums[0],"n2":main_nums[1],"n3":main_nums[2],
+                        "n4":main_nums[3],"n5":main_nums[4],"n6":main_nums[5],
+                        "b1": bonus,
+                    }
+                page_new += 1
+            time.sleep(random.uniform(0.8, 1.3))
+            if page_new == 0:
+                break
+    except Exception as e:
+        print(f"  NL XL guru err: {e}")
+
+    result = list(draws.values())
+    print(f"  Netherlands XL: {len(result)}건 신규")
+    return upsert_draws(lottery_id, result)
+
 # ─────────────── 수집 함수: Croatia ───────────────
 
 def collect_croatia(lottery_id: str, last_date: date | None) -> int:
@@ -482,6 +573,9 @@ def main():
 
     total += run_collector("Netherlands Lotto",
         lambda lid, ld: collect_netherlands(lid, ld))
+
+    total += run_collector("Netherlands Lotto XL",
+        lambda lid, ld: collect_netherlands_xl(lid, ld))
 
     total += run_collector("Loto 6/45",
         lambda lid, ld: collect_croatia(lid, ld))
