@@ -2,8 +2,9 @@ name: Weekly Lottery Data Collection
 
 on:
   schedule:
-    # 매주 월요일 01:00 UTC = 한국 시간 10:00
-    - cron: '0 1 * * 1'
+    # 매일 01:00 UTC = 한국 시간 10:00
+    # 전날 각국 추첨 결과를 당일 아침에 수집
+    - cron: '0 1 * * *'
   workflow_dispatch:
     # GitHub Actions 탭에서 수동 실행 가능
 
