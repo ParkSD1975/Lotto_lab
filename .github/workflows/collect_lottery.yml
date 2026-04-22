@@ -1,0 +1,31 @@
+name: Weekly Lottery Data Collection
+
+on:
+  schedule:
+    # 매주 월요일 01:00 UTC = 한국 시간 10:00
+    - cron: '0 1 * * 1'
+  workflow_dispatch:
+    # GitHub Actions 탭에서 수동 실행 가능
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4 lxml supabase
+
+      - name: Run auto_collect.py
+        run: python -X utf8 globallotto/auto_collect.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
