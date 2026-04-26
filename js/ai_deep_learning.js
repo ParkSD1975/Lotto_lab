@@ -1598,8 +1598,8 @@ const DeepLearning = {
             non_multiple: '배수외',
             neighbor: '이웃수', carryover: '이월수'
         };
-        // 명시적 제외 목록 (hot10·missing은 동적 지표로 범위 의미 없음)
-        const FILTER_EXCLUDE = new Set(['hot10', 'missing']);
+        // 명시적 제외 목록 (hot10·missing은 동적 지표로 범위 의미 없음; mul34/35/45·neutral10·cold10은 교집합/비율 지표로 범위 불필요)
+        const FILTER_EXCLUDE = new Set(['hot10', 'missing', 'mul34', 'mul35', 'mul45', 'neutral10', 'cold10']);
         const FILTER_ORDER = [
             'sum', 'tail_sum', 'ac',
             'odd', 'high', 'consecutive', 'twin',
@@ -2204,7 +2204,7 @@ const DeepLearning = {
                 const rangeLabel = r.min === r.max ? `${r.min}` : `${r.min}~${r.max}`;
                 const color = MODEL_COLORS[m];
                 return `<td class="px-2 py-3 text-center">
-                    <span style="font-family:monospace;font-size:10px;font-weight:700;color:${color}">${rangeLabel}</span>
+                    <span style="font-family:monospace;font-size:13px;font-weight:700;color:${color}">${rangeLabel}</span>
                 </td>`;
             }).join('');
 
@@ -2212,8 +2212,6 @@ const DeepLearning = {
                 <td class="px-4 py-3 font-black text-center text-gray-800 text-base">${item.tail}끝</td>
                 <td class="px-2 py-3 text-center">${ensembleCell}</td>
                 ${modelCells}
-                <td class="px-4 py-3 text-center font-mono text-xs text-gray-500">${item.gap ?? '-'}</td>
-                <td class="px-4 py-3 text-center font-mono text-xs text-gray-500">${str}</td>
             </tr>`;
         }).join('');
     },
@@ -2245,7 +2243,7 @@ const DeepLearning = {
                 const p = item.model_exp ? (parseFloat(item.model_exp[m]) || 0) : exp;
                 const r = _probToRange(p);
                 const label = r.min === r.max ? `${r.min}` : `${r.min}~${r.max}`;
-                return `<td class="px-2 py-3 text-center"><span style="font-family:monospace;font-size:10px;font-weight:700;color:${MODEL_COLORS[m]}">${label}</span></td>`;
+                return `<td class="px-2 py-3 text-center"><span style="font-family:monospace;font-size:13px;font-weight:700;color:${MODEL_COLORS[m]}">${label}</span></td>`;
             }).join('');
         };
 
@@ -2258,8 +2256,6 @@ const DeepLearning = {
             html += '<th class="px-4 py-3 text-left font-bold text-gray-700">구분</th>';
             html += '<th class="px-4 py-3 text-center font-bold text-blue-600">AI 종합</th>';
             html += _modelHeader();
-            html += '<th class="px-4 py-3 text-center font-bold text-gray-600">Gap</th>';
-            html += '<th class="px-4 py-3 text-center font-bold text-gray-600">STR</th>';
             html += '</tr></thead><tbody>';
 
             items.forEach(item => {
@@ -2271,7 +2267,7 @@ const DeepLearning = {
                 const rangeColor = isHot ? '#0F766E' : exp < 0.3 ? '#9CA3AF' : '#374151';
 
                 const ensembleCell = `<div class="flex flex-col items-center gap-0.5">
-                    <span style="font-family:monospace;font-size:12px;font-weight:800;color:${rangeColor}">${rMin}~${rMax}개</span>
+                    <span style="font-family:monospace;font-size:13px;font-weight:800;color:${rangeColor}">${rMin}~${rMax}개</span>
                     <span style="font-size:9px;color:#94A3B8">평균 ${exp.toFixed(1)}개</span>
                 </div>`;
 
@@ -2279,8 +2275,6 @@ const DeepLearning = {
                 html += `<td class="px-4 py-3 font-bold text-gray-700 text-sm">${item.label}</td>`;
                 html += `<td class="px-4 py-3 text-center">${ensembleCell}</td>`;
                 html += _modelCells(item);
-                html += `<td class="px-4 py-3 text-center font-mono text-gray-500">${item.gap != null ? item.gap : '-'}</td>`;
-                html += `<td class="px-4 py-3 text-center font-mono text-gray-500">${item.str != null ? item.str : '-'}</td>`;
                 html += '</tr>';
             });
             html += '</tbody></table></div></div>';
@@ -2323,8 +2317,6 @@ const DeepLearning = {
         MODEL_ORDER.forEach(m => {
             html += `<th class="px-2 py-3 text-center font-semibold" style="color:${MODEL_COLORS[m]}">${MODEL_ABBR[m]}</th>`;
         });
-        html += '<th class="px-4 py-3 text-center font-bold text-gray-600">Gap</th>';
-        html += '<th class="px-4 py-3 text-center font-bold text-gray-600">STR</th>';
         html += '</tr></thead><tbody>';
 
         bandData.forEach(item => {
@@ -2337,22 +2329,20 @@ const DeepLearning = {
             const rangeColor = isHot ? '#0F766E' : exp < 0.3 ? '#9CA3AF' : '#374151';
 
             const ensembleCell = `<div class="flex flex-col items-center gap-0.5">
-                <span style="font-family:monospace;font-size:12px;font-weight:800;color:${rangeColor}">${rMin}~${rMax}개</span>
+                <span style="font-family:monospace;font-size:13px;font-weight:800;color:${rangeColor}">${rMin}~${rMax}개</span>
                 <span style="font-size:9px;color:#94A3B8">평균 ${exp.toFixed(1)}개</span>
             </div>`;
 
             const modelCells = MODEL_ORDER.map((m, i) => {
                 const r = modelRanges[i];
                 const lbl = r.min === r.max ? `${r.min}` : `${r.min}~${r.max}`;
-                return `<td class="px-2 py-3 text-center"><span style="font-family:monospace;font-size:10px;font-weight:700;color:${MODEL_COLORS[m]}">${lbl}</span></td>`;
+                return `<td class="px-2 py-3 text-center"><span style="font-family:monospace;font-size:13px;font-weight:700;color:${MODEL_COLORS[m]}">${lbl}</span></td>`;
             }).join('');
 
             html += `<tr class="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors${isHot ? ' bg-emerald-50/30' : ''}">`;
             html += `<td class="px-4 py-3 font-bold text-gray-700 text-sm">${displayLabel}</td>`;
             html += `<td class="px-4 py-3 text-center">${ensembleCell}</td>`;
             html += modelCells;
-            html += `<td class="px-4 py-3 text-center font-mono text-gray-500">${item.gap != null ? item.gap : '-'}</td>`;
-            html += `<td class="px-4 py-3 text-center font-mono text-gray-500">${item.str != null ? item.str : '-'}</td>`;
             html += '</tr>';
         });
         html += '</tbody></table></div>';
@@ -2384,8 +2374,6 @@ const DeepLearning = {
         MODEL_ORDER.forEach(m => {
             html += `<th class="px-2 py-3 text-center font-semibold" style="color:${MODEL_COLORS[m]}">${MODEL_ABBR[m]}</th>`;
         });
-        html += '<th class="px-4 py-3 text-center font-bold text-gray-600">Gap</th>';
-        html += '<th class="px-4 py-3 text-center font-bold text-gray-600">STR</th>';
         html += '</tr></thead><tbody>';
 
         squareData.forEach(item => {
@@ -2397,22 +2385,20 @@ const DeepLearning = {
             const rangeColor = isHot ? '#0F766E' : exp < 0.3 ? '#9CA3AF' : '#374151';
 
             const ensembleCell = `<div class="flex flex-col items-center gap-0.5">
-                <span style="font-family:monospace;font-size:12px;font-weight:800;color:${rangeColor}">${rMin}~${rMax}개</span>
+                <span style="font-family:monospace;font-size:13px;font-weight:800;color:${rangeColor}">${rMin}~${rMax}개</span>
                 <span style="font-size:9px;color:#94A3B8">평균 ${exp.toFixed(1)}개</span>
             </div>`;
 
             const modelCells = MODEL_ORDER.map((m, i) => {
                 const r = modelRanges[i];
                 const label = r.min === r.max ? `${r.min}` : `${r.min}~${r.max}`;
-                return `<td class="px-2 py-3 text-center"><span style="font-family:monospace;font-size:10px;font-weight:700;color:${MODEL_COLORS[m]}">${label}</span></td>`;
+                return `<td class="px-2 py-3 text-center"><span style="font-family:monospace;font-size:13px;font-weight:700;color:${MODEL_COLORS[m]}">${label}</span></td>`;
             }).join('');
 
             html += `<tr class="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors${isHot ? ' bg-emerald-50/30' : ''}">`;
             html += `<td class="px-4 py-3 font-bold text-gray-700 text-sm">${item.label}</td>`;
             html += `<td class="px-4 py-3 text-center">${ensembleCell}</td>`;
             html += modelCells;
-            html += `<td class="px-4 py-3 text-center font-mono text-gray-500">${item.gap != null ? item.gap : '-'}</td>`;
-            html += `<td class="px-4 py-3 text-center font-mono text-gray-500">${item.str != null ? item.str : '-'}</td>`;
             html += '</tr>';
         });
         html += '</tbody></table></div>';
@@ -2425,7 +2411,7 @@ const DeepLearning = {
 
         const rawGroups = groupData.groups || groupData;
         const groupArray = Array.isArray(rawGroups) ? rawGroups : Object.values(rawGroups);
-        if (!groupArray.length) return;
+        // groupArray가 비어있어도 4구간 틀은 항상 표시 (데이터 없음 표기)
 
         const MODEL_ORDER = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
         const MODEL_ABBR = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV', autoencoder: 'ATC', gnn: 'GNN' };
@@ -2452,39 +2438,64 @@ const DeepLearning = {
         html += '<th class="px-4 py-3 text-left font-bold text-gray-600">추천 번호 (상위15)</th>';
         html += '</tr></thead><tbody>';
 
+        // 4구간 기준 정의 (백엔드 데이터가 일부만 오는 경우에도 전체 구간 표시)
+        const GROUP_DEFS = [
+            { gapRange: '0~5',  label: 'Gap 0~5 (최근 출현)',  color: '#E64A19' },
+            { gapRange: '6~10', label: 'Gap 6~10 (중간)',      color: '#4B5563' },
+            { gapRange: '11~15',label: 'Gap 11~15 (장기)',     color: '#16A34A' },
+            { gapRange: '16+',  label: 'Gap 16+ (극장기)',     color: '#1A6DFF' },
+        ];
+        // 백엔드 데이터를 gapRange 또는 label 키로 매핑
+        const groupMap = {};
         groupArray.forEach(g => {
-            const expected = (g.count || 0) * (g.avg_prob || 0) / 100 * 6;
+            const key = g.gap_range || g.gapRange || (g.label && g.label.match(/0~5|0-5/) ? '0~5'
+                : g.label && g.label.match(/6~10|6-10/) ? '6~10'
+                : g.label && g.label.match(/11~15|11-15/) ? '11~15'
+                : g.label && g.label.match(/16\+|16-/) ? '16+'
+                : null);
+            if (key) groupMap[key] = g;
+            else if (!Object.keys(groupMap).length) groupMap['0~5'] = g; // 첫 번째 그룹이 키 없으면 0~5로 간주
+        });
+        // 그룹 순서대로 렌더 (없으면 빈 행)
+        GROUP_DEFS.forEach(def => {
+            const g = groupMap[def.gapRange] || {};
+            const hasData = !!groupMap[def.gapRange];
+            const expected = hasData ? (g.count || 0) * (g.avg_prob || 0) / 100 * 6 : 0;
             const r = _expToRange(expected);
             const isHot = expected >= 1.2;
             const rangeColor = isHot ? '#0F766E' : expected < 0.5 ? '#9CA3AF' : '#374151';
 
-            const ensembleCell = `<div class="flex flex-col items-center gap-0.5">
-                <span style="font-family:monospace;font-size:12px;font-weight:800;color:${rangeColor}">${r.min}~${r.max}개</span>
-                <span style="font-size:9px;color:#94A3B8">평균 ${expected.toFixed(1)}개</span>
-            </div>`;
+            const ensembleCell = hasData
+                ? `<div class="flex flex-col items-center gap-0.5">
+                    <span style="font-family:monospace;font-size:13px;font-weight:800;color:${rangeColor}">${r.min}~${r.max}개</span>
+                    <span style="font-size:9px;color:#94A3B8">평균 ${expected.toFixed(1)}개</span>
+                  </div>`
+                : `<span style="color:#D1D5DB;font-size:12px">-</span>`;
 
             // 모델별 — model_exp 있으면 범위값, 없으면 '-'
             const modelCells = MODEL_ORDER.map(m => {
                 const color = MODEL_COLORS[m];
-                if (!g.model_exp || g.model_exp[m] == null) {
-                    return `<td class="px-2 py-3 text-center"><span style="color:#D1D5DB;font-size:10px">-</span></td>`;
+                if (!hasData || !g.model_exp || g.model_exp[m] == null) {
+                    return `<td class="px-2 py-3 text-center"><span style="color:#D1D5DB;font-size:12px">-</span></td>`;
                 }
                 const mExp = parseFloat(g.model_exp[m]);
                 const mr = _expToRange(mExp);
                 const lbl = mr.min === mr.max ? `${mr.min}` : `${mr.min}~${mr.max}`;
-                return `<td class="px-2 py-3 text-center"><span style="font-family:monospace;font-size:10px;font-weight:700;color:${color}">${lbl}</span></td>`;
+                return `<td class="px-2 py-3 text-center"><span style="font-family:monospace;font-size:13px;font-weight:700;color:${color}">${lbl}</span></td>`;
             }).join('');
 
-            const top15Nums = (g.numbers || []).filter(n => n.is_top15).map(n => n.num).slice(0, 10);
-            const ballsHtml = top15Nums.map(n =>
-                `<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold text-white mx-0.5" style="background:${g.color || '#6366f1'}">${n}</span>`
-            ).join('') || '<span class="text-gray-400">-</span>';
+            const top15Nums = hasData ? (g.numbers || []).filter(n => n.is_top15).map(n => n.num).slice(0, 10) : [];
+            const ballsHtml = top15Nums.length
+                ? top15Nums.map(n =>
+                    `<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold text-white mx-0.5" style="background:${def.color}">${n}</span>`
+                  ).join('')
+                : '<span class="text-gray-300 text-xs">데이터 없음</span>';
 
-            html += `<tr class="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors${isHot ? ' bg-emerald-50/30' : ''}">`;
-            html += `<td class="px-4 py-3 font-bold text-sm" style="color:${g.color || '#374151'}">${g.label || '-'}</td>`;
+            html += `<tr class="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors${isHot && hasData ? ' bg-emerald-50/30' : ''}">`;
+            html += `<td class="px-4 py-3 font-bold text-sm" style="color:${def.color}">${def.label}</td>`;
             html += `<td class="px-4 py-3 text-center">${ensembleCell}</td>`;
             html += modelCells;
-            html += `<td class="px-4 py-3 text-center font-mono text-gray-500">${g.count || 0}</td>`;
+            html += `<td class="px-4 py-3 text-center font-mono text-gray-500">${hasData ? (g.count || 0) : '-'}</td>`;
             html += `<td class="px-4 py-3">${ballsHtml}</td>`;
             html += '</tr>';
         });

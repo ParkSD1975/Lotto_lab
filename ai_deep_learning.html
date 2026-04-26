@@ -543,7 +543,6 @@
                             앙상블</span>
                     </div>
                     <div class="card-body">
-                        <p class="text-xs text-gray-500 mb-2">수파베이스 저장 앙상블 분석 결과 기반 필터 예상 범위입니다. (AI 프리미엄 전략 리포트와 동일 데이터)</p>
                         <div id="rangeAnalysisSource" class="mb-3"></div>
                         <div id="rangeAnalysisContainer">
                             <div class="text-center py-8 text-gray-400 text-sm">분석 중...</div>
@@ -555,13 +554,13 @@
                 <div class="card col-span-1 lg:col-span-2">
                     <div class="card-header">
                         <span class="material-symbols-outlined text-pink-500">pin</span>
-                        <h3>끝수 분석 (0~9)</h3>
+                        <h3>끝수 분석</h3>
                     </div>
                     <div class="overflow-x-auto">
                         <table class="w-full text-center text-sm">
                             <thead class="sticky top-0 bg-gray-50 border-b border-gray-200">
                                 <tr>
-                                    <th class="px-4 py-3 font-bold text-gray-700">끝수</th>
+                                    <th class="px-4 py-3 text-gray-700">끝수</th>
                                     <th class="px-4 py-3 font-bold text-blue-600">AI 종합</th>
                                     <th class="px-2 py-3 font-semibold text-indigo-500">LSTM</th>
                                     <th class="px-2 py-3 font-semibold text-blue-500">XGB</th>
@@ -570,8 +569,6 @@
                                     <th class="px-2 py-3 font-semibold text-emerald-500">MKV</th>
                                     <th class="px-2 py-3 font-semibold text-purple-500">ATC</th>
                                     <th class="px-2 py-3 font-semibold text-red-500">GNN</th>
-                                    <th class="px-4 py-3 font-bold text-gray-600">Gap</th>
-                                    <th class="px-4 py-3 font-bold text-gray-600">STR</th>
                                 </tr>
                             </thead>
                             <tbody id="tail-body" class="divide-y divide-gray-100"></tbody>
@@ -775,7 +772,7 @@
 
     <!-- Project Scripts -->
     <script src="js/aiProxy.js?v=20260426"></script>
-    <script src="js/ai_deep_learning.js?v=20260426o"></script>
+    <script src="js/ai_deep_learning.js?v=20260427a"></script>
     <script src="js/layout.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
