@@ -849,35 +849,65 @@ const DeepLearning = {
         const _agreement = _maxAgree > 0 ? _agreeCount / _maxAgree : 0;
         const confidence = Math.round(40 + _agreement * 55);
 
-        // ── keywords: 실제 사용 모델명 + 메타 상태 ──
+        // ── keywords: 회차·모델·메타·버전 ──
         const MODEL_ABBR_KW = { xgboost: 'XGBoost', lstm: 'LSTM', cnn: 'CNN', transformer: 'TF', markov: 'Markov', autoencoder: 'ATC', gnn: 'GNN' };
         const activeModelNames = Object.entries(mw)
             .filter(([, w]) => w > 0.03)
             .sort((a, b) => b[1] - a[1])
             .map(([m]) => MODEL_ABBR_KW[m] || m);
+        // pipeline_version 이 "v2" 처럼 이미 v로 시작하면 v를 추가하지 않음
+        const _ver = preds.pipeline_version
+            ? (String(preds.pipeline_version).startsWith('v')
+                ? String(preds.pipeline_version)
+                : `v${preds.pipeline_version}`)
+            : null;
         const keywords = [
-            `제${preds.target_round}회차`,
+            `${preds.target_round}회차`,
             activeModelNames.length > 0 ? activeModelNames.slice(0, 3).join('+') : '앙상블',
             preds.meta_active ? `메타α=${(preds.meta_alpha || 0).toFixed(2)}` : null,
-            preds.pipeline_version ? `v${preds.pipeline_version}` : null
+            _ver
         ].filter(Boolean);
 
-        // ── overall_strategy: 실제 가중치 기준 상위 모델로 생성 ──
+        // ── overall_strategy: 핵심 공략 — 실제 번호 기반 전략 조언 ──
         const _topModels = Object.entries(mw).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([m]) => MODEL_ABBR_KW[m] || m);
-        const overall_strategy = _topModels.length > 0
-            ? `${_topModels.join('·')} 중심 앙상블 예측. 메타러너 ${preds.meta_active ? '활성 (α=' + (preds.meta_alpha || 0).toFixed(2) + ')' : '비활성'}.`
-            : `앙상블 예측. 메타러너 ${preds.meta_active ? '활성' : '비활성'}.`;
+        // 추천 번호의 gap 분포로 전략 문구 생성
+        const _top5Gaps = _top5Nums.map(n => (featMap[n]?.missing_count ?? 99));
+        const _avgGap   = _top5Gaps.reduce((s, g) => s + g, 0) / (_top5Gaps.length || 1);
+        const _gapText  = _avgGap <= 5  ? '최근 출현 번호 중심 (단기 모멘텀)'
+                        : _avgGap <= 15 ? '중기 미출현 번호 중심 (반등 기대)'
+                        :                 '장기 미출현 번호 중심 (역발상 전략)';
+        const _top5str  = `추천 ${_top5Nums.join('·')}`;
+        const overall_strategy = `${_top5str}. ${_gapText}. 주도 모델: ${_topModels.join('·')}.`;
+
+        // ── hot_cold_analysis: || 50 기본값 제거, 실데이터만 ──
+        const _hotCount  = hotNums.length;
+        const _coldCount = coldNums.length;
+        const hot_cold_analysis = (_hotCount > 0 || _coldCount > 0)
+            ? {
+                hot_ratio:  Math.round(_hotCount  / 45 * 100),
+                cold_ratio: Math.round(_coldCount / 45 * 100),
+                trend_text: `Hot(최근출현) ${_hotCount}개 · Cold(장기미출현) ${_coldCount}개 / 전체 45개`
+              }
+            : null;  // null이면 렌더러가 "데이터 없음" 표시
+
+        // ── risk_assessment: XAI 기반 단순 위험도 ──
+        // top-5 번호 중 1개 이상이 veto(hard filter)면 위험, confidence로 판단
+        const _vetoCount = _top5Nums.filter(n => (xaiMap[n]?.veto)).length;
+        const risk_assessment = {
+            risk_score: Math.max(0, Math.min(100, Math.round((1 - _agreement) * 80 + _vetoCount * 15))),
+            risk_level: _agreement > 0.7 ? '낮음' : _agreement > 0.4 ? '보통' : '높음',
+            warning_text: _vetoCount > 0
+                ? `추천 번호 중 ${_vetoCount}개가 하드필터 경고 대상입니다.`
+                : `모델 합의도 ${Math.round(_agreement * 100)}% — ${_agreement > 0.7 ? '앙상블 일치도 양호' : _agreement > 0.4 ? '모델 간 의견 분산' : '모델 간 큰 이견, 주의 필요'}.`
+        };
 
         const strategy = {
-            summary:        `제${preds.target_round}회차 주간 앙상블 분석 완료. 추천 번호: ${_top5Nums.join(', ')}`,
+            summary:          `제${preds.target_round}회차 주간 앙상블 분석 완료. 추천 번호: ${_top5Nums.join(', ')}`,
             confidence,
             keywords,
-            hot_cold_analysis: {
-                hot_ratio:  Math.round(hotNums.length  / 45 * 100),
-                cold_ratio: Math.round(coldNums.length / 45 * 100)
-            },
+            hot_cold_analysis,
             overall_strategy,
-            risk_assessment:  null
+            risk_assessment
         };
 
         // ── XAI 실기여도: top-5 번호의 모델별 평균 기여도 (weekly_number_xai 실데이터) ──
@@ -1330,18 +1360,21 @@ const DeepLearning = {
         if (hcUI) {
             const hc = strategy.hot_cold_analysis;
             if (hc && typeof hc === 'object') {
-                const hotR = hc.hot_ratio || 50;
-                const coldR = hc.cold_ratio || 50;
+                const hotR  = hc.hot_ratio  ?? 0;   // || 50 기본값 제거 — 가짜 데이터 방지
+                const coldR = hc.cold_ratio ?? 0;
+                // hot+cold+나머지 세 영역 시각화 (합이 100%를 넘을 수 있으므로 별도 바)
                 hcUI.innerHTML = `
-                    <div class="flex items-center justify-between text-xs font-bold text-gray-500 mb-2">
-                        <span class="text-rose-500">Hot ${hotR}%</span>
-                        <span class="text-blue-500">Cold ${coldR}%</span>
+                    <div class="flex items-center justify-between text-xs font-bold text-gray-500 mb-1">
+                        <span class="text-rose-500">Hot(최근출현) ${hotR}%</span>
+                        <span class="text-blue-500">Cold(장기미출현) ${coldR}%</span>
                     </div>
-                    <div class="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden flex">
-                        <div class="h-full bg-rose-400" style="width: ${hotR}%"></div>
-                        <div class="h-full bg-blue-400" style="width: ${coldR}%"></div>
+                    <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden mb-1">
+                        <div class="h-full bg-rose-400 rounded-full" style="width:${Math.min(hotR,100)}%"></div>
                     </div>
-                    <p class="text-xs font-medium text-gray-700 mt-3 leading-snug">${hc.trend_text || ''}</p>
+                    <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+                        <div class="h-full bg-blue-400 rounded-full" style="width:${Math.min(coldR,100)}%"></div>
+                    </div>
+                    <p class="text-xs font-medium text-gray-600 mt-2 leading-snug">${hc.trend_text || ''}</p>
                 `;
             } else if (typeof hc === 'string' && hc) {
                 hcUI.innerHTML = '<p class="text-sm font-medium text-gray-700 leading-snug">' + hc + '</p>';
