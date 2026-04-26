@@ -27,10 +27,32 @@ N_HEADS_1     = 4
 N_HEADS_2     = 2
 DROPOUT       = 0.3
 LEARNING_RATE = 1e-3
-MAX_EPOCHS    = 200
-PATIENCE      = 25
+MAX_EPOCHS    = 300
+PATIENCE      = 30
 MIN_HIST      = 50      # 학습 샘플 생성을 위한 최소 이력 회차
-POS_WEIGHT    = 6.5     # 6개 양성 / 39개 음성 불균형 보정
+POS_WEIGHT    = 6.5     # BCELoss 호환용 (현재 SoftmaxRankingLoss에서 미사용)
+
+
+# ── 손실 함수: Softmax Ranking Loss ──────────────────────────────────────────
+class SoftmaxRankingLoss(nn.Module):
+    """
+    45개 번호를 경쟁적으로 비교하는 랭킹 손실.
+
+    BCEWithLogitsLoss 문제:
+      - 각 번호를 독립 이진 분류 → 모든 로짓이 사전확률(≈-1.87)로 수렴 가능
+      - 번호 간 상대적 차이를 학습할 동기 없음 → uniform 수렴
+
+    SoftmaxRankingLoss 해결:
+      - Softmax(logits[45]) → 45개 번호가 확률 합 1로 경쟁
+      - 맞는 6개 번호의 log-prob을 최대화
+      - 한 번호의 확률이 높아지면 다른 번호들이 낮아짐 → 반드시 차별화
+    """
+    def forward(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+        log_probs = F.log_softmax(logits, dim=0)   # [45]
+        pos_mask  = labels > 0                      # 6개 당첨 번호
+        if pos_mask.sum() == 0:
+            return torch.tensor(0.0, requires_grad=True)
+        return -log_probs[pos_mask].mean()          # NLL for winning numbers
 
 
 # ── Graph Attention Layer ─────────────────────────────────────────────────────
@@ -337,13 +359,13 @@ class GNNTrainer:
                 print(f"  [GNN] 기존 가중치 로드 실패 (처음부터 학습): {e}")
 
         # ── 옵티마이저 & 손실 ──────────────────────────────────────────────
-        pos_weight = torch.tensor([POS_WEIGHT], device=self.device)
-        criterion  = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-        optimizer  = optim.Adam(
+        # SoftmaxRankingLoss: 45개 번호를 경쟁적으로 학습 → uniform 수렴 방지
+        criterion = SoftmaxRankingLoss()
+        optimizer = optim.Adam(
             self.model.parameters(), lr=LEARNING_RATE, weight_decay=1e-4
         )
-        scheduler  = optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="min", patience=10, factor=0.5, min_lr=1e-5
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode="min", patience=12, factor=0.5, min_lr=1e-5
         )
 
         best_loss    = float("inf")
