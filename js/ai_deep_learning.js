@@ -878,6 +878,21 @@ const DeepLearning = {
             risk_assessment:  null
         };
 
+        // ── XAI 실기여도: top-5 번호의 모델별 평균 기여도 (weekly_number_xai 실데이터) ──
+        // 이게 "모델 컨디션" 차트에 표시될 진짜 값
+        const _XAI_MODEL_KEYS = ['xgboost', 'lstm', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
+        const _top5ForXai = top5.slice(0, 5).filter(n => xaiMap[n] && Object.keys(xaiMap[n]).length > 0);
+        const xaiTop5Weights = {};
+        _XAI_MODEL_KEYS.forEach(m => {
+            const sum = _top5ForXai.reduce((s, n) => {
+                // GNN uniform이면 display fallback 쓰지 않고 실제 XAI excess 값(0)을 그대로 사용
+                return s + (xaiMap[n][m + '_pct'] || 0);
+            }, 0);
+            xaiTop5Weights[m] = _top5ForXai.length > 0
+                ? parseFloat((sum / _top5ForXai.length).toFixed(2))
+                : 0;
+        });
+
         // ── combinations ──
         const combinations = (preds.combinations || []).map(c => ({
             numbers:    c.numbers || [],
@@ -895,6 +910,7 @@ const DeepLearning = {
             combinations,
             strategy,
             model_weights:    mw,
+            xai_top5_weights: xaiTop5Weights, // XAI 실기여도 (모델 컨디션 차트용)
             meta_active:      preds.meta_active,
             meta_alpha:       preds.meta_alpha,
             pipeline_version: preds.pipeline_version,
@@ -1248,10 +1264,14 @@ const DeepLearning = {
         this.renderCombinations(result.combinations, compatAnalysis, matrixData);
 
         var effectivePipeline = result.pipeline;
-        if (!effectivePipeline && result.evidence && result.evidence.model_weights) {
+        if (!effectivePipeline) {
+            // xai_top5_weights 우선 (실데이터) — 없으면 model_weights fallback
+            const hasXai = result.xai_top5_weights && Object.values(result.xai_top5_weights).some(v => v > 0);
             effectivePipeline = {
-                modelWeights: result.evidence.model_weights,
-                weightReasons: result.evidence.task_key
+                modelWeights:  hasXai ? result.xai_top5_weights : (result.evidence?.model_weights || null),
+                isXaiMode:     hasXai,
+                top5Numbers:   result.top_5 || [],
+                weightReasons: result.evidence?.task_key
                     ? `Task: ${result.evidence.task_key} | Meta: ${result.meta_active ? '활성' : '비활성'}`
                     : '',
                 rlGenerated: true
@@ -1926,40 +1946,60 @@ const DeepLearning = {
         if (condContainer && pipeline.modelWeights) {
             const MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7', gnn: '#ef4444' };
             const MODEL_LABELS = { lstm: 'LSTM', xgboost: 'XGBoost', cnn: 'CNN', transformer: 'Transformer', markov: 'Markov', autoencoder: 'Autoenc.', gnn: 'GNN' };
-            // DEFAULT_WEIGHTS 제거 — 실데이터만 사용. 없으면 0%.
             const rawWeights = pipeline.modelWeights;
+            const isXai = !!pipeline.isXaiMode;
 
-            // 실제 합계 계산 후 정규화 (task_weights 합이 1.0이 아닐 수 있음)
-            const rawSum = Object.keys(MODEL_LABELS).reduce((s, k) => s + (rawWeights[k] || 0), 0);
-            const weightValues = Object.keys(MODEL_LABELS).map(k => rawSum > 0 ? (rawWeights[k] || 0) / rawSum : 0);
-            const maxW = Math.max(...weightValues, 0.001); // 0 나누기 방지
+            // XAI 모드: 각 모델 기여도 % 그대로 사용 (이미 0~100% 범위)
+            // 가중치 모드: 합계로 정규화
+            let displayValues;
+            if (isXai) {
+                // XAI 기여도는 번호당 합 ≈ 100% → 평균도 ≈ 100% → 그대로 사용
+                displayValues = Object.keys(MODEL_LABELS).map(k => rawWeights[k] || 0);
+            } else {
+                const rawSum = Object.keys(MODEL_LABELS).reduce((s, k) => s + (rawWeights[k] || 0), 0);
+                displayValues = Object.keys(MODEL_LABELS).map(k => rawSum > 0 ? (rawWeights[k] || 0) / rawSum * 100 : 0);
+            }
+            const maxVal = Math.max(...displayValues, 0.001);
 
             const barsHtml = Object.keys(MODEL_LABELS).map((name, i) => {
-                const w_val = weightValues[i];
-                const pct   = (w_val * 100).toFixed(1);
-                const barW  = (w_val / maxW * 100).toFixed(1);
+                const val   = displayValues[i];
+                const pct   = val.toFixed(1);
+                const barW  = (val / maxVal * 100).toFixed(1);
                 const color = MODEL_COLORS[name] || '#9CA3AF';
-                const isZero = w_val === 0;
+                const isZero = val < 0.05;
                 return `<div style="display:flex;align-items:center;gap:10px;font-size:12px">
-                    <span style="width:70px;color:#4B5563;font-weight:700;text-align:right">${MODEL_LABELS[name]}</span>
+                    <span style="width:80px;color:#4B5563;font-weight:700;text-align:right;flex-shrink:0">${MODEL_LABELS[name]}</span>
                     <div style="flex:1;height:10px;background:#F3F4F6;border-radius:99px;overflow:hidden">
-                        <div style="width:${barW}%;height:100%;background:${isZero ? '#E5E7EB' : color};border-radius:99px;transition:width 0.6s ease"></div>
+                        <div style="width:${barW}%;height:100%;background:${isZero ? '#E5E7EB' : color};border-radius:99px;transition:width 0.8s ease"></div>
                     </div>
-                    <span style="width:40px;color:${isZero ? '#D1D5DB' : color};font-weight:800;text-align:right">${pct}%</span>
+                    <span style="width:44px;color:${isZero ? '#D1D5DB' : color};font-weight:800;text-align:right;flex-shrink:0">${pct}%</span>
                 </div>`;
             }).join('');
-            // weightReasons: 실데이터(파이프라인이 task_key 등 저장했을 때)만 표시
-            const reason = (pipeline.weightReasons && pipeline.weightReasons !== '딥러닝 앙상블 분析 완료') ? pipeline.weightReasons : '';
+
+            // 제목·부제: XAI 모드이면 실데이터임을 명확히
+            const top5Html = isXai && pipeline.top5Numbers?.length
+                ? `<div style="margin-top:12px;padding-top:10px;border-top:1px solid #F3F4F6;font-size:11px;color:#9CA3AF">
+                    추천 번호 기준 ·
+                    ${pipeline.top5Numbers.slice(0,5).map(n => `<b style="color:#6366f1">${n}</b>`).join(' · ')}
+                  </div>`
+                : '';
+            const taskBadge = pipeline.weightReasons
+                ? `<div style="margin-top:10px;font-size:10px;color:#9CA3AF">${pipeline.weightReasons}</div>`
+                : '';
+
             condContainer.innerHTML = `
                 <div class="card">
                     <div class="card-header">
-                        <span class="material-symbols-outlined icon">neurology</span>
-                        <h3>모델 컨디션 (Meta-Learning)</h3>
-                        <span class="ml-auto text-[10px] text-gray-400 font-medium whitespace-nowrap bg-gray-50 px-2 py-1 rounded-lg">가중치 자동 조정</span>
+                        <span class="material-symbols-outlined icon" style="color:${isXai?'#6366f1':'#94a3b8'}">${isXai ? 'analytics' : 'neurology'}</span>
+                        <h3>${isXai ? '모델별 XAI 기여도' : '모델 컨디션'}</h3>
+                        <span class="ml-auto text-[10px] font-medium whitespace-nowrap px-2 py-1 rounded-lg"
+                              style="background:${isXai?'#EEF2FF':'#F9FAFB'};color:${isXai?'#6366f1':'#9CA3AF'}">
+                            ${isXai ? '추천번호 평균 XAI' : '가중치 자동 조정'}
+                        </span>
                     </div>
                     <div class="card-body">
                         <div style="display:flex;flex-direction:column;gap:10px">${barsHtml}</div>
-                        ${reason ? `<div style="margin-top:16px;font-size:12px;color:#6B7280;border-top:1px solid #F3F4F6;padding-top:12px;line-height:1.6">${reason}</div>` : ''}
+                        ${top5Html}${taskBadge}
                     </div>
                 </div>`;
             condContainer.style.display = 'block';
