@@ -445,7 +445,7 @@ const DeepLearning = {
             const pred = predRows[0];
 
             // 2. 나머지 데이터 병렬 조회
-            const [xaiResult, combResult, featResult] = await Promise.allSettled([
+            const [xaiResult, combResult, featResult, drawsResult] = await Promise.allSettled([
                 // weekly_number_xai (번호별 모델 기여도)
                 window.supabaseClient
                     .from('weekly_number_xai')
@@ -457,11 +457,17 @@ const DeepLearning = {
                     .select('*')
                     .eq('target_round', pred.target_round)
                     .order('combo_rank', { ascending: true }),
-                // number_features_by_round (gap, freq, 회귀, 궁, 용지 위치)
+                // number_features_by_round (gap, hot_cold, 회귀, 궁, 용지 위치)
                 window.supabaseClient
                     .from('number_features_by_round')
-                    .select('number, missing_count, hot_cold, appearance_count_5, appearance_count_10, appearance_count_20, last_appearance_round, regression_2, regression_3, regression_5, regression_10, regression_15, regression_20, regression_30, regression_50, regression_100, regression_200, gung, paper_row, paper_col')
-                    .eq('round', pred.target_round - 1)
+                    .select('number, missing_count, hot_cold, last_appearance_round, regression_2, regression_3, regression_5, regression_10, regression_15, regression_20, regression_30, regression_50, regression_100, regression_200, gung, paper_row, paper_col')
+                    .eq('round', pred.target_round - 1),
+                // 최근 20회차 당첨번호 (freq 계산용)
+                window.supabaseClient
+                    .from('lotto_draws')
+                    .select('round, numbers')
+                    .order('round', { ascending: false })
+                    .limit(20)
             ]);
 
             // xai map
@@ -473,6 +479,14 @@ const DeepLearning = {
             const featMap = {};
             if (featResult.status === 'fulfilled' && featResult.value.data) {
                 featResult.value.data.forEach(r => { featMap[r.number] = r; });
+            }
+            // 빈도 계산 (최근 20회차 등장 횟수)
+            const freqMap = {};
+            if (drawsResult.status === 'fulfilled' && drawsResult.value.data) {
+                const recentDraws = drawsResult.value.data;
+                for (let n = 1; n <= 45; n++) {
+                    freqMap[n] = recentDraws.filter(d => (d.numbers || []).includes(n)).length;
+                }
             }
             // combinations
             const combinations = (combResult.status === 'fulfilled' && combResult.value.data) ? combResult.value.data : [];
@@ -490,7 +504,7 @@ const DeepLearning = {
             };
 
             console.log(`[V4] Supabase 직접 조회 성공 — 제${pred.target_round}회차 (xai:${Object.keys(xaiMap).length}개, feat:${Object.keys(featMap).length}개)`);
-            return this._adaptV4ToV3Format(preds, xaiMap, featMap);
+            return this._adaptV4ToV3Format(preds, xaiMap, featMap, freqMap);
         } catch (e) {
             console.log('[V4] Supabase 직접 조회 실패 (무시):', e.message);
             return null;
@@ -500,7 +514,7 @@ const DeepLearning = {
     // ── V4 데이터 → renderAll() 호환 V3 포맷 변환 ──
     // xaiMap:  { [num]: { xgboost_pct, lstm_pct, ..., probability } }  (0~100 % 단위)
     // featMap: { [num]: { missing_count, hot_cold, appearance_count_20, regression_*, gung, ... } }
-    _adaptV4ToV3Format(preds, xaiMap, featMap = {}) {
+    _adaptV4ToV3Format(preds, xaiMap, featMap = {}, freqMap = {}) {
         const top5      = preds.top_5 || [];
         const exclude10 = preds.exclude_10 || [];
         const mw        = preds.model_weights || {};
@@ -513,20 +527,25 @@ const DeepLearning = {
             const x = xaiMap[n] || {};
             const f = featMap[n] || {};
             const prob = x.probability || 0;
+            const gapVal = f.missing_count !== undefined ? f.missing_count : null;
+            const freqCount = freqMap[n] !== undefined ? freqMap[n] : null;
+            // freq는 0~1 비율로 저장 (sortMatrix가 *100 해서 표시)
+            const freqFrac = freqCount !== null ? parseFloat((freqCount / 20).toFixed(4)) : null;
+            const numInfo  = { gap: gapVal, hot_cold: f.hot_cold };
             matrixData.push({
                 num:  n,
                 total: parseFloat((prob * 100).toFixed(2)),
-                gap:  f.missing_count !== undefined ? f.missing_count : null,
-                freq: f.appearance_count_20 !== undefined ? parseFloat((f.appearance_count_20 / 20 * 100).toFixed(1)) : null,
+                gap:  gapVal,
+                freq: freqFrac,
                 hot_cold: f.hot_cold || null,
                 models: {
-                    xgboost:     { score: parseFloat((x.xgboost_pct     || 0).toFixed(2)) },
-                    lstm:        { score: parseFloat((x.lstm_pct        || 0).toFixed(2)) },
-                    cnn:         { score: parseFloat((x.cnn_pct         || 0).toFixed(2)) },
-                    transformer: { score: parseFloat((x.transformer_pct || 0).toFixed(2)) },
-                    gnn:         { score: parseFloat((x.gnn_pct         || 0).toFixed(2)) },
-                    markov:      { score: parseFloat((x.markov_pct      || 0).toFixed(2)) },
-                    autoencoder: { score: parseFloat((x.autoencoder_pct || 0).toFixed(2)) }
+                    xgboost:     { score: parseFloat((x.xgboost_pct     || 0).toFixed(2)), reason: DeepLearning._modelReason('xgboost',     x.xgboost_pct     || 0, numInfo) },
+                    lstm:        { score: parseFloat((x.lstm_pct        || 0).toFixed(2)), reason: DeepLearning._modelReason('lstm',        x.lstm_pct        || 0, numInfo) },
+                    cnn:         { score: parseFloat((x.cnn_pct         || 0).toFixed(2)), reason: DeepLearning._modelReason('cnn',         x.cnn_pct         || 0, numInfo) },
+                    transformer: { score: parseFloat((x.transformer_pct || 0).toFixed(2)), reason: DeepLearning._modelReason('transformer', x.transformer_pct || 0, numInfo) },
+                    gnn:         { score: parseFloat((x.gnn_pct         || 0).toFixed(2)), reason: DeepLearning._modelReason('gnn',         x.gnn_pct         || 0, numInfo) },
+                    markov:      { score: parseFloat((x.markov_pct      || 0).toFixed(2)), reason: DeepLearning._modelReason('markov',      x.markov_pct      || 0, numInfo) },
+                    autoencoder: { score: parseFloat((x.autoencoder_pct || 0).toFixed(2)), reason: DeepLearning._modelReason('autoencoder', x.autoencoder_pct || 0, numInfo) }
                 }
             });
         }
@@ -704,6 +723,61 @@ const DeepLearning = {
             },
             recommendations: preds.recommendations || []
         };
+    },
+
+    // ── 모델별 번호 분석 이유 생성 ──
+    _modelReason(modelName, score, numInfo = {}) {
+        const gap = numInfo.gap !== null && numInfo.gap !== undefined ? numInfo.gap : '?';
+        const hc  = numInfo.hot_cold || 'neutral';
+        const hcLabel = hc === 'hot' ? '🔥 핫' : hc === 'cold' ? '🧊 콜드' : '🌡️ 중립';
+
+        const tiers = (h, m, l, z) => score >= 40 ? h : score >= 15 ? m : score > 0 ? l : z;
+
+        const reasons = {
+            xgboost: tiers(
+                `특성 기반 강력 추천 — ${gap < 4 ? '연속 출현 패턴' : gap > 15 ? '장기 미출현 반등 신호' : `gap ${gap}회차`}`,
+                `특성 기반 중간 신호 — ${hcLabel} (gap ${gap})`,
+                `특성 기반 신호 미미 — gap ${gap}`,
+                '특성 신호 없음'
+            ),
+            lstm: tiers(
+                `시계열 강신호 — ${hcLabel}, 최근 출현 주기 패턴 감지`,
+                `시계열 보조 신호 — ${hcLabel} (gap ${gap})`,
+                `시계열 패턴 약함 — gap ${gap}`,
+                '시계열 패턴 미감지'
+            ),
+            cnn: tiers(
+                '공간 패턴 강신호 — 로또용지 위치 집중 활성화',
+                '공간 패턴 보조 신호 — 특정 행/열 패턴 감지',
+                '공간 패턴 약신호',
+                '공간 패턴 미감지 (학습 보완 필요)'
+            ),
+            transformer: tiers(
+                '글로벌 어텐션 강신호 — 장거리 출현 의존성 포착',
+                '글로벌 패턴 보조 신호 — 중거리 상관관계',
+                '어텐션 신호 약함',
+                '글로벌 패턴 미감지'
+            ),
+            markov: tiers(
+                `전이확률 높음 — 직전 당첨번호와 강한 연결 (gap ${gap})`,
+                `전이확률 중간 — 이전 회차 연관 존재`,
+                '전이확률 낮음',
+                '전이 연결 없음 — 직전 회차와 무관'
+            ),
+            autoencoder: tiers(
+                '정상 패턴 감지 — 복원오차 최소, 이상 없음',
+                '비교적 정상 패턴',
+                '패턴 희소',
+                '이상 패턴 없음 (페널티 미적용)'
+            ),
+            gnn: tiers(
+                `그래프 공동출현 강신호 — 클러스터 핵심 번호`,
+                '공동출현 보조 신호 — 일부 번호와 연관',
+                '공동출현 신호 약함',
+                '공동출현 그래프 신호 없음'
+            )
+        };
+        return reasons[modelName] || (score > 0 ? `기여도 ${score}%` : '신호 없음');
     },
 
     async _fetchAnalysisFromDB(round) {
