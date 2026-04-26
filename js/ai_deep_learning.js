@@ -572,6 +572,15 @@ const DeepLearning = {
         const exclude10 = preds.exclude_10 || [];
         const mw        = preds.model_weights || {};
 
+        // ── GNN 균등 감지: XAI excess 가 전부 0 이면 raw 확률(2.22%) 로 대체 ──
+        // GNN이 uniform 예측 → excess=0 → XAI 0% 저장. 표시용으로만 2.22% 사용.
+        const _GNN_UNIFORM_THRESHOLD = 0.5; // 전체 45개 합이 0.5% 미만이면 균등 판정
+        const _gnnXaiSum = Object.values(xaiMap).reduce((s, x) => s + (x.gnn_pct || 0), 0);
+        const _gnnUniform = _gnnXaiSum < _GNN_UNIFORM_THRESHOLD;
+        const GNN_UNIFORM_PCT = 1 / 45 * 100; // ≈ 2.22%
+        // GNN 표시용 확률 함수 (XAI 값 없으면 균등 2.22%)
+        const _gnnPct = (x) => _gnnUniform ? GNN_UNIFORM_PCT : (x.gnn_pct || 0);
+
         // ── 1. matrix_data (45개 번호) ──
         // score = 모델의 이 번호에 대한 기여도 % (0-100 범위, xai 컬럼 그대로)
         // total = 앙상블 확률 × 100 (%)
@@ -596,36 +605,45 @@ const DeepLearning = {
                     lstm:        { score: parseFloat((x.lstm_pct        || 0).toFixed(2)), reason: DeepLearning._modelReason('lstm',        x.lstm_pct        || 0, numInfo) },
                     cnn:         { score: parseFloat((x.cnn_pct         || 0).toFixed(2)), reason: DeepLearning._modelReason('cnn',         x.cnn_pct         || 0, numInfo) },
                     transformer: { score: parseFloat((x.transformer_pct || 0).toFixed(2)), reason: DeepLearning._modelReason('transformer', x.transformer_pct || 0, numInfo) },
-                    gnn:         { score: parseFloat((x.gnn_pct         || 0).toFixed(2)), reason: DeepLearning._modelReason('gnn',         x.gnn_pct         || 0, numInfo) },
+                    gnn:         { score: parseFloat(_gnnPct(x).toFixed(2)),                reason: DeepLearning._modelReason('gnn',         _gnnPct(x),              numInfo) },
                     markov:      { score: parseFloat((x.markov_pct      || 0).toFixed(2)), reason: DeepLearning._modelReason('markov',      x.markov_pct      || 0, numInfo) },
                     autoencoder: { score: parseFloat((x.autoencoder_pct || 0).toFixed(2)), reason: DeepLearning._modelReason('autoencoder', x.autoencoder_pct || 0, numInfo) }
                 }
             });
         }
 
-        // ── 2. hot_cold_data ──
-        const hot_cold_data = matrixData
-            .filter(m => m.total > 0)
-            .sort((a, b) => b.total - a.total)
-            .map(m => {
-                const f = featMap[m.num] || {};
-                const g = m.gap !== null ? m.gap : 99;
-                return {
-                    number:      m.num,
-                    gap:         m.gap !== null ? m.gap : 0,
-                    trend:       f.hot_cold || (g < 6 ? 'hot' : g > 15 ? 'cold' : 'neutral'),
-                    temperature: f.hot_cold || (g < 6 ? 'hot' : g > 15 ? 'cold' : 'neutral'),
-                    model_exp: {
-                        xgboost:     m.models.xgboost.score,
-                        lstm:        m.models.lstm.score,
-                        cnn:         m.models.cnn.score,
-                        transformer: m.models.transformer.score,
-                        markov:      m.models.markov.score,
-                        autoencoder: m.models.autoencoder.score,
-                        gnn:         m.models.gnn.score
-                    }
-                };
-            });
+        // ── 2. hot_cold_data (renderHotColdAnalysis 호환 — 상태별 num_details 구조) ──
+        // top15: 확률 기준 상위 15개 번호
+        const _top15Set = new Set(
+            Array.from({ length: 45 }, (_, i) => i + 1)
+                .sort((a, b) => (xaiMap[b]?.probability || 0) - (xaiMap[a]?.probability || 0))
+                .slice(0, 15)
+        );
+        // 각 번호를 gap 기준으로 5단계 분류
+        const hot_cold_data = {};
+        for (let n = 1; n <= 45; n++) {
+            const x = xaiMap[n] || {};
+            const f = featMap[n] || {};
+            const g = f.missing_count != null ? f.missing_count : 99;
+            const ensProb = parseFloat(((x.probability || 0) * 100).toFixed(2));
+            const detail = {
+                num:           n,
+                ensemble_prob: ensProb,
+                is_top15:      _top15Set.has(n),
+                models: {
+                    lstm:        { prob: x.lstm_pct        || 0 },
+                    xgboost:     { prob: x.xgboost_pct     || 0 },
+                    cnn:         { prob: x.cnn_pct          || 0 },
+                    transformer: { prob: x.transformer_pct  || 0 },
+                    markov:      { prob: x.markov_pct       || 0 },
+                    autoencoder: { prob: x.autoencoder_pct  || 0 },
+                    gnn:         { prob: _gnnPct(x) }
+                }
+            };
+            const status = g <= 2 ? 'hot' : g <= 7 ? 'active' : g <= 15 ? 'cooling' : g <= 25 ? 'cold' : 'deadcold';
+            if (!hot_cold_data[status]) hot_cold_data[status] = { num_details: [] };
+            hot_cold_data[status].num_details.push(detail);
+        }
 
         // ── 3. regression_analysis (number_features 회귀 컬럼 활용) ──
         const REG_WINDOWS = [2, 3, 5, 10, 15, 20, 30, 50, 100, 200];
@@ -670,7 +688,11 @@ const DeepLearning = {
         const _calcModelExp = (nums) => {
             const me = {};
             _MODEL_KEYS.forEach(m => {
-                const pctSum = nums.reduce((s, n) => s + (xaiMap[n]?.[m + '_pct'] || 0), 0);
+                const pctSum = nums.reduce((s, n) => {
+                    const x = xaiMap[n] || {};
+                    const pct = (m === 'gnn') ? _gnnPct(x) : (x[m + '_pct'] || 0);
+                    return s + pct;
+                }, 0);
                 me[m] = parseFloat((pctSum / 100 * 6).toFixed(2));
             });
             return me;
@@ -756,16 +778,60 @@ const DeepLearning = {
                     transformer: parseFloat(nums.reduce((s, n) => s + (xaiMap[n]?.transformer_pct || 0), 0).toFixed(1)),
                     markov:      parseFloat(nums.reduce((s, n) => s + (xaiMap[n]?.markov_pct      || 0), 0).toFixed(1)),
                     autoencoder: parseFloat(nums.reduce((s, n) => s + (xaiMap[n]?.autoencoder_pct || 0), 0).toFixed(1)),
-                    gnn:         parseFloat(nums.reduce((s, n) => s + (xaiMap[n]?.gnn_pct         || 0), 0).toFixed(1))
+                    gnn:         parseFloat(nums.reduce((s, n) => s + _gnnPct(xaiMap[n] || {}),  0).toFixed(1))
                 },
                 gap: 0,
                 str: ''
             };
         });
 
+        // ── 8. missing_group_data (미출현 그룹) ──
+        const MISSING_GROUPS = [
+            { label: 'Gap 0~5 (최근 출현)',  minGap: 0,  maxGap: 5,   color: '#10B981' },
+            { label: 'Gap 6~15 (중기)',       minGap: 6,  maxGap: 15,  color: '#3B82F6' },
+            { label: 'Gap 16~25 (장기)',      minGap: 16, maxGap: 25,  color: '#8B5CF6' },
+            { label: 'Gap 26~40 (초장기)',    minGap: 26, maxGap: 40,  color: '#F97316' },
+            { label: 'Gap 41+ (극장기)',      minGap: 41, maxGap: 999, color: '#EF4444' }
+        ];
+        const missing_group_data = MISSING_GROUPS.map(mg => {
+            const nums = [];
+            for (let n = 1; n <= 45; n++) {
+                const f = featMap[n] || {};
+                const g = f.missing_count != null ? f.missing_count : 0;
+                if (g >= mg.minGap && g <= mg.maxGap) {
+                    const x = xaiMap[n] || {};
+                    nums.push({
+                        num:           n,
+                        gap:           g,
+                        is_top15:      _top15Set.has(n),
+                        ensemble_prob: parseFloat(((x.probability || 0) * 100).toFixed(2))
+                    });
+                }
+            }
+            if (!nums.length) return null;
+            const totalProb = nums.reduce((s, d) => s + d.ensemble_prob, 0);
+            const avg_prob  = parseFloat((totalProb / nums.length).toFixed(2));
+            const model_exp = {};
+            ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'].forEach(m => {
+                const sumPct = nums.reduce((s, d) => {
+                    const x = xaiMap[d.num] || {};
+                    return s + ((m === 'gnn') ? _gnnPct(x) : (x[m + '_pct'] || 0));
+                }, 0);
+                model_exp[m] = parseFloat((sumPct / 100 * 6).toFixed(2));
+            });
+            return {
+                label:    mg.label,
+                color:    mg.color,
+                count:    nums.length,
+                avg_prob,
+                numbers:  nums.sort((a, b) => b.ensemble_prob - a.ensemble_prob),
+                model_exp
+            };
+        }).filter(Boolean);
+
         // ── strategy ──
-        const hotNums  = hot_cold_data.filter(h => h.temperature === 'hot').map(h => h.number);
-        const coldNums = hot_cold_data.filter(h => h.temperature === 'cold').map(h => h.number);
+        const hotNums  = (hot_cold_data.hot?.num_details || []).map(d => d.num);
+        const coldNums = [...(hot_cold_data.cold?.num_details || []), ...(hot_cold_data.deadcold?.num_details || [])].map(d => d.num);
         const strategy = {
             summary:        `제${preds.target_round}회차 주간 앙상블 분석 완료. 추천 번호: ${top5.slice(0, 5).join(', ')}`,
             confidence:     preds.meta_active ? 85 : 78,
@@ -810,7 +876,7 @@ const DeepLearning = {
                 number_band_analysis,
                 tail_analysis,
                 range_analysis:       rangeAnalysis,
-                missing_group_data:   []
+                missing_group_data:   missing_group_data
             },
             evidence: {
                 model_weights: mw

@@ -302,10 +302,26 @@ class WeeklyPipelineV2:
         # ── C2. weekly_number_xai ────────────────────────────────────────────
         try:
             xai = analysis.get("xai", {})
-            final_probs = analysis.get("final_probs", {})
+            final_probs  = analysis.get("final_probs", {})
+            contributions = analysis.get("contributions", {})  # {model: {n: raw_prob}}
+            gnn_contribs  = contributions.get("gnn", {})       # {n: raw_prob}
+
+            # GNN이 균등 예측(uniform)이면 XAI excess = 0 → raw 확률로 대체
+            gnn_xai_total = sum(
+                (xai.get(n) or xai.get(str(n)) or {}).get("gnn", 0.0)
+                for n in range(1, 46)
+            )
+            gnn_is_uniform = gnn_xai_total < 0.5  # 전체 합 0.5% 미만 → uniform 판정
+
             rows = []
             for n in range(1, 46):
                 x = xai.get(n) or xai.get(str(n)) or {}
+                if gnn_is_uniform:
+                    # raw GNN 확률 × 100 (%) 저장 — 균등이면 ≈ 2.22
+                    raw_gnn = gnn_contribs.get(n, gnn_contribs.get(str(n), 1 / 45))
+                    gnn_pct = round(float(raw_gnn) * 100, 2)
+                else:
+                    gnn_pct = x.get("gnn", 0.0)
                 rows.append({
                     "target_round":    target_round,
                     "number":          n,
@@ -313,7 +329,7 @@ class WeeklyPipelineV2:
                     "lstm_pct":        x.get("lstm", 0.0),
                     "cnn_pct":         x.get("cnn", 0.0),
                     "transformer_pct": x.get("transformer", 0.0),
-                    "gnn_pct":         x.get("gnn", 0.0),
+                    "gnn_pct":         gnn_pct,
                     "markov_pct":      x.get("markov", 0.0),
                     "autoencoder_pct": x.get("autoencoder", 0.0),
                     "top_model":       x.get("top_model"),
