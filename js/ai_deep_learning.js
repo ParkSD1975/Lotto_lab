@@ -20,23 +20,25 @@ const DeepLearning = {
         const startTime = Date.now();
         console.log("🚀 Deep Learning v3.5 Initializing...");
 
-        // 1. 핵심 정보 병렬 로드 (checkConnection 먼저 완료해야 loadHistoryList가 isConnected를 정확히 읽음)
-        await Promise.all([
-            this.setTargetRound(),
-            this.checkConnection(true)
-        ]);
-        this.loadHistoryList(); // checkConnection 완료 후 비동기 실행 (중복 /health 요청 방지)
+        // 1. 회차 정보 먼저 확정 (V4 조회에 필요)
+        await this.setTargetRound();
 
         // 2. UI 이벤트 바인딩
         this.bindEvents();
-
-        console.log(`⏱️ [DeepLearning] 초기 데이터 로드 완료 (${Date.now() - startTime}ms)`);
-
-        // 3. 주간 상태 UI 초기 표시
         this._updateWeeklyStatusUI();
 
-        // 4. 분석 실행
+        // 3. V4 분석 즉시 시작 (백엔드 웜업을 기다리지 않음)
         this.runAnalysis();
+
+        console.log(`⏱️ [DeepLearning] 초기 렌더 시작 (${Date.now() - startTime}ms)`);
+
+        // 4. 웜업은 백그라운드에서 병렬 실행 — 완료 후 연결 상태 반영
+        this.checkConnection(true).then(() => {
+            if (this.state.isConnected) {
+                window.AIProxy && window.AIProxy.startKeepAlive && window.AIProxy.startKeepAlive();
+                this.loadHistoryList();
+            }
+        });
     },
 
     async setTargetRound() {
@@ -115,12 +117,22 @@ const DeepLearning = {
             const sec = elapsed ? ` ${elapsed}초` : '';
             el.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span> 서버 기동 중${sec} <span class="font-normal opacity-70">(최대 1분)</span>`;
             el.className = 'flex items-center gap-1.5 text-[11px] font-bold text-amber-600 bg-amber-50 px-2.5 py-0.5 rounded-full border border-amber-200';
+        } else if (state === 'v4_ready') {
+            // V4 Supabase 직접 로드 성공 — 백엔드 없이도 정상 동작
+            el.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-blue-500"></span> ⚡ 주간 파이프라인 (V4)';
+            el.className = 'flex items-center gap-1.5 text-[11px] font-bold text-blue-600 bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200';
         } else if (this.state.isConnected) {
             el.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> 연결됨';
             el.className = 'flex items-center gap-1.5 text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200';
         } else {
-            el.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span> 연결 끊김 <button onclick="DeepLearning.retryConnection()" class="ml-1 underline text-rose-600 hover:text-rose-800 cursor-pointer bg-transparent border-0 p-0 text-[11px] font-bold">재시도</button>';
-            el.className = 'flex items-center gap-1.5 text-[11px] font-bold text-rose-500 bg-rose-50 px-2.5 py-0.5 rounded-full border border-rose-200';
+            // V4 데이터가 이미 로드됐으면 "연결 끊김" 대신 조용한 안내
+            if (this.state.analysisData && this.state.analysisData._source === 'v4_weekly') {
+                el.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-blue-400"></span> ⚡ V4 데이터 <span class="font-normal opacity-60">(AI서버 대기중)</span>';
+                el.className = 'flex items-center gap-1.5 text-[11px] font-bold text-blue-500 bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200';
+            } else {
+                el.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span> 연결 끊김 <button onclick="DeepLearning.retryConnection()" class="ml-1 underline text-rose-600 hover:text-rose-800 cursor-pointer bg-transparent border-0 p-0 text-[11px] font-bold">재시도</button>';
+                el.className = 'flex items-center gap-1.5 text-[11px] font-bold text-rose-500 bg-rose-50 px-2.5 py-0.5 rounded-full border border-rose-200';
+            }
         }
     },
 
@@ -258,6 +270,7 @@ const DeepLearning = {
                     this.state.analysisData = v4Data;
                     this.renderAll(v4Data);
                     this._showV4Badge(v4Data);
+                    this.updateConnectionStatusUI('v4_ready');  // ← 연결 끊김 대신 V4 배지
                     this._prefetchXAIInBackground();
                     this._updateWeeklyStatusUI();
                     this.state.isAnalyzing = false;
