@@ -2525,6 +2525,9 @@ const DeepLearning = {
     },
 
     async _prefetchXAIInBackground() {
+        // 백엔드 미연결 시 /api/explain/ 스팸 방지
+        if (!this.state.isConnected) return;
+
         var d = this.state.analysisData;
         if (!d) return;
         if (!d.evidence) d.evidence = {};
