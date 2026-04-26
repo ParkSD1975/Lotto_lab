@@ -572,13 +572,15 @@ const DeepLearning = {
         const exclude10 = preds.exclude_10 || [];
         const mw        = preds.model_weights || {};
 
-        // ── GNN 균등 감지: XAI excess 가 전부 0 이면 raw 확률(2.22%) 로 대체 ──
-        // GNN이 uniform 예측 → excess=0 → XAI 0% 저장. 표시용으로만 2.22% 사용.
-        const _GNN_UNIFORM_THRESHOLD = 0.5; // 전체 45개 합이 0.5% 미만이면 균등 판정
-        const _gnnXaiSum = Object.values(xaiMap).reduce((s, x) => s + (x.gnn_pct || 0), 0);
-        const _gnnUniform = _gnnXaiSum < _GNN_UNIFORM_THRESHOLD;
-        const GNN_UNIFORM_PCT = 1 / 45 * 100; // ≈ 2.22%
-        // GNN 표시용 확률 함수 (XAI 값 없으면 균등 2.22%)
+        // ── GNN 균일 감지: 모든 번호의 gnn_pct 값이 동일하면 균일 예측 ──
+        // 파이프라인이 GNN 균일 시 1/45=2.22%를 저장 → sum 기반 감지 불가 (2.22×45=99.9 > 0.5)
+        // 분산(max-min) 기반으로 변경: 값이 모두 동일하면 균일 예측 판정
+        const _gnnValues = Object.values(xaiMap).map(x => x.gnn_pct || 0);
+        const _gnnMin = _gnnValues.length ? Math.min(..._gnnValues) : 0;
+        const _gnnMax = _gnnValues.length ? Math.max(..._gnnValues) : 0;
+        const _gnnUniform = (_gnnMax - _gnnMin) < 0.01; // 모든 값이 동일 → 균일 예측
+        const GNN_UNIFORM_PCT = 1 / 45 * 100; // ≈ 2.22% (hot_cold 표시용)
+        // hot_cold/matrix 표시용: 균일이면 2.22% (기저확률, 시각적 표시 목적)
         const _gnnPct = (x) => _gnnUniform ? GNN_UNIFORM_PCT : (x.gnn_pct || 0);
 
         // ── 1. matrix_data (45개 번호) ──
@@ -884,14 +886,13 @@ const DeepLearning = {
         const _top5ForXai = top5.slice(0, 5).filter(n => xaiMap[n] && Object.keys(xaiMap[n]).length > 0);
         const xaiTop5Weights = {};
         _XAI_MODEL_KEYS.forEach(m => {
-            const sum = _top5ForXai.reduce((s, n) => {
-                // GNN uniform이면 display fallback 쓰지 않고 실제 XAI excess 값(0)을 그대로 사용
-                return s + (xaiMap[n][m + '_pct'] || 0);
-            }, 0);
+            const sum = _top5ForXai.reduce((s, n) => s + (xaiMap[n][m + '_pct'] || 0), 0);
             xaiTop5Weights[m] = _top5ForXai.length > 0
                 ? parseFloat((sum / _top5ForXai.length).toFixed(2))
                 : 0;
         });
+        // GNN 균일 예측이면 XAI 기여도 0으로 강제 (2.22%는 기저확률이지 기여도가 아님)
+        if (_gnnUniform) xaiTop5Weights.gnn = 0;
 
         // ── combinations ──
         const combinations = (preds.combinations || []).map(c => ({
@@ -911,6 +912,7 @@ const DeepLearning = {
             strategy,
             model_weights:    mw,
             xai_top5_weights: xaiTop5Weights, // XAI 실기여도 (모델 컨디션 차트용)
+            gnn_uniform:      _gnnUniform,    // GNN 균일 예측 여부 (차트 레이블용)
             meta_active:      preds.meta_active,
             meta_alpha:       preds.meta_alpha,
             pipeline_version: preds.pipeline_version,
@@ -1270,6 +1272,7 @@ const DeepLearning = {
             effectivePipeline = {
                 modelWeights:  hasXai ? result.xai_top5_weights : (result.evidence?.model_weights || null),
                 isXaiMode:     hasXai,
+                gnnUniform:    !!result.gnn_uniform,
                 top5Numbers:   result.top_5 || [],
                 weightReasons: result.evidence?.task_key
                     ? `Task: ${result.evidence.task_key} | Meta: ${result.meta_active ? '활성' : '비활성'}`
@@ -1967,12 +1970,17 @@ const DeepLearning = {
                 const barW  = (val / maxVal * 100).toFixed(1);
                 const color = MODEL_COLORS[name] || '#9CA3AF';
                 const isZero = val < 0.05;
+                // GNN 균일예측: 기여도 0이지만 이유를 명시
+                const isGnnUniform = isXai && pipeline.gnnUniform && name === 'gnn';
+                const valLabel = isGnnUniform
+                    ? `<span style="font-size:10px;color:#9CA3AF;font-weight:600">균일예측</span>`
+                    : `<span style="width:44px;color:${isZero ? '#D1D5DB' : color};font-weight:800;text-align:right;flex-shrink:0">${pct}%</span>`;
                 return `<div style="display:flex;align-items:center;gap:10px;font-size:12px">
                     <span style="width:80px;color:#4B5563;font-weight:700;text-align:right;flex-shrink:0">${MODEL_LABELS[name]}</span>
                     <div style="flex:1;height:10px;background:#F3F4F6;border-radius:99px;overflow:hidden">
-                        <div style="width:${barW}%;height:100%;background:${isZero ? '#E5E7EB' : color};border-radius:99px;transition:width 0.8s ease"></div>
+                        <div style="width:${barW}%;height:100%;background:${(isZero || isGnnUniform) ? '#E5E7EB' : color};border-radius:99px;transition:width 0.8s ease"></div>
                     </div>
-                    <span style="width:44px;color:${isZero ? '#D1D5DB' : color};font-weight:800;text-align:right;flex-shrink:0">${pct}%</span>
+                    ${valLabel}
                 </div>`;
             }).join('');
 
