@@ -868,16 +868,41 @@ const DeepLearning = {
             _ver
         ].filter(Boolean);
 
-        // ── overall_strategy: 핵심 공략 — 실제 번호 기반 전략 조언 ──
+        // ── overall_strategy: 핵심 공략 — 번호별 주도 모델 + gap 구조화 ──
         const _topModels = Object.entries(mw).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([m]) => MODEL_ABBR_KW[m] || m);
-        // 추천 번호의 gap 분포로 전략 문구 생성
-        const _top5Gaps = _top5Nums.map(n => (featMap[n]?.missing_count ?? 99));
-        const _avgGap   = _top5Gaps.reduce((s, g) => s + g, 0) / (_top5Gaps.length || 1);
-        const _gapText  = _avgGap <= 5  ? '최근 출현 번호 중심 (단기 모멘텀)'
-                        : _avgGap <= 15 ? '중기 미출현 번호 중심 (반등 기대)'
-                        :                 '장기 미출현 번호 중심 (역발상 전략)';
-        const _top5str  = `추천 ${_top5Nums.join('·')}`;
-        const overall_strategy = `${_top5str}. ${_gapText}. 주도 모델: ${_topModels.join('·')}.`;
+        const _top5Gaps  = _top5Nums.map(n => (featMap[n]?.missing_count ?? null));
+        const _validGaps = _top5Gaps.filter(g => g != null);
+        const _avgGap    = _validGaps.length > 0 ? _validGaps.reduce((s, g) => s + g, 0) / _validGaps.length : null;
+        const _gapTag    = _avgGap == null   ? null
+                         : _avgGap <= 5      ? { text: '단기 모멘텀', color: '#10B981' }
+                         : _avgGap <= 15     ? { text: '중기 반등', color: '#3B82F6' }
+                         :                    { text: '역발상 (장기미출현)', color: '#8B5CF6' };
+
+        // 번호별 주도 모델 계산
+        const _numLeader = _top5Nums.map(n => {
+            const x = xaiMap[n] || {};
+            const candidates = [
+                ['lstm', x.lstm_pct || 0],
+                ['xgboost', x.xgboost_pct || 0],
+                ['cnn', x.cnn_pct || 0],
+                ['transformer', x.transformer_pct || 0]
+            ];
+            const best = candidates.sort((a, b) => b[1] - a[1])[0];
+            return {
+                num:       n,
+                topModel:  best[0],
+                topPct:    best[1],
+                gap:       featMap[n]?.missing_count ?? null,
+                prob:      x.probability || 0
+            };
+        });
+
+        const overall_strategy = {
+            nums:       _numLeader,
+            gapTag:     _gapTag,
+            mainModels: _topModels,
+            avgGap:     _avgGap
+        };
 
         // ── hot_cold_analysis: || 50 기본값 제거, 실데이터만 ──
         const _hotCount  = hotNums.length;
@@ -967,59 +992,65 @@ const DeepLearning = {
         };
     },
 
-    // ── 모델별 번호 분석 이유 생성 ──
+    // ── 모델별 번호 분석 이유 생성 (실데이터 기반) ──
     _modelReason(modelName, score, numInfo = {}) {
-        const gap = numInfo.gap !== null && numInfo.gap !== undefined ? numInfo.gap : '?';
-        const hc  = numInfo.hot_cold || 'neutral';
-        const hcLabel = hc === 'hot' ? '🔥 핫' : hc === 'cold' ? '🧊 콜드' : '🌡️ 중립';
+        const gap = numInfo.gap != null ? numInfo.gap : null;
+        const sc  = Math.round(score * 10) / 10;  // 소수 1자리
 
-        const tiers = (h, m, l, z) => score >= 40 ? h : score >= 15 ? m : score > 0 ? l : z;
+        // GNN은 균일예측 — 기여도와 무관하게 항상 같은 설명
+        if (modelName === 'gnn') return 'GNN 균일예측 — 번호 변별력 없음';
 
-        const reasons = {
-            xgboost: tiers(
-                `특성 기반 강력 추천 — ${gap < 4 ? '연속 출현 패턴' : gap > 15 ? '장기 미출현 반등 신호' : `gap ${gap}회차`}`,
-                `특성 기반 중간 신호 — ${hcLabel} (gap ${gap})`,
-                `특성 기반 신호 미미 — gap ${gap}`,
-                '특성 신호 없음'
-            ),
-            lstm: tiers(
-                `시계열 강신호 — ${hcLabel}, 최근 출현 주기 패턴 감지`,
-                `시계열 보조 신호 — ${hcLabel} (gap ${gap})`,
-                `시계열 패턴 약함 — gap ${gap}`,
-                '시계열 패턴 미감지'
-            ),
-            cnn: tiers(
-                '공간 패턴 강신호 — 로또용지 위치 집중 활성화',
-                '공간 패턴 보조 신호 — 특정 행/열 패턴 감지',
-                '공간 패턴 약신호',
-                '공간 패턴 미감지 (학습 보완 필요)'
-            ),
-            transformer: tiers(
-                '글로벌 어텐션 강신호 — 장거리 출현 의존성 포착',
-                '글로벌 패턴 보조 신호 — 중거리 상관관계',
-                '어텐션 신호 약함',
-                '글로벌 패턴 미감지'
-            ),
-            markov: tiers(
-                `전이확률 높음 — 직전 당첨번호와 강한 연결 (gap ${gap})`,
-                `전이확률 중간 — 이전 회차 연관 존재`,
-                '전이확률 낮음',
-                '전이 연결 없음 — 직전 회차와 무관'
-            ),
-            autoencoder: tiers(
-                '정상 패턴 감지 — 복원오차 최소, 이상 없음',
-                '비교적 정상 패턴',
-                '패턴 희소',
-                '이상 패턴 없음 (페널티 미적용)'
-            ),
-            gnn: tiers(
-                `그래프 공동출현 강신호 — 클러스터 핵심 번호`,
-                '공동출현 보조 신호 — 일부 번호와 연관',
-                '공동출현 신호 약함',
-                '공동출현 그래프 신호 없음'
-            )
+        // 기여도 0이면 짧게
+        if (sc < 0.5) return '이 번호에 대한 기여 없음';
+
+        // gap 문자열 헬퍼
+        const G = gap != null
+            ? (gap === 0 ? '직전 회차 출현' : `${gap}회 미출현`)
+            : null;
+
+        const MODEL_REASONS = {
+            lstm: () => {
+                // LSTM: 시계열 순환 패턴 — gap이 출현 주기와 맞는지가 핵심
+                if (!G) return `LSTM ${sc}% — 시계열 출현 패턴 기여`;
+                if (gap <= 2)  return `LSTM ${sc}% — ${G}, 직전 연속 출현 주기 유지`;
+                if (gap <= 8)  return `LSTM ${sc}% — ${G}, 평균 출현 주기(7회) 내 복귀 패턴`;
+                if (gap <= 20) return `LSTM ${sc}% — ${G}, 장기 미출현 → 복귀 시계열 신호`;
+                return              `LSTM ${sc}% — ${G}, 극단적 미출현 → 강한 복귀 시계열`;
+            },
+            xgboost: () => {
+                // XGBoost: 출현빈도·gap·홀짝·고저 등 복합 특성 트리
+                if (!G) return `XGBoost ${sc}% — 복합 특성 기반 기여`;
+                if (gap <= 3)  return `XGBoost ${sc}% — ${G}, 단기 출현 빈도 특성 포착`;
+                if (gap <= 10) return `XGBoost ${sc}% — ${G}, 중기 반등 특성 감지`;
+                if (gap <= 25) return `XGBoost ${sc}% — ${G}, 장기 미출현 반등 통계 신호`;
+                return              `XGBoost ${sc}% — ${G}, 초장기 미출현 → 부스팅 강신호`;
+            },
+            cnn: () => {
+                // CNN: 로또용지 번호 위치(행/열) 공간 패턴
+                if (!G) return `CNN ${sc}% — 로또용지 공간 패턴 감지`;
+                return `CNN ${sc}% — ${G} 번호의 용지 위치(행/열) 활성화 패턴`;
+            },
+            transformer: () => {
+                // Transformer: 전체 시퀀스 어텐션 — 번호 간 장거리 의존성
+                if (!G) return `Transformer ${sc}% — 시퀀스 어텐션 기여`;
+                if (gap <= 5)  return `Transformer ${sc}% — ${G}, 최근 회차 어텐션 집중`;
+                if (gap <= 15) return `Transformer ${sc}% — ${G}, 중거리 출현 패턴 의존성`;
+                return              `Transformer ${sc}% — ${G}, 장거리 출현 의존성 포착`;
+            },
+            markov: () => {
+                // Markov: 직전 당첨번호 → 다음 번호 전이 확률
+                if (!G) return `Markov ${sc}% — 전이 확률 기여`;
+                if (gap <= 3) return `Markov ${sc}% — ${G}, 직전 회차 전이 경로 활성`;
+                return `Markov ${sc}% — ${G}, 전이 확률 보유`;
+            },
+            autoencoder: () => {
+                // Autoencoder: 비정상 패턴(쏠림) 감지 → 정상 범위 번호 선호
+                if (!G) return `ATC ${sc}% — 재구성 오차 기반 정상 패턴`;
+                return `ATC ${sc}% — ${G} 번호, 정상 출현 패턴 범위`;
+            }
         };
-        return reasons[modelName] || (score > 0 ? `기여도 ${score}%` : '신호 없음');
+
+        return (MODEL_REASONS[modelName] || (() => `${sc}% 기여`))();
     },
 
     async _fetchAnalysisFromDB(round) {
@@ -1405,12 +1436,55 @@ const DeepLearning = {
         const strategyUI = document.getElementById('overallStrategyUI');
         if (strategyUI) {
             const os = strategy.overall_strategy;
-            if (os && typeof os === 'object') {
-                let actionsHtml = (os.key_actions || []).map(action =>
-                    '<span class="inline-block px-2 py-1 bg-green-50 border border-green-100 text-green-700 text-xs font-bold rounded mb-1 mr-1">' + action + '</span>'
-                ).join('');
-                strategyUI.innerHTML = '<div class="flex flex-wrap mb-2">' + actionsHtml + '</div>' +
-                    '<p class="text-xs font-medium text-gray-700 mt-1 leading-snug break-keep">' + (os.short_advice || '') + '</p>';
+            if (os && typeof os === 'object' && os.nums && os.nums.length > 0) {
+                const MC = { lstm:'#818cf8', xgboost:'#60a5fa', cnn:'#f472b6', transformer:'#fb923c', markov:'#34d399' };
+                const ML = { lstm:'LSTM', xgboost:'XGB', cnn:'CNN', transformer:'TF', markov:'MKV' };
+
+                // 번호 볼 + 주도 모델 + gap
+                const ballsHtml = os.nums.map(d => {
+                    const c    = MC[d.topModel] || '#9CA3AF';
+                    const gStr = d.gap != null ? `gap ${d.gap}` : '';
+                    const prob = d.prob > 0 ? `${(d.prob * 100).toFixed(1)}%` : '';
+                    return `<div style="display:flex;flex-direction:column;align-items:center;gap:2px;min-width:44px">
+                        <div style="width:34px;height:34px;border-radius:50%;background:${c};color:#fff;
+                                    display:flex;align-items:center;justify-content:center;
+                                    font-size:13px;font-weight:900;box-shadow:0 3px 8px ${c}50">
+                            ${d.num}
+                        </div>
+                        <span style="font-size:9px;font-weight:800;color:${c}">${ML[d.topModel]||d.topModel} ${d.topPct.toFixed(0)}%</span>
+                        <span style="font-size:9px;color:#94a3b8">${gStr || prob}</span>
+                    </div>`;
+                }).join('');
+
+                // gap 전략 태그
+                const tagHtml = os.gapTag
+                    ? `<span style="font-size:10px;font-weight:700;color:#fff;background:${os.gapTag.color};
+                                    border-radius:99px;padding:2px 8px">${os.gapTag.text}</span>`
+                    : '';
+
+                // 주도 모델 뱃지
+                const modelBadges = os.mainModels.map(m => {
+                    const key = Object.keys(ML).find(k => ML[k] === m || k === m.toLowerCase()) || 'lstm';
+                    const c = MC[key] || '#9CA3AF';
+                    return `<span style="font-size:9px;font-weight:700;color:${c};background:${c}18;
+                                        border-radius:99px;padding:1px 6px">${m}</span>`;
+                }).join('');
+
+                strategyUI.innerHTML = `
+                    <div style="background:linear-gradient(135deg,#f5f3ff,#eef2ff);border-radius:12px;
+                                padding:10px 12px;border:1px solid #e0e7ff">
+                        <div style="display:flex;justify-content:space-around;align-items:flex-start;margin-bottom:8px">
+                            ${ballsHtml}
+                        </div>
+                        <div style="border-top:1px solid #e0e7ff;padding-top:7px;display:flex;align-items:center;
+                                    justify-content:space-between;flex-wrap:wrap;gap:4px">
+                            <div style="display:flex;align-items:center;gap:4px">
+                                ${tagHtml}
+                                <span style="font-size:9px;color:#94a3b8">${os.avgGap != null ? `평균 gap ${os.avgGap.toFixed(1)}회` : ''}</span>
+                            </div>
+                            <div style="display:flex;gap:3px">${modelBadges}</div>
+                        </div>
+                    </div>`;
             } else if (typeof os === 'string' && os) {
                 strategyUI.innerHTML = '<p class="text-sm font-medium text-gray-700 leading-snug">' + os + '</p>';
             } else {
