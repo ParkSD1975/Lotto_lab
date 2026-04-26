@@ -2160,15 +2160,16 @@ const DeepLearning = {
         const tbody = document.getElementById('tail-body');
         if (!tbody || !tailData) return;
 
-        // deep_insight_panel.js와 동일한 확률→범위 변환 로직
-        const _probToRange = (prob) => {
-            if (prob < 0.3) return { min: 0, max: 1 };
-            if (prob >= 1.8) return { min: 1, max: 3 };
-            if (prob >= 1.2) return { min: 1, max: 2 };
-            return { min: 0, max: 2 };
+        const _fmtRange = (prob) => {
+            if (prob == null || isNaN(prob)) return '-';
+            if (prob < 0.30)  return '0개';
+            if (prob < 0.55)  return '0~1개';
+            if (prob < 0.72)  return '1개';
+            if (prob < 1.20)  return '1~2개';
+            if (prob < 1.80)  return '1~3개';
+            return '2~3개';
         };
         const MODEL_ORDER = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
-        const MODEL_ABBR = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV', autoencoder: 'ATC', gnn: 'GNN' };
         const MODEL_COLORS = {
             lstm: '#6366F1', xgboost: '#3B82F6', cnn: '#EC4899',
             transformer: '#F97316', markov: '#10B981', autoencoder: '#8B5CF6', gnn: '#EF4444'
@@ -2177,41 +2178,30 @@ const DeepLearning = {
         tbody.innerHTML = tailData.map(item => {
             const exp = typeof item.exp === 'number' ? item.exp : 0;
             const str = item.str != null ? item.str : '-';
-
-            // 앙상블 범위: model_exp에서 min/max 집계
-            const modelRanges = {};
-            if (item.model_exp) {
-                MODEL_ORDER.forEach(m => {
-                    const p = parseFloat(item.model_exp[m]) || 0;
-                    modelRanges[m] = _probToRange(p);
-                });
-            }
-            const allRanges = Object.values(modelRanges);
-            const rMin = allRanges.length ? Math.min(...allRanges.map(r => r.min)) : _probToRange(exp).min;
-            const rMax = allRanges.length ? Math.max(...allRanges.map(r => r.max)) : _probToRange(exp).max;
-
             const isHot = exp >= 1.2;
             const rangeColor = isHot ? '#0F766E' : exp < 0.3 ? '#9CA3AF' : '#374151';
 
-            const ensembleCell = `
-                <div class="flex flex-col items-center gap-0.5">
-                    <span style="font-family:monospace;font-size:13px;font-weight:800;color:${rangeColor}">${rMin}~${rMax}개</span>
-                    <span style="font-size:9px;color:#94A3B8">평균 ${exp.toFixed(1)}개</span>
-                </div>`;
+            const ensembleRange = _fmtRange(exp);
 
             const modelCells = MODEL_ORDER.map(m => {
-                const r = modelRanges[m] || _probToRange(exp);
-                const rangeLabel = r.min === r.max ? `${r.min}` : `${r.min}~${r.max}`;
+                const val = item.model_exp ? parseFloat(item.model_exp[m]) : null;
+                const label = _fmtRange(isNaN(val) ? null : val);
                 const color = MODEL_COLORS[m];
-                return `<td class="px-2 py-3 text-center">
-                    <span style="font-family:monospace;font-size:13px;font-weight:700;color:${color}">${rangeLabel}</span>
-                </td>`;
+                const displayHtml = label === '-'
+                    ? `<span style="color:#D1D5DB;font-size:12px">-</span>`
+                    : `<span style="font-family:monospace;font-size:13px;font-weight:700;color:${color}">${label}</span>`;
+                return `<td class="px-2 py-3 text-center">${displayHtml}</td>`;
             }).join('');
 
             return `<tr class="hover:bg-gray-50 border-b border-gray-100 last:border-0 transition-colors${isHot ? ' bg-emerald-50/40' : ''}">
-                <td class="px-4 py-3 font-black text-center text-gray-800 text-base">${item.tail}끝</td>
-                <td class="px-2 py-3 text-center">${ensembleCell}</td>
+                <td class="px-4 py-3 text-center text-gray-800 text-base">${item.tail}끝</td>
+                <td class="px-3 py-3 text-center font-mono text-sm text-gray-500">${exp.toFixed(2)}</td>
+                <td class="px-2 py-3 text-center">
+                    <span style="font-family:monospace;font-size:13px;font-weight:800;color:${rangeColor}">${ensembleRange}</span>
+                </td>
                 ${modelCells}
+                <td class="px-4 py-3 text-center font-mono text-sm text-gray-500">${item.gap ?? '-'}</td>
+                <td class="px-4 py-3 text-center font-mono text-sm text-gray-500">${str}</td>
             </tr>`;
         }).join('');
     },
@@ -2220,11 +2210,14 @@ const DeepLearning = {
         const container = document.getElementById('lottoPaperContainer');
         if (!container || !paperData) return;
 
-        const _probToRange = (prob) => {
-            if (prob < 0.3) return { min: 0, max: 1 };
-            if (prob >= 1.8) return { min: 1, max: 3 };
-            if (prob >= 1.2) return { min: 1, max: 2 };
-            return { min: 0, max: 2 };
+        const _fmtRange = (prob) => {
+            if (prob == null || isNaN(prob)) return '-';
+            if (prob < 0.30)  return '0개';
+            if (prob < 0.55)  return '0~1개';
+            if (prob < 0.72)  return '1개';
+            if (prob < 1.20)  return '1~2개';
+            if (prob < 1.80)  return '1~3개';
+            return '2~3개';
         };
         const MODEL_ORDER = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
         const MODEL_ABBR = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV', autoencoder: 'ATC', gnn: 'GNN' };
@@ -2241,8 +2234,7 @@ const DeepLearning = {
             const exp = typeof item.exp === 'number' ? item.exp : 0;
             return MODEL_ORDER.map(m => {
                 const p = item.model_exp ? (parseFloat(item.model_exp[m]) || 0) : exp;
-                const r = _probToRange(p);
-                const label = r.min === r.max ? `${r.min}` : `${r.min}~${r.max}`;
+                const label = _fmtRange(p);
                 return `<td class="px-2 py-3 text-center"><span style="font-family:monospace;font-size:13px;font-weight:700;color:${MODEL_COLORS[m]}">${label}</span></td>`;
             }).join('');
         };
@@ -2254,27 +2246,26 @@ const DeepLearning = {
             html += '<table class="w-full text-xs">';
             html += '<thead><tr class="bg-gray-50/50 border-b border-gray-200">';
             html += '<th class="px-4 py-3 text-left font-bold text-gray-700">구분</th>';
+            html += '<th class="px-3 py-3 text-center font-bold text-gray-500">평균</th>';
             html += '<th class="px-4 py-3 text-center font-bold text-blue-600">AI 종합</th>';
             html += _modelHeader();
+            html += '<th class="px-4 py-3 text-center font-bold text-gray-600">Gap</th>';
+            html += '<th class="px-4 py-3 text-center font-bold text-gray-600">STR</th>';
             html += '</tr></thead><tbody>';
 
             items.forEach(item => {
                 const exp = typeof item.exp === 'number' ? item.exp : 0;
-                const modelRanges = MODEL_ORDER.map(m => _probToRange(item.model_exp ? (parseFloat(item.model_exp[m]) || 0) : exp));
-                const rMin = Math.min(...modelRanges.map(r => r.min));
-                const rMax = Math.max(...modelRanges.map(r => r.max));
                 const isHot = exp >= 1.2;
                 const rangeColor = isHot ? '#0F766E' : exp < 0.3 ? '#9CA3AF' : '#374151';
-
-                const ensembleCell = `<div class="flex flex-col items-center gap-0.5">
-                    <span style="font-family:monospace;font-size:13px;font-weight:800;color:${rangeColor}">${rMin}~${rMax}개</span>
-                    <span style="font-size:9px;color:#94A3B8">평균 ${exp.toFixed(1)}개</span>
-                </div>`;
+                const ensembleRange = _fmtRange(exp);
 
                 html += `<tr class="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors${isHot ? ' bg-emerald-50/30' : ''}">`;
                 html += `<td class="px-4 py-3 font-bold text-gray-700 text-sm">${item.label}</td>`;
-                html += `<td class="px-4 py-3 text-center">${ensembleCell}</td>`;
+                html += `<td class="px-3 py-3 text-center font-mono text-sm text-gray-500">${exp.toFixed(2)}</td>`;
+                html += `<td class="px-4 py-3 text-center"><span style="font-family:monospace;font-size:13px;font-weight:800;color:${rangeColor}">${ensembleRange}</span></td>`;
                 html += _modelCells(item);
+                html += `<td class="px-4 py-3 text-center font-mono text-sm text-gray-500">${item.gap != null ? item.gap : '-'}</td>`;
+                html += `<td class="px-4 py-3 text-center font-mono text-sm text-gray-500">${item.str != null ? item.str : '-'}</td>`;
                 html += '</tr>';
             });
             html += '</tbody></table></div></div>';
@@ -2291,11 +2282,14 @@ const DeepLearning = {
         const container = document.getElementById('numberBandContainer');
         if (!container || !bandData || !bandData.length) return;
 
-        const _probToRange = (prob) => {
-            if (prob < 0.3) return { min: 0, max: 1 };
-            if (prob >= 1.8) return { min: 1, max: 3 };
-            if (prob >= 1.2) return { min: 1, max: 2 };
-            return { min: 0, max: 2 };
+        const _fmtRange = (prob) => {
+            if (prob == null || isNaN(prob)) return '-';
+            if (prob < 0.30)  return '0개';
+            if (prob < 0.55)  return '0~1개';
+            if (prob < 0.72)  return '1개';
+            if (prob < 1.20)  return '1~2개';
+            if (prob < 1.80)  return '1~3개';
+            return '2~3개';
         };
         const BAND_LABEL_MAP = {
             '01~10': '단번대', '1~10': '단번대',
@@ -2313,36 +2307,34 @@ const DeepLearning = {
         html += '<table class="w-full text-xs">';
         html += '<thead><tr class="bg-gray-50/50 border-b border-gray-200">';
         html += '<th class="px-4 py-3 text-left font-bold text-gray-700">번호대</th>';
+        html += '<th class="px-3 py-3 text-center font-bold text-gray-500">평균</th>';
         html += '<th class="px-4 py-3 text-center font-bold text-blue-600">AI 종합</th>';
         MODEL_ORDER.forEach(m => {
             html += `<th class="px-2 py-3 text-center font-semibold" style="color:${MODEL_COLORS[m]}">${MODEL_ABBR[m]}</th>`;
         });
+        html += '<th class="px-4 py-3 text-center font-bold text-gray-600">Gap</th>';
+        html += '<th class="px-4 py-3 text-center font-bold text-gray-600">STR</th>';
         html += '</tr></thead><tbody>';
 
         bandData.forEach(item => {
             const exp = typeof item.exp === 'number' ? item.exp : 0;
             const displayLabel = BAND_LABEL_MAP[item.label] || item.label;
-            const modelRanges = MODEL_ORDER.map(m => _probToRange(item.model_exp ? (parseFloat(item.model_exp[m]) || 0) : exp));
-            const rMin = Math.min(...modelRanges.map(r => r.min));
-            const rMax = Math.max(...modelRanges.map(r => r.max));
             const isHot = exp >= 1.2;
             const rangeColor = isHot ? '#0F766E' : exp < 0.3 ? '#9CA3AF' : '#374151';
 
-            const ensembleCell = `<div class="flex flex-col items-center gap-0.5">
-                <span style="font-family:monospace;font-size:13px;font-weight:800;color:${rangeColor}">${rMin}~${rMax}개</span>
-                <span style="font-size:9px;color:#94A3B8">평균 ${exp.toFixed(1)}개</span>
-            </div>`;
-
-            const modelCells = MODEL_ORDER.map((m, i) => {
-                const r = modelRanges[i];
-                const lbl = r.min === r.max ? `${r.min}` : `${r.min}~${r.max}`;
+            const modelCells = MODEL_ORDER.map(m => {
+                const p = item.model_exp ? (parseFloat(item.model_exp[m]) || 0) : exp;
+                const lbl = _fmtRange(p);
                 return `<td class="px-2 py-3 text-center"><span style="font-family:monospace;font-size:13px;font-weight:700;color:${MODEL_COLORS[m]}">${lbl}</span></td>`;
             }).join('');
 
             html += `<tr class="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors${isHot ? ' bg-emerald-50/30' : ''}">`;
             html += `<td class="px-4 py-3 font-bold text-gray-700 text-sm">${displayLabel}</td>`;
-            html += `<td class="px-4 py-3 text-center">${ensembleCell}</td>`;
+            html += `<td class="px-3 py-3 text-center font-mono text-sm text-gray-500">${exp.toFixed(2)}</td>`;
+            html += `<td class="px-4 py-3 text-center"><span style="font-family:monospace;font-size:13px;font-weight:800;color:${rangeColor}">${_fmtRange(exp)}</span></td>`;
             html += modelCells;
+            html += `<td class="px-4 py-3 text-center font-mono text-sm text-gray-500">${item.gap != null ? item.gap : '-'}</td>`;
+            html += `<td class="px-4 py-3 text-center font-mono text-sm text-gray-500">${item.str != null ? item.str : '-'}</td>`;
             html += '</tr>';
         });
         html += '</tbody></table></div>';
@@ -2353,11 +2345,14 @@ const DeepLearning = {
         const container = document.getElementById('magicSquareContainer');
         if (!container || !squareData || !squareData.length) return;
 
-        const _probToRange = (prob) => {
-            if (prob < 0.3) return { min: 0, max: 1 };
-            if (prob >= 1.8) return { min: 1, max: 3 };
-            if (prob >= 1.2) return { min: 1, max: 2 };
-            return { min: 0, max: 2 };
+        const _fmtRange = (prob) => {
+            if (prob == null || isNaN(prob)) return '-';
+            if (prob < 0.30)  return '0개';
+            if (prob < 0.55)  return '0~1개';
+            if (prob < 0.72)  return '1개';
+            if (prob < 1.20)  return '1~2개';
+            if (prob < 1.80)  return '1~3개';
+            return '2~3개';
         };
         const MODEL_ORDER = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
         const MODEL_ABBR = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV', autoencoder: 'ATC', gnn: 'GNN' };
@@ -2370,35 +2365,33 @@ const DeepLearning = {
         html += '<table class="w-full text-xs">';
         html += '<thead><tr class="bg-gray-50/50 border-b border-gray-200">';
         html += '<th class="px-4 py-3 text-left font-bold text-gray-700">궁</th>';
+        html += '<th class="px-3 py-3 text-center font-bold text-gray-500">평균</th>';
         html += '<th class="px-4 py-3 text-center font-bold text-blue-600">AI 종합</th>';
         MODEL_ORDER.forEach(m => {
             html += `<th class="px-2 py-3 text-center font-semibold" style="color:${MODEL_COLORS[m]}">${MODEL_ABBR[m]}</th>`;
         });
+        html += '<th class="px-4 py-3 text-center font-bold text-gray-600">Gap</th>';
+        html += '<th class="px-4 py-3 text-center font-bold text-gray-600">STR</th>';
         html += '</tr></thead><tbody>';
 
         squareData.forEach(item => {
             const exp = typeof item.exp === 'number' ? item.exp : 0;
-            const modelRanges = MODEL_ORDER.map(m => _probToRange(item.model_exp ? (parseFloat(item.model_exp[m]) || 0) : exp));
-            const rMin = Math.min(...modelRanges.map(r => r.min));
-            const rMax = Math.max(...modelRanges.map(r => r.max));
             const isHot = exp >= 1.2;
             const rangeColor = isHot ? '#0F766E' : exp < 0.3 ? '#9CA3AF' : '#374151';
 
-            const ensembleCell = `<div class="flex flex-col items-center gap-0.5">
-                <span style="font-family:monospace;font-size:13px;font-weight:800;color:${rangeColor}">${rMin}~${rMax}개</span>
-                <span style="font-size:9px;color:#94A3B8">평균 ${exp.toFixed(1)}개</span>
-            </div>`;
-
-            const modelCells = MODEL_ORDER.map((m, i) => {
-                const r = modelRanges[i];
-                const label = r.min === r.max ? `${r.min}` : `${r.min}~${r.max}`;
+            const modelCells = MODEL_ORDER.map(m => {
+                const p = item.model_exp ? (parseFloat(item.model_exp[m]) || 0) : exp;
+                const label = _fmtRange(p);
                 return `<td class="px-2 py-3 text-center"><span style="font-family:monospace;font-size:13px;font-weight:700;color:${MODEL_COLORS[m]}">${label}</span></td>`;
             }).join('');
 
             html += `<tr class="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors${isHot ? ' bg-emerald-50/30' : ''}">`;
             html += `<td class="px-4 py-3 font-bold text-gray-700 text-sm">${item.label}</td>`;
-            html += `<td class="px-4 py-3 text-center">${ensembleCell}</td>`;
+            html += `<td class="px-3 py-3 text-center font-mono text-sm text-gray-500">${exp.toFixed(2)}</td>`;
+            html += `<td class="px-4 py-3 text-center"><span style="font-family:monospace;font-size:13px;font-weight:800;color:${rangeColor}">${_fmtRange(exp)}</span></td>`;
             html += modelCells;
+            html += `<td class="px-4 py-3 text-center font-mono text-sm text-gray-500">${item.gap != null ? item.gap : '-'}</td>`;
+            html += `<td class="px-4 py-3 text-center font-mono text-sm text-gray-500">${item.str != null ? item.str : '-'}</td>`;
             html += '</tr>';
         });
         html += '</tbody></table></div>';
@@ -2419,17 +2412,21 @@ const DeepLearning = {
             lstm: '#6366F1', xgboost: '#3B82F6', cnn: '#EC4899',
             transformer: '#F97316', markov: '#10B981', autoencoder: '#8B5CF6', gnn: '#EF4444'
         };
-        const _expToRange = (exp) => {
-            if (exp < 0.5) return { min: 0, max: 1 };
-            if (exp >= 2.0) return { min: 1, max: 3 };
-            if (exp >= 1.2) return { min: 1, max: 2 };
-            return { min: 0, max: 2 };
+        const _fmtRange = (prob) => {
+            if (prob == null || isNaN(prob)) return '-';
+            if (prob < 0.30)  return '0개';
+            if (prob < 0.55)  return '0~1개';
+            if (prob < 0.72)  return '1개';
+            if (prob < 1.20)  return '1~2개';
+            if (prob < 1.80)  return '1~3개';
+            return '2~3개';
         };
 
         let html = '<div class="overflow-x-auto rounded-2xl border border-gray-200 shadow-sm bg-white">';
         html += '<table class="w-full text-xs">';
         html += '<thead><tr class="bg-gray-50/50 border-b border-gray-200">';
         html += '<th class="px-4 py-3 text-left font-bold text-gray-700">미출현 구간</th>';
+        html += '<th class="px-3 py-3 text-center font-bold text-gray-500">평균</th>';
         html += '<th class="px-4 py-3 text-center font-bold text-blue-600">AI 종합</th>';
         MODEL_ORDER.forEach(m => {
             html += `<th class="px-2 py-3 text-center font-semibold" style="color:${MODEL_COLORS[m]}">${MODEL_ABBR[m]}</th>`;
@@ -2461,15 +2458,12 @@ const DeepLearning = {
             const g = groupMap[def.gapRange] || {};
             const hasData = !!groupMap[def.gapRange];
             const expected = hasData ? (g.count || 0) * (g.avg_prob || 0) / 100 * 6 : 0;
-            const r = _expToRange(expected);
             const isHot = expected >= 1.2;
             const rangeColor = isHot ? '#0F766E' : expected < 0.5 ? '#9CA3AF' : '#374151';
 
+            const expLabel = _fmtRange(expected);
             const ensembleCell = hasData
-                ? `<div class="flex flex-col items-center gap-0.5">
-                    <span style="font-family:monospace;font-size:13px;font-weight:800;color:${rangeColor}">${r.min}~${r.max}개</span>
-                    <span style="font-size:9px;color:#94A3B8">평균 ${expected.toFixed(1)}개</span>
-                  </div>`
+                ? `<span style="font-family:monospace;font-size:13px;font-weight:800;color:${rangeColor}">${expLabel}</span>`
                 : `<span style="color:#D1D5DB;font-size:12px">-</span>`;
 
             // 모델별 — model_exp 있으면 범위값, 없으면 '-'
@@ -2479,8 +2473,7 @@ const DeepLearning = {
                     return `<td class="px-2 py-3 text-center"><span style="color:#D1D5DB;font-size:12px">-</span></td>`;
                 }
                 const mExp = parseFloat(g.model_exp[m]);
-                const mr = _expToRange(mExp);
-                const lbl = mr.min === mr.max ? `${mr.min}` : `${mr.min}~${mr.max}`;
+                const lbl = _fmtRange(mExp);
                 return `<td class="px-2 py-3 text-center"><span style="font-family:monospace;font-size:13px;font-weight:700;color:${color}">${lbl}</span></td>`;
             }).join('');
 
@@ -2493,6 +2486,7 @@ const DeepLearning = {
 
             html += `<tr class="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors${isHot && hasData ? ' bg-emerald-50/30' : ''}">`;
             html += `<td class="px-4 py-3 font-bold text-sm" style="color:${def.color}">${def.label}</td>`;
+            html += `<td class="px-3 py-3 text-center font-mono text-sm text-gray-500">${hasData ? expected.toFixed(2) : '-'}</td>`;
             html += `<td class="px-4 py-3 text-center">${ensembleCell}</td>`;
             html += modelCells;
             html += `<td class="px-4 py-3 text-center font-mono text-gray-500">${hasData ? (g.count || 0) : '-'}</td>`;
