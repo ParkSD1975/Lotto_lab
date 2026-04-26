@@ -32,7 +32,10 @@ const DeepLearning = {
 
         console.log(`⏱️ [DeepLearning] 초기 데이터 로드 완료 (${Date.now() - startTime}ms)`);
 
-        // 3. 분석 실행
+        // 3. 주간 상태 UI 초기 표시
+        this._updateWeeklyStatusUI();
+
+        // 4. 분석 실행
         this.runAnalysis();
     },
 
@@ -93,9 +96,8 @@ const DeepLearning = {
             }
         } else {
             try {
-                const url = window.AI_SERVER_URL || 'https://parksungdeok-lotto-ai-backend.hf.space';
                 const timeout = isStartup ? 3000 : 5000;
-                const res = await fetch(url + '/health', { signal: AbortSignal.timeout(timeout) });
+                const res = await fetch(this._getBaseUrl() + '/health', { signal: AbortSignal.timeout(timeout) });
                 this.state.isConnected = res.ok;
             } catch (e) {
                 this.state.isConnected = false;
@@ -246,18 +248,89 @@ const DeepLearning = {
         this.showLoading(true, 'AI 심층 분석 데이터 조회 중...');
 
         try {
+            // 0. V4 주간 파이프라인 데이터 우선 시도 (isConnected 무관 — Supabase 직접 조회)
+            if (!forceReload) {
+                this.showLoading(true, '⚡ 주간 파이프라인 데이터 조회 중...');
+                const v4Data = await this._fetchAnalysisFromV4(this.state.targetRound);
+                if (v4Data) {
+                    console.log(`⚡ [DeepLearning] V4 주간 파이프라인 로드 성공! 제${v4Data.target_round}회차 top_5=${JSON.stringify(v4Data.top_5)}`);
+                    this.setProgress(100, '완료!');
+                    this.state.analysisData = v4Data;
+                    this.renderAll(v4Data);
+                    this._showV4Badge(v4Data);
+                    this._prefetchXAIInBackground();
+                    this._updateWeeklyStatusUI();
+                    this.state.isAnalyzing = false;
+                    this.showLoading(false);
+                    return;
+                }
+                console.log('[DeepLearning] V4 데이터 없음 → 기존 경로로 전환');
+            }
+
+            // 1. 현재 회차 exact match DB 조회
             let dbData = null;
             if (!forceReload) {
                 dbData = await this._fetchAnalysisFromDB(this.state.targetRound);
             }
+
+            // 2. exact match 없으면 최신 저장 데이터 확인 (다른 회차일 수 있음)
+            let staleData = null;
+            if (!dbData && !forceReload) {
+                const latest = await this._fetchLatestAnalysisFromDB();
+                if (latest) {
+                    const latestRound = latest.target_round || 0;
+                    if (latestRound === this.state.targetRound) {
+                        dbData = latest; // 같은 회차 — 정상 사용
+                    } else {
+                        staleData = latest; // 이전 회차 — 임시 표시용
+                        console.log(`📦 [DeepLearning] 이전 회차(${latestRound}) 데이터 발견 — 현재 회차(${this.state.targetRound}) 신규 분석 진행`);
+                    }
+                }
+            }
+
             if (dbData) {
                 console.log("📦 [DeepLearning] DB에서 분석 결과 로드 성공!");
                 this.setProgress(100, '완료!');
                 this.state.analysisData = dbData;
                 this.renderAll(dbData);
                 this._prefetchXAIInBackground();
+                this._updateWeeklyStatusUI();
                 this.state.isAnalyzing = false;
                 this.showLoading(false);
+                return;
+            }
+
+            // 2-b. 이전 회차 데이터 있고 주간 제한 도달한 경우 → 이전 데이터 표시 + 경고 배너
+            if (staleData && !this._canRunAnalysis()) {
+                const staleRound = staleData.target_round || '?';
+                this.setProgress(100, '완료 (이전 회차)');
+                this.state.analysisData = staleData;
+                this.renderAll(staleData);
+                this._prefetchXAIInBackground();
+                this._updateWeeklyStatusUI();
+                this.state.isAnalyzing = false;
+                this.showLoading(false);
+                const summaryEl = document.getElementById('aiSummaryText');
+                if (summaryEl) {
+                    const banner = document.createElement('div');
+                    banner.id = 'stale-round-banner';
+                    banner.className = 'flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-4 text-amber-700 text-sm font-bold';
+                    banner.innerHTML = `<span class="text-lg">⚠️</span><span>제${staleRound}회차 분석 결과입니다. <strong>제${this.state.targetRound}회차</strong> 신규 분석이 필요합니다.</span><button onclick="DeepLearning.runAnalysis(true)" class="ml-auto px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold whitespace-nowrap transition-colors">새 분석 실행</button>`;
+                    summaryEl.parentElement?.insertBefore(banner, summaryEl);
+                }
+                return;
+            }
+            // 2-c. 이전 회차 데이터 있지만 신규 분석 가능 → 계속 진행 (staleData는 무시하고 새 분석 실행)
+
+            // 3. DB에 데이터 없음 → 주간 제한 체크 후 Python 실행 (forceReload면 제한 무시)
+            if (!forceReload && !this._canRunAnalysis()) {
+                this.showLoading(false);
+                const nextSat = this._getNextSaturdayKST();
+                const summaryEl = document.getElementById('aiSummaryText');
+                if (summaryEl) {
+                    summaryEl.innerHTML = `<span class="text-amber-600 font-bold">⏳ 이번 주 분석이 완료되었습니다. 다음 분석은 토요일 추첨 후 가능합니다. (다음: ${nextSat})</span>`;
+                }
+                this.state.isAnalyzing = false;
                 return;
             }
 
@@ -273,9 +346,11 @@ const DeepLearning = {
                     this.state.analysisData = result;
                     this.renderAll(result);
                     this._prefetchXAIInBackground();
+                    this._markAnalysisRun();
+                    this._updateWeeklyStatusUI();
                     this.showLoading(false);
 
-                    // [추가] 분석 완료 즉시 DB에 자동 저장
+                    // 분석 완료 즉시 DB에 자동 저장
                     if (window.supabaseClient) {
                         try {
                             const { error: saveErr } = await window.supabaseClient
@@ -292,7 +367,6 @@ const DeepLearning = {
                                 console.warn("💾 [AI 분석] 자동 저장 실패:", saveErr);
                             } else {
                                 console.log("💾 [AI 분석] DB에 성공적으로 자동 저장되었습니다.");
-                                // 서버 웜업 후 이력 목록 재시도
                                 const histSel = document.getElementById('historySelect');
                                 if (!histSel || histSel.options.length <= 1) this.loadHistoryList();
                             }
@@ -304,7 +378,7 @@ const DeepLearning = {
                     throw new Error("Python 분석 실패 (응답 없음)");
                 }
             } else {
-                console.warn("xq [DeepLearning] 서버 미연결 & DB 데이터 없음.");
+                console.warn("⚠️ [DeepLearning] 서버 미연결 & DB 데이터 없음.");
                 this.showLoading(false);
                 const summaryEl = document.getElementById('aiSummaryText');
                 if (summaryEl) {
@@ -326,12 +400,144 @@ const DeepLearning = {
         }
     },
 
+    // ── V4 주간 파이프라인 데이터 조회 (Supabase 직접 읽기 — 백엔드 무관) ──
+    async _fetchAnalysisFromV4(round) {
+        if (!window.supabaseClient) return null;
+        try {
+            const targetRound = round || this.state.targetRound;
+
+            // 1. weekly_predictions 조회
+            let predsQuery = window.supabaseClient
+                .from('weekly_predictions')
+                .select('*')
+                .order('created_at', { ascending: false })
+                .limit(1);
+            if (targetRound) predsQuery = predsQuery.eq('target_round', targetRound);
+
+            const { data: predRows, error: predErr } = await predsQuery;
+            if (predErr || !predRows || predRows.length === 0) {
+                console.log('[V4] weekly_predictions 데이터 없음 (round=' + targetRound + ')');
+                return null;
+            }
+            const pred = predRows[0];
+
+            // 2. weekly_number_xai 조회 (번호별 기여도)
+            let xaiMap = {};
+            try {
+                const { data: xaiRows } = await window.supabaseClient
+                    .from('weekly_number_xai')
+                    .select('*')
+                    .eq('target_round', pred.target_round);
+                if (xaiRows && xaiRows.length > 0) {
+                    xaiRows.forEach(r => { xaiMap[r.number] = r; });
+                }
+            } catch (e2) { /* xai 없으면 빈 map으로 진행 */ }
+
+            // 3. weekly_combinations 조회
+            let combinations = [];
+            try {
+                const { data: combRows } = await window.supabaseClient
+                    .from('weekly_combinations')
+                    .select('*')
+                    .eq('target_round', pred.target_round)
+                    .order('combo_rank', { ascending: true });
+                if (combRows) combinations = combRows;
+            } catch (e3) { /* 없으면 빈 배열 */ }
+
+            const preds = {
+                target_round: pred.target_round,
+                top_5: pred.top_5 || [],
+                exclude_10: pred.exclude_10 || [],
+                model_weights: pred.model_weights || {},
+                meta_active: pred.meta_active,
+                meta_alpha: pred.meta_alpha,
+                pipeline_version: pred.pipeline_version,
+                created_at: pred.created_at,
+                combinations
+            };
+
+            console.log(`[V4] Supabase 직접 조회 성공 — 제${pred.target_round}회차`);
+            return this._adaptV4ToV3Format(preds, xaiMap);
+        } catch (e) {
+            console.log('[V4] Supabase 직접 조회 실패 (무시):', e.message);
+            return null;
+        }
+    },
+
+    // V4 response → renderAll() 호환 형식으로 변환
+    // xaiMap: { [number]: weekly_number_xai row } — 컬럼: xgboost_pct, lstm_pct, ..., probability
+    _adaptV4ToV3Format(preds, xaiMap) {
+        // XAI map에서 matrix_data 구성 (45개 번호)
+        const matrixData = [];
+        for (let n = 1; n <= 45; n++) {
+            const xai = xaiMap[n] || xaiMap[String(n)] || {};
+            const prob = xai.probability || 0;
+            matrixData.push({
+                num: n,
+                total: parseFloat((prob * 100).toFixed(2)),
+                models: {
+                    xgboost:     { score: parseFloat(((xai.xgboost_pct || 0) * prob * 100).toFixed(2)) },
+                    lstm:        { score: parseFloat(((xai.lstm_pct || 0) * prob * 100).toFixed(2)) },
+                    cnn:         { score: parseFloat(((xai.cnn_pct || 0) * prob * 100).toFixed(2)) },
+                    transformer: { score: parseFloat(((xai.transformer_pct || 0) * prob * 100).toFixed(2)) },
+                    gnn:         { score: parseFloat(((xai.gnn_pct || 0) * prob * 100).toFixed(2)) },
+                    markov:      { score: parseFloat(((xai.markov_pct || 0) * prob * 100).toFixed(2)) },
+                    autoencoder: { score: parseFloat(((xai.autoencoder_pct || 0) * prob * 100).toFixed(2)) }
+                }
+            });
+        }
+
+        const top5 = preds.top_5 || [];
+        const mw = preds.model_weights || {};
+
+        // 최소 strategy 구성
+        const strategy = {
+            summary: `제${preds.target_round}회차 주간 앙상블 분석 완료. 추천 번호: ${top5.slice(0, 5).join(', ')}`,
+            confidence: preds.meta_active ? 85 : 78,
+            keywords: ['주간 분석', '5중 앙상블', ...(preds.meta_active ? ['메타 러너'] : [])],
+            hot_cold_analysis: { hot_ratio: 55, cold_ratio: 45 }
+        };
+
+        // combinations → v3 format
+        const combinations = (preds.combinations || []).map(c => ({
+            numbers: c.numbers || [],
+            total_sum: c.total_sum,
+            odd_count: c.odd_count,
+            high_count: c.high_count,
+            combo_rank: c.combo_rank
+        }));
+
+        return {
+            success: true,
+            target_round: preds.target_round,
+            top_5: top5,
+            exclude_10: preds.exclude_10 || [],
+            combinations,
+            strategy,
+            model_weights: mw,
+            meta_active: preds.meta_active,
+            meta_alpha: preds.meta_alpha,
+            pipeline_version: preds.pipeline_version,
+            created_at: preds.created_at,
+            elapsed_seconds: 0,
+            _source: 'v4_weekly',
+            analysis: {
+                matrix_data: matrixData
+            },
+            evidence: {
+                model_weights: mw
+            },
+            // recommendations 상세 (P4 CI 포함)
+            recommendations: preds.recommendations || []
+        };
+    },
+
     async _fetchAnalysisFromDB(round) {
         if (!window.supabaseClient) return null;
         try {
             const { data, error } = await window.supabaseClient
                 .from('deep_analysis_history')
-                .select('analysis_data')
+                .select('analysis_data, target_round, created_at')
                 .eq('target_round', round)
                 .order('created_at', { ascending: false })
                 .limit(1)
@@ -348,6 +554,115 @@ const DeepLearning = {
         }
     },
 
+    async _fetchLatestAnalysisFromDB() {
+        if (!window.supabaseClient) return null;
+        try {
+            const { data, error } = await window.supabaseClient
+                .from('deep_analysis_history')
+                .select('analysis_data, target_round, created_at')
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+            if (data && data.analysis_data) {
+                return typeof data.analysis_data === 'string'
+                    ? JSON.parse(data.analysis_data)
+                    : data.analysis_data;
+            }
+            return null;
+        } catch (e) {
+            return null;
+        }
+    },
+
+    _getLastSaturdayKST() {
+        const now = new Date();
+        // KST = UTC+9
+        const kstOffset = 9 * 60 * 60 * 1000;
+        const kstNow = new Date(now.getTime() + kstOffset);
+        const day = kstNow.getUTCDay(); // 0=Sun, 6=Sat
+        const daysBack = day === 6 ? 0 : (day + 1); // 토요일이면 오늘, 아니면 지난 토요일
+        const lastSat = new Date(kstNow.getTime() - daysBack * 24 * 60 * 60 * 1000);
+        // 토요일 21:05 KST (추첨 완료 기준)
+        lastSat.setUTCHours(12, 5, 0, 0); // 21:05 KST = 12:05 UTC
+        return lastSat;
+    },
+
+    _getNextSaturdayKST() {
+        const kstOffset = 9 * 60 * 60 * 1000;
+        const kstNow = new Date(Date.now() + kstOffset);
+        const day = kstNow.getUTCDay();
+        const daysUntilSat = day === 6 ? 7 : (6 - day);
+        const nextSat = new Date(kstNow.getTime() + daysUntilSat * 24 * 60 * 60 * 1000);
+        const mm = String(nextSat.getUTCMonth() + 1).padStart(2, '0');
+        const dd = String(nextSat.getUTCDate()).padStart(2, '0');
+        return `${nextSat.getUTCFullYear()}.${mm}.${dd} 21:05`;
+    },
+
+    _canRunAnalysis() {
+        try {
+            const lastRun = parseInt(localStorage.getItem('dl_analysis_last_run_ts') || '0');
+            if (!lastRun) return true;
+            const lastSaturday = this._getLastSaturdayKST();
+            // 마지막 실행이 지난 토요일 추첨 이후면 이번 주 이미 실행됨
+            return lastRun < lastSaturday.getTime();
+        } catch (e) {
+            return true;
+        }
+    },
+
+    _markAnalysisRun() {
+        try {
+            localStorage.setItem('dl_analysis_last_run_ts', String(Date.now()));
+        } catch (e) { }
+    },
+
+    _updateWeeklyStatusUI() {
+        const el = document.getElementById('weeklyAnalysisStatus');
+        if (!el) return;
+        try {
+            const lastRun = parseInt(localStorage.getItem('dl_analysis_last_run_ts') || '0');
+            const canRun = this._canRunAnalysis();
+            if (lastRun) {
+                const d = new Date(lastRun + 9 * 60 * 60 * 1000);
+                const dateStr = `${d.getUTCFullYear()}.${String(d.getUTCMonth()+1).padStart(2,'0')}.${String(d.getUTCDate()).padStart(2,'0')}`;
+                if (canRun) {
+                    el.innerHTML = `<span class="text-[11px] text-emerald-600 font-medium">마지막 분석: ${dateStr} • <span class="text-blue-600">새 분석 가능</span></span>`;
+                } else {
+                    const next = this._getNextSaturdayKST();
+                    el.innerHTML = `<span class="text-[11px] text-slate-500">마지막 분석: ${dateStr} • 다음 분석: ${next}</span>`;
+                }
+            } else {
+                el.innerHTML = `<span class="text-[11px] text-slate-400">분석 이력 없음 • <span class="text-blue-600">첫 분석 가능</span></span>`;
+            }
+        } catch (e) { }
+    },
+
+    // ── V4 주간 파이프라인 배지 표시 ──
+    _showV4Badge(v4Data) {
+        try {
+            // 기존 배지 제거
+            document.querySelectorAll('.v4-pipeline-badge').forEach(el => el.remove());
+
+            const round = v4Data?.target_round || this.state.targetRound;
+            const badge = document.createElement('div');
+            badge.className = 'v4-pipeline-badge flex items-center gap-2 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl px-4 py-2 mb-4 text-sm font-semibold text-blue-700 shadow-sm';
+            badge.innerHTML = `
+                <span class="text-base">⚡</span>
+                <span>주간 파이프라인 데이터 (V4) — 제<strong>${round}</strong>회차</span>
+                <span class="ml-auto text-xs text-blue-400 font-normal">즉시 응답 모드</span>
+            `;
+
+            // 삽입 위치: aiSummaryText 상단 또는 첫 번째 섹션 위
+            const anchor = document.getElementById('aiSummaryText')
+                || document.querySelector('.analysis-section')
+                || document.querySelector('main');
+            if (anchor && anchor.parentElement) {
+                anchor.parentElement.insertBefore(badge, anchor);
+            }
+        } catch (e) { /* 배지 표시 실패는 무시 */ }
+    },
+
     async _runLocalFallbackAnalysis() {
         console.warn("🚫 [DeepLearning] 로컬 폴백 비활성화.");
         return null;
@@ -356,6 +671,9 @@ const DeepLearning = {
     // ── 전체 렌더링 ──
     renderAll(result) {
         console.log("🎨 [DeepLearning] renderAll() Called", result);
+        // 이전 회차 경고 배너 제거 (새 분석 결과 렌더 시)
+        const oldBanner = document.getElementById('stale-round-banner');
+        if (oldBanner) oldBanner.remove();
         this.state.pipeline = result.pipeline || null;
         const combinations = result.combinations;
         const strategy = result.strategy;
@@ -455,19 +773,36 @@ const DeepLearning = {
         this.renderHeatmap(compatAnalysis.number_probabilities);
         this.renderModelTop10(compatAnalysis.model_top10, modelWeights);
 
+        if (matrixData && matrixData.length) this.renderModelRanking(matrixData);
         if (rangeAnalysis) this.renderRangeAnalysis(rangeAnalysis);
         if (matrixData) this.renderMatrixData(matrixData);
         if (analysisData.tail_analysis) this.renderTailAnalysis(analysisData.tail_analysis);
         if (analysisData.lotto_paper_analysis) this.renderLottoPaperAnalysis(analysisData.lotto_paper_analysis);
         if (analysisData.magic_square_analysis) this.renderMagicSquareAnalysis(analysisData.magic_square_analysis);
         if (analysisData.number_band_analysis) this.renderNumberBandAnalysis(analysisData.number_band_analysis);
-        if (analysisData.missing_group_data) this.renderMissingGroupAnalysis(analysisData.missing_group_data);
-        if (analysisData.hot_cold_data) this.renderHotColdAnalysis(analysisData.hot_cold_data);
-        if (analysisData.regression_analysis) this.renderRegressionAnalysis(analysisData.regression_analysis);
-        if (analysisData.custom_evaluations) this.renderCustomEvaluations(analysisData.custom_evaluations);
+
+        // ── hot_cold num_details → 모델별 확률 캐시 (구형 DB 보강 공통 소스) ──
+        this._buildNumModelProbs(analysisData.hot_cold_data);
+
+        // 미출현 그룹: model_exp 없으면 hot_cold 확률로 보강 후 렌더링
+        if (analysisData.missing_group_data) {
+            this._enrichMissingGroupData(analysisData.missing_group_data);
+            this.renderMissingGroupAnalysis(analysisData.missing_group_data);
+        }
+        if (analysisData.hot_cold_data) this.renderHotColdAnalysis(analysisData.hot_cold_data).catch(e => console.error('[hot_cold]', e));
+        if (analysisData.regression_analysis) {
+            this.renderRegressionAnalysis(analysisData.regression_analysis);
+            // 비동기 보강: notable + model_exp (draws 로드 후)
+            this._loadAndEnrichRegression(analysisData.regression_analysis).then(enriched => {
+                this.renderRegressionAnalysis(enriched);
+            });
+        }
+        if (analysisData.custom_evaluations) {
+            this._enrichCustomEvaluations(analysisData.custom_evaluations);
+            this.renderCustomEvaluations(analysisData.custom_evaluations);
+        }
 
         this.renderExcludeFixed(strategy, compatAnalysis);
-        this.renderFilterRecommendations(strategy);
         this.renderCombinations(result.combinations, compatAnalysis, matrixData);
 
         var effectivePipeline = result.pipeline;
@@ -672,21 +1007,65 @@ const DeepLearning = {
     renderRangeAnalysis(rangeAnalysis) {
         const container = document.getElementById('rangeAnalysisContainer');
         if (!container || !rangeAnalysis) return;
+
+        // 출처 뱃지: filter.html 연동 안내
+        const sourceEl = document.getElementById('rangeAnalysisSource');
+        if (sourceEl) {
+            const round = this.state.targetRound;
+            sourceEl.innerHTML = `<span class="text-[11px] text-slate-400">앙상블 기반 • ${round}회차 예측 •
+                <a href="filter.html" class="text-indigo-500 font-bold hover:underline">filter.html</a>에서 AI 추천값 클릭으로 적용</span>`;
+        }
         const FILTER_LABELS = {
             sum: '총합', tail_sum: '끝수합', ac: 'AC값',
-            odd: '홀짝비율', high: '저고비율', prime: '소수',
+            odd: '홀짝', high: '저고', prime: '소수',
             composite: '합성수', consecutive: '연번', square: '제곱수',
-            triangular: '삼각수', twin: '동형수', mul3: '3의배수',
-            mul4: '4의배수', mul5: '5의배수', non_multiple: '배수외',
-            hot10: '최근10회', missing: '미출현수', neighbor: '이웃수', carryover: '이월수'
+            triangular: '삼각수', twin: '동형수', mul3: '3배수',
+            mul4: '4배수', mul5: '5배수', mul7: '7배수', mul8: '8배수',
+            non_multiple: '배수외',
+            neighbor: '이웃수', carryover: '이월수'
         };
+        // 명시적 제외 목록 (hot10·missing은 동적 지표로 범위 의미 없음)
+        const FILTER_EXCLUDE = new Set(['hot10', 'missing']);
         const FILTER_ORDER = [
             'sum', 'tail_sum', 'ac',
             'odd', 'high', 'consecutive', 'twin',
             'prime', 'composite', 'square', 'triangular',
-            'mul3', 'mul4', 'mul5', 'non_multiple',
-            'hot10', 'missing', 'neighbor', 'carryover'
+            'mul3', 'mul4', 'mul5', 'mul7', 'mul8', 'non_multiple',
+            'neighbor', 'carryover'
         ];
+        // 백엔드 key → localStorage key 매핑 (현재 설정값 읽기용)
+        const FILTER_TO_LS = {
+            sum: 'total_sum', tail_sum: 'last_digit_sum', ac: 'ac_value',
+            odd: 'odd_even_pattern', high: 'high_low_pattern',
+            prime: 'prime_number_patterns', composite: 'composite_count',
+            consecutive: 'consecutive_count', square: 'square_number_patterns',
+            triangular: 'triangular_number_patterns', twin: 'twin_number_patterns',
+            mul3: 'multiple_3_count', mul4: 'multiple_4_count', mul5: 'multiple_5_count',
+            mul7: 'multiple_7_count', mul8: 'multiple_8_count',
+            non_multiple: 'no_multiple_count',
+            hot10: 'hot_cold_10', missing: 'missing_period',
+            neighbor: 'neighbor_number_patterns', carryover: 'carryover_count'
+        };
+        const FILTER_MAX = { mul8: 5, non_multiple: 6 };
+        // localStorage에서 현재 활성 필터 min~max 읽기
+        const _getCurrentSetting = (key) => {
+            const lsKey = FILTER_TO_LS[key];
+            if (!lsKey) return null;
+            try {
+                const raw = localStorage.getItem(lsKey);
+                if (!raw) return null;
+                const p = JSON.parse(raw);
+                const enabled = p.enabled !== undefined ? p.enabled : true;
+                if (!enabled) return null;
+                const s = p.settings !== undefined ? p.settings : p;
+                if (s.min !== undefined && s.max !== undefined) return `${s.min}~${s.max}`;
+                if (s.selectedCounts && s.selectedCounts.length > 0) {
+                    const mn = s.selectedCounts[0], mx = s.selectedCounts[s.selectedCounts.length - 1];
+                    return mn === mx ? `${mn}` : `${mn}~${mx}`;
+                }
+            } catch(e) {}
+            return null;
+        };
         const MODEL_CONFIG = {
             lstm: { label: 'LSTM', color: '#818cf8', bg: '#eef2ff' },
             xgboost: { label: 'XGBoost', color: '#60a5fa', bg: '#eff6ff' },
@@ -701,6 +1080,7 @@ const DeepLearning = {
         html += '<table class="w-full text-xs">';
         html += '<thead><tr>';
         html += '<th class="px-5 py-4 text-left font-bold text-gray-700">지표</th>';
+        html += '<th class="px-4 py-4 text-center font-bold text-emerald-600 bg-emerald-50/50">현재<br>설정</th>';
         html += '<th class="px-4 py-4 text-center font-bold text-blue-600 bg-blue-50/50">앙상블<br>범위</th>';
         models.forEach(m => {
             const cfg = MODEL_CONFIG[m];
@@ -711,7 +1091,7 @@ const DeepLearning = {
         const orderedEntries = FILTER_ORDER
             .filter(k => rangeAnalysis[k] !== undefined)
             .map(k => [k, rangeAnalysis[k]])
-            .concat(Object.entries(rangeAnalysis).filter(([k]) => !FILTER_ORDER.includes(k)));
+            .concat(Object.entries(rangeAnalysis).filter(([k]) => !FILTER_ORDER.includes(k) && !FILTER_EXCLUDE.has(k)));
 
         const formatRatioRange = (key, rawRange) => {
             const isRatioKey = (key === 'odd' || key === 'high');
@@ -759,9 +1139,16 @@ const DeepLearning = {
             const rawRange = val.range;
             const ensembleRange = formatRatioRange(key, rawRange);
             const modelExp = val.model_expectations || {};
+            const currentSetting = _getCurrentSetting(key);
             rowIdx++;
             html += `<tr class="border-b border-gray-50 last:border-0 hover:bg-gray-50 transition-colors">`;
             html += `<td class="px-5 py-3 font-bold text-gray-700">${label}</td>`;
+            // 현재 설정 컬럼: 설정됨=초록, 없음=회색 대시
+            if (currentSetting) {
+                html += `<td class="px-4 py-3 text-center font-mono font-bold text-emerald-600 bg-emerald-50/30">${currentSetting}</td>`;
+            } else {
+                html += `<td class="px-4 py-3 text-center text-gray-300 bg-emerald-50/10">-</td>`;
+            }
             html += `<td class="px-4 py-3 text-center font-mono font-bold text-blue-600 bg-blue-50/30">${ensembleRange}</td>`;
             models.forEach(m => {
                 const cfg = MODEL_CONFIG[m];
@@ -911,37 +1298,6 @@ const DeepLearning = {
         }
     },
 
-    renderFilterRecommendations(strategy) {
-        var container = document.getElementById('filterRecommendations');
-        if (!container) return;
-        var recs = (strategy && strategy.filter_recommendations) ? strategy.filter_recommendations : [];
-        if (recs.length === 0) {
-            container.innerHTML = '<div class="col-span-3 text-center text-gray-400 text-sm py-12">필터 추천 데이터가 없습니다.</div>';
-            return;
-        }
-        var iconMap = {
-            '총합': 'functions', '끝수합': 'pin', 'AC값': 'calculate',
-            '홀짝': 'contrast', '홀짝비율': 'contrast', '저고': 'swap_vert', '저고비율': 'swap_vert',
-            '연속수': 'linear_scale', '연속번호': 'linear_scale',
-            '이월수': 'replay', '소수': 'looks_one', '소수개수': 'looks_one',
-            '합성수': 'looks_two', '제곱수': 'crop_square', '삼각수': 'change_history', '쌍둥이수': 'group',
-            '핫콜드': 'local_fire_department', '범위': 'expand',
-            '최근 10회 출현': 'history', '장기 미출현': 'hourglass_empty',
-            '3의 배수': 'view_week', '4의 배수': 'view_week', '5의 배수': 'view_week', '비배수': 'block', '이웃수': 'people_alt'
-        };
-        container.innerHTML = recs.map(function (r) {
-            var icon = iconMap[r.filter] || 'tune';
-            var valueText = r.pattern
-                ? '패턴: ' + r.pattern
-                : (r.min !== undefined && r.max !== undefined)
-                    ? r.min + ' ~ ' + r.max
-                    : r.max !== undefined ? '최대 ' + r.max : '-';
-            return '<div class="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm hover:shadow-md transition-shadow">' +
-                '<div class="flex items-center gap-3 mb-3"><div class="p-1.5 bg-blue-50 rounded-lg text-blue-600"><span class="material-symbols-outlined text-lg">' + icon + '</span></div><h4 class="font-bold text-gray-800 text-sm">' + r.filter + '</h4></div>' +
-                '<p class="text-gray-900 font-black text-xl mb-3 tracking-tight">' + valueText + '</p>' +
-                '<div class="bg-gray-50 p-3 rounded-xl text-xs text-gray-600 leading-relaxed border border-gray-100">' + (r.evidence || '근거 데이터 없음') + '</div></div>';
-        }).join('');
-    },
 
     renderCombinations(combinations, analysis, matrixData) {
         const container = document.getElementById('combos');
@@ -951,7 +1307,7 @@ const DeepLearning = {
         const excludeSet = new Set(analysis ? (analysis.excluded || []) : []);
         const scoreMap = {};
         if (matrixData) matrixData.forEach(d => { scoreMap[d.num] = Math.round(d.total || 0); });
-        const maxScore = Math.max(...combinations.map(c => c.score));
+        const maxScore = Math.max(...combinations.map(c => c.score || 0)) || 1;
         const modelTop = {};
         if (matrixData) {
             ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'].forEach(m => {
@@ -987,54 +1343,137 @@ const DeepLearning = {
                         diffs.add(Math.abs(nums[i] - nums[j]));
                 return diffs.size - (nums.length - 1);
             })();
-            const scoreColor = scorePct >= 0.8 ? '#4F46E5' : scorePct >= 0.5 ? '#6B7280' : '#9CA3AF';
-            const rankBg = rank === 1 ? '#4F46E5' : rank <= 3 ? '#1F2937' : '#4B5563';
+            // 순위별 좌측 액센트 색상
+            const accentColor = rank === 1 ? '#6366F1' : rank <= 3 ? '#8B5CF6' : rank <= 6 ? '#3B82F6' : '#E5E7EB';
+            const rankTextCls = rank === 1 ? 'text-indigo-600' : rank <= 3 ? 'text-violet-500' : rank <= 6 ? 'text-blue-400' : 'text-gray-200';
+
             const ballsHtml = nums.map(n => {
                 const colorClass = self.getBallColorClass(n);
                 const isTop = top5Set.has(n);
-                // [디자인 수정] Top5 표시는 금색 테두리와 상단 점(Dot)으로 심플하게 변경
                 return `<span style="position:relative;display:inline-flex;flex-direction:column;align-items:center;cursor:pointer" onclick="window.DeepLearning.explainNumber(${n})">
-                    <span class="ball-common ${colorClass} w-9 h-9 text-sm ${isTop ? 'ring-2 ring-amber-400 ring-offset-2' : ''}">${n}</span>
-                    ${isTop ? '<span style="position:absolute;top:-4px;right:-4px;width:8px;height:8px;background:#FBBF24;border-radius:50%;border:2px solid white;"></span>' : ''}
+                    <span class="ball-common ${colorClass} w-9 h-9 text-sm ${isTop ? 'ring-2 ring-amber-400 ring-offset-1' : ''}">${n}</span>
+                    ${isTop ? '<span style="position:absolute;top:-3px;right:-3px;width:7px;height:7px;background:#FBBF24;border-radius:50%;border:1.5px solid white;"></span>' : ''}
                 </span>`;
             }).join('');
 
-            const modelBar = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'].map(m => {
-                const colors = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7', gnn: '#ef4444' };
-                const labels = { lstm: 'L', xgboost: 'X', cnn: 'C', transformer: 'T', markov: 'M', autoencoder: 'A', gnn: 'G' };
+            const MODEL_LIST = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
+            const MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7', gnn: '#ef4444' };
+            const MODEL_SHORT  = { lstm: 'L', xgboost: 'X', cnn: 'C', transformer: 'T', markov: 'M', autoencoder: 'A', gnn: 'G' };
+            const modelBar = MODEL_LIST.map(m => {
                 const agree = nums.some(n => modelTop[m] && modelTop[m].has(n));
-                // 모델 바도 더 얇고 심플하게
-                return `<div style="width:4px;height:24px;border-radius:2px;background:${agree ? colors[m] : '#F3F4F6'};" title="${labels[m]}"></div>`;
+                return `<div style="width:4px;height:22px;border-radius:3px;background:${agree ? MODEL_COLORS[m] : '#F3F4F6'};" title="${MODEL_SHORT[m]}"></div>`;
             }).join('');
 
-            // [디자인 수정] 순위는 큰 숫자로, 전체 레이아웃 간소화
-            return `<div class="group relative bg-white border border-gray-100 rounded-2xl p-5 hover:border-blue-200 hover:shadow-lg transition-all duration-300">
-                <div class="absolute left-0 top-0 bottom-0 w-1 bg-transparent group-hover:bg-blue-500 rounded-l-2xl transition-colors"></div>
-                <div class="flex items-center gap-6">
-                    <span class="text-2xl font-black text-gray-200 group-hover:text-blue-500 w-10 text-center transition-colors font-mono">${String(rank).padStart(2, '0')}</span>
+            // 배경: 1위는 아주 연한 인디고, 나머지 흰색
+            const cardBg = rank === 1 ? 'background:linear-gradient(135deg,#F5F3FF 0%,#EEF2FF 100%)' : 'background:#FFFFFF';
 
-                    <div class="flex gap-2">${ballsHtml}</div>
+            return `<div class="group relative border rounded-2xl overflow-hidden hover:shadow-lg transition-all duration-200" style="${cardBg};border-color:${rank === 1 ? '#C7D2FE' : '#F3F4F6'}">
+                <div class="absolute left-0 top-0 bottom-0 w-1 transition-all duration-200" style="background:${accentColor}"></div>
+                <div class="flex items-center gap-4 px-5 py-4">
+                    <!-- 순위 -->
+                    <span class="text-[28px] font-black w-10 text-center font-mono leading-none ${rankTextCls}">${String(rank).padStart(2, '0')}</span>
 
-                    <div class="ml-auto flex items-center gap-6">
-                        <div class="flex gap-1 items-center" title="모델 동의">${modelBar}</div>
+                    <!-- 볼 -->
+                    <div class="flex gap-1.5">${ballsHtml}</div>
 
-                        <div class="text-right">
-                            <div class="text-xs text-gray-400 font-medium mb-0.5">예측점수</div>
-                            <div class="text-lg font-black ${scorePct >= 0.8 ? 'text-blue-600' : 'text-gray-700'}">${(score * 100).toFixed(0)}<span class="text-xs font-normal text-gray-400 ml-0.5">점</span></div>
+                    <!-- 우측 정보 -->
+                    <div class="ml-auto flex items-center gap-5">
+                        <!-- 모델 동의 바 -->
+                        <div class="flex gap-0.5 items-end h-6">${modelBar}</div>
+
+                        <!-- 점수 -->
+                        <div class="text-right min-w-[52px]">
+                            <div class="text-[9px] text-gray-400 font-medium uppercase tracking-wider">Score</div>
+                            <div class="text-[18px] font-black leading-tight ${scorePct >= 0.8 ? 'text-indigo-600' : 'text-gray-600'}">${(score * 100).toFixed(0)}</div>
                         </div>
                     </div>
                 </div>
 
-                <!-- 하단 상세 스탯 (마우스 오버 시 또는 항상 표시) -->
-                <div class="mt-4 pt-3 border-t border-gray-50 flex items-center gap-4 text-xs text-gray-400 font-mono">
-                    <span class="${topIncluded.length >= 2 ? 'text-blue-600 font-bold' : ''}">Top5: ${topIncluded.length}개</span>
-                    <span>합: ${sum}</span>
-                    <span>홀짝: ${odd}:${6 - odd}</span>
-                    <span>AC: ${ac}</span>
-                    ${isVerified ? '<span class="ml-auto text-emerald-600 font-bold flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">check_circle</span>AI검증</span>' : ''}
+                <!-- 스탯 바 -->
+                <div class="flex items-center gap-3 px-5 pb-3 text-[10px] text-gray-400">
+                    ${topIncluded.length > 0 ? `<span class="font-bold text-amber-500">★ Top${topIncluded.length}</span>` : ''}
+                    <span>합 <b class="text-gray-600">${sum}</b></span>
+                    <span>홀짝 <b class="text-gray-600">${odd}:${6 - odd}</b></span>
+                    <span>AC <b class="text-gray-600">${ac}</b></span>
+                    <span>저고 <b class="text-gray-600">${6 - high}:${high}</b></span>
+                    ${isVerified ? '<span class="ml-auto text-emerald-500 font-bold flex items-center gap-0.5"><span class="material-symbols-outlined text-[12px]">verified</span>AI검증</span>' : ''}
                 </div>
             </div>`;
         }).join('');
+    },
+
+    renderModelRanking(matrixData) {
+        const container = document.getElementById('modelRankingContainer');
+        if (!container || !matrixData || !matrixData.length) return;
+
+        const MODEL_ORDER  = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
+        const MODEL_LABELS = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV', autoencoder: 'ATC', gnn: 'GNN' };
+        const MODEL_COLORS = { lstm: '#6366F1', xgboost: '#3B82F6', cnn: '#EC4899', transformer: '#F97316', markov: '#10B981', autoencoder: '#8B5CF6', gnn: '#EF4444' };
+
+        const self = this;
+
+        // 번호 → 볼 HTML
+        const _ball = (n) => {
+            const cls = self.getBallColorClass(n);
+            return `<span class="ball-common ${cls} inline-flex items-center justify-center flex-shrink-0" style="width:28px;height:28px;font-size:11px;font-weight:800">${n}</span>`;
+        };
+
+        // 앙상블: total 기준 내림차순
+        const ensRanked = [...matrixData]
+            .sort((a, b) => (b.total || 0) - (a.total || 0))
+            .map(d => d.num);
+
+        // 모델별: models[m].score 기준 내림차순
+        const modelRanked = {};
+        MODEL_ORDER.forEach(m => {
+            modelRanked[m] = [...matrixData]
+                .sort((a, b) => {
+                    const sa = ((a.models || {})[m] || {}).score || 0;
+                    const sb = ((b.models || {})[m] || {}).score || 0;
+                    return sb - sa;
+                })
+                .map(d => d.num);
+        });
+
+        // 모델 목록 (앙상블 + 7개)
+        const cols = [
+            { label: '앙상블', color: '#1E293B', nums: ensRanked },
+            ...MODEL_ORDER.map(m => ({ label: MODEL_LABELS[m], color: MODEL_COLORS[m], nums: modelRanked[m] }))
+        ];
+
+        // 헤더: 순위(고정) | 앙상블 | LSTM | XGB | CNN | TF | MKV | ATC | GNN
+        const theadHtml = `<thead>
+            <tr class="border-b-2 border-gray-200 bg-gray-50/80 sticky top-0">
+                <th class="py-2 text-center text-[11px] font-bold text-gray-400 whitespace-nowrap" style="width:40px">순위</th>
+                ${cols.map(c => `<th class="py-2 text-center text-[12px] font-black whitespace-nowrap" style="color:${c.color}">${c.label}</th>`).join('')}
+            </tr>
+        </thead>`;
+
+        // 행: 1위~45위, 각 셀은 해당 순위의 번호
+        const tbodyHtml = Array.from({ length: 45 }, (_, i) => {
+            const rank = i + 1;
+            const rankCls = rank <= 6 ? 'font-black text-indigo-600' : rank <= 15 ? 'font-bold text-gray-600' : 'font-medium text-gray-300';
+            return `<tr class="border-b border-gray-100 last:border-0 hover:bg-indigo-50/20 transition-colors">
+                <td class="py-1.5 text-center text-[12px] ${rankCls}">${rank}</td>
+                ${cols.map(c => `<td class="py-1.5 text-center">${_ball(c.nums[i])}</td>`).join('')}
+            </tr>`;
+        }).join('');
+
+        container.innerHTML = `
+            <div class="card col-span-1 lg:col-span-2">
+                <div class="card-header">
+                    <span class="material-symbols-outlined icon text-indigo-500">format_list_numbered</span>
+                    <h3>모델별 번호 순위 (1위 → 45위)</h3>
+                    <span class="ml-auto text-[10px] bg-indigo-50 text-indigo-500 font-bold px-2 py-0.5 rounded-full whitespace-nowrap">열 = 모델, 행 = 순위</span>
+                </div>
+                <div class="card-body p-0">
+                    <table class="w-full text-xs" style="border-collapse:collapse;table-layout:fixed">
+                        ${theadHtml}
+                        <tbody>${tbodyHtml}</tbody>
+                    </table>
+                </div>
+            </div>`;
+        container.style.display = 'block';
     },
 
     renderPipelineInfo(pipeline) {
@@ -1114,48 +1553,59 @@ const DeepLearning = {
         const tbody = document.getElementById('tail-body');
         if (!tbody || !tailData) return;
 
-        // 딥러닝 모델별 고유 색상 (차분한 톤)
+        // deep_insight_panel.js와 동일한 확률→범위 변환 로직
+        const _probToRange = (prob) => {
+            if (prob < 0.3) return { min: 0, max: 1 };
+            if (prob >= 1.8) return { min: 1, max: 3 };
+            if (prob >= 1.2) return { min: 1, max: 2 };
+            return { min: 0, max: 2 };
+        };
+        const MODEL_ORDER = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
+        const MODEL_ABBR = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV', autoencoder: 'ATC', gnn: 'GNN' };
         const MODEL_COLORS = {
             lstm: '#6366F1', xgboost: '#3B82F6', cnn: '#EC4899',
             transformer: '#F97316', markov: '#10B981', autoencoder: '#8B5CF6', gnn: '#EF4444'
         };
-        const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
 
         tbody.innerHTML = tailData.map(item => {
             const exp = typeof item.exp === 'number' ? item.exp : 0;
             const str = item.str != null ? item.str : '-';
 
-            // 1. 앙상블 (메인 지표) - 딥 틸(Deep Teal) 테마 적용
-            let barColor = '#CCFBF1'; // 기본: 연한 민트
-            let width = '10%';
+            // 앙상블 범위: model_exp에서 min/max 집계
+            const modelRanges = {};
+            if (item.model_exp) {
+                MODEL_ORDER.forEach(m => {
+                    const p = parseFloat(item.model_exp[m]) || 0;
+                    modelRanges[m] = _probToRange(p);
+                });
+            }
+            const allRanges = Object.values(modelRanges);
+            const rMin = allRanges.length ? Math.min(...allRanges.map(r => r.min)) : _probToRange(exp).min;
+            const rMax = allRanges.length ? Math.max(...allRanges.map(r => r.max)) : _probToRange(exp).max;
 
-            if (exp >= 2.0) { width = '100%'; barColor = '#134E4A'; } // Hot
-            else if (exp >= 1.5) { width = '85%'; barColor = '#0F766E'; }
-            else if (exp >= 1.0) { width = '60%'; barColor = '#14B8A6'; }
-            else if (exp >= 0.5) { width = '30%'; barColor = '#5EEAD4'; }
+            const isHot = exp >= 1.2;
+            const rangeColor = isHot ? '#0F766E' : exp < 0.3 ? '#9CA3AF' : '#374151';
 
-            const expCell = `
-                <div class="flex flex-col items-center justify-center h-full px-2">
-                    <span style="font-family:monospace;font-size:11px;font-weight:700;color:${exp >= 2.0 ? '#134E4A' : exp >= 1.5 ? '#0F766E' : exp >= 1.0 ? '#14B8A6' : exp >= 0.5 ? '#0D9488' : '#9CA3AF'}">${exp.toFixed(2)}<span style="font-size:9px;font-weight:400"> 개</span></span>
-                    <div class="w-full h-1 bg-teal-50 rounded-full overflow-hidden mt-0.5">
-                        <div style="width:${width};height:100%;background-color:${barColor};border-radius:99px;"></div>
-                    </div>
-                </div>
-            `;
+            const ensembleCell = `
+                <div class="flex flex-col items-center gap-0.5">
+                    <span style="font-family:monospace;font-size:13px;font-weight:800;color:${rangeColor}">${rMin}~${rMax}개</span>
+                    <span style="font-size:9px;color:#94A3B8">평균 ${exp.toFixed(1)}개</span>
+                </div>`;
 
-            // 2. 모델별 수치값 표시
-            const modelCells = models.map(m => {
-                const val = item.model_exp && item.model_exp[m] != null ? parseFloat(item.model_exp[m]) : 0;
-                return `<td class="px-1 py-3 text-center" title="${m.toUpperCase()}: ${val.toFixed(2)}">
-                    <span style="font-family:monospace;font-size:10px;font-weight:${val >= 1.0 ? '700' : '400'};color:${val >= 1.0 ? MODEL_COLORS[m] : val >= 0.5 ? '#6B7280' : '#D1D5DB'}">${val.toFixed(1)}</span>
+            const modelCells = MODEL_ORDER.map(m => {
+                const r = modelRanges[m] || _probToRange(exp);
+                const rangeLabel = r.min === r.max ? `${r.min}` : `${r.min}~${r.max}`;
+                const color = MODEL_COLORS[m];
+                return `<td class="px-2 py-3 text-center">
+                    <span style="font-family:monospace;font-size:10px;font-weight:700;color:${color}">${rangeLabel}</span>
                 </td>`;
             }).join('');
 
-            return `<tr class="hover:bg-gray-50 border-b border-gray-100 last:border-0 transition-colors">
-                <td class="px-4 py-3 font-bold text-center text-gray-700 text-sm">${item.tail}</td>
-                <td class="px-2 py-3 text-center w-24">${expCell}</td>
+            return `<tr class="hover:bg-gray-50 border-b border-gray-100 last:border-0 transition-colors${isHot ? ' bg-emerald-50/40' : ''}">
+                <td class="px-4 py-3 font-black text-center text-gray-800 text-base">${item.tail}끝</td>
+                <td class="px-2 py-3 text-center">${ensembleCell}</td>
                 ${modelCells}
-                <td class="px-4 py-3 text-center font-mono text-xs text-gray-500">${item.gap}</td>
+                <td class="px-4 py-3 text-center font-mono text-xs text-gray-500">${item.gap ?? '-'}</td>
                 <td class="px-4 py-3 text-center font-mono text-xs text-gray-500">${str}</td>
             </tr>`;
         }).join('');
@@ -1164,12 +1614,33 @@ const DeepLearning = {
     renderLottoPaperAnalysis(paperData) {
         const container = document.getElementById('lottoPaperContainer');
         if (!container || !paperData) return;
+
+        const _probToRange = (prob) => {
+            if (prob < 0.3) return { min: 0, max: 1 };
+            if (prob >= 1.8) return { min: 1, max: 3 };
+            if (prob >= 1.2) return { min: 1, max: 2 };
+            return { min: 0, max: 2 };
+        };
+        const MODEL_ORDER = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
+        const MODEL_ABBR = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV', autoencoder: 'ATC', gnn: 'GNN' };
         const MODEL_COLORS = {
             lstm: '#6366F1', xgboost: '#3B82F6', cnn: '#EC4899',
             transformer: '#F97316', markov: '#10B981', autoencoder: '#8B5CF6', gnn: '#EF4444'
         };
-        const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
-        const MODEL_ABBR = { lstm: 'L', xgboost: 'X', cnn: 'C', transformer: 'T', markov: 'M', autoencoder: 'A', gnn: 'G' };
+
+        const _modelHeader = () => MODEL_ORDER.map(m =>
+            `<th class="px-2 py-3 text-center font-semibold" style="color:${MODEL_COLORS[m]}">${MODEL_ABBR[m]}</th>`
+        ).join('');
+
+        const _modelCells = (item) => {
+            const exp = typeof item.exp === 'number' ? item.exp : 0;
+            return MODEL_ORDER.map(m => {
+                const p = item.model_exp ? (parseFloat(item.model_exp[m]) || 0) : exp;
+                const r = _probToRange(p);
+                const label = r.min === r.max ? `${r.min}` : `${r.min}~${r.max}`;
+                return `<td class="px-2 py-3 text-center"><span style="font-family:monospace;font-size:10px;font-weight:700;color:${MODEL_COLORS[m]}">${label}</span></td>`;
+            }).join('');
+        };
 
         const buildTable = (title, items) => {
             let html = `<div class="mb-8">`;
@@ -1178,44 +1649,29 @@ const DeepLearning = {
             html += '<table class="w-full text-xs">';
             html += '<thead><tr class="bg-gray-50/50 border-b border-gray-200">';
             html += '<th class="px-4 py-3 text-left font-bold text-gray-700">구분</th>';
-            html += '<th class="px-4 py-3 text-center font-bold text-blue-600">앙상블</th>';
-            models.forEach(m => {
-                html += `<th class="px-2 py-3 text-center font-semibold text-gray-500" title="${m.toUpperCase()}">${MODEL_ABBR[m]}</th>`;
-            });
+            html += '<th class="px-4 py-3 text-center font-bold text-blue-600">AI 종합</th>';
+            html += _modelHeader();
             html += '<th class="px-4 py-3 text-center font-bold text-gray-600">Gap</th>';
             html += '<th class="px-4 py-3 text-center font-bold text-gray-600">STR</th>';
             html += '</tr></thead><tbody>';
 
-            items.forEach((item, idx) => {
+            items.forEach(item => {
                 const exp = typeof item.exp === 'number' ? item.exp : 0;
+                const modelRanges = MODEL_ORDER.map(m => _probToRange(item.model_exp ? (parseFloat(item.model_exp[m]) || 0) : exp));
+                const rMin = Math.min(...modelRanges.map(r => r.min));
+                const rMax = Math.max(...modelRanges.map(r => r.max));
+                const isHot = exp >= 1.2;
+                const rangeColor = isHot ? '#0F766E' : exp < 0.3 ? '#9CA3AF' : '#374151';
 
-                let barColor = '#CCFBF1';
-                let width = '10%';
-                if (exp >= 2.0) { width = '100%'; barColor = '#134E4A'; }
-                else if (exp >= 1.5) { width = '85%'; barColor = '#0F766E'; }
-                else if (exp >= 1.0) { width = '60%'; barColor = '#14B8A6'; }
-                else if (exp >= 0.5) { width = '30%'; barColor = '#5EEAD4'; }
+                const ensembleCell = `<div class="flex flex-col items-center gap-0.5">
+                    <span style="font-family:monospace;font-size:12px;font-weight:800;color:${rangeColor}">${rMin}~${rMax}개</span>
+                    <span style="font-size:9px;color:#94A3B8">평균 ${exp.toFixed(1)}개</span>
+                </div>`;
 
-                const expCell = `
-                    <div class="flex flex-col items-center justify-center h-full px-2">
-                        <span style="font-family:monospace;font-size:11px;font-weight:700;color:${exp >= 2.0 ? '#134E4A' : exp >= 1.5 ? '#0F766E' : exp >= 1.0 ? '#14B8A6' : exp >= 0.5 ? '#0D9488' : '#9CA3AF'}">${exp.toFixed(2)}<span style="font-size:9px;font-weight:400"> 개</span></span>
-                        <div class="w-full h-1 bg-teal-50 rounded-full overflow-hidden mt-0.5">
-                            <div style="width:${width};height:100%;background-color:${barColor};border-radius:99px;"></div>
-                        </div>
-                    </div>
-                `;
-
-                const modelCells = models.map(m => {
-                    const val = item.model_exp && item.model_exp[m] != null ? parseFloat(item.model_exp[m]) : 0;
-                    return `<td class="px-2 py-3 text-center" title="${m.toUpperCase()}: ${val.toFixed(2)}">
-                        <span style="font-family:monospace;font-size:10px;font-weight:${val >= 1.0 ? '700' : '400'};color:${val >= 1.0 ? MODEL_COLORS[m] : val >= 0.5 ? '#6B7280' : '#D1D5DB'}">${val.toFixed(1)}</span>
-                    </td>`;
-                }).join('');
-
-                html += `<tr class="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors">`;
+                html += `<tr class="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors${isHot ? ' bg-emerald-50/30' : ''}">`;
                 html += `<td class="px-4 py-3 font-bold text-gray-700 text-sm">${item.label}</td>`;
-                html += `<td class="px-4 py-3 text-center">${expCell}</td>`;
-                html += modelCells;
+                html += `<td class="px-4 py-3 text-center">${ensembleCell}</td>`;
+                html += _modelCells(item);
                 html += `<td class="px-4 py-3 text-center font-mono text-gray-500">${item.gap != null ? item.gap : '-'}</td>`;
                 html += `<td class="px-4 py-3 text-center font-mono text-gray-500">${item.str != null ? item.str : '-'}</td>`;
                 html += '</tr>';
@@ -1233,54 +1689,60 @@ const DeepLearning = {
     renderNumberBandAnalysis(bandData) {
         const container = document.getElementById('numberBandContainer');
         if (!container || !bandData || !bandData.length) return;
+
+        const _probToRange = (prob) => {
+            if (prob < 0.3) return { min: 0, max: 1 };
+            if (prob >= 1.8) return { min: 1, max: 3 };
+            if (prob >= 1.2) return { min: 1, max: 2 };
+            return { min: 0, max: 2 };
+        };
+        const BAND_LABEL_MAP = {
+            '01~10': '단번대', '1~10': '단번대',
+            '11~20': '10번대', '21~30': '20번대',
+            '31~40': '30번대', '41~45': '40번대'
+        };
+        const MODEL_ORDER = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
+        const MODEL_ABBR = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV', autoencoder: 'ATC', gnn: 'GNN' };
         const MODEL_COLORS = {
             lstm: '#6366F1', xgboost: '#3B82F6', cnn: '#EC4899',
             transformer: '#F97316', markov: '#10B981', autoencoder: '#8B5CF6', gnn: '#EF4444'
         };
-        const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
-        const MODEL_ABBR = { lstm: 'L', xgboost: 'X', cnn: 'C', transformer: 'T', markov: 'M', autoencoder: 'A', gnn: 'G' };
 
         let html = '<div class="overflow-x-auto rounded-2xl border border-gray-200 shadow-sm bg-white">';
         html += '<table class="w-full text-xs">';
         html += '<thead><tr class="bg-gray-50/50 border-b border-gray-200">';
         html += '<th class="px-4 py-3 text-left font-bold text-gray-700">번호대</th>';
-        html += '<th class="px-4 py-3 text-center font-bold text-blue-600">앙상블</th>';
-        models.forEach(m => {
-            html += `<th class="px-2 py-3 text-center font-semibold text-gray-500" title="${m.toUpperCase()}">${MODEL_ABBR[m]}</th>`;
+        html += '<th class="px-4 py-3 text-center font-bold text-blue-600">AI 종합</th>';
+        MODEL_ORDER.forEach(m => {
+            html += `<th class="px-2 py-3 text-center font-semibold" style="color:${MODEL_COLORS[m]}">${MODEL_ABBR[m]}</th>`;
         });
         html += '<th class="px-4 py-3 text-center font-bold text-gray-600">Gap</th>';
         html += '<th class="px-4 py-3 text-center font-bold text-gray-600">STR</th>';
         html += '</tr></thead><tbody>';
 
-        bandData.forEach((item, idx) => {
+        bandData.forEach(item => {
             const exp = typeof item.exp === 'number' ? item.exp : 0;
+            const displayLabel = BAND_LABEL_MAP[item.label] || item.label;
+            const modelRanges = MODEL_ORDER.map(m => _probToRange(item.model_exp ? (parseFloat(item.model_exp[m]) || 0) : exp));
+            const rMin = Math.min(...modelRanges.map(r => r.min));
+            const rMax = Math.max(...modelRanges.map(r => r.max));
+            const isHot = exp >= 1.2;
+            const rangeColor = isHot ? '#0F766E' : exp < 0.3 ? '#9CA3AF' : '#374151';
 
-            let barColor = '#CCFBF1';
-            let width = '10%';
-            if (exp >= 2.0) { width = '100%'; barColor = '#134E4A'; }
-            else if (exp >= 1.5) { width = '85%'; barColor = '#0F766E'; }
-            else if (exp >= 1.0) { width = '60%'; barColor = '#14B8A6'; }
-            else if (exp >= 0.5) { width = '30%'; barColor = '#5EEAD4'; }
+            const ensembleCell = `<div class="flex flex-col items-center gap-0.5">
+                <span style="font-family:monospace;font-size:12px;font-weight:800;color:${rangeColor}">${rMin}~${rMax}개</span>
+                <span style="font-size:9px;color:#94A3B8">평균 ${exp.toFixed(1)}개</span>
+            </div>`;
 
-            const expCell = `
-                <div class="flex flex-col items-center justify-center h-full px-2">
-                    <span style="font-family:monospace;font-size:11px;font-weight:700;color:${exp >= 2.0 ? '#134E4A' : exp >= 1.5 ? '#0F766E' : exp >= 1.0 ? '#14B8A6' : exp >= 0.5 ? '#0D9488' : '#9CA3AF'}">${exp.toFixed(2)}<span style="font-size:9px;font-weight:400"> 개</span></span>
-                    <div class="w-full h-1 bg-teal-50 rounded-full overflow-hidden mt-0.5">
-                        <div style="width:${width};height:100%;background-color:${barColor};border-radius:99px;"></div>
-                    </div>
-                </div>
-            `;
-
-            const modelCells = models.map(m => {
-                const val = item.model_exp && item.model_exp[m] != null ? parseFloat(item.model_exp[m]) : 0;
-                return `<td class="px-2 py-3 text-center" title="${m.toUpperCase()}: ${val.toFixed(2)}">
-                    <span style="font-family:monospace;font-size:10px;font-weight:${val >= 1.0 ? '700' : '400'};color:${val >= 1.0 ? MODEL_COLORS[m] : val >= 0.5 ? '#6B7280' : '#D1D5DB'}">${val.toFixed(1)}</span>
-                </td>`;
+            const modelCells = MODEL_ORDER.map((m, i) => {
+                const r = modelRanges[i];
+                const lbl = r.min === r.max ? `${r.min}` : `${r.min}~${r.max}`;
+                return `<td class="px-2 py-3 text-center"><span style="font-family:monospace;font-size:10px;font-weight:700;color:${MODEL_COLORS[m]}">${lbl}</span></td>`;
             }).join('');
 
-            html += `<tr class="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors">`;
-            html += `<td class="px-4 py-3 font-bold text-gray-700 text-sm">${item.label}</td>`;
-            html += `<td class="px-4 py-3 text-center">${expCell}</td>`;
+            html += `<tr class="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors${isHot ? ' bg-emerald-50/30' : ''}">`;
+            html += `<td class="px-4 py-3 font-bold text-gray-700 text-sm">${displayLabel}</td>`;
+            html += `<td class="px-4 py-3 text-center">${ensembleCell}</td>`;
             html += modelCells;
             html += `<td class="px-4 py-3 text-center font-mono text-gray-500">${item.gap != null ? item.gap : '-'}</td>`;
             html += `<td class="px-4 py-3 text-center font-mono text-gray-500">${item.str != null ? item.str : '-'}</td>`;
@@ -1293,54 +1755,54 @@ const DeepLearning = {
     renderMagicSquareAnalysis(squareData) {
         const container = document.getElementById('magicSquareContainer');
         if (!container || !squareData || !squareData.length) return;
+
+        const _probToRange = (prob) => {
+            if (prob < 0.3) return { min: 0, max: 1 };
+            if (prob >= 1.8) return { min: 1, max: 3 };
+            if (prob >= 1.2) return { min: 1, max: 2 };
+            return { min: 0, max: 2 };
+        };
+        const MODEL_ORDER = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
+        const MODEL_ABBR = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV', autoencoder: 'ATC', gnn: 'GNN' };
         const MODEL_COLORS = {
             lstm: '#6366F1', xgboost: '#3B82F6', cnn: '#EC4899',
             transformer: '#F97316', markov: '#10B981', autoencoder: '#8B5CF6', gnn: '#EF4444'
         };
-        const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
-        const MODEL_ABBR = { lstm: 'L', xgboost: 'X', cnn: 'C', transformer: 'T', markov: 'M', autoencoder: 'A', gnn: 'G' };
 
         let html = '<div class="overflow-x-auto rounded-2xl border border-gray-200 shadow-sm bg-white">';
         html += '<table class="w-full text-xs">';
         html += '<thead><tr class="bg-gray-50/50 border-b border-gray-200">';
         html += '<th class="px-4 py-3 text-left font-bold text-gray-700">궁</th>';
-        html += '<th class="px-4 py-3 text-center font-bold text-blue-600">앙상블</th>';
-        models.forEach(m => {
-            html += `<th class="px-2 py-3 text-center font-semibold text-gray-500" title="${m.toUpperCase()}">${MODEL_ABBR[m]}</th>`;
+        html += '<th class="px-4 py-3 text-center font-bold text-blue-600">AI 종합</th>';
+        MODEL_ORDER.forEach(m => {
+            html += `<th class="px-2 py-3 text-center font-semibold" style="color:${MODEL_COLORS[m]}">${MODEL_ABBR[m]}</th>`;
         });
         html += '<th class="px-4 py-3 text-center font-bold text-gray-600">Gap</th>';
         html += '<th class="px-4 py-3 text-center font-bold text-gray-600">STR</th>';
         html += '</tr></thead><tbody>';
 
-        squareData.forEach((item, idx) => {
+        squareData.forEach(item => {
             const exp = typeof item.exp === 'number' ? item.exp : 0;
+            const modelRanges = MODEL_ORDER.map(m => _probToRange(item.model_exp ? (parseFloat(item.model_exp[m]) || 0) : exp));
+            const rMin = Math.min(...modelRanges.map(r => r.min));
+            const rMax = Math.max(...modelRanges.map(r => r.max));
+            const isHot = exp >= 1.2;
+            const rangeColor = isHot ? '#0F766E' : exp < 0.3 ? '#9CA3AF' : '#374151';
 
-            let barColor = '#CCFBF1';
-            let width = '10%';
-            if (exp >= 2.0) { width = '100%'; barColor = '#134E4A'; }
-            else if (exp >= 1.5) { width = '85%'; barColor = '#0F766E'; }
-            else if (exp >= 1.0) { width = '60%'; barColor = '#14B8A6'; }
-            else if (exp >= 0.5) { width = '30%'; barColor = '#5EEAD4'; }
+            const ensembleCell = `<div class="flex flex-col items-center gap-0.5">
+                <span style="font-family:monospace;font-size:12px;font-weight:800;color:${rangeColor}">${rMin}~${rMax}개</span>
+                <span style="font-size:9px;color:#94A3B8">평균 ${exp.toFixed(1)}개</span>
+            </div>`;
 
-            const expCell = `
-                <div class="flex flex-col items-center justify-center h-full px-2">
-                    <span style="font-family:monospace;font-size:11px;font-weight:700;color:${exp >= 2.0 ? '#134E4A' : exp >= 1.5 ? '#0F766E' : exp >= 1.0 ? '#14B8A6' : exp >= 0.5 ? '#0D9488' : '#9CA3AF'}">${exp.toFixed(2)}<span style="font-size:9px;font-weight:400"> 개</span></span>
-                    <div class="w-full h-1 bg-teal-50 rounded-full overflow-hidden mt-0.5">
-                        <div style="width:${width};height:100%;background-color:${barColor};border-radius:99px;"></div>
-                    </div>
-                </div>
-            `;
-
-            const modelCells = models.map(m => {
-                const val = item.model_exp && item.model_exp[m] != null ? parseFloat(item.model_exp[m]) : 0;
-                return `<td class="px-2 py-3 text-center" title="${m.toUpperCase()}: ${val.toFixed(2)}">
-                    <span style="font-family:monospace;font-size:10px;font-weight:${val >= 1.0 ? '700' : '400'};color:${val >= 1.0 ? MODEL_COLORS[m] : val >= 0.5 ? '#6B7280' : '#D1D5DB'}">${val.toFixed(1)}</span>
-                </td>`;
+            const modelCells = MODEL_ORDER.map((m, i) => {
+                const r = modelRanges[i];
+                const label = r.min === r.max ? `${r.min}` : `${r.min}~${r.max}`;
+                return `<td class="px-2 py-3 text-center"><span style="font-family:monospace;font-size:10px;font-weight:700;color:${MODEL_COLORS[m]}">${label}</span></td>`;
             }).join('');
 
-            html += `<tr class="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors">`;
+            html += `<tr class="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors${isHot ? ' bg-emerald-50/30' : ''}">`;
             html += `<td class="px-4 py-3 font-bold text-gray-700 text-sm">${item.label}</td>`;
-            html += `<td class="px-4 py-3 text-center">${expCell}</td>`;
+            html += `<td class="px-4 py-3 text-center">${ensembleCell}</td>`;
             html += modelCells;
             html += `<td class="px-4 py-3 text-center font-mono text-gray-500">${item.gap != null ? item.gap : '-'}</td>`;
             html += `<td class="px-4 py-3 text-center font-mono text-gray-500">${item.str != null ? item.str : '-'}</td>`;
@@ -1354,48 +1816,67 @@ const DeepLearning = {
         const container = document.getElementById('missingGroupContainer');
         if (!container || !groupData) return;
 
-        // 백엔드가 {groups: {1:{...}, 2:{...}, ...}} 형태로 반환
         const rawGroups = groupData.groups || groupData;
         const groupArray = Array.isArray(rawGroups) ? rawGroups : Object.values(rawGroups);
         if (!groupArray.length) return;
 
+        const MODEL_ORDER = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
+        const MODEL_ABBR = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV', autoencoder: 'ATC', gnn: 'GNN' };
+        const MODEL_COLORS = {
+            lstm: '#6366F1', xgboost: '#3B82F6', cnn: '#EC4899',
+            transformer: '#F97316', markov: '#10B981', autoencoder: '#8B5CF6', gnn: '#EF4444'
+        };
+        const _expToRange = (exp) => {
+            if (exp < 0.5) return { min: 0, max: 1 };
+            if (exp >= 2.0) return { min: 1, max: 3 };
+            if (exp >= 1.2) return { min: 1, max: 2 };
+            return { min: 0, max: 2 };
+        };
+
         let html = '<div class="overflow-x-auto rounded-2xl border border-gray-200 shadow-sm bg-white">';
         html += '<table class="w-full text-xs">';
         html += '<thead><tr class="bg-gray-50/50 border-b border-gray-200">';
-        html += '<th class="px-4 py-3 text-left font-bold text-gray-700">구분</th>';
-        html += '<th class="px-4 py-3 text-center font-bold text-blue-600">예상출현<span style="font-size:9px;font-weight:400;color:#9CA3AF;margin-left:3px">합=6개</span></th>';
+        html += '<th class="px-4 py-3 text-left font-bold text-gray-700">미출현 구간</th>';
+        html += '<th class="px-4 py-3 text-center font-bold text-blue-600">AI 종합</th>';
+        MODEL_ORDER.forEach(m => {
+            html += `<th class="px-2 py-3 text-center font-semibold" style="color:${MODEL_COLORS[m]}">${MODEL_ABBR[m]}</th>`;
+        });
         html += '<th class="px-4 py-3 text-center font-bold text-gray-600">번호수</th>';
-        html += '<th class="px-4 py-3 text-left font-bold text-gray-600">추천 번호</th>';
+        html += '<th class="px-4 py-3 text-left font-bold text-gray-600">추천 번호 (상위15)</th>';
         html += '</tr></thead><tbody>';
 
         groupArray.forEach(g => {
-            // 앙상블 기대 출현수: 그룹 내 번호들의 확률 합 × 6
-            // avg_prob은 전체 합 100%로 정규화된 % 단위 → count × avg_prob / 100 × 6 = 이 그룹에서 나올 기대 개수
             const expected = (g.count || 0) * (g.avg_prob || 0) / 100 * 6;
-            let barColor = '#CCFBF1', width = '10%';
-            if (expected >= 2.0) { width = '100%'; barColor = '#134E4A'; }
-            else if (expected >= 1.5) { width = '75%'; barColor = '#0F766E'; }
-            else if (expected >= 1.0) { width = '50%'; barColor = '#14B8A6'; }
-            else if (expected >= 0.5) { width = '25%'; barColor = '#5EEAD4'; }
-            const textColor = expected >= 2.0 ? '#134E4A' : expected >= 1.5 ? '#0F766E' : expected >= 1.0 ? '#14B8A6' : expected >= 0.5 ? '#0D9488' : '#9CA3AF';
+            const r = _expToRange(expected);
+            const isHot = expected >= 1.2;
+            const rangeColor = isHot ? '#0F766E' : expected < 0.5 ? '#9CA3AF' : '#374151';
 
-            const expCell = `
-                <div class="flex flex-col items-center justify-center h-full px-2">
-                    <span style="font-family:monospace;font-size:15px;font-weight:900;color:${textColor}">${expected.toFixed(1)}<span style="font-size:10px;font-weight:500"> 개</span></span>
-                    <div class="w-full h-1 bg-teal-50 rounded-full overflow-hidden mt-0.5">
-                        <div style="width:${width};height:100%;background-color:${barColor};border-radius:99px;"></div>
-                    </div>
-                </div>
-            `;
+            const ensembleCell = `<div class="flex flex-col items-center gap-0.5">
+                <span style="font-family:monospace;font-size:12px;font-weight:800;color:${rangeColor}">${r.min}~${r.max}개</span>
+                <span style="font-size:9px;color:#94A3B8">평균 ${expected.toFixed(1)}개</span>
+            </div>`;
 
-            const top15Nums = (g.numbers || []).filter(n => n.is_top15).map(n => n.num).slice(0, 8);
+            // 모델별 — model_exp 있으면 범위값, 없으면 '-'
+            const modelCells = MODEL_ORDER.map(m => {
+                const color = MODEL_COLORS[m];
+                if (!g.model_exp || g.model_exp[m] == null) {
+                    return `<td class="px-2 py-3 text-center"><span style="color:#D1D5DB;font-size:10px">-</span></td>`;
+                }
+                const mExp = parseFloat(g.model_exp[m]);
+                const mr = _expToRange(mExp);
+                const lbl = mr.min === mr.max ? `${mr.min}` : `${mr.min}~${mr.max}`;
+                return `<td class="px-2 py-3 text-center"><span style="font-family:monospace;font-size:10px;font-weight:700;color:${color}">${lbl}</span></td>`;
+            }).join('');
+
+            const top15Nums = (g.numbers || []).filter(n => n.is_top15).map(n => n.num).slice(0, 10);
             const ballsHtml = top15Nums.map(n =>
                 `<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold text-white mx-0.5" style="background:${g.color || '#6366f1'}">${n}</span>`
             ).join('') || '<span class="text-gray-400">-</span>';
 
-            html += `<tr class="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors">`;
-            html += `<td class="px-4 py-3 font-bold text-gray-700 text-sm">${g.label || '-'}</td>`;
-            html += `<td class="px-4 py-3 text-center">${expCell}</td>`;
+            html += `<tr class="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors${isHot ? ' bg-emerald-50/30' : ''}">`;
+            html += `<td class="px-4 py-3 font-bold text-sm" style="color:${g.color || '#374151'}">${g.label || '-'}</td>`;
+            html += `<td class="px-4 py-3 text-center">${ensembleCell}</td>`;
+            html += modelCells;
             html += `<td class="px-4 py-3 text-center font-mono text-gray-500">${g.count || 0}</td>`;
             html += `<td class="px-4 py-3">${ballsHtml}</td>`;
             html += '</tr>';
@@ -1404,83 +1885,219 @@ const DeepLearning = {
         container.innerHTML = html;
     },
 
-    renderHotColdAnalysis(hotColdData) {
+    async renderHotColdAnalysis(hotColdData) {
         const container = document.getElementById('hotColdContainer');
         if (!container || !hotColdData) return;
+
+        const MODEL_ORDER = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
+        const MODEL_ABBR = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV', autoencoder: 'ATC', gnn: 'GNN' };
         const MODEL_COLORS = {
             lstm: '#6366F1', xgboost: '#3B82F6', cnn: '#EC4899',
             transformer: '#F97316', markov: '#10B981', autoencoder: '#8B5CF6', gnn: '#EF4444'
         };
-        const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
-        const MODEL_ABBR = { lstm: 'L', xgboost: 'X', cnn: 'C', transformer: 'T', markov: 'M', autoencoder: 'A', gnn: 'G' };
         const STATUS_ORDER = ['hot', 'active', 'cooling', 'cold', 'deadcold'];
-        const STATUS_LABELS = { hot: '🔥 핫', active: '✅ 활성', cooling: '🌡️ 쿨링', cold: '❄️ 콜드', deadcold: '🧊 극콜드' };
+        const STATUS_META = {
+            hot:      { label: '🔥 핫',    sub: 'Gap 0~2',   color: '#EF4444' },
+            active:   { label: '✅ 활성',   sub: 'Gap 3~7',   color: '#F97316' },
+            cooling:  { label: '🌡️ 쿨링',  sub: 'Gap 8~15',  color: '#3B82F6' },
+            cold:     { label: '❄️ 콜드',   sub: 'Gap 16~25', color: '#6366F1' },
+            deadcold: { label: '🧊 극콜드', sub: 'Gap 26+',   color: '#94A3B8' },
+        };
+        const PERIOD_OPTIONS = [5, 10, 15, 20];
+        // hot_cold.html과 동일한 출현 횟수 기준 분류
+        const HC_CRITERIA = {
+            5:  { hot: 2, coldMax: 0, hotLabel: '2~5회',  neutralLabel: '1회',   coldLabel: '0회' },
+            10: { hot: 3, coldMax: 0, hotLabel: '3~10회', neutralLabel: '1~2회', coldLabel: '0회' },
+            15: { hot: 4, coldMax: 1, hotLabel: '4~15회', neutralLabel: '2~3회', coldLabel: '0~1회' },
+            20: { hot: 5, coldMax: 1, hotLabel: '5~20회', neutralLabel: '2~4회', coldLabel: '0~1회' },
+        };
 
-        let html = '<div class="overflow-x-auto rounded-2xl border border-gray-200 shadow-sm bg-white">';
-        html += '<table class="w-full text-xs">';
-        html += '<thead><tr class="bg-gray-50/50 border-b border-gray-200">';
-        html += '<th class="px-4 py-3 text-left font-bold text-gray-700">온도</th>';
-        html += '<th class="px-4 py-3 text-center font-bold text-blue-600">예상출현<span style="font-size:9px;font-weight:400;color:#9CA3AF;margin-left:3px">합=6개</span></th>';
-        models.forEach(m => {
-            html += `<th class="px-2 py-3 text-center font-semibold text-gray-500" title="${m.toUpperCase()}">${MODEL_ABBR[m]}</th>`;
+        const _expToRange = (exp) => {
+            if (exp < 0.5) return { min: 0, max: 1 };
+            if (exp >= 2.0) return { min: 1, max: 3 };
+            if (exp >= 1.2) return { min: 1, max: 2 };
+            return { min: 0, max: 2 };
+        };
+
+        // 전체 num_details 수집
+        const allNums = [];
+        STATUS_ORDER.forEach(s => {
+            const d = hotColdData[s];
+            if (d && Array.isArray(d.num_details)) allNums.push(...d.num_details);
         });
-        html += '<th class="px-4 py-3 text-center font-bold text-gray-600">번호수</th>';
-        html += '<th class="px-4 py-3 text-center font-bold text-gray-600">평균Gap</th>';
-        html += '</tr></thead><tbody>';
 
-        STATUS_ORDER.forEach(status => {
-            const d = hotColdData[status];
-            if (!d) return;
-            // 앙상블 기대 출현수: avg_prob은 0~1 범위 raw 확률 → count × avg_prob × 6
-            const expected = (d.count || 0) * (d.avg_prob || 0) * 6;
-            let barColor = '#CCFBF1', width = '10%';
-            if (expected >= 2.0) { width = '100%'; barColor = '#134E4A'; }
-            else if (expected >= 1.5) { width = '75%'; barColor = '#0F766E'; }
-            else if (expected >= 1.0) { width = '50%'; barColor = '#14B8A6'; }
-            else if (expected >= 0.5) { width = '25%'; barColor = '#5EEAD4'; }
-            const textColor = expected >= 2.0 ? '#134E4A' : expected >= 1.5 ? '#0F766E' : expected >= 1.0 ? '#14B8A6' : expected >= 0.5 ? '#0D9488' : '#9CA3AF';
+        // 최근 당첨 결과 로드 (출현 횟수 계산용)
+        if (!this._drawsCache) {
+            const { data } = await window.supabaseClient
+                .from('lotto_draws')
+                .select('round, numbers')
+                .order('round', { ascending: false })
+                .limit(20);
+            this._drawsCache = data || [];
+        }
+        const recentDraws = this._drawsCache;
 
-            const expCell = `
-                <div class="flex flex-col items-center justify-center h-full px-2">
-                    <span style="font-family:monospace;font-size:15px;font-weight:900;color:${textColor}">${expected.toFixed(1)}<span style="font-size:10px;font-weight:500"> 개</span></span>
-                    <div class="w-full h-1 bg-teal-50 rounded-full overflow-hidden mt-0.5">
-                        <div style="width:${width};height:100%;background-color:${barColor};border-radius:99px;"></div>
-                    </div>
-                </div>
-            `;
+        const _buildPeriodTable = (n) => {
+            const crit = HC_CRITERIA[n];
+            // 최근 N회 출현 횟수 계산 (hot_cold.html과 동일 로직)
+            const periodDraws = recentDraws.slice(0, n);
+            const countMap = {};
+            for (let num = 1; num <= 45; num++) {
+                let cnt = 0;
+                periodDraws.forEach(draw => { if ((draw.numbers || []).includes(num)) cnt++; });
+                countMap[num] = cnt;
+            }
+            // 출현 횟수 기준 분류
+            const hot     = allNums.filter(d => countMap[d.num] >= crit.hot);
+            const neutral = allNums.filter(d => countMap[d.num] > crit.coldMax && countMap[d.num] < crit.hot);
+            const cold    = allNums.filter(d => countMap[d.num] <= crit.coldMax);
+            const hotRange     = `당첨횟수: ${crit.hotLabel}`;
+            const neutralRange = `당첨횟수: ${crit.neutralLabel}`;
+            const coldRange    = `당첨횟수: ${crit.coldLabel}`;
 
-            const modelCells = models.map(m => {
-                const ms = (d.model_scores || {})[m] || {};
-                const signal = ms.signal || 'neutral';
-                return `<td class="px-2 py-3 text-center" title="${m.toUpperCase()}: ${signal}">
-                    <span style="font-size:11px;font-weight:700;color:${signal === 'positive' ? MODEL_COLORS[m] : signal === 'neutral' ? '#9CA3AF' : '#E5E7EB'}">${signal === 'positive' ? '▲' : signal === 'neutral' ? '−' : '▼'}</span>
-                </td>`;
-            }).join('');
+            const _rowHtml = (icon, label, rangeLabel, color, bgClass, nums) => {
+                if (!nums.length) return `<tr class="border-b border-gray-100"><td class="px-4 py-3 font-bold text-sm" style="color:${color}">${icon} ${label}</td><td colspan="${MODEL_ORDER.length + 3}" class="px-4 py-3 text-center text-gray-400 text-xs">해당 번호 없음</td></tr>`;
 
-            html += `<tr class="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors">`;
-            html += `<td class="px-4 py-3 font-bold text-gray-700 text-sm">${STATUS_LABELS[status] || status}</td>`;
-            html += `<td class="px-4 py-3 text-center">${expCell}</td>`;
-            html += modelCells;
-            html += `<td class="px-4 py-3 text-center font-mono text-gray-500">${d.count || 0}</td>`;
-            html += `<td class="px-4 py-3 text-center font-mono text-gray-500">${d.avg_gap != null ? d.avg_gap.toFixed(1) : '-'}</td>`;
-            html += '</tr>';
+                const ensExp = nums.reduce((s, d) => s + (d.ensemble_prob || 0) / 100, 0) * 6;
+                const r = _expToRange(ensExp);
+                const rangeColor = ensExp >= 1.2 ? '#0F766E' : ensExp < 0.5 ? '#9CA3AF' : '#374151';
+
+                const ensCell = `<div class="flex flex-col items-center gap-0.5">
+                    <span style="font-family:monospace;font-size:12px;font-weight:800;color:${rangeColor}">${r.min}~${r.max}개</span>
+                    <span style="font-size:9px;color:#94A3B8">평균 ${ensExp.toFixed(1)}개</span>
+                </div>`;
+
+                const modelCells = MODEL_ORDER.map(m => {
+                    const mExp = nums.reduce((s, d) => {
+                        const p = (d.models && d.models[m]) ? (d.models[m].prob || 0) : 0;
+                        return s + p / 100;
+                    }, 0) * 6;
+                    const mr = _expToRange(mExp);
+                    const lbl = mr.min === mr.max ? `${mr.min}` : `${mr.min}~${mr.max}`;
+                    return `<td class="px-2 py-3 text-center"><span style="font-family:monospace;font-size:10px;font-weight:700;color:${MODEL_COLORS[m]}">${lbl}</span></td>`;
+                }).join('');
+
+                const topBalls = nums.filter(d => d.is_top15).sort((a, b) => (b.ensemble_prob||0)-(a.ensemble_prob||0)).slice(0, 8);
+                const ballsHtml = topBalls.map(d =>
+                    `<span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold text-white mx-0.5" style="background:${color}">${d.num}</span>`
+                ).join('') || '<span class="text-gray-400 text-xs">-</span>';
+
+                return `<tr class="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors${bgClass ? ' ' + bgClass : ''}">
+                    <td class="px-4 py-3 text-sm">
+                        <div class="font-bold" style="color:${color}">${icon} ${label}</div>
+                        <div style="font-size:10px;color:#94A3B8">${rangeLabel} · 대상수: ${nums.length}개</div>
+                    </td>
+                    <td class="px-4 py-3 text-center">${ensCell}</td>
+                    ${modelCells}
+                    <td class="px-4 py-3 text-center font-mono text-gray-500">${nums.length}</td>
+                    <td class="px-4 py-3">${ballsHtml}</td>
+                </tr>`;
+            };
+
+            let t = '<div class="overflow-x-auto rounded-2xl border border-gray-200 shadow-sm bg-white">';
+            t += '<table class="w-full text-xs">';
+            t += '<thead><tr class="bg-gray-50/50 border-b border-gray-200">';
+            t += '<th class="px-4 py-3 text-left font-bold text-gray-700">구분</th>';
+            t += '<th class="px-4 py-3 text-center font-bold text-blue-600">AI 종합</th>';
+            MODEL_ORDER.forEach(m => { t += `<th class="px-2 py-3 text-center font-semibold" style="color:${MODEL_COLORS[m]}">${MODEL_ABBR[m]}</th>`; });
+            t += '<th class="px-4 py-3 text-center font-bold text-gray-600">번호수</th>';
+            t += '<th class="px-4 py-3 text-left font-bold text-gray-600">추천 번호 (상위15)</th>';
+            t += '</tr></thead><tbody>';
+            t += _rowHtml('🔥', '핫', hotRange,     '#EF4444', 'bg-red-50/20',    hot);
+            t += _rowHtml('🌡️', '중립', neutralRange, '#F97316', 'bg-orange-50/20', neutral);
+            t += _rowHtml('❄️', '콜드', coldRange,    '#6366F1', '',               cold);
+            t += '</tbody></table></div>';
+            return t;
+        };
+
+        // 기준 회차 탭 + 상태 기반 테이블 (num_details 없을 때 fallback)
+        const useNumDetails = allNums.length > 0;
+        const uid = `hc_${Date.now()}`;
+
+        let html = '';
+
+        // 기준 회차 선택 탭
+        html += `<div class="flex gap-1.5 mb-3 flex-wrap" id="${uid}_tabs">`;
+        PERIOD_OPTIONS.forEach((n, i) => {
+            const active = i === 0 ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200';
+            html += `<button onclick="window._hcSelectPeriod('${uid}',${n})" id="${uid}_tab_${n}"
+                class="px-3 py-1 rounded-full text-xs font-bold transition-colors ${active}">${n}회차 기준</button>`;
         });
-        html += '</tbody></table></div>';
+        html += '</div>';
+
+        // 콘텐츠 영역
+        if (useNumDetails) {
+            PERIOD_OPTIONS.forEach((n, i) => {
+                html += `<div id="${uid}_content_${n}" style="display:${i===0?'block':'none'}">${_buildPeriodTable(n)}</div>`;
+            });
+        } else {
+            // num_details 없는 구형 데이터: status 기반 fallback
+            html += '<div class="overflow-x-auto rounded-2xl border border-gray-200 shadow-sm bg-white">';
+            html += '<table class="w-full text-xs"><thead><tr class="bg-gray-50/50 border-b border-gray-200">';
+            html += '<th class="px-4 py-3 text-left font-bold text-gray-700">온도</th>';
+            html += '<th class="px-4 py-3 text-center font-bold text-blue-600">AI 종합</th>';
+            MODEL_ORDER.forEach(m => { html += `<th class="px-2 py-3 text-center font-semibold" style="color:${MODEL_COLORS[m]}">${MODEL_ABBR[m]}</th>`; });
+            html += '<th class="px-4 py-3 text-center font-bold text-gray-600">번호수</th>';
+            html += '<th class="px-4 py-3 text-center font-bold text-gray-600">평균Gap</th>';
+            html += '</tr></thead><tbody>';
+            STATUS_ORDER.forEach(status => {
+                const d = hotColdData[status];
+                if (!d) return;
+                const meta = STATUS_META[status];
+                const expected = (d.count || 0) * (d.avg_prob || 0) * 6;
+                const r = _expToRange(expected);
+                const rangeColor = expected >= 1.2 ? '#0F766E' : expected < 0.5 ? '#9CA3AF' : '#374151';
+                const ensCell = `<div class="flex flex-col items-center gap-0.5">
+                    <span style="font-family:monospace;font-size:12px;font-weight:800;color:${rangeColor}">${r.min}~${r.max}개</span>
+                    <span style="font-size:9px;color:#94A3B8">평균 ${expected.toFixed(1)}개</span>
+                </div>`;
+                const modelCells = MODEL_ORDER.map(m => {
+                    const sig = ((d.model_scores || {})[m] || {}).signal || 'neutral';
+                    const lbl = sig === 'positive' ? '1~2' : sig === 'negative' ? '0~1' : '0~2';
+                    return `<td class="px-2 py-3 text-center"><span style="font-family:monospace;font-size:10px;font-weight:700;color:${MODEL_COLORS[m]}">${lbl}</span></td>`;
+                }).join('');
+                html += `<tr class="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors">
+                    <td class="px-4 py-3 text-sm"><div class="font-bold" style="color:${meta.color}">${meta.label}</div><div style="font-size:10px;color:#94A3B8">${meta.sub}</div></td>
+                    <td class="px-4 py-3 text-center">${ensCell}</td>${modelCells}
+                    <td class="px-4 py-3 text-center font-mono text-gray-500">${d.count||0}</td>
+                    <td class="px-4 py-3 text-center font-mono text-gray-500">${d.avg_gap!=null?d.avg_gap.toFixed(1):'-'}</td>
+                </tr>`;
+            });
+            html += '</tbody></table></div>';
+        }
+
         container.innerHTML = html;
+
+        // 탭 전환 함수 (전역 등록)
+        window._hcSelectPeriod = (uid, n) => {
+            PERIOD_OPTIONS.forEach(p => {
+                const tab = document.getElementById(`${uid}_tab_${p}`);
+                const content = document.getElementById(`${uid}_content_${p}`);
+                if (!tab || !content) return;
+                if (p === n) {
+                    tab.className = tab.className.replace('bg-gray-100 text-gray-600 hover:bg-gray-200', 'bg-blue-600 text-white');
+                    content.style.display = 'block';
+                } else {
+                    tab.className = tab.className.replace('bg-blue-600 text-white', 'bg-gray-100 text-gray-600 hover:bg-gray-200');
+                    content.style.display = 'none';
+                }
+            });
+        };
     },
 
     renderRegressionAnalysis(data) {
         const tbody = document.getElementById('reg-body');
         if (!tbody || !data) return;
 
-        // 원본 데이터 저장 (정렬을 위해)
-        if (!this._regressionData) this._regressionData = data;
+        // 원본 데이터 저장 (enriched 데이터 우선 저장)
+        const isEnriched = data.some(d => d.model_exp || d.notable);
+        if (!this._regressionData || isEnriched) this._regressionData = data;
 
         let displayData = [...data];
         const sort = this.state.regressionSort;
 
         // 정렬 화살표 초기화
-        ['id', 'gap', 'str', 'avg_hit'].forEach(f => {
+        ['id', 'gap', 'avg_hit'].forEach(f => {
             const arrow = document.getElementById('reg-sort-arrow-' + f);
             if (arrow) arrow.textContent = '';
         });
@@ -1500,35 +2117,214 @@ const DeepLearning = {
             return 0;
         });
 
+        const MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7', gnn: '#ef4444' };
+        const MODEL_LABELS = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV', autoencoder: 'ATC', gnn: 'GNN' };
+        const MODEL_ORDER = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
+
         tbody.innerHTML = displayData.map(item => {
             const targetsHtml = (item.targets || []).map(n => {
                 const colorClass = this.getBallColorClass(n);
                 return `<span class="ball-common ${colorClass} w-7 h-7 text-xs">${n}</span>`;
             }).join('');
 
-            // 적중 분포 막대 (0~6)
-            const hits = item.hit_dist || {};
-            const distTotal = Math.max(1, Object.values(hits).reduce((a, b) => a + b, 0));
-            const distributionHtml = Array.from({ length: 7 }).map((_, i) => {
-                const count = hits[i] || 0;
-                const pct = Math.round(count / distTotal * 100);
-                const barColor = i === 0 ? '#E5E7EB' : i <= 2 ? '#9CA3AF' : i <= 4 ? '#6366f1' : '#4f46e5';
-                return `<span style="display:inline-flex;flex-direction:column;align-items:center;gap:1px;margin:0 1px">
-                    <span style="font-size:8px;font-weight:700;color:${i === 0 ? '#9CA3AF' : '#1F2937'}">${pct}%</span>
-                    <span style="display:block;width:12px;height:${Math.max(2, Math.round(pct * 0.25))}px;background:${barColor};border-radius:2px"></span>
-                    <span style="font-size:7px;color:#9CA3AF">${i}</span>
-                </span>`;
+            // GAP/STR 뱃지 (필터페이지 동일 스타일)
+            const gapStrHtml = (() => {
+                if (item.gap > 0) {
+                    const gCls = item.gap >= 4
+                        ? 'text-rose-600 bg-rose-50 ring-1 ring-rose-200'
+                        : 'text-amber-600 bg-amber-50 ring-1 ring-amber-200';
+                    return `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black ${gCls}" style="white-space:nowrap">GAP ${item.gap}미출</span>`;
+                } else if (item.str > 0) {
+                    const sCls = item.str >= 5
+                        ? 'text-emerald-700 bg-emerald-100 ring-1 ring-emerald-300'
+                        : 'text-emerald-600 bg-emerald-50 ring-1 ring-emerald-200';
+                    return `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black ${sCls}" style="white-space:nowrap">STR ${item.str}연속</span>`;
+                }
+                return '<span class="text-gray-300 text-xs">-</span>';
+            })();
+
+            // 특이사항 뱃지
+            const notableHtml = (() => {
+                const notable = item.notable || [];
+                if (!notable.length) return '<span class="text-gray-300 text-xs">-</span>';
+                const parts = [...notable].sort((a, b) => b.count - a.count)
+                    .map(x => `<b>${x.num}번</b> ${x.count}회`).join(' · ');
+                return `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black text-violet-600 bg-violet-50 ring-1 ring-violet-200"><span class="opacity-70">특이</span> ${parts}</span>`;
+            })();
+
+            // 공통 _expToRange
+            const _expToRange = (exp) => {
+                if (exp < 0.5) return { min: 0, max: 1 };
+                if (exp >= 2.0) return { min: 1, max: 3 };
+                if (exp >= 1.2) return { min: 1, max: 2 };
+                return { min: 0, max: 2 };
+            };
+
+            // AI 종합 셀
+            const ensExp = item.ensemble_exp;
+            const ensCell = (() => {
+                if (ensExp == null) return `<td class="px-3 py-3 text-center"><span style="color:#D1D5DB;font-size:10px">-</span></td>`;
+                const r = _expToRange(ensExp);
+                const rangeColor = ensExp >= 1.2 ? '#0F766E' : ensExp < 0.5 ? '#9CA3AF' : '#374151';
+                return `<td class="px-3 py-3 text-center">
+                    <div class="flex flex-col items-center gap-0.5">
+                        <span style="font-family:monospace;font-size:12px;font-weight:800;color:${rangeColor}">${r.min}~${r.max}개</span>
+                        <span style="font-size:9px;color:#94A3B8">기대 ${ensExp.toFixed(1)}개</span>
+                    </div>
+                </td>`;
+            })();
+
+            // 모델별 기대값 컬럼
+            const modelCells = MODEL_ORDER.map(m => {
+                const mExp = (item.model_exp && item.model_exp[m] != null) ? parseFloat(item.model_exp[m]) : null;
+                const color = MODEL_COLORS[m];
+                if (mExp === null) return `<td class="px-2 py-3 text-center"><span style="color:#D1D5DB;font-size:10px">-</span></td>`;
+                const mr = _expToRange(mExp);
+                const lbl = mr.min === mr.max ? `${mr.min}` : `${mr.min}~${mr.max}`;
+                return `<td class="px-2 py-3 text-center"><span style="font-family:monospace;font-size:11px;font-weight:800;color:${color}">${lbl}</span></td>`;
             }).join('');
 
             return `<tr class="hover:bg-gray-50 transition-colors">
                 <td class="px-3 py-3 font-bold text-gray-800">${item.id}회귀</td>
                 <td class="px-3 py-3"><div class="flex gap-1 justify-center">${targetsHtml}</div></td>
-                <td class="px-3 py-3 font-mono text-gray-600">${item.gap}</td>
-                <td class="px-3 py-3 font-mono text-gray-600">${item.str != null ? item.str : '-'}</td>
-                <td class="px-3 py-3 font-mono text-gray-500">${item.avg_hit != null ? item.avg_hit.toFixed(2) : '-'}</td>
-                <td class="px-3 py-3"><div class="flex items-center justify-center">${distributionHtml}</div></td>
+                <td class="px-3 py-3 text-center">${gapStrHtml}</td>
+                <td class="px-3 py-3 text-center">${notableHtml}</td>
+                <td class="px-3 py-3 font-mono text-center text-gray-500">${item.avg_hit != null ? item.avg_hit.toFixed(2) : '-'}</td>
+                ${ensCell}
+                ${modelCells}
             </tr>`;
         }).join('');
+    },
+
+    // ── hot_cold num_details에서 번호별 모델 확률 + 앙상블 확률 캐시 구축 ──
+    _buildNumModelProbs(hotColdData) {
+        this._numModelProbs   = {};
+        this._modelTotals     = {};
+        this._numEnsembleProbs = {};   // {num: ensembleProb(%)}
+        this._ensembleTotal   = 0;
+        if (!hotColdData) return;
+        ['hot', 'active', 'cooling', 'cold', 'deadcold'].forEach(s => {
+            const d = hotColdData[s];
+            if (!d || !Array.isArray(d.num_details)) return;
+            d.num_details.forEach(nd => {
+                this._numModelProbs[nd.num] = {};
+                Object.entries(nd.models || {}).forEach(([m, mv]) => {
+                    const p = mv.prob || 0;
+                    this._numModelProbs[nd.num][m] = p;
+                    this._modelTotals[m] = (this._modelTotals[m] || 0) + p;
+                });
+                // 앙상블 확률 (ensemble_prob = final_prob * 100)
+                const ep = nd.ensemble_prob || 0;
+                this._numEnsembleProbs[nd.num] = ep;
+                this._ensembleTotal += ep;
+            });
+        });
+    },
+
+    // ── 번호 목록 → 모델별 기대값 계산 ──
+    _computeModelExpFromNumProbs(nums) {
+        const MODELS = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
+        const exp = {};
+        MODELS.forEach(m => {
+            const total = this._modelTotals[m] || 1;
+            const groupSum = nums.reduce((s, n) => s + ((this._numModelProbs[n] || {})[m] || 0), 0);
+            exp[m] = parseFloat((groupSum / total * 6).toFixed(3));
+        });
+        return exp;
+    },
+
+    // ── 번호 목록 → 앙상블 기대값 계산 ──
+    _computeEnsembleExp(nums) {
+        const total = this._ensembleTotal || 100;
+        const sum = nums.reduce((s, n) => s + (this._numEnsembleProbs[n] || 0), 0);
+        return parseFloat((sum / total * 6).toFixed(3));
+    },
+
+    // ── 미출현 그룹 model_exp 보강 ──
+    _enrichMissingGroupData(groupData) {
+        if (!this._numModelProbs || !Object.keys(this._numModelProbs).length) return;
+        const rawGroups = groupData.groups || groupData;
+        const groups = Array.isArray(rawGroups) ? rawGroups : Object.values(rawGroups);
+        groups.forEach(g => {
+            if (!g.model_exp || !Object.keys(g.model_exp).length) {
+                const nums = (g.numbers || []).map(x => x.num);
+                if (nums.length) g.model_exp = this._computeModelExpFromNumProbs(nums);
+            }
+        });
+    },
+
+    // ── 커스텀 분석 model_exp + ensemble_exp 보강 ──
+    _enrichCustomEvaluations(customData) {
+        if (!this._numModelProbs || !Object.keys(this._numModelProbs).length) return;
+        (customData || []).forEach(grp => {
+            const nums = grp.targets || [];
+            if (!nums.length) return;
+            if (!grp.model_exp || !Object.keys(grp.model_exp).length)
+                grp.model_exp = this._computeModelExpFromNumProbs(nums);
+            if (grp.ensemble_exp == null)
+                grp.ensemble_exp = this._computeEnsembleExp(nums);
+        });
+    },
+
+    // ── 회귀분석 데이터 보강 (notable + model_exp fallback) ──
+    async _loadAndEnrichRegression(regressionData) {
+        try {
+            // draws 캐시 로드 (1회만)
+            if (!this._drawsCache) {
+                const { data } = await window.supabaseClient
+                    .from('lotto_draws')
+                    .select('round, numbers')
+                    .order('round', { ascending: false })
+                    .limit(500);
+                this._drawsCache = data || [];
+            }
+            const draws = this._drawsCache;
+
+            return regressionData.map(item => {
+                const w = item.id;
+                const targetNums = item.targets || [];
+
+                // ── notable: 저장 데이터에 없으면 프론트에서 직접 계산 ──
+                let notable = item.notable;
+                if (!notable) {
+                    notable = [];
+                    for (const n of targetNums) {
+                        let consec = 1;
+                        for (let k = 2; k <= 5; k++) {
+                            const idx = k * w - 1;
+                            if (idx < draws.length && (draws[idx].numbers || []).includes(n)) {
+                                consec++;
+                            } else break;
+                        }
+                        if (consec >= 3) notable.push({ num: n, count: consec });
+                    }
+                }
+
+                // ── model_exp: 3단계 fallback ──
+                // 1) 저장된 model_exp  2) model_scores 변환  3) hot_cold num_details 확률
+                let model_exp = (item.model_exp && Object.keys(item.model_exp).length) ? item.model_exp : null;
+                if (!model_exp && item.model_scores && Object.keys(item.model_scores).length) {
+                    const tLen = targetNums.length || 6;
+                    model_exp = {};
+                    Object.entries(item.model_scores).forEach(([m, v]) => {
+                        model_exp[m] = parseFloat(((v.score || 0) / 100 * tLen).toFixed(3));
+                    });
+                }
+                if (!model_exp && this._numModelProbs && Object.keys(this._numModelProbs).length) {
+                    model_exp = this._computeModelExpFromNumProbs(targetNums);
+                }
+
+                // ── ensemble_exp: hot_cold 앙상블 확률 기반 ──
+                const ensemble_exp = (item.ensemble_exp != null)
+                    ? item.ensemble_exp
+                    : (this._numEnsembleProbs ? this._computeEnsembleExp(targetNums) : null);
+
+                return { ...item, notable, model_exp, ensemble_exp };
+            });
+        } catch (e) {
+            console.warn('[DeepLearning] 회귀분석 보강 실패:', e);
+            return regressionData;
+        }
     },
 
     _regSort(field) {
@@ -1539,7 +2335,9 @@ const DeepLearning = {
             this.state.regressionSort.asc = true;
         }
 
-        const data = this.state.analysisData ? this.state.analysisData.regression_analysis : this._regressionData;
+        const data = this.state.analysisData
+            ? (this.state.analysisData.analysis?.regression_analysis || this.state.analysisData.regression_analysis)
+            : this._regressionData;
         if (data) {
             this.renderRegressionAnalysis(data);
         }
@@ -1552,69 +2350,113 @@ const DeepLearning = {
         const MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7', gnn: '#ef4444' };
         const MODEL_LABELS = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV', autoencoder: 'ATC', gnn: 'GNN' };
         const MODEL_ORDER = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
+
         if (!customData || customData.length === 0) {
-            container.innerHTML = '<p class="text-sm text-slate-400 col-span-full py-8 text-center">커스텀 분석 데이터가 없습니다.</p>';
+            container.innerHTML = '<p class="text-sm text-slate-400 py-8 text-center">커스텀 분석 데이터가 없습니다.</p>';
             return;
         }
-        container.innerHTML = customData.map(grp => {
-            const avgHit = grp.avg_hit != null ? parseFloat(grp.avg_hit).toFixed(1) : '-';
-            const gap = grp.gap ?? '-';
-            const str = grp.str ?? '-';
-            const dist = grp.hit_dist || {};
-            const distTotal = Object.values(dist).reduce((a, b) => a + b, 0) || 1;
-            const gapColor = (typeof gap === 'number' && gap >= 5) ? '#EF4444' : '#64748b';
-            const strColor = (typeof str === 'number' && str >= 2) ? '#6366f1' : '#64748b';
-            const avgColor = parseFloat(avgHit) >= 2 ? '#6366f1' : parseFloat(avgHit) >= 1 ? '#475569' : '#9CA3AF';
-            const typeMap = { static: '고정', dynamic: '동적', manual: '매뉴얼', group: '그룹', regression_overlap: '회귀중첩' };
-            const typeBadge = typeMap[grp.type] || grp.type || '';
+
+        const TYPE_MAP  = { static: '고정', dynamic: '동적', manual: '매뉴얼', group: '그룹', regression_overlap: '회귀중첩' };
+        const TYPE_COLOR = { static: '#6366F1', dynamic: '#10B981', manual: '#F97316', group: '#3B82F6', regression_overlap: '#EC4899' };
+
+        const _expToRange = (exp) => {
+            if (exp < 0.5)  return { min: 0, max: 1 };
+            if (exp >= 2.0) return { min: 1, max: 3 };
+            if (exp >= 1.2) return { min: 1, max: 2 };
+            return { min: 0, max: 2 };
+        };
+
+        // 테이블 헤더
+        let html = '<div class="rounded-2xl border border-gray-200 shadow-sm bg-white overflow-x-auto">';
+        html += '<table class="w-full text-xs">';
+        html += '<thead><tr class="bg-gray-50/50 border-b border-gray-200">';
+        html += '<th class="px-4 py-3 text-left font-bold text-gray-700" style="min-width:140px">분석명</th>';
+        html += '<th class="px-4 py-3 text-left font-bold text-gray-700" style="min-width:220px">대상번호</th>';
+        html += '<th class="px-3 py-3 text-center font-bold text-gray-700" style="white-space:nowrap;min-width:90px">GAP/STR</th>';
+        html += '<th class="px-3 py-3 text-center font-bold text-gray-500" style="white-space:nowrap;min-width:60px">과거평균</th>';
+        html += '<th class="px-3 py-3 text-center font-bold text-blue-600" style="white-space:nowrap;min-width:80px">AI 종합</th>';
+        MODEL_ORDER.forEach(m => {
+            html += `<th class="px-2 py-3 text-center font-semibold" style="color:${MODEL_COLORS[m]};white-space:nowrap;min-width:40px">${MODEL_LABELS[m]}</th>`;
+        });
+        html += '</tr></thead><tbody>';
+
+        customData.forEach(grp => {
+            const gap    = grp.gap ?? 0;
+            const str    = grp.str ?? 0;
+            const avgHit = grp.avg_hit != null ? parseFloat(grp.avg_hit).toFixed(2) : '-';
+
+            const typeLbl   = TYPE_MAP[grp.type]  || grp.type || '';
+            const typeColor = TYPE_COLOR[grp.type] || '#6366F1';
+
+            // GAP/STR 배지
+            const gapStrHtml = (() => {
+                if (gap > 0) {
+                    const gCls = gap >= 4
+                        ? 'text-rose-600 bg-rose-50 ring-1 ring-rose-200'
+                        : 'text-amber-600 bg-amber-50 ring-1 ring-amber-200';
+                    return `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black ${gCls}" style="white-space:nowrap">GAP ${gap}미출</span>`;
+                } else if (str > 0) {
+                    const sCls = str >= 5
+                        ? 'text-emerald-700 bg-emerald-100 ring-1 ring-emerald-300'
+                        : 'text-emerald-600 bg-emerald-50 ring-1 ring-emerald-200';
+                    return `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black ${sCls}" style="white-space:nowrap">STR ${str}연속</span>`;
+                }
+                return '<span class="text-gray-300 text-[10px]">-</span>';
+            })();
+
+            // 대상번호 공 (회귀분석과 동일 크기 w-7 h-7)
             const ballsHtml = (grp.targets || []).map(n => {
                 const colorClass = self.getBallColorClass(n);
                 return `<span class="ball-common ${colorClass} w-7 h-7 text-xs mx-0.5">${n}</span>`;
-            }).join('');
-            const distBars = [0, 1, 2, 3, 4, 5, 6].map(k => {
-                const cnt = dist[k] || 0;
-                const pct = Math.round(cnt / distTotal * 100);
-                const barColor = k === 0 ? '#E5E7EB' : k <= 2 ? '#9CA3AF' : k <= 4 ? '#6366f1' : '#4f46e5';
-                return `<span style="display:inline-flex;flex-direction:column;align-items:center;gap:1px;margin:0 2px">
-                    <span style="font-size:9px;font-weight:700;color:${k === 0 ? '#9CA3AF' : '#1F2937'}">${pct}%</span>
-                    <span style="display:block;width:14px;height:${Math.max(2, Math.round(pct * 0.3))}px;background:${barColor};border-radius:2px"></span>
-                    <span style="font-size:8px;color:#9CA3AF">${k}</span>
-                </span>`;
-            }).join('');
-            const modelBars = MODEL_ORDER.map(m => {
-                const v = (grp.model_scores || {})[m];
-                const s = v ? Math.round(v.score || 0) : 0;
-                const color = MODEL_COLORS[m];
-                return `<div style="display:flex;align-items:center;gap:6px;font-size:10px;margin-bottom:3px">
-                    <span style="width:28px;font-weight:800;color:${color};flex-shrink:0">${MODEL_LABELS[m]}</span>
-                    <div style="flex:1;height:5px;background:#F3F4F6;border-radius:3px;overflow:hidden">
-                        <div style="height:100%;width:${s}%;background:${color};border-radius:3px;transition:width 0.6s ease"></div>
+            }).join('') || '<span class="text-gray-400">-</span>';
+
+            // AI 종합 셀
+            const ensExp = grp.ensemble_exp != null ? parseFloat(grp.ensemble_exp) : null;
+            const ensCell = (() => {
+                if (ensExp === null) return `<td class="px-3 py-3 text-center"><span style="color:#D1D5DB;font-size:10px">-</span></td>`;
+                const r = _expToRange(ensExp);
+                const rangeColor = ensExp >= 1.2 ? '#0F766E' : ensExp < 0.5 ? '#9CA3AF' : '#374151';
+                return `<td class="px-3 py-3 text-center">
+                    <div class="flex flex-col items-center gap-0.5">
+                        <span style="font-family:monospace;font-size:12px;font-weight:800;color:${rangeColor}">${r.min}~${r.max}개</span>
+                        <span style="font-size:9px;color:#94A3B8">기대 ${ensExp.toFixed(1)}개</span>
                     </div>
-                    <span style="width:24px;text-align:right;font-weight:700;color:${color}">${s}</span>
-                </div>`;
+                </td>`;
+            })();
+
+            // 모델별 컬럼 (model_exp 우선, 없으면 model_scores 변환)
+            const modelCells = MODEL_ORDER.map(m => {
+                const color = MODEL_COLORS[m];
+                let mExp = null;
+                if (grp.model_exp && grp.model_exp[m] != null) {
+                    mExp = parseFloat(grp.model_exp[m]);
+                } else if (grp.model_scores && grp.model_scores[m] != null) {
+                    const score = grp.model_scores[m].score || 0;
+                    mExp = score / 100 * (grp.targets?.length || 6);
+                }
+                if (mExp === null) return `<td class="px-2 py-3 text-center"><span style="color:#D1D5DB">-</span></td>`;
+                const mr  = _expToRange(mExp);
+                const lbl = mr.min === mr.max ? `${mr.min}` : `${mr.min}~${mr.max}`;
+                return `<td class="px-2 py-3 text-center"><span style="font-family:monospace;font-size:11px;font-weight:800;color:${color}">${lbl}</span></td>`;
             }).join('');
-            return `<div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.06)">
-                <div style="padding:10px 14px;background:#f8fafc;border-bottom:1px solid #f1f5f9;display:flex;align-items:center;gap:6px;min-width:0">
-                    <span style="font-size:9px;padding:1px 5px;background:#ede9fe;color:#6d28d9;border-radius:4px;font-weight:700;flex-shrink:0">${typeBadge}</span>
-                    <span style="font-weight:700;color:#1e293b;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${grp.title || ''}">${grp.title || '커스텀'}</span>
+
+            html += `<tr class="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors">`;
+            html += `<td class="px-4 py-3">
+                <div class="flex flex-col gap-1">
+                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold self-start" style="background:${typeColor}18;color:${typeColor}">${typeLbl}</span>
+                    <span class="font-bold text-gray-800 text-xs leading-tight">${grp.title || '커스텀'}</span>
                 </div>
-                <div style="padding:10px 14px 6px;display:flex;flex-wrap:wrap;gap:0;align-items:center">
-                    ${ballsHtml || '<span style="font-size:11px;color:#94a3b8">대상번호 없음</span>'}
-                </div>
-                <div style="padding:4px 14px 8px;display:flex;gap:14px;font-size:11px;flex-wrap:wrap">
-                    <span>평균적중 <strong style="font-size:13px;color:${avgColor}">${avgHit}</strong></span>
-                    <span>Gap <strong style="color:${gapColor}">${gap}</strong></span>
-                    <span>STR <strong style="color:${strColor}">${str}</strong></span>
-                </div>
-                <div style="padding:4px 14px 8px;border-top:1px solid #f8fafc">
-                    <div style="font-size:9px;color:#94a3b8;margin-bottom:3px">적중 분포 (0~6개)</div>
-                    <div style="display:inline-flex;align-items:flex-end;height:40px">${distBars}</div>
-                </div>
-                <div style="padding:8px 14px;border-top:1px solid #f1f5f9">
-                    ${modelBars}
-                </div>
-            </div>`;
-        }).join('');
+            </td>`;
+            html += `<td class="px-4 py-3"><div class="flex flex-wrap items-center">${ballsHtml}</div></td>`;
+            html += `<td class="px-3 py-3 text-center">${gapStrHtml}</td>`;
+            html += `<td class="px-3 py-3 text-center font-mono text-gray-500" style="white-space:nowrap">${avgHit}</td>`;
+            html += ensCell;
+            html += modelCells;
+            html += `</tr>`;
+        });
+
+        html += '</tbody></table></div>';
+        container.innerHTML = html;
     },
 
     async loadHistoryList() {
@@ -1696,7 +2538,7 @@ const DeepLearning = {
         var remaining = matrixNums.filter(n => !priority.includes(n));
         var queue = [...priority, ...remaining];
 
-        const url = window.AI_SERVER_URL || 'https://parksungdeok-lotto-ai-backend.hf.space';
+        const url = this._getBaseUrl();
         const target_round = d.target_round;
         const CONCURRENCY = 3;
 
@@ -1755,7 +2597,7 @@ const DeepLearning = {
             var evidenceText = (d.evidence && d.evidence[number]) ? d.evidence[number] : null;
             if (!evidenceText) {
                 try {
-                    const url = window.AI_SERVER_URL || 'https://parksungdeok-lotto-ai-backend.hf.space';
+                    const url = this._getBaseUrl();
                     const reqBody = { number: number, user_query: "이 번호에 대한 심층 분석을 해줘" };
                     if (d.target_round) reqBody.target_round = d.target_round;
                     const res = await fetch(url + '/api/explain/', {
@@ -1854,17 +2696,17 @@ const DeepLearning = {
                 `;
             }
             if (matrixItem && matrixItem.models) {
-                var MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7' };
-                var MODEL_LABELS = { lstm: 'LSTM (시계열)', xgboost: 'XGBoost (패턴)', cnn: 'CNN (공간)', transformer: 'Transformer (맥락)', markov: 'Markov (전이)', autoencoder: 'Autoencoder (압축)' };
+                var MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7', gnn: '#ef4444' };
+                var MODEL_LABELS = { lstm: 'LSTM (시계열)', xgboost: 'XGBoost (패턴)', cnn: 'CNN (공간)', transformer: 'Transformer (맥락)', markov: 'Markov (전이)', autoencoder: 'Autoencoder (압축)', gnn: 'GNN (관계망)' };
                 var modelHtml = '';
-                ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder'].forEach(mKey => {
+                ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'].forEach(mKey => {
                     var mVal = matrixItem.models[mKey] || {};
                     var score = mVal.score || 0;
                     var color = MODEL_COLORS[mKey] || '#94a3b8';
                     var label = MODEL_LABELS[mKey] || mKey;
                     modelHtml += `<div class="flex items-center gap-3 mb-2"><span class="text-[10px] font-bold w-28 text-slate-500 flex-shrink-0">${label}</span><div class="flex-1 bg-slate-100 h-1.5 rounded-full overflow-hidden"><div class="h-full rounded-full" style="width:${score}%;background:${color}"></div></div><span class="text-[10px] font-bold w-8 text-right text-slate-600">${score}</span></div>`;
                 });
-                localInfo += `<div class="bg-slate-50 rounded-xl p-4 border border-slate-100 mt-4"><h5 class="font-bold text-slate-600 text-xs mb-3">6개 모델별 기여도</h5>${modelHtml}</div>`;
+                localInfo += `<div class="bg-slate-50 rounded-xl p-4 border border-slate-100 mt-4"><h5 class="font-bold text-slate-600 text-xs mb-3">7개 모델별 기여도</h5>${modelHtml}</div>`;
             }
         }
         content.innerHTML = localInfo || '<div class="text-center text-slate-400 py-8"><p>분석 데이터를 먼저 실행해주세요.</p></div>';
@@ -1887,7 +2729,7 @@ const DeepLearning = {
             return;
         }
         var self = this;
-        el.className = (el.className || '') + ' flex flex-wrap gap-2';
+        el.className = 'flex flex-wrap gap-2';
         el.innerHTML = nums.map(function (n) {
             var color = self.getBallColor(n);
             return '<span class="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-black text-white shadow cursor-pointer hover:scale-110 transition-transform" style="background-color: ' + color + '" onclick="window.DeepLearning.explainNumber(' + n + ')" title="' + n + '번 클릭 시 XAI 분석">' + n + '</span>';

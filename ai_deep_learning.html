@@ -229,6 +229,12 @@
             color: #4B5563;
         }
 
+        /* 스핀 애니메이션 */
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to   { transform: rotate(360deg); }
+        }
+
         /* 애니메이션 */
         @keyframes fadeInUp {
             from {
@@ -244,6 +250,19 @@
 
         .animate-fadeInUp {
             animation: fadeInUp 0.4s ease-out forwards;
+        }
+
+        /* 탭 콘텐츠 그리드 레이아웃 (.hidden과 충돌 방지) */
+        .content-grid:not(.hidden) {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 20px;
+        }
+
+        @media (min-width: 1024px) {
+            .content-grid:not(.hidden) {
+                grid-template-columns: repeat(2, 1fr);
+            }
         }
     </style>
 </head>
@@ -286,6 +305,7 @@
                     </div>
                 </div>
             </div>
+            <div id="weeklyAnalysisStatus" class="mb-3 text-right"></div>
             <div id="aiSummaryText"
                 class="mb-5 empty:hidden pl-4 border-l-2 border-blue-400 text-[13px] text-gray-600 leading-relaxed italic bg-blue-50/50 py-2 rounded-r-lg">
             </div>
@@ -329,9 +349,12 @@
         <section id="content-area" class="flex-1 overflow-y-auto custom-scrollbar">
 
             <!-- 0. 상태 분석 탭 (신규) -->
-            <div id="tab-status" class="content-grid hidden pb-8">
+            <div id="tab-status" class="content-grid hidden pt-6 pb-8">
                 <!-- [Phase 6] 모델 컨디션 바 (Meta-Learning 가중치) -->
                 <div id="modelConditionContainer" style="display:none" class="col-span-1 lg:col-span-2"></div>
+
+                <!-- 모델별 번호 순위 (1~45위) -->
+                <div id="modelRankingContainer" style="display:none" class="col-span-1 lg:col-span-2"></div>
 
                 <!-- ★ 전문가 메모 섹션 (모델 컨디션 바 바로 아래) -->
                 <div id="expertMemoSection" class="card col-span-1 lg:col-span-2" style="display:none">
@@ -349,7 +372,7 @@
             </div>
 
             <!-- 1. 번호별 분석 탭 -->
-            <div id="tab-summary" class="content-grid pb-8">
+            <div id="tab-summary" class="content-grid pt-6 pb-8">
 
                 <!-- AI 전략 개요 카드 -->
                 <div class="card col-span-1 lg:col-span-2">
@@ -481,55 +504,34 @@
 
             </div>
 
-            <!-- 2. 추천 & 조합 탭 (맨 끝) -->
-            <div id="tab-recommend" class="content-grid hidden pb-8">
-                <div class="card col-span-1 lg:col-span-2">
-                    <div class="card-header">
-                        <span class="material-symbols-outlined text-blue-600">casino</span>
-                        <h3>AI 추천 조합 (10게임)</h3>
-                        <span
-                            class="ml-auto text-[10px] bg-blue-50 text-blue-600 font-bold px-2 py-0.5 rounded-full whitespace-nowrap">딥러닝
-                            앙상블 기반</span>
-                    </div>
-                    <div class="card-body">
-                        <!-- 범례 -->
-                        <div
-                            style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;padding:10px 14px;background:#F9FAFB;border-radius:12px;font-size:11px;color:#6B7280;border:1px solid #F3F4F6">
-                            <span class="flex items-center gap-1.5"><span
-                                    style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#4F46E5"></span>앙상블
-                                Top5 포함</span>
-                            <span class="flex items-center gap-1.5"><span
-                                    style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#E5E7EB"></span>번호
-                                (색상=볼색)</span>
-                            <span><b>점수</b>: 앙상블 확률 합계 기반</span>
-                            <span><b>Top포함</b>: 상위 추천번호 몇 개 포함했는지</span>
+            <!-- 2. 추천 & 조합 탭 -->
+            <div id="tab-recommend" class="content-grid hidden pt-6 pb-8">
+
+                <!-- AI 추천 조합 -->
+                <div class="card col-span-1 lg:col-span-2" style="border:none;background:transparent;box-shadow:none;padding:0">
+                    <!-- 헤더 -->
+                    <div class="flex items-center gap-3 px-1 mb-4">
+                        <div class="w-8 h-8 rounded-xl bg-indigo-600 flex items-center justify-center flex-shrink-0">
+                            <span class="material-symbols-outlined text-white text-[18px]">workspace_premium</span>
                         </div>
-                        <div id="combos" class="space-y-3"></div>
-                        <!-- [Phase 6] AI 분석 리포트 카드 -->
-                        <div id="aiReportContainer" style="display:none"></div>
+                        <div>
+                            <h3 class="text-[15px] font-black text-gray-900 leading-none">AI 추천 조합</h3>
+                            <p class="text-[11px] text-gray-400 mt-0.5">딥러닝 앙상블 기반 · 번호 클릭 시 AI 해설</p>
+                        </div>
+                        <div class="ml-auto flex items-center gap-2 text-[10px] text-gray-400">
+                            <span class="flex items-center gap-1"><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#FBBF24"></span>앙상블 Top 포함</span>
+                            <span class="flex items-center gap-1 ml-2"><span style="display:inline-block;width:6px;height:20px;border-radius:2px;background:#818cf8"></span>모델동의</span>
+                        </div>
                     </div>
+                    <div id="combos" class="space-y-2.5"></div>
+                    <div id="aiReportContainer" style="display:none"></div>
                 </div>
 
-                <!-- AI 필터 추천 카드 -->
-                <div class="card col-span-1 lg:col-span-2">
-                    <div class="card-header">
-                        <span class="material-symbols-outlined text-blue-500">filter_list</span>
-                        <h3>AI 필터 범위 추천</h3>
-                        <span
-                            class="ml-auto text-[10px] bg-blue-50 text-blue-600 font-bold px-2 py-0.5 rounded-full">딥러닝
-                            역산 기반</span>
-                    </div>
-                    <div class="card-body">
-                        <p class="text-xs text-gray-500 mb-4">앙상블 추천 번호를 기반으로 각 필터의 최적 설정 범위를 역산하여 추천합니다.</p>
-                        <div id="filterRecommendations" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        </div>
-                    </div>
-                </div>
 
             </div>
 
             <!-- 3. 필터 분석 탭 -->
-            <div id="tab-filters" class="content-grid hidden pb-8">
+            <div id="tab-filters" class="content-grid hidden pt-6 pb-8">
 
                 <!-- ★ 모델별 필터 비교표 (v3 신규) -->
                 <div class="card col-span-1 lg:col-span-2">
@@ -541,7 +543,8 @@
                             앙상블</span>
                     </div>
                     <div class="card-body">
-                        <p class="text-xs text-gray-500 mb-4">각 딥러닝 모델이 상위 15개 추천 번호로부터 역산한 필터 예상 범위입니다.</p>
+                        <p class="text-xs text-gray-500 mb-2">수파베이스 저장 앙상블 분석 결과 기반 필터 예상 범위입니다. (AI 프리미엄 전략 리포트와 동일 데이터)</p>
+                        <div id="rangeAnalysisSource" class="mb-3"></div>
                         <div id="rangeAnalysisContainer">
                             <div class="text-center py-8 text-gray-400 text-sm">분석 중...</div>
                         </div>
@@ -559,14 +562,14 @@
                             <thead class="sticky top-0 bg-gray-50 border-b border-gray-200">
                                 <tr>
                                     <th class="px-4 py-3 font-bold text-gray-700">끝수</th>
-                                    <th class="px-4 py-3 font-bold text-blue-600">앙상블</th>
-                                    <th class="px-2 py-3 font-semibold text-gray-500">LSTM</th>
-                                    <th class="px-2 py-3 font-semibold text-gray-500">XGB</th>
-                                    <th class="px-2 py-3 font-semibold text-gray-500">CNN</th>
-                                    <th class="px-2 py-3 font-semibold text-gray-500">TF</th>
-                                    <th class="px-2 py-3 font-semibold text-gray-500">MKV</th>
-                                    <th class="px-2 py-3 font-semibold text-gray-500">ATC</th>
-                                    <th class="px-2 py-3 font-semibold text-gray-500">GNN</th>
+                                    <th class="px-4 py-3 font-bold text-blue-600">AI 종합</th>
+                                    <th class="px-2 py-3 font-semibold text-indigo-500">LSTM</th>
+                                    <th class="px-2 py-3 font-semibold text-blue-500">XGB</th>
+                                    <th class="px-2 py-3 font-semibold text-pink-500">CNN</th>
+                                    <th class="px-2 py-3 font-semibold text-orange-500">TF</th>
+                                    <th class="px-2 py-3 font-semibold text-emerald-500">MKV</th>
+                                    <th class="px-2 py-3 font-semibold text-purple-500">ATC</th>
+                                    <th class="px-2 py-3 font-semibold text-red-500">GNN</th>
                                     <th class="px-4 py-3 font-bold text-gray-600">Gap</th>
                                     <th class="px-4 py-3 font-bold text-gray-600">STR</th>
                                 </tr>
@@ -660,7 +663,7 @@
             </div>
 
             <!-- 4. 회귀분석 탭 -->
-            <div id="tab-regression" class="content-grid hidden pb-8">
+            <div id="tab-regression" class="content-grid hidden pt-6 pb-8">
                 <div class="card col-span-1 lg:col-span-2">
                     <div class="card-header">
                         <span class="material-symbols-outlined text-cyan-600">history</span>
@@ -676,18 +679,20 @@
                                     <th class="px-3 py-3 font-bold text-gray-700" style="white-space:nowrap">대상번호</th>
                                     <th class="px-3 py-3 font-bold text-gray-700"
                                         style="white-space:nowrap;cursor:pointer" onclick="DeepLearning._regSort('gap')"
-                                        title="클릭하여 정렬">Gap <span id="reg-sort-arrow-gap"></span></th>
-                                    <th class="px-3 py-3 font-bold text-gray-700"
-                                        style="white-space:nowrap;cursor:pointer" onclick="DeepLearning._regSort('str')"
-                                        title="클릭하여 정렬">STR <span id="reg-sort-arrow-str"></span></th>
+                                        title="클릭하여 정렬">GAP/STR <span id="reg-sort-arrow-gap"></span></th>
+                                    <th class="px-3 py-3 font-bold text-violet-500" style="white-space:nowrap">특이</th>
                                     <th class="px-3 py-3 font-bold text-gray-500"
                                         style="white-space:nowrap;cursor:pointer"
                                         onclick="DeepLearning._regSort('avg_hit')" title="클릭하여 정렬">과거평균 <span
                                             id="reg-sort-arrow-avg_hit"></span></th>
-                                    <th class="px-3 py-3 font-bold text-gray-500" style="white-space:nowrap">적중분포
-                                        (0~6) <span id="reg-filter-count"
-                                            style="font-size:9px;font-weight:400;color:#9CA3AF;margin-left:4px"></span>
-                                    </th>
+                                    <th class="px-3 py-3 font-bold text-blue-600" style="white-space:nowrap">AI 종합</th>
+                                    <th class="px-2 py-3 font-semibold" style="white-space:nowrap;color:#6366F1">LSTM</th>
+                                    <th class="px-2 py-3 font-semibold" style="white-space:nowrap;color:#3B82F6">XGB</th>
+                                    <th class="px-2 py-3 font-semibold" style="white-space:nowrap;color:#EC4899">CNN</th>
+                                    <th class="px-2 py-3 font-semibold" style="white-space:nowrap;color:#F97316">TF</th>
+                                    <th class="px-2 py-3 font-semibold" style="white-space:nowrap;color:#10B981">MKV</th>
+                                    <th class="px-2 py-3 font-semibold" style="white-space:nowrap;color:#8B5CF6">ATC</th>
+                                    <th class="px-2 py-3 font-semibold" style="white-space:nowrap;color:#EF4444">GNN</th>
                                 </tr>
                             </thead>
                             <tbody id="reg-body" class="divide-y divide-gray-100"></tbody>
@@ -697,7 +702,7 @@
             </div>
 
             <!-- 5. 커스텀 분석 탭 -->
-            <div id="tab-custom" class="content-grid hidden pb-8">
+            <div id="tab-custom" class="content-grid hidden pt-6 pb-8">
                 <div class="card col-span-1 lg:col-span-2">
                     <div class="card-header">
                         <span class="material-symbols-outlined text-blue-600">tune</span>
@@ -707,9 +712,9 @@
                             앙상블 배치 분석</span>
                     </div>
                     <div class="card-body">
-                        <p class="text-xs text-gray-500 mb-4">각 커스텀분석의 현재 회차 대상번호를 5개 딥러닝 모델로 평가하고 필터 범위를 제안합니다.</p>
-                        <div id="custom-container" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                            <div class="text-center py-8 text-gray-400 text-sm col-span-full">분석 중...</div>
+                        <p class="text-xs text-gray-500 mb-4">각 커스텀분석의 현재 회차 대상번호를 딥러닝 앙상블 모델로 평가합니다.</p>
+                        <div id="custom-container" class="overflow-x-auto">
+                            <div class="text-center py-8 text-gray-400 text-sm">분석 중...</div>
                         </div>
                     </div>
                 </div>
@@ -769,8 +774,8 @@
     <script src="js/common_v2.js"></script>
 
     <!-- Project Scripts -->
-    <script src="js/aiProxy.js?v=20260329"></script>
-    <script src="js/ai_deep_learning.js?v=20260329"></script>
+    <script src="js/aiProxy.js?v=20260426"></script>
+    <script src="js/ai_deep_learning.js?v=20260426b"></script>
     <script src="js/layout.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {

@@ -17,20 +17,79 @@ jobs:
       - name: Push to Hugging Face Spaces
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: |
           python - <<'EOF'
           import os
           from huggingface_hub import HfApi
 
           api = HfApi(token=os.environ["HF_TOKEN"])
+
+          # 1. 코드 배포
           api.upload_folder(
               folder_path=".",
               repo_id="Parksungdeok/lotto-ai-backend",
               repo_type="space",
               ignore_patterns=[
-                  ".git*", "__pycache__", "*.pyc", "*.log",
-                  "saved_models/*", ".github"
+                  ".git*", "__pycache__", "*.pyc",
+                  ".github", ".env", ".env.*",
+                  "*.log", "backend*.log", "server*.log",
+                  "train_log.txt"
               ]
           )
-          print("✅ HF Spaces 배포 완료!")
+          # saved_models/ 전체 포함: meta_learner.pkl, gnn_model.pt 등 신규 모델 배포
+          print("✅ HF Spaces 코드 배포 완료!")
+
+          # .env 파일 HF Space 레포에서 삭제 (이전에 업로드된 경우)
+          try:
+              api.delete_file(
+                  path_in_repo=".env",
+                  repo_id="Parksungdeok/lotto-ai-backend",
+                  repo_type="space",
+                  commit_message="remove .env from space repo"
+              )
+              print("✅ HF Space에서 .env 삭제 완료!")
+          except Exception as e:
+              print(f"ℹ️ .env 삭제 생략 (파일 없거나 이미 삭제됨): {e}")
+
+          # 2. 시크릿 동기화 (HF REST API)
+          import requests
+          hf_token = os.environ.get("HF_TOKEN", "")
+          headers  = {"Authorization": f"Bearer {hf_token}"}
+          SPACE    = "parksungdeok/lotto-ai-backend"
+
+          def sync_secret(key, value):
+              if not value:
+                  print(f"ℹ️ {key} 미설정 → HF Space 기존 키 유지")
+                  return
+              r = requests.put(
+                  f"https://huggingface.co/api/spaces/{SPACE}/secrets",
+                  headers=headers,
+                  json={"key": key, "value": value},
+              )
+              if r.status_code in (200, 201):
+                  print(f"✅ {key} 동기화 완료! ({r.status_code})")
+              else:
+                  print(f"⚠️ {key} REST API 실패 ({r.status_code}): {r.text[:200]}")
+                  try:
+                      api.add_space_secret(repo_id=SPACE, key=key, value=value)
+                      print(f"✅ {key} SDK fallback 동기화 완료!")
+                  except Exception as e2:
+                      print(f"⚠️ {key} SDK fallback도 실패: {e2}")
+
+          sync_secret("GOOGLE_API_KEY", os.environ.get("GOOGLE_API_KEY", ""))
+          sync_secret("SUPABASE_URL",   os.environ.get("SUPABASE_URL", ""))
+          sync_secret("SUPABASE_KEY",   os.environ.get("SUPABASE_KEY", ""))
+
+          # 3. Space 강제 재시작 (시크릿 전파 대기 후)
+          import time
+          time.sleep(30)   # 시크릿 전파 대기
+          try:
+              api.restart_space(repo_id="Parksungdeok/lotto-ai-backend")
+              print("✅ HF Space 재시작 완료!")
+              time.sleep(10)  # 재시작 시작 대기
+          except Exception as e:
+              print(f"⚠️ 재시작 실패 (무시): {e}")
           EOF
