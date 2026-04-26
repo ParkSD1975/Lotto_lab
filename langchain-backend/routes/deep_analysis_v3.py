@@ -21,9 +21,19 @@ from fastapi import APIRouter, Request
 from starlette.responses import Response
 
 from db.supabase_client import fetch_all_draws, get_client, fetch_missing_counts
-from models.ensemble import LottoEnsemble, CombinationGenerator
+from models.ensemble import (
+    LottoEnsemble, CombinationGenerator,
+    FILTER_KEY_TO_TASK,                    # filter_key → sub-task 매핑
+    TASK_WEIGHTS as ENSEMBLE_TASK_WEIGHTS, # sub-task별 모델 가중치
+)
 from chains.memo_parser import parse_expert_memo
 import config
+from services.filter_stats import (
+    build_dynamic_attr_sets,
+    compute_pb_range,
+    compute_mc_range_full,
+    COUNT_TYPE_FILTERS,
+)
 
 router = APIRouter(prefix="/api/deep-analysis/v3", tags=["deep-analysis-v3"])
 
@@ -61,7 +71,7 @@ def simulate_all_filters(model_probs, history_draws, n_sim=1000):
         return {}, {}
     norm_probs = [p/total_prob for p in probs]
 
-    stats = {k: [] for k in ["sum", "ac", "odd", "high", "prime", "consecutive", "tail_sum", "composite", "square", "triangular", "twin", "mul3", "mul4", "mul5", "mul34", "mul35", "mul45", "non_multiple", "hot10", "missing", "neighbor", "carryover"]}
+    stats = {k: [] for k in ["sum", "ac", "odd", "high", "prime", "consecutive", "tail_sum", "composite", "square", "triangular", "twin", "mul3", "mul4", "mul5", "mul7", "mul8", "mul34", "mul35", "mul45", "non_multiple", "hot10", "neutral10", "cold10", "missing", "neighbor", "carryover"]}
     PRIMES = {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43}
     SQUARES = {1, 4, 9, 16, 25, 36}
     TRIANGULARS = {1, 3, 6, 10, 15, 21, 28, 36, 45}
@@ -69,15 +79,26 @@ def simulate_all_filters(model_probs, history_draws, n_sim=1000):
     MUL3_NUMS = {3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45}
     MUL4_NUMS = {4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44}
     MUL5_NUMS = {5, 10, 15, 20, 25, 30, 35, 40, 45}
+    MUL7_NUMS = {7, 14, 21, 28, 35, 42}
+    MUL8_NUMS = {8, 16, 24, 32, 40}
     MUL34_NUMS = MUL3_NUMS & MUL4_NUMS   # {12, 24, 36}
     MUL35_NUMS = MUL3_NUMS & MUL5_NUMS   # {15, 30, 45}
     MUL45_NUMS = MUL4_NUMS & MUL5_NUMS   # {20, 40}
-    MULTIPLE_ALL = MUL3_NUMS | MUL4_NUMS | MUL5_NUMS
+    MULTIPLE_ALL = MUL3_NUMS | MUL4_NUMS | MUL5_NUMS | MUL7_NUMS | MUL8_NUMS
     
-    # 핫10, 장기미출현, 이웃수, 이월수 기준 데이터 준비
-    last_10 = [set(d.get("numbers", [])) for d in history_draws[:10]]
-    hot10_nums = set().union(*last_10) if last_10 else set()
-    
+    # 핫/뉴트럴/콜드: 프론트 CRITERIA[10] 기준과 동일하게 적용
+    # hot     = 3회 이상 출현 (CRITERIA[10].hot = 3)
+    # neutral = 1~2회 출현
+    # cold    = 0회 출현 (CRITERIA[10].cold = [0,0])
+    last_10 = [d.get("numbers", []) for d in history_draws[:10]]
+    appear_count = {}
+    for draw_nums in last_10:
+        for n in draw_nums:
+            appear_count[n] = appear_count.get(n, 0) + 1
+    hot10_nums     = {n for n in range(1, 46) if appear_count.get(n, 0) >= 3}
+    neutral10_nums = {n for n in range(1, 46) if 1 <= appear_count.get(n, 0) <= 2}
+    cold10_nums    = {n for n in range(1, 46) if appear_count.get(n, 0) == 0}
+
     missing_nums = set()
     for n in range(1, 46):
         gap = 0
@@ -113,12 +134,16 @@ def simulate_all_filters(model_probs, history_draws, n_sim=1000):
         stats["mul3"].append(sum(1 for x in c_int if x%3==0))
         stats["mul4"].append(sum(1 for x in c_int if x%4==0))
         stats["mul5"].append(sum(1 for x in c_int if x%5==0))
+        stats["mul7"].append(sum(1 for x in c_int if x in MUL7_NUMS))
+        stats["mul8"].append(sum(1 for x in c_int if x in MUL8_NUMS))
         stats["mul34"].append(sum(1 for x in c_int if x in MUL34_NUMS))
         stats["mul35"].append(sum(1 for x in c_int if x in MUL35_NUMS))
         stats["mul45"].append(sum(1 for x in c_int if x in MUL45_NUMS))
         stats["consecutive"].append(sum(1 for i in range(5) if c_int[i+1]-c_int[i]==1))
         stats["non_multiple"].append(sum(1 for x in c_int if x not in MULTIPLE_ALL))
         stats["hot10"].append(sum(1 for x in c_int if x in hot10_nums))
+        stats["neutral10"].append(sum(1 for x in c_int if x in neutral10_nums))
+        stats["cold10"].append(sum(1 for x in c_int if x in cold10_nums))
         stats["missing"].append(sum(1 for x in c_int if x in missing_nums))
         stats["neighbor"].append(sum(1 for x in c_int if x in neighbor_nums))
         stats["carryover"].append(sum(1 for x in c_int if x in latest_nums))
@@ -136,6 +161,118 @@ def simulate_all_filters(model_probs, history_draws, n_sim=1000):
             ranges[k] = f"{low}~{high}"
             
     return ranges, filter_settings
+
+# ------------------------------------------------------------------
+# 1.2. 비율형 분석 (홀짝·고저) — 옵션 B 스키마
+# ------------------------------------------------------------------
+def compute_ratio_analysis(corrected_probs, history_draws, model_contributions, n_sim=2000):
+    """홀짝(odd_even) / 고저(high_low) 비율 분포 예측
+    반환: { "odd_even": {...}, "high_low": {...} }
+    각 항목: empirical_distribution, model_expectations[model].probs/top,
+             ensemble.probs/recommended/agreement
+    """
+    import math
+    models = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder", "gnn"]
+
+    def _ratio_key(odd):
+        return f"{odd}:{6 - odd}"
+
+    def _blank_dist():
+        return {_ratio_key(k): 0.0 for k in range(6, -1, -1)}
+
+    def _count_odd(nums):
+        return sum(1 for x in nums if x % 2 == 1)
+
+    def _count_high(nums):
+        return sum(1 for x in nums if x >= 23)
+
+    METRICS = {"odd_even": _count_odd, "high_low": _count_high}
+
+    # 1) 과거 분포 (최근 200회차)
+    empirical = {k: _blank_dist() for k in METRICS}
+    window = history_draws[:200] if history_draws else []
+    for metric, fn in METRICS.items():
+        if not window: continue
+        counts = {_ratio_key(k): 0 for k in range(7)}
+        for d in window:
+            nums = d.get("numbers", [])
+            if len(nums) != 6: continue
+            counts[_ratio_key(fn(nums))] += 1
+        total = sum(counts.values()) or 1
+        empirical[metric] = {k: round(v / total, 4) for k, v in counts.items()}
+
+    # 2) 분포 시뮬레이션 공통
+    def _sim_dist(prob_map, fn, n=n_sim):
+        if not prob_map: return _blank_dist()
+        nums = list(prob_map.keys())
+        probs = np.array(list(prob_map.values()), dtype=float)
+        s = probs.sum()
+        if s == 0: return _blank_dist()
+        probs /= s
+        counts = {_ratio_key(k): 0 for k in range(7)}
+        for _ in range(n):
+            c = np.random.choice(nums, 6, replace=False, p=probs)
+            counts[_ratio_key(fn([int(x) for x in c]))] += 1
+        return {k: round(v / n, 4) for k, v in counts.items()}
+
+    # 앙상블 분포
+    ensemble_probs = {m: _sim_dist(corrected_probs, fn) for m, fn in METRICS.items()}
+
+    # 모델별 분포 (top-15 기반)
+    model_dists = {metric: {} for metric in METRICS}
+    for m in models:
+        m_probs = model_contributions.get(m, {}) if model_contributions else {}
+        if not m_probs:
+            for metric in METRICS:
+                model_dists[metric][m] = {"probs": _blank_dist(), "top": []}
+            continue
+        top15 = sorted(m_probs.items(), key=lambda x: x[1], reverse=True)[:15]
+        pool = {int(n): float(p) for n, p in top15}
+        for metric, fn in METRICS.items():
+            dist = _sim_dist(pool, fn, n=max(500, n_sim // 4))
+            top_keys = sorted(dist.items(), key=lambda x: x[1], reverse=True)[:2]
+            model_dists[metric][m] = {
+                "probs": dist,
+                "top": [k for k, v in top_keys if v > 0]
+            }
+
+    # 합의도: Jensen-Shannon 평균 유사도
+    def _js_similarity(dists):
+        if len(dists) < 2: return 1.0
+        keys = list(dists[0].keys())
+        def _kl(p, q):
+            s = 0.0
+            for k in keys:
+                pk, qk = p.get(k, 0.0), q.get(k, 0.0)
+                if pk > 0 and qk > 0: s += pk * math.log(pk / qk)
+            return s
+        pairs = []
+        for i in range(len(dists)):
+            for j in range(i + 1, len(dists)):
+                p, q = dists[i], dists[j]
+                m_avg = {k: 0.5 * (p.get(k, 0) + q.get(k, 0)) for k in keys}
+                js = 0.5 * _kl(p, m_avg) + 0.5 * _kl(q, m_avg)
+                pairs.append(js)
+        avg_js = sum(pairs) / len(pairs) if pairs else 0.0
+        return round(max(0.0, 1.0 - avg_js / math.log(2)), 3)
+
+    result = {}
+    for metric in METRICS:
+        model_probs_only = [v["probs"] for v in model_dists[metric].values() if v.get("probs")]
+        agreement = _js_similarity(model_probs_only)
+        ens_sorted = sorted(ensemble_probs[metric].items(), key=lambda x: x[1], reverse=True)
+        recommended = [k for k, v in ens_sorted[:3] if v > 0]
+        result[metric] = {
+            "empirical_distribution": empirical[metric],
+            "model_expectations": model_dists[metric],
+            "ensemble": {
+                "probs": ensemble_probs[metric],
+                "recommended": recommended,
+                "agreement": agreement,
+            },
+        }
+    return result
+
 
 # ------------------------------------------------------------------
 # 1.5. 숫자별 모델 근거 생성
@@ -234,9 +371,26 @@ def get_number_model_reasons(num: int, streak: int, gap: int, freq: float, histo
 # ------------------------------------------------------------------
 # 1.6. 필터별 모델 예상 범위
 # ------------------------------------------------------------------
-def get_model_filter_expectations(filter_name: str, history_draws: list, model_contributions: dict):
-    """필터별 5개 모델의 예상 범위를 계산"""
+def get_model_filter_expectations(filter_name: str, history_draws: list,
+                                   model_contributions: dict,
+                                   task: str = "filter_count_attr",
+                                   ensemble=None):
+    """필터별 모델 예상 범위 계산.
+
+    task 파라미터로 ENSEMBLE_TASK_WEIGHTS의 해당 sub-task 가중치를 사용하여
+    모델별 개별 범위 + task 가중 앙상블 범위(__ensemble__ 키)를 함께 반환.
+
+    예: filter_name="sum"   → task="filter_range"  → Markov 주도
+        filter_name="hot10" → task="filter_count_temporal" → LSTM 주도
+        filter_name="가로1"  → task="filter_spatial"       → CNN 주도
+
+    P6: ensemble 인스턴스를 받으면 GNN/CNN 전문화 메서드 사용:
+        - filter_count_relation + consecutive → GNN predict_edge_prob() PB
+        - filter_spatial 임의 필터           → CNN predict_spatial_pool() zone 정보
+    """
     models = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder", "gnn"]
+    # sub-task 가중치 로드 (없으면 filter_count_attr 기본값)
+    task_weights = ENSEMBLE_TASK_WEIGHTS.get(task, ENSEMBLE_TASK_WEIGHTS["filter_count_attr"])
     PRIMES = {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43}
     COMPOSITES = {4, 6, 8, 9, 10, 12, 14, 15, 16, 18, 20, 21, 22, 24, 25, 26, 27, 28, 30, 32, 33, 34, 35, 36, 38, 39, 40, 42, 44, 45}
     SQUARES = {1, 4, 9, 16, 25, 36}
@@ -245,13 +399,22 @@ def get_model_filter_expectations(filter_name: str, history_draws: list, model_c
     MUL3_NUMS = {3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45}
     MUL4_NUMS = {4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44}
     MUL5_NUMS = {5, 10, 15, 20, 25, 30, 35, 40, 45}
+    MUL7_NUMS = {7, 14, 21, 28, 35, 42}
+    MUL8_NUMS = {8, 16, 24, 32, 40}
     MUL34_NUMS = MUL3_NUMS & MUL4_NUMS   # {12, 24, 36}
     MUL35_NUMS = MUL3_NUMS & MUL5_NUMS   # {15, 30, 45}
     MUL45_NUMS = MUL4_NUMS & MUL5_NUMS   # {20, 40}
 
-    # 동적 컨텍스트 데이터 계산 (Hot10, Missing, Neighbor, Carryover)
-    last_10 = [set(d.get("numbers", [])) for d in history_draws[:10]]
-    hot10_nums = set().union(*last_10) if last_10 else set()
+    # 동적 컨텍스트 데이터 계산 - 프론트 CRITERIA[10] 기준 동일 적용
+    # hot=3회이상 / neutral=1~2회 / cold=0회 출현 (최근 10회 기준)
+    last_10 = [d.get("numbers", []) for d in history_draws[:10]]
+    appear_count = {}
+    for draw_nums in last_10:
+        for n in draw_nums:
+            appear_count[n] = appear_count.get(n, 0) + 1
+    hot10_nums     = {n for n in range(1, 46) if appear_count.get(n, 0) >= 3}
+    neutral10_nums = {n for n in range(1, 46) if 1 <= appear_count.get(n, 0) <= 2}
+    cold10_nums    = {n for n in range(1, 46) if appear_count.get(n, 0) == 0}
     
     missing_nums = set()
     for n in range(1, 46):
@@ -268,7 +431,10 @@ def get_model_filter_expectations(filter_name: str, history_draws: list, model_c
             neighbor = n + offset
             if 1 <= neighbor <= 45: neighbor_nums.add(neighbor)
 
-    # 각 모델의 상위 15개 번호 추출 (확률 비례 포함)
+    # P2: 동적 속성 집합 사전 계산 (hot10/cold10/missing 등)
+    dyn_sets = build_dynamic_attr_sets(history_draws)
+
+    # 각 모델의 상위 15개 번호 추출 (확률 비례 포함, ac/consecutive fallback용)
     model_top15 = {}
     model_top15_probs = {}
     for m in models:
@@ -308,7 +474,7 @@ def get_model_filter_expectations(filter_name: str, history_draws: list, model_c
         return len(diffs) - 5  # AC = 차이값 집합 크기 - (6-1)
 
     expectations = {}
-    MULTIPLE_ALL = MUL3_NUMS | MUL4_NUMS | MUL5_NUMS
+    MULTIPLE_ALL = MUL3_NUMS | MUL4_NUMS | MUL5_NUMS | MUL7_NUMS | MUL8_NUMS
 
     # 필터별 함수 정의
     FILTER_FN = {
@@ -326,12 +492,16 @@ def get_model_filter_expectations(filter_name: str, history_draws: list, model_c
         "mul3":         lambda c: sum(1 for x in c if x in MUL3_NUMS),
         "mul4":         lambda c: sum(1 for x in c if x in MUL4_NUMS),
         "mul5":         lambda c: sum(1 for x in c if x in MUL5_NUMS),
+        "mul7":         lambda c: sum(1 for x in c if x in MUL7_NUMS),
+        "mul8":         lambda c: sum(1 for x in c if x in MUL8_NUMS),
         "mul34":        lambda c: sum(1 for x in c if x in MUL34_NUMS),
         "mul35":        lambda c: sum(1 for x in c if x in MUL35_NUMS),
         "mul45":        lambda c: sum(1 for x in c if x in MUL45_NUMS),
         "non_multiple": lambda c: sum(1 for x in c if x not in MULTIPLE_ALL),
         # [New] 추가 필터
         "hot10":        lambda c: sum(1 for x in c if x in hot10_nums),
+        "neutral10":    lambda c: sum(1 for x in c if x in neutral10_nums),
+        "cold10":       lambda c: sum(1 for x in c if x in cold10_nums),
         "missing":      lambda c: sum(1 for x in c if x in missing_nums),
         "neighbor":     lambda c: sum(1 for x in c if x in neighbor_nums),
         "carryover":    lambda c: sum(1 for x in c if x in latest_nums),
@@ -353,11 +523,15 @@ def get_model_filter_expectations(filter_name: str, history_draws: list, model_c
         "mul3":         (0,   6),
         "mul4":         (0,   6),
         "mul5":         (0,   6),
+        "mul7":         (0,   6),
+        "mul8":         (0,   5),
         "mul34":        (0,   3),
         "mul35":        (0,   3),
         "mul45":        (0,   2),
         "non_multiple": (0,   6),
         "hot10":        (0,   6),
+        "neutral10":    (0,   6),
+        "cold10":       (0,   6),
         "missing":      (0,   6),
         "neighbor":     (0,   6),
         "carryover":    (0,   6),
@@ -366,23 +540,178 @@ def get_model_filter_expectations(filter_name: str, history_draws: list, model_c
     fn = FILTER_FN.get(filter_name)
     clamp = FILTER_CLAMP.get(filter_name, (0, 999))
 
+    # ── P6: 스페셜리스트 사전 계산 ──────────────────────────────────────────
+    # GNN 관계형: consecutive 필터에서 엣지 확률 기반 PB 사용
+    # CNN 공간형: filter_spatial 태스크에서 zone/row 활성화 맵 추출
+    _gnn_edge_result    = None   # {consecutive_probs: {n: float}, ...}
+    _cnn_spatial_result = None   # {zone_probs: {...}, row_probs: {...}, ...}
+
+    if ensemble is not None:
+        # GNN 스페셜리스트: 연속번호 엣지 확률
+        if task == "filter_count_relation" and filter_name in ("consecutive", "neighbor"):
+            try:
+                _gnn_trainer = ensemble.models.get("gnn")
+                if _gnn_trainer is not None:
+                    _gnn_edge_result = _gnn_trainer.predict_edge_prob(history_draws)
+            except Exception as _e6g:
+                print(f"[P6-GNN] predict_edge_prob 실패: {_e6g}")
+
+        # CNN 스페셜리스트: 공간형 활성화 맵
+        if task == "filter_spatial":
+            try:
+                _cnn_trainer = ensemble.models.get("cnn")
+                if _cnn_trainer is not None:
+                    _cnn_spatial_result = _cnn_trainer.predict_spatial_pool(history_draws)
+            except Exception as _e6c:
+                print(f"[P6-CNN] predict_spatial_pool 실패: {_e6c}")
+
     if fn is not None:
         for m in models:
-            pool  = model_top15[m]
-            probs = model_top15_probs[m]
-            lo, hi = _sim_filter(pool, probs, fn)
+            m_probs = model_contributions.get(m, {})
+
+            # ── P6 스페셜리스트 패스 (GNN 연속쌍 / CNN 공간형) ────────────
+            _specialist_used = False
+
+            if m == "gnn" and _gnn_edge_result is not None and filter_name == "consecutive":
+                # GNN: 44쌍 연속번호 엣지 확률 → Poisson-Binomial PMF
+                try:
+                    from services.filter_stats import poisson_binomial_pmf, pmf_percentile_range
+                    pair_probs = [
+                        min(1.0, max(0.0, _gnn_edge_result["consecutive_probs"].get(n, 0.0) / 10.0))
+                        for n in range(1, 45)
+                    ]
+                    _pmf = poisson_binomial_pmf(pair_probs)
+                    lo, hi = pmf_percentile_range(_pmf, 0.20, 0.80)
+                    method = "GNN Edge-Prob PB (P6)"
+                    _specialist_used = True
+                except Exception as _e6pb:
+                    print(f"[P6-GNN-PB] 계산 실패: {_e6pb}")
+
+            if filter_name in COUNT_TYPE_FILTERS:
+                # ── P2: Poisson-Binomial 정확 계산 ──────────────────────────
+                if not _specialist_used:
+                    lo, hi = compute_pb_range(filter_name, m_probs, dyn_sets)
+                    method = "Poisson-Binomial PMF"
+            elif filter_name in ("sum", "tail_sum"):
+                # ── P2: 개선 MC (전체 45개 번호) ────────────────────────────
+                if not _specialist_used:
+                    lo, hi = compute_mc_range_full(fn, m_probs, n_sim=300)
+                    method = "개선 MC(45개 전체)"
+            else:
+                # ── 기존 MC (ac, consecutive 등 복잡 함수) ──────────────────
+                if not _specialist_used:
+                    pool  = model_top15[m]
+                    probs = model_top15_probs[m]
+                    lo, hi = _sim_filter(pool, probs, fn)
+                    method = "MC 시뮬(top-15)"
+
             # 물리적 범위 내로 클램핑
             lo = max(clamp[0], lo)
             hi = min(clamp[1], hi)
             if lo > hi:
                 lo, hi = hi, lo
-            # 대표값 (중앙값 계산용)
             mid = round((lo + hi) / 2)
+            w = task_weights.get(m, 0)
             expectations[m] = {
                 "min": int(lo),
                 "max": int(hi),
-                "reasoning": f"시뮬레이션 20~80분위 범위 (대표값:{mid})"
+                "weight": round(w, 3),
+                "reasoning": (
+                    f"{method} 20~80분위 (대표값:{mid}, "
+                    f"task={task}, weight={w:.2f})"
+                ),
             }
+
+        # ── task 가중 앙상블 범위 계산 ────────────────────────────────────
+        total_w = sum(task_weights.get(m, 0) for m in expectations)
+        if total_w > 0 and expectations:
+            w_min = sum(
+                expectations[m]["min"] * task_weights.get(m, 0)
+                for m in expectations
+            ) / total_w
+            w_max = sum(
+                expectations[m]["max"] * task_weights.get(m, 0)
+                for m in expectations
+            ) / total_w
+            # 이 task에서 가중치 1위 모델 = primary_model
+            primary_model = max(
+                (m for m in task_weights if task_weights[m] > 0),
+                key=lambda m: task_weights[m]
+            )
+            w_min_c = max(clamp[0], int(round(w_min)))
+            w_max_c = min(clamp[1], int(round(w_max)))
+            if w_min_c > w_max_c:
+                w_min_c, w_max_c = w_max_c, w_min_c
+            _ensemble_entry = {
+                "min":           w_min_c,
+                "max":           w_max_c,
+                "primary_model": primary_model,
+                "task":          task,
+                "reasoning":     (
+                    f"task='{task}' 가중 앙상블 범위 "
+                    f"(주도 모델: {primary_model}, "
+                    f"weight={task_weights.get(primary_model, 0):.2f})"
+                ),
+            }
+            # P6: 공간형 태스크에 CNN 활성화 맵 정보 추가
+            if task == "filter_spatial" and _cnn_spatial_result is not None:
+                _ensemble_entry["spatial_detail"] = {
+                    "zone_probs":     _cnn_spatial_result.get("zone_probs", {}),
+                    "row_probs":      _cnn_spatial_result.get("row_probs", {}),
+                    "col_probs":      _cnn_spatial_result.get("col_probs", {}),
+                    "ninezone_probs": _cnn_spatial_result.get("ninezone_probs", {}),
+                    "spatial_leader": _cnn_spatial_result.get("spatial_leader", ""),
+                }
+            # P6: 관계형 태스크에 GNN 상위 동반쌍 정보 추가
+            if task == "filter_count_relation" and _gnn_edge_result is not None:
+                _ensemble_entry["relation_detail"] = {
+                    "top_pairs":         _gnn_edge_result.get("top_pairs", [])[:10],
+                    "consecutive_probs": dict(list(_gnn_edge_result.get("consecutive_probs", {}).items())[:10]),
+                    "edge_density":      _gnn_edge_result.get("edge_density", 0.0),
+                }
+            # ── P8: Bootstrap CI (sum/tail_sum/ac + filter_range task) ──────
+            # 이미 계산된 per-model [min, max]를 재사용해 가중치 지터링으로 CI 산출.
+            # MC 재실행 없이 가중합 재계산만 하므로 O(N_BOOT × 7) 로 매우 빠름.
+            _CI_FILTERS = {"sum", "tail_sum", "ac"}
+            _CI_TASKS   = {"filter_range"}
+            if (filter_name in _CI_FILTERS or task in _CI_TASKS) and len(expectations) >= 2:
+                _N_BOOT = 50
+                _rng    = np.random.default_rng(12345)
+                _m_list = [m for m in models if m in expectations]
+                _base_w = np.array([task_weights.get(m, 0.0) for m in _m_list], dtype=float)
+                _m_mins = np.array([expectations[m]["min"] for m in _m_list], dtype=float)
+                _m_maxs = np.array([expectations[m]["max"] for m in _m_list], dtype=float)
+
+                _boot_mins, _boot_maxs = [], []
+                for _ in range(_N_BOOT):
+                    _jw = np.clip(_base_w + _rng.normal(0, 0.05, len(_m_list)), 0.0, 1.0)
+                    _tw = _jw.sum()
+                    _jw = (_jw / _tw) if _tw > 0 else (_base_w / max(_base_w.sum(), 1e-9))
+                    _boot_mins.append(float(np.dot(_jw, _m_mins)))
+                    _boot_maxs.append(float(np.dot(_jw, _m_maxs)))
+
+                # 80% CI (P10 ~ P90)
+                _ci_lo_p10 = int(round(max(clamp[0], float(np.percentile(_boot_mins, 10)))))
+                _ci_lo_p90 = int(round(min(clamp[1], float(np.percentile(_boot_mins, 90)))))
+                _ci_hi_p10 = int(round(max(clamp[0], float(np.percentile(_boot_maxs, 10)))))
+                _ci_hi_p90 = int(round(min(clamp[1], float(np.percentile(_boot_maxs, 90)))))
+
+                # CI 범위를 min/max와 같은 방향으로 정렬
+                if _ci_lo_p10 > _ci_lo_p90: _ci_lo_p10, _ci_lo_p90 = _ci_lo_p90, _ci_lo_p10
+                if _ci_hi_p10 > _ci_hi_p90: _ci_hi_p10, _ci_hi_p90 = _ci_hi_p90, _ci_hi_p10
+
+                _ensemble_entry["ci"] = {
+                    "lo_p10":  _ci_lo_p10,    # 최소값의 P10 (하한 하한)
+                    "lo_p90":  _ci_lo_p90,    # 최소값의 P90 (하한 상한)
+                    "hi_p10":  _ci_hi_p10,    # 최대값의 P10 (상한 하한)
+                    "hi_p90":  _ci_hi_p90,    # 최대값의 P90 (상한 상한)
+                    "level":   "80%",
+                    "n_boot":  _N_BOOT,
+                    # 프론트 표시용 압축 형식: "98 ~ 178"
+                    "band":    f"{_ci_lo_p10} ~ {_ci_hi_p90}",
+                }
+
+            expectations["__ensemble__"] = _ensemble_entry
 
     return expectations
 
@@ -402,7 +731,9 @@ def recommend_filters_for_group(group_nums: list, contribs: dict):
     MUL3_NUMS = {3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45}
     MUL4_NUMS = {4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44}
     MUL5_NUMS = {5, 10, 15, 20, 25, 30, 35, 40, 45}
-    MULTIPLE_ALL = MUL3_NUMS | MUL4_NUMS | MUL5_NUMS
+    MUL7_NUMS = {7, 14, 21, 28, 35, 42}
+    MUL8_NUMS = {8, 16, 24, 32, 40}
+    MULTIPLE_ALL = MUL3_NUMS | MUL4_NUMS | MUL5_NUMS | MUL7_NUMS | MUL8_NUMS
 
     recommendations = {}
 
@@ -481,6 +812,14 @@ def recommend_filters_for_group(group_nums: list, contribs: dict):
     # Mul5 추천
     group_mul5 = sum(1 for n in group_nums if n in MUL5_NUMS)
     recommendations["mul5"] = {"min": max(0, group_mul5 - 1), "max": min(6, group_mul5 + 1), "reason": f"5배수: {group_mul5}개"}
+
+    # Mul7 추천
+    group_mul7 = sum(1 for n in group_nums if n in MUL7_NUMS)
+    recommendations["mul7"] = {"min": max(0, group_mul7 - 1), "max": min(6, group_mul7 + 1), "reason": f"7배수: {group_mul7}개"}
+
+    # Mul8 추천
+    group_mul8 = sum(1 for n in group_nums if n in MUL8_NUMS)
+    recommendations["mul8"] = {"min": max(0, group_mul8 - 1), "max": min(5, group_mul8 + 1), "reason": f"8배수: {group_mul8}개"}
 
     # Non-multiple 추천
     group_non_mul = sum(1 for n in group_nums if n not in MULTIPLE_ALL)
@@ -830,12 +1169,13 @@ def analyze_tail_detailed(final_probs, history_draws, model_contributions=None):
 # ------------------------------------------------------------------
 # 3. 회귀 전수 조사
 # ------------------------------------------------------------------
-def analyze_all_regressions(history_draws, final_probs, model_contributions=None):
+def analyze_all_regressions(history_draws, final_probs, model_contributions=None, ensemble=None):
     """N회귀 대상번호(N회 전 당첨번호)가 이번 회차에 몇 개 출현할지 예측.
     - Gap: 해당 번호 그룹의 마지막 출현 후 연속 미출현 회차
     - STR: 가장 최근부터 연속 출현 회차
     - hit_dist: 과거 전체 이력에서 대상번호 중 실제 출현 개수 분포 {0:N, 1:N, 2:N, 3:N, 4:N, 5:N, 6:N}
     - avg_hit: 과거 평균 출현 개수
+    - ensemble: P3 LottoEnsemble 인스턴스 (None이면 기존 model_contributions 방식 fallback)
     """
     results = []
 
@@ -900,6 +1240,43 @@ def analyze_all_regressions(history_draws, final_probs, model_contributions=None
                 cur = idx
                 if str_count > 50: break
 
+        MODELS = ["lstm","xgboost","cnn","transformer","markov","autoencoder","gnn"]
+        # P3: predict_regression() 별도 경로 사용 (ensemble 인스턴스 있을 때)
+        model_exp = {}
+        if ensemble is not None and target_nums:
+            try:
+                reg_result = ensemble.predict_regression(history_draws, step=w)
+                model_exp = reg_result.get("model_exp", {})
+            except Exception as _reg_err:
+                print(f"  predict_regression fallback (step={w}): {_reg_err}")
+                # fallback: 기존 model_contributions 방식
+                if model_contributions:
+                    for m in MODELS:
+                        m_probs = model_contributions.get(m, {})
+                        m_total = sum(m_probs.values()) or 1.0
+                        m_exp = sum(m_probs.get(n, m_probs.get(str(n), 0)) / m_total for n in target_nums) * 6
+                        model_exp[m] = round(float(m_exp), 3)
+        elif model_contributions and target_nums:
+            # fallback: ensemble 없을 때 기존 방식 유지
+            for m in MODELS:
+                m_probs = model_contributions.get(m, {})
+                m_total = sum(m_probs.values()) or 1.0
+                m_exp = sum(m_probs.get(n, m_probs.get(str(n), 0)) / m_total for n in target_nums) * 6
+                model_exp[m] = round(float(m_exp), 3)
+
+        # 특이사항: w주기로 3회 이상 연속 출현한 번호
+        notable = []
+        for n in (target_nums or []):
+            consec = 1
+            for k in range(2, 6):
+                idx = k * w - 1
+                if idx < total_draws and n in history_draws[idx]["numbers"]:
+                    consec += 1
+                else:
+                    break
+            if consec >= 3:
+                notable.append({"num": n, "count": consec})
+
         results.append({
             "id": w,
             "targets": sorted(target_nums),
@@ -908,6 +1285,8 @@ def analyze_all_regressions(history_draws, final_probs, model_contributions=None
             "avg_hit": avg_hit,
             "hit_dist": hit_dist,
             "sample_count": len(hit_counts),
+            "model_exp": model_exp,
+            "notable": notable,
         })
     return results
 
@@ -1245,6 +1624,7 @@ async def _ask_llm_strategy_v3(target_round, top_5, exclude_10, history_draws, c
             model=config.LLM_MODEL,
             google_api_key=config.GOOGLE_API_KEY,
             temperature=0.4,
+            convert_system_message_to_human=True,  # Gemma 계열 호환
         )
 
         recent_5 = history_draws[:5]
@@ -1264,11 +1644,12 @@ async def _ask_llm_strategy_v3(target_round, top_5, exclude_10, history_draws, c
             "sum": "총합", "tail_sum": "끝수합", "ac": "AC값",
             "odd": "홀짝", "high": "저고", "prime": "소수",
             "consecutive": "연속수", "composite": "합성수", "square": "제곱수",
-            "triangular": "삼각수", "twin": "쌍둥이수", "mul3": "3의 배수",
-            "mul4": "4의 배수", "mul5": "5의 배수",
+            "triangular": "삼각수", "twin": "동형수", "mul3": "3의 배수",
+            "mul4": "4의 배수", "mul5": "5의 배수", "mul7": "7의 배수", "mul8": "8의 배수",
             "mul34": "3·4의 배수", "mul35": "3·5의 배수", "mul45": "4·5의 배수",
             "non_multiple": "비배수",
-            "hot10": "최근 10회 출현", "missing": "장기 미출현", "neighbor": "이웃수", "carryover": "이월수"
+            "hot10": "핫번호 개수", "neutral10": "뉴트럴번호 개수", "cold10": "콜드번호 개수",
+            "missing": "장기 미출현", "neighbor": "이웃수", "carryover": "이월수"
         }
         filter_summary = []
         for key, val in range_analysis.items():
@@ -1422,7 +1803,7 @@ def _fallback_strategy_v3(top_5: list, exclude_10: list, error_msg: str = None) 
             {"filter": "합성수", "min": 2, "max": 4, "evidence": "확률적 최빈 구간"},
             {"filter": "제곱수", "min": 0, "max": 1, "evidence": "자연 발생 확률"},
             {"filter": "삼각수", "min": 0, "max": 2, "evidence": "일반적 패턴 확률"},
-            {"filter": "쌍둥이수", "min": 0, "max": 1, "evidence": "일반적 패턴 확률"},
+            {"filter": "동형수", "min": 0, "max": 1, "evidence": "일반적 패턴 확률"},
             {"filter": "연속수", "min": 0, "max": 1, "evidence": "자주 관측되는 구간"},
             {"filter": "최근 10회 출현", "min": 3, "max": 4, "evidence": "모멘텀 회귀 구간"},
             {"filter": "장기 미출현", "min": 0, "max": 1, "evidence": "콜드 번호 출현 확률"},
@@ -1463,24 +1844,38 @@ def _save_analysis_history(target_round: int, result: dict):
         strategy = result.get("strategy", {})
         analysis = result.get("analysis", {})
 
-        # 추천수 / 제외수
-        recommended = strategy.get("top_5", [])
-        excluded = strategy.get("exclude_10", [])
+        # 추천수 / 제외수 (result 최상위 키 우선 참조)
+        recommended = result.get("top_5") or strategy.get("top_5", [])
+        excluded    = result.get("exclude_10") or strategy.get("exclude_10", [])
 
         # 추천조합 (최대 20개)
         combinations = result.get("combinations", [])
 
         # 번호별 종합 순위: matrix_data 모델 점수 평균
-        matrix_data = analysis.get("matrix_data", {})
+        # matrix_data는 리스트(list of dict) 또는 dict 두 가지 형태 모두 지원
+        raw_matrix = analysis.get("matrix_data", {})
         number_rankings = {}
         model_rankings = {}
-        for num_str, model_scores in matrix_data.items():
-            scores = [v for v in model_scores.values() if isinstance(v, (int, float))]
-            number_rankings[num_str] = round(sum(scores) / len(scores), 4) if scores else 0.0
-            for model_name, score in model_scores.items():
-                if model_name not in model_rankings:
-                    model_rankings[model_name] = {}
-                model_rankings[model_name][num_str] = score
+        if isinstance(raw_matrix, list):
+            # 신규 형태: [{"num": 34, "models": {"lstm": {"score": 100}, ...}}, ...]
+            for item in raw_matrix:
+                num = str(item.get("num", ""))
+                models = item.get("models", {})
+                scores = [v.get("score", 0) for v in models.values() if isinstance(v, dict)]
+                number_rankings[num] = round(sum(scores) / len(scores), 4) if scores else 0.0
+                for model_name, mv in models.items():
+                    if model_name not in model_rankings:
+                        model_rankings[model_name] = {}
+                    model_rankings[model_name][num] = mv.get("score", 0) if isinstance(mv, dict) else 0
+        elif isinstance(raw_matrix, dict):
+            # 구형 형태: {"34": {"lstm": 0.8, "xgboost": 0.7, ...}, ...}
+            for num_str, model_scores in raw_matrix.items():
+                scores = [v for v in model_scores.values() if isinstance(v, (int, float))]
+                number_rankings[num_str] = round(sum(scores) / len(scores), 4) if scores else 0.0
+                for model_name, score in model_scores.items():
+                    if model_name not in model_rankings:
+                        model_rankings[model_name] = {}
+                    model_rankings[model_name][num_str] = score
 
         # 적용 필터 스냅샷
         applied_filters = result.get("pipeline", {}).get("filters_applied", {})
@@ -1492,10 +1887,23 @@ def _save_analysis_history(target_round: int, result: dict):
             "pipeline": result.get("pipeline", {}),
         }
 
+        # strategy가 비어있으면(LLM 미실행/실패) fallback summary 생성
+        # confidence=0, summary="" 상태로 저장되는 것 방지
+        confidence_val = strategy.get("confidence", 0)
+        summary_val = strategy.get("summary", "")
+        if not confidence_val or not summary_val:
+            top5_str = ", ".join(map(str, recommended[:5])) if recommended else "미정"
+            summary_val = summary_val or (
+                f"{target_round}회차 딥러닝 앙상블 분석 완료. "
+                f"추천 상위 번호: {top5_str}. "
+                f"(LLM 전략 분석 미실행 — 앙상블 단독 모드)"
+            )
+            confidence_val = confidence_val or 40  # LLM 없는 경우 기본 신뢰도 40
+
         row = {
             "target_round": target_round,
-            "confidence": strategy.get("confidence", 0),
-            "summary": (strategy.get("summary", ""))[:500],
+            "confidence": confidence_val,
+            "summary": summary_val[:500],
             "analysis_data": json.dumps(result, cls=NumpyEncoder, ensure_ascii=False),
             "recommended_numbers": recommended,
             "excluded_numbers": excluded,
@@ -1509,9 +1917,82 @@ def _save_analysis_history(target_round: int, result: dict):
 
         # upsert: 같은 회차 재분석 시 덮어쓰기
         client.table("deep_analysis_history").upsert(row, on_conflict="target_round").execute()
-        print(f"[OK] 분석 이력 저장 완료: {target_round}회차")
+        print(f"[OK] 분석 이력 저장 완료: {target_round}회차 (confidence={confidence_val})")
     except Exception as e:
         print(f"이력 저장 실패 (무시): {e}")
+
+
+def _save_filter_predictions(target_round: int, result: dict):
+    """[Phase 4.2] 앙상블 필터 범위 예측값을 model_filter_predictions 테이블에 저장."""
+    try:
+        client = get_client()
+        analysis = result.get("analysis", {})
+        range_analysis = analysis.get("range_analysis", {})
+
+        def _parse_range(key, subkey=None):
+            """range_analysis에서 min/max 추출 헬퍼"""
+            entry = range_analysis.get(key, {})
+            rng = entry.get("range")
+            if isinstance(rng, list) and len(rng) == 2:
+                return int(rng[0]), int(rng[1])
+            if isinstance(rng, str) and "~" in rng:
+                parts = rng.split("~")
+                try:
+                    return int(parts[0]), int(parts[1])
+                except Exception:
+                    pass
+            return None, None
+
+        sum_min,       sum_max       = _parse_range("sum")
+        ac_min,        ac_max        = _parse_range("ac")
+        odd_min,       odd_max       = _parse_range("odd")
+        high_min,      high_max      = _parse_range("high")
+        tail_min,      tail_max      = _parse_range("tail_sum")
+        prime_min,     prime_max     = _parse_range("prime")
+        composite_min, composite_max = _parse_range("composite")
+        consec_max = _parse_range("consecutive")[1]
+
+        row = {
+            "round_number":    target_round,
+            "source_model":    "ensemble",
+            "sum_min":         sum_min,
+            "sum_max":         sum_max,
+            "ac_value_min":    ac_min,
+            "ac_value_max":    ac_max,
+            "odd_count_min":   odd_min,
+            "odd_count_max":   odd_max,
+            "high_count_min":  high_min,
+            "high_count_max":  high_max,
+            "tail_sum_min":    tail_min,
+            "tail_sum_max":    tail_max,
+            "prime_min":       prime_min,
+            "prime_max":       prime_max,
+            "composite_min":   composite_min,
+            "composite_max":   composite_max,
+            "consecutive_max": consec_max,
+            "full_range_data": json.dumps(range_analysis, cls=NumpyEncoder, ensure_ascii=False),
+            "confidence":      0.700,
+        }
+        client.table("model_filter_predictions").upsert(
+            row, on_conflict="round_number,source_model"
+        ).execute()
+        print(f"[OK] 필터 예측값 저장 완료 (ensemble): {target_round}회차")
+
+        # LLM 보정 결과가 있으면 별도 저장
+        strategy = result.get("strategy", {})
+        llm_recs  = strategy.get("filter_recommendations", [])
+        if llm_recs:
+            llm_row = row.copy()
+            llm_row["source_model"] = "llm_corrected"
+            llm_row["confidence"]   = 0.800
+            llm_filter_data = {r.get("filter", ""): r for r in llm_recs}
+            llm_row["full_range_data"] = json.dumps(llm_filter_data, cls=NumpyEncoder, ensure_ascii=False)
+            client.table("model_filter_predictions").upsert(
+                llm_row, on_conflict="round_number,source_model"
+            ).execute()
+            print(f"[OK] 필터 예측값 저장 완료 (llm_corrected): {target_round}회차")
+    except Exception as e:
+        print(f"[SKIP] 필터 예측값 저장 실패 (무시): {e}")
 
 
 def _save_model_performance_log(target_round: int, result: dict):
@@ -1567,8 +2048,10 @@ def _save_model_performance_log(target_round: int, result: dict):
 # ------------------------------------------------------------------
 # 미출현 그룹 분석
 # ------------------------------------------------------------------
-def analyze_missing_group(target_round: int, final_probs: dict, history_draws: list) -> dict:
+def analyze_missing_group(target_round: int, final_probs: dict, history_draws: list, contribs: dict = None) -> dict:
     """number_features_by_round에서 missing_count를 가져와 4개 구간으로 분류."""
+
+    MODELS = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder", "gnn"]
 
     # Supabase에서 missing_count 조회
     missing_counts = fetch_missing_counts(target_round)
@@ -1599,6 +2082,12 @@ def analyze_missing_group(target_round: int, final_probs: dict, history_draws: l
     # 총 앙상블 확률 합산
     total_prob = sum(final_probs.values()) or 1.0
 
+    # 모델별 총 확률 합산 (정규화용)
+    model_totals = {}
+    if contribs:
+        for m in MODELS:
+            model_totals[m] = sum(contribs.get(m, {}).values()) or 1.0
+
     groups = {g: {"label": GROUP_LABELS[g]["label"], "range": GROUP_LABELS[g]["range"],
                   "color": GROUP_LABELS[g]["color"], "numbers": [], "count": 0,
                   "avg_prob": 0.0, "top_count": 0} for g in range(1, 5)}
@@ -1625,6 +2114,19 @@ def analyze_missing_group(target_round: int, final_probs: dict, history_draws: l
         groups[g]["avg_prob"] = round(sum(x["prob"] for x in nums) / len(nums), 3) if nums else 0
         # 확률 높은 순 정렬
         groups[g]["numbers"].sort(key=lambda x: x["prob"], reverse=True)
+
+        # 모델별 기대 출현수 (sum of model_prob/total * 6) — int/str 키 둘 다 처리
+        if contribs:
+            model_exp = {}
+            for m in MODELS:
+                m_probs = contribs.get(m, {})
+                m_total = model_totals.get(m, 1.0)
+                m_exp = sum(
+                    m_probs.get(x["num"], m_probs.get(str(x["num"]), 0)) / m_total
+                    for x in nums
+                ) * 6
+                model_exp[m] = round(float(m_exp), 3)
+            groups[g]["model_exp"] = model_exp
 
     return {"groups": groups, "missing_counts": {str(k): v for k, v in missing_counts.items()}}
 
@@ -1756,6 +2258,95 @@ async def update_actual_result(round_number: int, body: dict):
 
 
 # ------------------------------------------------------------------
+# 메뉴별 분석 사전 계산 및 조회 (v4 신규)
+# ------------------------------------------------------------------
+def _precompute_menu_strategic_reports(target_round: int, result: dict):
+    """메인 분석 후 주요 메뉴별(동형수, 제곱수 등) 리포트 데이터를 사전 생성하여 저장."""
+    try:
+        client = get_client()
+        analysis = result.get("analysis", {})
+        range_analysis = analysis.get("range_analysis", {})
+        ratio_analysis = analysis.get("ratio_analysis", {})
+        strategy = result.get("strategy", {})
+        
+        # 분석할 메뉴 후보군
+        # twin -> 동형수, square -> 제곱수, triangular -> 삼각수, sum -> 총합, 
+        # ac -> AC값, tail_sum -> 끝수합, odd -> 홀짝, high -> 저고,
+        # consecutive -> 연속수, prime -> 소수, composite -> 합성수
+        MENU_CONFIG = {
+            "twin": {"name": "동형수", "category": "pattern"},
+            "square": {"name": "제곱수", "category": "pattern"},
+            "triangular": {"name": "삼각수", "category": "pattern"},
+            "sum": {"name": "총합", "category": "basic"},
+            "ac": {"name": "AC값", "category": "basic"},
+            "tail_sum": {"name": "끝수합", "category": "basic"},
+            "odd": {"name": "홀짝비율", "category": "basic"},
+            "high": {"name": "저고비율", "category": "basic"},
+            "consecutive": {"name": "연속수", "category": "pattern"},
+            "prime": {"name": "소수", "category": "pattern"},
+            "composite": {"name": "합성수", "category": "pattern"},
+            "hot10":   {"name": "핫번호 개수",  "category": "hot_cold"},
+            "missing": {"name": "장기미출현", "category": "hot_cold"},
+        }
+
+        for m_type, cfg in MENU_CONFIG.items():
+            # 1. 앙상블 데이터 추출 (range_analysis 또는 ratio_analysis에서 가져옴)
+            if m_type in ["odd", "high"]:
+                r_key = "high_low" if m_type == "high" else "odd_even"
+                m_data = ratio_analysis.get(r_key, {})
+            else:
+                m_data = range_analysis.get(m_type, {})
+
+            if not m_data:
+                continue
+
+            # 2. 요약 텍스트 추출
+            menu_name = cfg["name"]
+            llm_summary = f"딥러닝 앙상블 분석 결과, 이번 {target_round}회차 {menu_name} 핵심 기대 지표가 도출되었습니다."
+            recs = strategy.get("filter_recommendations", [])
+            for r in recs:
+                if str(r.get("filter", "")) in [menu_name, menu_name.replace("비율", "")]:
+                    llm_summary = r.get("evidence", llm_summary)
+                    break
+
+            entry = {
+                "target_round": target_round,
+                "menu_type": m_type,
+                "category": cfg["category"],
+                "ensemble_range": m_data.get("range") if "range" in m_data else m_data.get("ensemble", {}).get("recommended"),
+                "model_expectations": m_data.get("model_expectations"),
+                "model_weights": result.get("pipeline", {}).get("modelWeights"),
+                "agreement_score": int(m_data.get("agreement", 0) * 100) if "agreement" in m_data else int(m_data.get("ensemble", {}).get("agreement", 0.5) * 100),
+                "llm_analysis": {
+                    "summary": llm_summary,
+                    "insight": strategy.get("overall_strategy", {}).get("short_advice", "가이드라인 준수 권장")
+                }
+            }
+
+            # 저장
+            client.table("menu_analysis_history").upsert(
+                entry, on_conflict="target_round,menu_type"
+            ).execute()
+
+        print(f"[OK] {target_round}회차 메뉴별 분석 리포트 사전 계산 완료")
+    except Exception as e:
+        print(f"메뉴별 분석 사전 계산 저장 실패 (무시): {e}")
+
+@router.get("/menu-analysis")
+async def get_menu_analysis(menu_type: str = None, round_num: int = None):
+    """서브 메뉴별(동형수 등) 사전 계산된 분석 데이터 조회."""
+    try:
+        client = get_client()
+        query = client.table("menu_analysis_history").select("*")
+        if menu_type: query = query.eq("menu_type", menu_type)
+        if round_num: query = query.eq("target_round", round_num)
+        else: query = query.order("target_round", desc=True).limit(1)
+        result = query.execute()
+        return _json_response({"success": True, "data": result.data or []})
+    except Exception as e:
+        return _json_response({"success": False, "error": str(e)})
+
+# ------------------------------------------------------------------
 # Main API
 # ------------------------------------------------------------------
 @router.get("/analysis")
@@ -1794,17 +2385,66 @@ async def get_deep_analysis(round_num: int = None):
         except Exception as e:
             print(f"전문가 메모 로드 실패: {e}")
 
-        # 모델 실행
+        # 모델 실행 — Phase 0.4: task별 최적 가중치 적용
         ensemble = LottoEnsemble()
-        try: 
-            prediction = ensemble.predict(history_draws, human_rules=human_rules)
+
+        # [recommend_top] P4: Consensus + CI Gating
+        top5_data = []
+        try:
+            top5_result = ensemble.predict_top5(
+                history_draws, n_top=5, n_bootstrap=50, consensus_k=4,
+                human_rules=human_rules
+            )
+            prediction = {
+                "probabilities":      top5_result["full_probs"],
+                "xai_contributions":  top5_result["xai_contributions"],
+                "evidence":           top5_result["evidence"],
+            }
+            # model_contributions는 predict_with_task에서 별도 추출
+            prediction_full = ensemble.predict_with_task(
+                history_draws, task="recommend_top", human_rules=human_rules
+            )
+            prediction["model_contributions"] = prediction_full.get("model_contributions", {})
+            top5_data = top5_result["top_numbers"]  # P4 결과 저장
         except Exception as e:
-            print(f"예측 오류: {e}")
+            print(f"P4 top5 오류 (기본 모드 폴백): {e}")
             traceback.print_exc()
-            prediction = {"probabilities": {}, "model_contributions": {}}
-        
+            try:
+                prediction_full = ensemble.predict_with_task(
+                    history_draws, task="recommend_top", human_rules=human_rules
+                )
+                prediction = prediction_full
+            except Exception as e2:
+                print(f"예측 오류: {e2}")
+                traceback.print_exc()
+                prediction = {"probabilities": {}, "model_contributions": {}}
+            top5_data = []
+
+        # [exclude] P5: GNN Veto
+        excl_data = []
+        try:
+            excl_result = ensemble.predict_exclusion_with_veto(
+                history_draws, n_exclude=10, human_rules=human_rules
+            )
+            prediction_excl = {"probabilities": excl_result["base_probs"]}
+            excl_data = excl_result["exclusions"]  # P5 결과 저장
+            final_probs_excl = excl_result["base_probs"]
+        except Exception as e:
+            print(f"P5 veto 오류 (기본 모드 폴백): {e}")
+            try:
+                prediction_excl = ensemble.predict_with_task(
+                    history_draws, task="exclude", human_rules=human_rules
+                )
+                final_probs_excl = prediction_excl.get("probabilities", {})
+            except Exception as e2:
+                print(f"제외수 예측 오류 (기본 모드로 폴백): {e2}")
+                final_probs_excl = {}
+            excl_data = []
+
         final_probs = prediction.get("probabilities", {})
-        contribs = prediction.get("model_contributions", {})
+        contribs    = prediction.get("model_contributions", {})
+        # P0: XAI 기여도 (predict() 내부에서 이미 계산됨, 없으면 빈 dict)
+        xai_contributions = prediction.get("xai_contributions", {})
         # 전문가 메모 파싱 완료
         current_memo_raw = expert_memo_data.get("memo") if expert_memo_data else None
 
@@ -1844,12 +2484,25 @@ async def get_deep_analysis(round_num: int = None):
 
         # [1] 기초분석
         range_analysis_simple, filter_settings = simulate_all_filters(corrected_probs, history_draws)
+        # [1-b] 비율형 분석 (홀짝/고저) — 옵션 B 스키마
+        try:
+            ratio_analysis = compute_ratio_analysis(corrected_probs, history_draws, contribs)
+        except Exception as _ra_err:
+            print(f"[ratio_analysis] 계산 실패: {_ra_err}")
+            ratio_analysis = {}
         range_analysis = {}
         for filter_key, filter_value in range_analysis_simple.items():
-            model_expectations = get_model_filter_expectations(filter_key, history_draws, contribs)
+            # P1: filter_key별 최적 sub-task 자동 선택
+            # (sum→filter_range/Markov주도, hot10→filter_count_temporal/LSTM주도, 등)
+            auto_task = LottoEnsemble.get_task_for_filter(filter_key)
+            model_expectations = get_model_filter_expectations(
+                filter_key, history_draws, contribs, task=auto_task,
+                ensemble=ensemble,   # P6: GNN/CNN 스페셜리스트 활성화
+            )
             range_analysis[filter_key] = {
-                "range": filter_value,
-                "model_expectations": model_expectations if model_expectations else {}
+                "range":              filter_value,
+                "primary_task":       auto_task,          # 어떤 sub-task가 사용됐는지
+                "model_expectations": model_expectations if model_expectations else {},
             }
         
         # [2] 커스텀분석 (ai_custom_analyses 테이블 기반 배치 처리)
@@ -2060,8 +2713,12 @@ async def get_deep_analysis(round_num: int = None):
                 "model_scores": model_scores,
             })
 
-        # [3] 회귀분석
-        regression_analysis = analyze_all_regressions(history_draws, final_probs, model_contributions=contribs)
+        # [3] 회귀분석 (P3: ensemble 인스턴스 전달 → predict_regression() 별도 경로)
+        regression_analysis = analyze_all_regressions(
+            history_draws, final_probs,
+            model_contributions=contribs,
+            ensemble=ensemble,
+        )
         
         # [4] 끝수분석 (STR + 모델별 기대값 포함)
         tail_analysis = analyze_tail_detailed(final_probs, history_draws, model_contributions=contribs)
@@ -2077,7 +2734,7 @@ async def get_deep_analysis(round_num: int = None):
 
         # [4-4] 핫/콜드 분석 (모델별 포함)
         hot_cold_data = analyze_hot_cold(final_probs, history_draws, contribs)
-        missing_group_data = analyze_missing_group(target_round, final_probs, history_draws)
+        missing_group_data = analyze_missing_group(target_round, final_probs, history_draws, contribs)
 
         # [5] 번호별 분석 (Matrix)
         model_all_probs = {}
@@ -2159,15 +2816,102 @@ async def get_deep_analysis(round_num: int = None):
             
         matrix_data.sort(key=lambda x: x["total"], reverse=True)
         # 상위 5개 추출 (단, 제외된 번호(점수 0)는 절대 포함하지 않음)
-        top_5 = [x["num"] for x in matrix_data if x["total"] > 0][:5]
-        
-        # 만약 모델 점수가 다 0이라서 top_5가 비어버린다면?
-        if not top_5:
-            # 제외되지 않은 번호 중 앞선 순서대로 5개 추천
-            remaining_nums = [x["num"] for x in matrix_data if not x.get("memo_excluded")]
-            top_5 = remaining_nums[:5]
+        top_5_raw = [x["num"] for x in matrix_data if x["total"] > 0][:5]
 
-        exclude_10 = [x["num"] for x in matrix_data[-10:]]
+        # 만약 모델 점수가 다 0이라서 top_5가 비어버린다면?
+        if not top_5_raw:
+            remaining_nums = [x["num"] for x in matrix_data if not x.get("memo_excluded")]
+            top_5_raw = remaining_nums[:5]
+
+        # ── [Phase 1.2] 출력 보정 루프 ──────────────────────────────────
+        # 직전 3회차 모두 등장한 번호 → 패널티 (과적합 방지)
+        # 직전 5회차 미등장 번호 → 소폭 가산 (GAP 보정)
+        recent3_nums = set()
+        for d in history_draws[:3]:
+            for n in d.get("numbers", []):
+                recent3_nums.add(n)
+        # 3회차 모두 등장: 교집합 계산
+        all3_nums = set(range(1, 46))
+        for d in history_draws[:3]:
+            all3_nums &= set(d.get("numbers", []))
+
+        recent5_appeared = set()
+        for d in history_draws[:5]:
+            for n in d.get("numbers", []):
+                recent5_appeared.add(n)
+
+        # 보정 후 재정렬 (matrix_data total 기반)
+        score_override = {}
+        for item in matrix_data:
+            n = item["num"]
+            s = item["total"]
+            if n in all3_nums:
+                s *= 0.7   # 직전 3회 모두 출현 → 30% 패널티
+            if n not in recent5_appeared:
+                s *= 1.15  # 직전 5회 미출현 → 15% 보너스
+            score_override[n] = s
+
+        top_5 = sorted(
+            [x["num"] for x in matrix_data if x["total"] > 0],
+            key=lambda n: score_override.get(n, 0),
+            reverse=True
+        )[:5]
+        if not top_5:
+            top_5 = top_5_raw
+
+        # P4 결과가 있으면 top_5 보강 (비어있는 경우에만 교체)
+        if not top_5 and top5_data:
+            top_5 = [entry["number"] for entry in top5_data]
+
+        # ── [Phase 2.1 + Phase 0.4] 개선된 제외수 — Autoencoder 강화 + 제외 안전도 ────
+        # Phase 0.4: exclude task 가중치로 재계산된 확률에서 하위 15개 후보 선출
+        # final_probs_excl이 있으면 사용 (Autoencoder 비중 30%), 없으면 matrix_data 기반
+        if final_probs_excl:
+            # Autoencoder-heavy 확률 기준 하위 15개 (점수 낮은 순 = 제외 후보)
+            bottom_15 = sorted(
+                range(1, 46),
+                key=lambda n: final_probs_excl.get(n, 0)
+            )[:15]
+        else:
+            bottom_15 = [x["num"] for x in matrix_data[-15:]]
+
+        # 제외 위험도 계산 (위험할수록 제외에서 빠져야 함 → 낮은 안전도)
+        def _exclude_safety(n: int) -> float:
+            """값이 높을수록 제외하기 안전 (당첨 가능성 낮음)"""
+            safety = 1.0
+            sc = stat_corrections.get(n, {})
+
+            # GAP이 높으면 곧 나올 수 있음 → 제외 위험
+            gap_ratio = sc.get("gap_ratio", 0)
+            if gap_ratio >= 2.0:
+                safety *= 0.3   # 주기 2배 초과 → 매우 위험
+            elif gap_ratio >= 1.5:
+                safety *= 0.5
+            elif gap_ratio >= 1.0:
+                safety *= 0.7
+
+            # STR 연속 중인 번호 → 제외 위험
+            if streak_count.get(n, 0) >= 2:
+                safety *= 0.4
+            elif streak_count.get(n, 0) == 1:
+                safety *= 0.7
+
+            # 최근 10회차 출현한 번호 → 제외 위험
+            appear_last10 = sum(1 for d in history_draws[:10] if n in d.get("numbers", []))
+            if appear_last10 >= 3:
+                safety *= 0.5   # 과출현 → 제외 위험
+            elif appear_last10 >= 1:
+                safety *= 0.8
+
+            return safety
+
+        # 하위 15개 중 안전도 높은 10개 선출
+        bottom_15_with_safety = sorted(
+            bottom_15,
+            key=lambda n: _exclude_safety(n),
+            reverse=True  # 안전도 높은 순 (제외해도 괜찮은 번호)
+        )
+        exclude_10 = bottom_15_with_safety[:10]
 
         # [6] 조합 (10게임) - corrected_probs 기반
         gen_probs = corrected_probs.copy()
@@ -2189,13 +2933,13 @@ async def get_deep_analysis(round_num: int = None):
             "odd": "홀짝비율", "high": "저고비율", "prime": "소수",
             "composite": "합성수", "consecutive": "연속수", "square": "제곱수",
             "triangular": "삼각수", "twin": "동형수", "mul3": "3의 배수",
-            "mul4": "4의 배수", "mul5": "5의 배수",
+            "mul4": "4의 배수", "mul5": "5의 배수", "mul7": "7의 배수", "mul8": "8의 배수",
             "mul34": "3·4의 배수", "mul35": "3·5의 배수", "mul45": "4·5의 배수",
             "non_multiple": "배수외",
-            "hot10": "최근 10회 출현", "missing": "장기 미출현", 
-            "neighbor": "이웃수", "carryover": "이월수"
+            "hot10": "핫번호 개수", "neutral10": "뉴트럴번호 개수", "cold10": "콜드번호 개수",
+            "missing": "장기 미출현", "neighbor": "이웃수", "carryover": "이월수"
         }
-        
+
         if "filter_recommendations" not in strategy:
             strategy["filter_recommendations"] = []
             
@@ -2319,16 +3063,26 @@ async def get_deep_analysis(round_num: int = None):
             },
             # 통계 데이터들을 "analysis" 객체 안으로 모두 집어넣습니다!
             "analysis": {
-                "matrix_data": matrix_data,
-                "range_analysis": range_analysis,
-                "custom_evaluations": custom_evaluations,
-                "tail_analysis": tail_analysis,
+                "matrix_data":          matrix_data,
+                "range_analysis":       range_analysis,
+                "ratio_analysis":       ratio_analysis,
+                "custom_evaluations":   custom_evaluations,
+                "tail_analysis":        tail_analysis,
                 "lotto_paper_analysis": lotto_paper_analysis,
-                "magic_square_analysis": magic_square_analysis,
+                "magic_square_analysis":magic_square_analysis,
                 "number_band_analysis": number_band_analysis,
-                "hot_cold_data": hot_cold_data,
-                "missing_group_data": missing_group_data,
-                "regression_analysis": regression_analysis,
+                "hot_cold_data":        hot_cold_data,
+                "missing_group_data":   missing_group_data,
+                "regression_analysis":  regression_analysis,
+                # P0: XAI 기여도 — 번호별 모델 기여% (baseline 초과분 기준)
+                # {17: {"lstm":60.6,"xgboost":29.1,...,"top_model":"lstm"}, ...}
+                "xai_contributions":    xai_contributions,
+                # P4: 번호별 CI, consensus_count, confidence_level 포함
+                "top5_details":         top5_data,
+                # P5: 번호별 gnn_veto 플래그 포함
+                "excl_details":         excl_data,
+                # P7: 메타러너 현황 (log_rounds, ready, feature_importance)
+                "meta_learner_status":  ensemble.meta_learner_status(),
             }
         }
 
@@ -2341,9 +3095,81 @@ async def get_deep_analysis(round_num: int = None):
             _save_model_performance_log(target_round, result)
         except Exception as e:
             print(f"모델 성능 기록 저장 실패 (무시): {e}")
+        try:
+            _save_filter_predictions(target_round, result)
+        except Exception as e:
+            print(f"필터 예측값 저장 실패 (무시): {e}")
+
+        # [11] 메뉴별 분석 결과 사전 계산 (신규)
+        try:
+            _precompute_menu_strategic_reports(target_round, result)
+        except Exception as e:
+            print(f"메뉴별 사전 계산 실패 (무시): {e}")
 
         return _json_response(result)
 
+    except Exception as e:
+        traceback.print_exc()
+        return _json_response({"success": False, "error": str(e)})
+
+
+# ------------------------------------------------------------------
+# P7: 메타러너 관련 API
+# ------------------------------------------------------------------
+@router.post("/meta-learner/train")
+async def train_meta_learner_endpoint():
+    """
+    P7 메타러너 학습 실행.
+
+    - 로그 부족 시 역대 이력으로 부트스트랩 자동 실행
+    - LightGBM (또는 LogisticRegression 폴백) 학습
+    - 결과: {success, n_rounds, method, feature_importance}
+    """
+    try:
+        draws = fetch_all_draws()
+        if not draws:
+            return _json_response({"success": False, "error": "이력 데이터 없음"})
+
+        ens = LottoEnsemble()
+        result = ens.train_meta_learner(draws=draws)
+        return _json_response(result)
+    except Exception as e:
+        traceback.print_exc()
+        return _json_response({"success": False, "error": str(e)})
+
+
+@router.get("/meta-learner/status")
+async def get_meta_learner_status():
+    """
+    P7 메타러너 현황 조회.
+
+    Returns:
+        {log_rounds, min_required, ready, model_loaded, method,
+         feature_importance, meta_alpha}
+    """
+    try:
+        ens = LottoEnsemble()
+        status = ens.meta_learner_status()
+        return _json_response({"success": True, "status": status})
+    except Exception as e:
+        return _json_response({"success": False, "error": str(e)})
+
+
+@router.post("/meta-learner/bootstrap")
+async def bootstrap_meta_learner():
+    """
+    P7 부트스트랩만 실행 (학습 없이 로그 생성).
+
+    역대 이력 stride=10으로 Rolling 시뮬레이션 후 meta_log.jsonl에 저장.
+    """
+    try:
+        draws = fetch_all_draws()
+        if not draws:
+            return _json_response({"success": False, "error": "이력 데이터 없음"})
+
+        ens = LottoEnsemble()
+        result = ens.bootstrap_meta_log(draws, stride=10, max_rounds=400)
+        return _json_response({"success": True, **result})
     except Exception as e:
         traceback.print_exc()
         return _json_response({"success": False, "error": str(e)})

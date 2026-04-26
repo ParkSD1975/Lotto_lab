@@ -21,15 +21,18 @@ async def explain_number_reasoning(request: ExplainRequest):
     try:
         # 전체 데이터 로드 (모델 예측용)
         draws = fetch_all_draws()
-        
+
         # 설명 체인 실행
         explanation = await explain_number(
             number=request.number,
             user_query=request.user_query,
+            target_round=request.target_round,
             draws_data=draws
         )
-        
+
         return {"number": request.number, "explanation": explanation}
-        
+
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
