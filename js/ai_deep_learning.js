@@ -27,18 +27,28 @@ const DeepLearning = {
         this.bindEvents();
         this._updateWeeklyStatusUI();
 
-        // 3. V4 분석 즉시 시작 (백엔드 웜업을 기다리지 않음)
+        // 3. V4 분석 즉시 시작 (백엔드 웜업과 무관)
         this.runAnalysis();
 
         console.log(`⏱️ [DeepLearning] 초기 렌더 시작 (${Date.now() - startTime}ms)`);
 
-        // 4. 웜업은 백그라운드에서 병렬 실행 — 완료 후 연결 상태 반영
-        this.checkConnection(true).then(() => {
+        // 4. 3초 후 V4 성공 여부 확인:
+        //    - V4 성공 → 백엔드 웜업 완전 생략 (503 스팸 없음)
+        //    - V4 실패 → 백엔드 단일 health check (웜업 아님)
+        setTimeout(async () => {
+            if (this.state.analysisData && this.state.analysisData._source === 'v4_weekly') {
+                // V4 로드 성공 → 백엔드 연결 불필요, 웜업 생략
+                console.log('⚡ [DeepLearning] V4 데이터 로드 완료 → 백엔드 웜업 생략');
+                return;
+            }
+            // V4 실패한 경우에만 백엔드 연결 시도
+            console.log('🔄 [DeepLearning] V4 데이터 없음 → 백엔드 연결 시도...');
+            await this.checkConnection(true);
             if (this.state.isConnected) {
                 window.AIProxy && window.AIProxy.startKeepAlive && window.AIProxy.startKeepAlive();
                 this.loadHistoryList();
             }
-        });
+        }, 3000);
     },
 
     async setTargetRound() {
@@ -434,28 +444,38 @@ const DeepLearning = {
             }
             const pred = predRows[0];
 
-            // 2. weekly_number_xai 조회 (번호별 기여도)
-            let xaiMap = {};
-            try {
-                const { data: xaiRows } = await window.supabaseClient
+            // 2. 나머지 데이터 병렬 조회
+            const [xaiResult, combResult, featResult] = await Promise.allSettled([
+                // weekly_number_xai (번호별 모델 기여도)
+                window.supabaseClient
                     .from('weekly_number_xai')
                     .select('*')
-                    .eq('target_round', pred.target_round);
-                if (xaiRows && xaiRows.length > 0) {
-                    xaiRows.forEach(r => { xaiMap[r.number] = r; });
-                }
-            } catch (e2) { /* xai 없으면 빈 map으로 진행 */ }
-
-            // 3. weekly_combinations 조회
-            let combinations = [];
-            try {
-                const { data: combRows } = await window.supabaseClient
+                    .eq('target_round', pred.target_round),
+                // weekly_combinations
+                window.supabaseClient
                     .from('weekly_combinations')
                     .select('*')
                     .eq('target_round', pred.target_round)
-                    .order('combo_rank', { ascending: true });
-                if (combRows) combinations = combRows;
-            } catch (e3) { /* 없으면 빈 배열 */ }
+                    .order('combo_rank', { ascending: true }),
+                // number_features_by_round (gap, freq, 회귀, 궁, 용지 위치)
+                window.supabaseClient
+                    .from('number_features_by_round')
+                    .select('number, missing_count, hot_cold, appearance_count_5, appearance_count_10, appearance_count_20, last_appearance_round, regression_2, regression_3, regression_5, regression_10, regression_15, regression_20, regression_30, regression_50, regression_100, regression_200, gung, paper_row, paper_col')
+                    .eq('round', pred.target_round - 1)
+            ]);
+
+            // xai map
+            const xaiMap = {};
+            if (xaiResult.status === 'fulfilled' && xaiResult.value.data) {
+                xaiResult.value.data.forEach(r => { xaiMap[r.number] = r; });
+            }
+            // features map
+            const featMap = {};
+            if (featResult.status === 'fulfilled' && featResult.value.data) {
+                featResult.value.data.forEach(r => { featMap[r.number] = r; });
+            }
+            // combinations
+            const combinations = (combResult.status === 'fulfilled' && combResult.value.data) ? combResult.value.data : [];
 
             const preds = {
                 target_round: pred.target_round,
@@ -469,78 +489,219 @@ const DeepLearning = {
                 combinations
             };
 
-            console.log(`[V4] Supabase 직접 조회 성공 — 제${pred.target_round}회차`);
-            return this._adaptV4ToV3Format(preds, xaiMap);
+            console.log(`[V4] Supabase 직접 조회 성공 — 제${pred.target_round}회차 (xai:${Object.keys(xaiMap).length}개, feat:${Object.keys(featMap).length}개)`);
+            return this._adaptV4ToV3Format(preds, xaiMap, featMap);
         } catch (e) {
             console.log('[V4] Supabase 직접 조회 실패 (무시):', e.message);
             return null;
         }
     },
 
-    // V4 response → renderAll() 호환 형식으로 변환
-    // xaiMap: { [number]: weekly_number_xai row } — 컬럼: xgboost_pct, lstm_pct, ..., probability
-    _adaptV4ToV3Format(preds, xaiMap) {
-        // XAI map에서 matrix_data 구성 (45개 번호)
+    // ── V4 데이터 → renderAll() 호환 V3 포맷 변환 ──
+    // xaiMap:  { [num]: { xgboost_pct, lstm_pct, ..., probability } }  (0~100 % 단위)
+    // featMap: { [num]: { missing_count, hot_cold, appearance_count_20, regression_*, gung, ... } }
+    _adaptV4ToV3Format(preds, xaiMap, featMap = {}) {
+        const top5      = preds.top_5 || [];
+        const exclude10 = preds.exclude_10 || [];
+        const mw        = preds.model_weights || {};
+
+        // ── 1. matrix_data (45개 번호) ──
+        // score = 모델의 이 번호에 대한 기여도 % (0-100 범위, xai 컬럼 그대로)
+        // total = 앙상블 확률 × 100 (%)
         const matrixData = [];
         for (let n = 1; n <= 45; n++) {
-            const xai = xaiMap[n] || xaiMap[String(n)] || {};
-            const prob = xai.probability || 0;
+            const x = xaiMap[n] || {};
+            const f = featMap[n] || {};
+            const prob = x.probability || 0;
             matrixData.push({
-                num: n,
+                num:  n,
                 total: parseFloat((prob * 100).toFixed(2)),
+                gap:  f.missing_count !== undefined ? f.missing_count : null,
+                freq: f.appearance_count_20 !== undefined ? parseFloat((f.appearance_count_20 / 20 * 100).toFixed(1)) : null,
+                hot_cold: f.hot_cold || null,
                 models: {
-                    xgboost:     { score: parseFloat(((xai.xgboost_pct || 0) * prob * 100).toFixed(2)) },
-                    lstm:        { score: parseFloat(((xai.lstm_pct || 0) * prob * 100).toFixed(2)) },
-                    cnn:         { score: parseFloat(((xai.cnn_pct || 0) * prob * 100).toFixed(2)) },
-                    transformer: { score: parseFloat(((xai.transformer_pct || 0) * prob * 100).toFixed(2)) },
-                    gnn:         { score: parseFloat(((xai.gnn_pct || 0) * prob * 100).toFixed(2)) },
-                    markov:      { score: parseFloat(((xai.markov_pct || 0) * prob * 100).toFixed(2)) },
-                    autoencoder: { score: parseFloat(((xai.autoencoder_pct || 0) * prob * 100).toFixed(2)) }
+                    xgboost:     { score: parseFloat((x.xgboost_pct     || 0).toFixed(2)) },
+                    lstm:        { score: parseFloat((x.lstm_pct        || 0).toFixed(2)) },
+                    cnn:         { score: parseFloat((x.cnn_pct         || 0).toFixed(2)) },
+                    transformer: { score: parseFloat((x.transformer_pct || 0).toFixed(2)) },
+                    gnn:         { score: parseFloat((x.gnn_pct         || 0).toFixed(2)) },
+                    markov:      { score: parseFloat((x.markov_pct      || 0).toFixed(2)) },
+                    autoencoder: { score: parseFloat((x.autoencoder_pct || 0).toFixed(2)) }
                 }
             });
         }
 
-        const top5 = preds.top_5 || [];
-        const mw = preds.model_weights || {};
+        // ── 2. hot_cold_data ──
+        const hot_cold_data = matrixData
+            .filter(m => m.total > 0)
+            .sort((a, b) => b.total - a.total)
+            .map(m => {
+                const f = featMap[m.num] || {};
+                const g = m.gap !== null ? m.gap : 99;
+                return {
+                    number:      m.num,
+                    gap:         m.gap !== null ? m.gap : 0,
+                    trend:       f.hot_cold || (g < 6 ? 'hot' : g > 15 ? 'cold' : 'neutral'),
+                    temperature: f.hot_cold || (g < 6 ? 'hot' : g > 15 ? 'cold' : 'neutral'),
+                    model_exp: {
+                        xgboost:     m.models.xgboost.score,
+                        lstm:        m.models.lstm.score,
+                        cnn:         m.models.cnn.score,
+                        transformer: m.models.transformer.score,
+                        markov:      m.models.markov.score,
+                        autoencoder: m.models.autoencoder.score,
+                        gnn:         m.models.gnn.score
+                    }
+                };
+            });
 
-        // 최소 strategy 구성
+        // ── 3. regression_analysis (number_features 회귀 컬럼 활용) ──
+        const REG_WINDOWS = [2, 3, 5, 10, 15, 20, 30, 50, 100, 200];
+        const regression_analysis = [];
+        for (let n = 1; n <= 45; n++) {
+            const f = featMap[n] || {};
+            if (!Object.keys(f).length) continue;
+            const gap  = f.missing_count || 0;
+            const hot  = f.hot_cold || 'neutral';
+            // 50회 기준 기대치 대비 이상도
+            const reg50    = f.regression_50 || 0;
+            const expected = parseFloat((50 * 6 / 45).toFixed(3)); // ≈ 6.667
+            const anomaly  = expected > 0 ? parseFloat((Math.abs(reg50 - expected) / expected).toFixed(3)) : 0;
+            const avgHit   = f.appearance_count_20 ? parseFloat((f.appearance_count_20 / 20 * 6).toFixed(2)) : 0;
+            const x = xaiMap[n] || {};
+            regression_analysis.push({
+                id:            n,
+                target_number: n,
+                gap,
+                str:           hot,
+                avg_hit:       avgHit,
+                anomaly,
+                // 각 회귀 윈도우별 실제 출현 횟수
+                regression_windows: REG_WINDOWS.reduce((acc, w) => {
+                    acc[`reg_${w}`] = f[`regression_${w}`] || 0;
+                    return acc;
+                }, {}),
+                models: {
+                    xgboost:     { score: x.xgboost_pct     || 0 },
+                    lstm:        { score: x.lstm_pct         || 0 },
+                    cnn:         { score: x.cnn_pct          || 0 },
+                    transformer: { score: x.transformer_pct  || 0 },
+                    markov:      { score: x.markov_pct       || 0 },
+                    autoencoder: { score: x.autoencoder_pct  || 0 },
+                    gnn:         { score: x.gnn_pct          || 0 }
+                }
+            });
+        }
+
+        // ── 4. magic_square_analysis (9궁) ──
+        const gungGroups = {};
+        for (let n = 1; n <= 45; n++) {
+            const g = (featMap[n] && featMap[n].gung) ? featMap[n].gung : Math.ceil(n / 5);
+            if (!gungGroups[g]) gungGroups[g] = { section: g, numbers: [], prob_sum: 0 };
+            gungGroups[g].numbers.push(n);
+            gungGroups[g].prob_sum += (xaiMap[n]?.probability || 0);
+        }
+        const magic_square_analysis = Object.values(gungGroups).sort((a, b) => a.section - b.section);
+
+        // ── 5. lotto_paper_analysis (로또용지 행/열) ──
+        const paperRowMap = {};
+        for (let n = 1; n <= 45; n++) {
+            const f   = featMap[n] || {};
+            const row = f.paper_row || Math.ceil(n / 7);
+            if (!paperRowMap[row]) paperRowMap[row] = { row, numbers: [], prob_sum: 0 };
+            paperRowMap[row].numbers.push(n);
+            paperRowMap[row].prob_sum += (xaiMap[n]?.probability || 0);
+        }
+        const lotto_paper_analysis = { rows: Object.values(paperRowMap).sort((a, b) => a.row - b.row) };
+
+        // ── 6. number_band_analysis (번호대 1~10 / 11~20 / ...) ──
+        const BANDS = [
+            { range: '1~10',  min: 1,  max: 10 },
+            { range: '11~20', min: 11, max: 20 },
+            { range: '21~30', min: 21, max: 30 },
+            { range: '31~40', min: 31, max: 40 },
+            { range: '41~45', min: 41, max: 45 }
+        ];
+        const number_band_analysis = BANDS.map(b => ({
+            range:         b.range,
+            numbers:       Array.from({ length: b.max - b.min + 1 }, (_, i) => b.min + i),
+            probabilities: Array.from({ length: b.max - b.min + 1 }, (_, i) => {
+                const x = xaiMap[b.min + i] || {};
+                return parseFloat(((x.probability || 0) * 100).toFixed(2));
+            })
+        }));
+
+        // ── 7. tail_analysis (끝수 0~9) ──
+        const tailGroups = {};
+        for (let t = 0; t <= 9; t++) tailGroups[t] = [];
+        for (let n = 1; n <= 45; n++) tailGroups[n % 10].push(n);
+        const tail_analysis = Object.entries(tailGroups).map(([tail, nums]) => ({
+            tail_digit: parseInt(tail),
+            counts: {
+                xgboost:     parseFloat(nums.reduce((s, n) => s + (xaiMap[n]?.xgboost_pct     || 0), 0).toFixed(1)),
+                lstm:        parseFloat(nums.reduce((s, n) => s + (xaiMap[n]?.lstm_pct        || 0), 0).toFixed(1)),
+                cnn:         0,
+                transformer: parseFloat(nums.reduce((s, n) => s + (xaiMap[n]?.transformer_pct || 0), 0).toFixed(1)),
+                markov:      parseFloat(nums.reduce((s, n) => s + (xaiMap[n]?.markov_pct      || 0), 0).toFixed(1)),
+                autoencoder: 0,
+                gnn:         0
+            },
+            gap: 0,
+            str: ''
+        }));
+
+        // ── strategy ──
+        const hotNums  = hot_cold_data.filter(h => h.temperature === 'hot').map(h => h.number);
+        const coldNums = hot_cold_data.filter(h => h.temperature === 'cold').map(h => h.number);
         const strategy = {
-            summary: `제${preds.target_round}회차 주간 앙상블 분석 완료. 추천 번호: ${top5.slice(0, 5).join(', ')}`,
-            confidence: preds.meta_active ? 85 : 78,
-            keywords: ['주간 분석', '5중 앙상블', ...(preds.meta_active ? ['메타 러너'] : [])],
-            hot_cold_analysis: { hot_ratio: 55, cold_ratio: 45 }
+            summary:        `제${preds.target_round}회차 주간 앙상블 분석 완료. 추천 번호: ${top5.slice(0, 5).join(', ')}`,
+            confidence:     preds.meta_active ? 85 : 78,
+            keywords:       ['주간 분석', 'XGBoost+LSTM+TF', ...(preds.meta_active ? ['메타러너 활성'] : [])],
+            hot_cold_analysis: {
+                hot_ratio:  Math.round(hotNums.length  / 45 * 100),
+                cold_ratio: Math.round(coldNums.length / 45 * 100)
+            },
+            overall_strategy: `XGBoost·LSTM·Transformer 3개 앙상블 기반 예측. 메타러너 ${preds.meta_active ? '활성 (α=' + (preds.meta_alpha || 0).toFixed(2) + ')' : '비활성'}.`,
+            risk_assessment:  null
         };
 
-        // combinations → v3 format
+        // ── combinations ──
         const combinations = (preds.combinations || []).map(c => ({
-            numbers: c.numbers || [],
-            total_sum: c.total_sum,
-            odd_count: c.odd_count,
+            numbers:    c.numbers || [],
+            total_sum:  c.total_sum,
+            odd_count:  c.odd_count,
             high_count: c.high_count,
             combo_rank: c.combo_rank
         }));
 
         return {
-            success: true,
-            target_round: preds.target_round,
-            top_5: top5,
-            exclude_10: preds.exclude_10 || [],
+            success:          true,
+            target_round:     preds.target_round,
+            top_5:            top5,
+            exclude_10:       exclude10,
             combinations,
             strategy,
-            model_weights: mw,
-            meta_active: preds.meta_active,
-            meta_alpha: preds.meta_alpha,
+            model_weights:    mw,
+            meta_active:      preds.meta_active,
+            meta_alpha:       preds.meta_alpha,
             pipeline_version: preds.pipeline_version,
-            created_at: preds.created_at,
-            elapsed_seconds: 0,
-            _source: 'v4_weekly',
+            created_at:       preds.created_at,
+            elapsed_seconds:  0,
+            _source:          'v4_weekly',
             analysis: {
-                matrix_data: matrixData
+                matrix_data:          matrixData,
+                hot_cold_data,
+                regression_analysis,
+                magic_square_analysis,
+                lotto_paper_analysis,
+                number_band_analysis,
+                tail_analysis,
+                range_analysis:       {},   // 추후 weekly_filter_analysis 테이블 추가 시 연동
+                missing_group_data:   []
             },
             evidence: {
                 model_weights: mw
             },
-            // recommendations 상세 (P4 CI 포함)
             recommendations: preds.recommendations || []
         };
     },
