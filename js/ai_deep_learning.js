@@ -1776,14 +1776,24 @@ const DeepLearning = {
             return sb - sa;
         });
         let html = '<div class="space-y-4">';
+        // 상대적 색상 기준: 확률 기준 상위 5 = 파랑, 상위 15 = 초록, 나머지 = 회색
+        const _probList = sorted.map(d => d.total || 0);
+        const _p5  = _probList.slice(0, 5);
+        const _p15 = _probList.slice(0, 15);
+        const _p5min  = _p5.length  ? Math.min(..._p5)  : 0;
+        const _p15min = _p15.length ? Math.min(..._p15) : 0;
+
         sorted.forEach(item => {
             const num = item.num;
-            const total = Math.round(item.total || 0);
-            const rawTotal = Math.round(item.raw_total || item.total || 0);
-            const gap = item.gap || 0;
+            const total    = parseFloat((item.total || 0).toFixed(2));  // 3.01 → "3.01%"
+            const rawTotal = parseFloat((item.raw_total || item.total || 0).toFixed(2));
+            const gap  = item.gap != null ? item.gap : '-';             // null → '-' (0으로 오인 방지)
             const freq = item.freq ? (item.freq * 100).toFixed(1) : '-';
             const colorClass = self.getBallColorClass(num);
-            const scoreColor = total >= 70 ? '#EF4444' : total >= 50 ? '#F59E0B' : '#9CA3AF';
+            // 상위 5위 = 파랑, 상위 15위 = 초록, 나머지 = 회색
+            const scoreColor = total >= _p5min  ? '#3B82F6'
+                             : total >= _p15min ? '#10B981'
+                             : '#9CA3AF';
             const overRatio = item.over_ratio != null ? item.over_ratio : null;
             const penalty = item.penalty != null ? item.penalty : 1.0;
             const gapRatio = item.gap_ratio != null ? item.gap_ratio : null;
@@ -1808,10 +1818,10 @@ const DeepLearning = {
             html += `<div class="flex-1 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-gray-500">`;
             html += `<span>Gap <strong class="text-gray-900">${gap}</strong></span>`;
             html += `<span>빈도 <strong class="text-gray-900">${freq}%</strong></span>`;
-            if (rawTotal !== total) html += `<span class="text-gray-400 text-xs">원점수 <s class="text-gray-300">${rawTotal}</s>→<strong class="text-gray-500">${total}</strong></span>`;
+            if (rawTotal !== total) html += `<span class="text-gray-400 text-xs">원점수 <s class="text-gray-300">${rawTotal}%</s>→<strong class="text-gray-500">${total}%</strong></span>`;
             if (corrBadges) html += corrBadges;
             html += `</div>`;
-            html += `<span class="font-black text-2xl tracking-tight" style="color:${isExcluded ? '#9CA3AF' : scoreColor}">${total}</span>`;
+            html += `<div style="text-align:right;flex-shrink:0"><span class="font-black text-xl tracking-tight" style="color:${isExcluded ? '#9CA3AF' : scoreColor}">${total}%</span><div style="font-size:9px;color:#9CA3AF;margin-top:1px">앙상블확률</div></div>`;
             html += `</div>`;
             html += `<div class="grid grid-cols-1 divide-y divide-gray-50 px-6 py-2 ${isExcluded ? 'grayscale opacity-70' : ''}">`;
             models.forEach(m => {
