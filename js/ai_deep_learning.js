@@ -2160,56 +2160,59 @@ const DeepLearning = {
         const tbody = document.getElementById('tail-body');
         if (!tbody || !tailData) return;
 
-        // deep_insight_panel.js와 동일한 확률→범위 변환 로직
-        const _probToRange = (prob) => {
-            if (prob < 0.3) return { min: 0, max: 1 };
-            if (prob >= 1.8) return { min: 1, max: 3 };
-            if (prob >= 1.2) return { min: 1, max: 2 };
-            return { min: 0, max: 2 };
-        };
         const MODEL_ORDER = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
-        const MODEL_ABBR = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV', autoencoder: 'ATC', gnn: 'GNN' };
         const MODEL_COLORS = {
             lstm: '#6366F1', xgboost: '#3B82F6', cnn: '#EC4899',
             transformer: '#F97316', markov: '#10B981', autoencoder: '#8B5CF6', gnn: '#EF4444'
         };
 
-        tbody.innerHTML = tailData.map(item => {
-            const exp = typeof item.exp === 'number' ? item.exp : 0;
-            const str = item.str != null ? item.str : '-';
+        // 끝수 기준값: 끝수 0 = 번호 4개(10,20,30,40) → 기준 0.533, 나머지(1~9) = 번호 5개 → 0.667
+        const _baseline = (tail) => tail === 0 ? (4 / 45 * 6) : (5 / 45 * 6);
 
-            // 앙상블 범위: model_exp에서 min/max 집계
-            const modelRanges = {};
-            if (item.model_exp) {
-                MODEL_ORDER.forEach(m => {
-                    const p = parseFloat(item.model_exp[m]) || 0;
-                    modelRanges[m] = _probToRange(p);
-                });
+        // 기대값 → 기준값 대비 상대 강도 표시
+        // 편차 ±0.05 이내 = 보통, +0.05이상 = 강, +0.12이상 = 매우강, 반대도 동일
+        const _relCell = (val, baseline, color) => {
+            if (val === null || val === undefined || isNaN(val)) {
+                return `<span style="color:#D1D5DB;font-size:12px">-</span>`;
             }
-            const allRanges = Object.values(modelRanges);
-            const rMin = allRanges.length ? Math.min(...allRanges.map(r => r.min)) : _probToRange(exp).min;
-            const rMax = allRanges.length ? Math.max(...allRanges.map(r => r.max)) : _probToRange(exp).max;
+            const diff = val - baseline;
+            const absDiff = Math.abs(diff);
+            let icon, textColor, bgStyle;
+            if (diff >= 0.12) {
+                icon = '🔥'; textColor = '#DC2626'; bgStyle = 'background:#FEF2F2;border-radius:6px;padding:1px 4px';
+            } else if (diff >= 0.05) {
+                icon = '▲'; textColor = color; bgStyle = '';
+            } else if (diff <= -0.12) {
+                icon = '❄️'; textColor = '#9CA3AF'; bgStyle = 'background:#F1F5F9;border-radius:6px;padding:1px 4px';
+            } else if (diff <= -0.05) {
+                icon = '▼'; textColor = '#94A3B8'; bgStyle = '';
+            } else {
+                icon = '='; textColor = '#9CA3AF'; bgStyle = '';
+            }
+            return `<span style="font-family:monospace;font-size:12px;font-weight:700;color:${textColor};${bgStyle}">${icon} ${val.toFixed(2)}</span>`;
+        };
 
-            const isHot = exp >= 1.2;
-            const rangeColor = isHot ? '#0F766E' : exp < 0.3 ? '#9CA3AF' : '#374151';
+        tbody.innerHTML = tailData.map(item => {
+            const exp   = typeof item.exp === 'number' ? item.exp : 0;
+            const base  = _baseline(item.tail);
+            const isHot = exp >= base + 0.08;
+            const isCold= exp <= base - 0.08;
+            const ensColor = isHot ? '#0F766E' : isCold ? '#6366F1' : '#374151';
 
             const ensembleCell = `
                 <div class="flex flex-col items-center gap-0.5">
-                    <span style="font-family:monospace;font-size:13px;font-weight:800;color:${rangeColor}">${rMin}~${rMax}개</span>
-                    <span style="font-size:9px;color:#94A3B8">평균 ${exp.toFixed(1)}개</span>
+                    ${_relCell(exp, base, '#0F766E')}
+                    <span style="font-size:9px;color:#94A3B8">기준 ${base.toFixed(2)}</span>
                 </div>`;
 
             const modelCells = MODEL_ORDER.map(m => {
-                const r = modelRanges[m] || _probToRange(exp);
-                const rangeLabel = r.min === r.max ? `${r.min}` : `${r.min}~${r.max}`;
+                const val = item.model_exp ? parseFloat(item.model_exp[m]) : null;
                 const color = MODEL_COLORS[m];
-                return `<td class="px-2 py-3 text-center">
-                    <span style="font-family:monospace;font-size:13px;font-weight:700;color:${color}">${rangeLabel}</span>
-                </td>`;
+                return `<td class="px-2 py-3 text-center">${_relCell(isNaN(val) ? null : val, base, color)}</td>`;
             }).join('');
 
-            return `<tr class="hover:bg-gray-50 border-b border-gray-100 last:border-0 transition-colors${isHot ? ' bg-emerald-50/40' : ''}">
-                <td class="px-4 py-3 font-black text-center text-gray-800 text-base">${item.tail}끝</td>
+            return `<tr class="hover:bg-gray-50 border-b border-gray-100 last:border-0 transition-colors${isHot ? ' bg-emerald-50/40' : isCold ? ' bg-slate-50/60' : ''}">
+                <td class="px-4 py-3 text-center text-gray-800 text-base">${item.tail}끝</td>
                 <td class="px-2 py-3 text-center">${ensembleCell}</td>
                 ${modelCells}
             </tr>`;
