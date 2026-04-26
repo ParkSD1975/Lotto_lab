@@ -689,18 +689,30 @@ const DeepLearning = {
         const _MODEL_KEYS = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
         const _calcModelExp = (nums) => {
             const me = {};
+            // 앙상블 기대 출현수 (기준값: 해당 그룹의 실제 확률 합 × 6)
+            const ensExp = parseFloat((nums.reduce((s, n) => s + (xaiMap[n]?.probability || 0), 0) * 6).toFixed(2));
+            // 균등 분포 기대 XAI% (번호 수 / 45 × 100)
+            const expectedPct = (nums.length / 45) * 100;
             _MODEL_KEYS.forEach(m => {
+                // 해당 모델의 이 그룹 내 XAI% 합
                 const pctSum = nums.reduce((s, n) => {
                     const x = xaiMap[n] || {};
-                    const pct = (m === 'gnn') ? _gnnPct(x) : (x[m + '_pct'] || 0);
-                    return s + pct;
+                    return s + ((m === 'gnn') ? _gnnPct(x) : (x[m + '_pct'] || 0));
                 }, 0);
-                me[m] = parseFloat((pctSum / 100 * 6).toFixed(2));
+                // 균등 대비 선호도 비율로 앙상블 기대값 스케일링
+                // ratio > 1 = 이 모델이 해당 그룹을 선호, < 1 = 기피
+                const ratio = expectedPct > 0 ? pctSum / expectedPct : 1.0;
+                me[m] = parseFloat((ensExp * ratio).toFixed(2));
             });
             return me;
         };
         const _calcExp = (nums) =>
             parseFloat((nums.reduce((s, n) => s + (xaiMap[n]?.probability || 0), 0) * 6).toFixed(2));
+        // 그룹 내 번호들의 최소 gap (그룹에서 가장 최근 출현 시점 기준)
+        const _calcGroupGap = (nums) => {
+            const minGap = Math.min(...nums.map(n => featMap[n]?.missing_count ?? 999));
+            return minGap >= 999 ? null : minGap;
+        };
 
         // ── 4. magic_square_analysis (9궁) ──
         const gungGroups = {};
@@ -717,7 +729,7 @@ const DeepLearning = {
                 label:     g.section + '궁',
                 exp:       _calcExp(g.numbers),
                 model_exp: _calcModelExp(g.numbers),
-                gap: 0, str: ''
+                gap: _calcGroupGap(g.numbers), str: '-'
             }));
 
         // ── 5. lotto_paper_analysis (로또용지 행/열) ──
@@ -737,7 +749,7 @@ const DeepLearning = {
                     label:     r.row + '행',
                     exp:       _calcExp(r.numbers),
                     model_exp: _calcModelExp(r.numbers),
-                    gap: 0, str: ''
+                    gap: _calcGroupGap(r.numbers), str: '-'
                 }))
         };
 
@@ -758,7 +770,7 @@ const DeepLearning = {
                 probabilities: nums.map(n => parseFloat(((xaiMap[n]?.probability || 0) * 100).toFixed(2))),
                 exp:           _calcExp(nums),
                 model_exp:     _calcModelExp(nums),
-                gap: 0, str: ''
+                gap: _calcGroupGap(nums), str: '-'
             };
         });
 
@@ -782,8 +794,8 @@ const DeepLearning = {
                     autoencoder: parseFloat(nums.reduce((s, n) => s + (xaiMap[n]?.autoencoder_pct || 0), 0).toFixed(1)),
                     gnn:         parseFloat(nums.reduce((s, n) => s + _gnnPct(xaiMap[n] || {}),  0).toFixed(1))
                 },
-                gap: 0,
-                str: ''
+                gap: _calcGroupGap(nums),
+                str: '-'
             };
         });
 
@@ -2164,7 +2176,7 @@ const DeepLearning = {
             if (prob == null || isNaN(prob)) return '-';
             if (prob < 0.30)  return '0개';
             if (prob < 0.55)  return '0~1개';
-            if (prob < 0.72)  return '1개';
+            if (prob < 0.72)  return '1~1개';
             if (prob < 1.20)  return '1~2개';
             if (prob < 1.80)  return '1~3개';
             return '2~3개';
@@ -2214,7 +2226,7 @@ const DeepLearning = {
             if (prob == null || isNaN(prob)) return '-';
             if (prob < 0.30)  return '0개';
             if (prob < 0.55)  return '0~1개';
-            if (prob < 0.72)  return '1개';
+            if (prob < 0.72)  return '1~1개';
             if (prob < 1.20)  return '1~2개';
             if (prob < 1.80)  return '1~3개';
             return '2~3개';
@@ -2286,7 +2298,7 @@ const DeepLearning = {
             if (prob == null || isNaN(prob)) return '-';
             if (prob < 0.30)  return '0개';
             if (prob < 0.55)  return '0~1개';
-            if (prob < 0.72)  return '1개';
+            if (prob < 0.72)  return '1~1개';
             if (prob < 1.20)  return '1~2개';
             if (prob < 1.80)  return '1~3개';
             return '2~3개';
@@ -2349,7 +2361,7 @@ const DeepLearning = {
             if (prob == null || isNaN(prob)) return '-';
             if (prob < 0.30)  return '0개';
             if (prob < 0.55)  return '0~1개';
-            if (prob < 0.72)  return '1개';
+            if (prob < 0.72)  return '1~1개';
             if (prob < 1.20)  return '1~2개';
             if (prob < 1.80)  return '1~3개';
             return '2~3개';
@@ -2416,7 +2428,7 @@ const DeepLearning = {
             if (prob == null || isNaN(prob)) return '-';
             if (prob < 0.30)  return '0개';
             if (prob < 0.55)  return '0~1개';
-            if (prob < 0.72)  return '1개';
+            if (prob < 0.72)  return '1~1개';
             if (prob < 1.20)  return '1~2개';
             if (prob < 1.80)  return '1~3개';
             return '2~3개';
