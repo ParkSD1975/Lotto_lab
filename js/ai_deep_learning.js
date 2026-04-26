@@ -445,7 +445,7 @@ const DeepLearning = {
             const pred = predRows[0];
 
             // 2. 나머지 데이터 병렬 조회
-            const [xaiResult, combResult, featResult, drawsResult] = await Promise.allSettled([
+            const [xaiResult, combResult, featResult, drawsResult, filterResult, regressionResult] = await Promise.allSettled([
                 // weekly_number_xai (번호별 모델 기여도)
                 window.supabaseClient
                     .from('weekly_number_xai')
@@ -467,7 +467,19 @@ const DeepLearning = {
                     .from('lotto_draws')
                     .select('round, numbers')
                     .order('round', { ascending: false })
-                    .limit(20)
+                    .limit(20),
+                // weekly_filter_predictions (필터 분석탭용)
+                window.supabaseClient
+                    .from('weekly_filter_predictions')
+                    .select('filter_key, ensemble_min, ensemble_max, ensemble_ci, model_expectations, filter_value')
+                    .eq('target_round', pred.target_round),
+                // weekly_regression_analysis (회귀분석탭용, 최근 50단계만)
+                window.supabaseClient
+                    .from('weekly_regression_analysis')
+                    .select('step, predicted_numbers, model_exp, confidence')
+                    .eq('target_round', pred.target_round)
+                    .lte('step', 50)
+                    .order('step', { ascending: true })
             ]);
 
             // xai map
@@ -491,6 +503,45 @@ const DeepLearning = {
             // combinations
             const combinations = (combResult.status === 'fulfilled' && combResult.value.data) ? combResult.value.data : [];
 
+            // 필터 분석 데이터 (range_analysis 포맷으로 변환)
+            const filterRows = (filterResult.status === 'fulfilled' && filterResult.value.data) ? filterResult.value.data : [];
+            const rangeAnalysis = {};
+            filterRows.forEach(row => {
+                let parsedRange = row.filter_value;
+                try { parsedRange = JSON.parse(row.filter_value); } catch(e) {}
+                rangeAnalysis[row.filter_key] = {
+                    range: parsedRange,
+                    ensemble_min: row.ensemble_min,
+                    ensemble_max: row.ensemble_max,
+                    ensemble_ci: row.ensemble_ci,
+                    model_expectations: row.model_expectations || {}
+                };
+            });
+
+            // 회귀분석 데이터 (regression_analysis 포맷으로 변환)
+            const regRows = (regressionResult.status === 'fulfilled' && regressionResult.value.data) ? regressionResult.value.data : [];
+            const regressionAnalysis = regRows.map(row => {
+                const me = row.model_exp || {};
+                const targets = me._targets || row.predicted_numbers || [];
+                const modelExpClean = {};
+                ['lstm','xgboost','cnn','transformer','markov','autoencoder','gnn'].forEach(m => {
+                    if (me[m] != null) modelExpClean[m] = me[m];
+                });
+                const ensExp = modelExpClean.lstm != null
+                    ? parseFloat(((modelExpClean.lstm || 0) * 0.4 + (modelExpClean.transformer || 0) * 0.3 + (modelExpClean.xgboost || 0) * 0.2 + (modelExpClean.markov || 0) * 0.1).toFixed(3))
+                    : null;
+                return {
+                    id:           row.step,
+                    targets:      targets,
+                    gap:          me._gap || 0,
+                    str:          me._str || 0,
+                    avg_hit:      me._avg_hit || row.confidence || 0,
+                    model_exp:    modelExpClean,
+                    ensemble_exp: ensExp,
+                    notable:      me._notable || []
+                };
+            });
+
             const preds = {
                 target_round: pred.target_round,
                 top_5: pred.top_5 || [],
@@ -503,8 +554,8 @@ const DeepLearning = {
                 combinations
             };
 
-            console.log(`[V4] Supabase 직접 조회 성공 — 제${pred.target_round}회차 (xai:${Object.keys(xaiMap).length}개, feat:${Object.keys(featMap).length}개)`);
-            return this._adaptV4ToV3Format(preds, xaiMap, featMap, freqMap);
+            console.log(`[V4] Supabase 직접 조회 성공 — 제${pred.target_round}회차 (xai:${Object.keys(xaiMap).length}개, feat:${Object.keys(featMap).length}개, filters:${filterRows.length}개, reg:${regRows.length}개)`);
+            return this._adaptV4ToV3Format(preds, xaiMap, featMap, freqMap, rangeAnalysis, regressionAnalysis);
         } catch (e) {
             console.log('[V4] Supabase 직접 조회 실패 (무시):', e.message);
             return null;
@@ -514,7 +565,9 @@ const DeepLearning = {
     // ── V4 데이터 → renderAll() 호환 V3 포맷 변환 ──
     // xaiMap:  { [num]: { xgboost_pct, lstm_pct, ..., probability } }  (0~100 % 단위)
     // featMap: { [num]: { missing_count, hot_cold, appearance_count_20, regression_*, gung, ... } }
-    _adaptV4ToV3Format(preds, xaiMap, featMap = {}, freqMap = {}) {
+    // rangeAnalysis: { filter_key: { range, ensemble_min, ensemble_max, model_expectations } }
+    // regressionAnalysis: [ { id, targets, gap, str, avg_hit, model_exp, ensemble_exp, notable } ]
+    _adaptV4ToV3Format(preds, xaiMap, featMap = {}, freqMap = {}, rangeAnalysis = {}, regressionAnalysis = []) {
         const top5      = preds.top_5 || [];
         const exclude10 = preds.exclude_10 || [];
         const mw        = preds.model_weights || {};
@@ -710,12 +763,12 @@ const DeepLearning = {
             analysis: {
                 matrix_data:          matrixData,
                 hot_cold_data,
-                regression_analysis,
+                regression_analysis:  regressionAnalysis.length > 0 ? regressionAnalysis : regression_analysis,
                 magic_square_analysis,
                 lotto_paper_analysis,
                 number_band_analysis,
                 tail_analysis,
-                range_analysis:       {},   // 추후 weekly_filter_analysis 테이블 추가 시 연동
+                range_analysis:       rangeAnalysis,
                 missing_group_data:   []
             },
             evidence: {

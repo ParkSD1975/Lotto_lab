@@ -906,6 +906,7 @@ class LottoEnsemble:
             "full_probs":          final_probs,
             "xai_contributions":   xai,
             "evidence":            result["evidence"],
+            "contributions":       contributions,  # model_contributions for filter/regression analysis
         }
 
     def predict_exclusion_with_veto(
