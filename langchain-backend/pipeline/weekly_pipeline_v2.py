@@ -285,7 +285,10 @@ class WeeklyPipelineV2:
                 "target_round":    target_round,
                 "top_5":           analysis.get("top_5", []),
                 "exclude_10":      analysis.get("excl_10", []),
-                "model_weights":   evidence.get("model_weights", {}),
+                # task_weights = 실제 예측에 사용된 블렌딩 가중치 (0.7×task + 0.3×meta)
+                # model_weights = 메타러너 기본 가중치 (초기값에 가까워 표시 부적합)
+                # → task_weights 우선 저장, 없으면 model_weights fallback
+                "model_weights":   evidence.get("task_weights") or evidence.get("model_weights", {}),
                 "meta_active":     evidence.get("meta_active", False),
                 "meta_alpha":      evidence.get("meta_alpha", 0.0),
                 "pipeline_version": "v2",

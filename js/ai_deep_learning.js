@@ -832,15 +832,49 @@ const DeepLearning = {
         // ── strategy ──
         const hotNums  = (hot_cold_data.hot?.num_details || []).map(d => d.num);
         const coldNums = [...(hot_cold_data.cold?.num_details || []), ...(hot_cold_data.deadcold?.num_details || [])].map(d => d.num);
+
+        // ── 앙상블 합의도(confidence): top-5 번호에 대해 각 모델이 실제로 양수 기여하는 비율 ──
+        // 가짜 85/78 대신 xaiMap 실데이터 기반 계산
+        const _CONF_MODELS = ['xgboost', 'lstm', 'cnn', 'transformer', 'markov'];
+        const _top5Nums = top5.slice(0, 5);
+        let _agreeCount = 0;
+        _top5Nums.forEach(n => {
+            const x = xaiMap[n] || {};
+            _CONF_MODELS.forEach(m => { if ((x[m + '_pct'] || 0) > 0) _agreeCount++; });
+        });
+        const _maxAgree = _top5Nums.length * _CONF_MODELS.length;
+        // 합의도: 40(최저)~95(최고) — 모델 기여가 전혀 없으면 40%, 전부 동의하면 95%
+        const _agreement = _maxAgree > 0 ? _agreeCount / _maxAgree : 0;
+        const confidence = Math.round(40 + _agreement * 55);
+
+        // ── keywords: 실제 사용 모델명 + 메타 상태 ──
+        const MODEL_ABBR_KW = { xgboost: 'XGBoost', lstm: 'LSTM', cnn: 'CNN', transformer: 'TF', markov: 'Markov', autoencoder: 'ATC', gnn: 'GNN' };
+        const activeModelNames = Object.entries(mw)
+            .filter(([, w]) => w > 0.03)
+            .sort((a, b) => b[1] - a[1])
+            .map(([m]) => MODEL_ABBR_KW[m] || m);
+        const keywords = [
+            `제${preds.target_round}회차`,
+            activeModelNames.length > 0 ? activeModelNames.slice(0, 3).join('+') : '앙상블',
+            preds.meta_active ? `메타α=${(preds.meta_alpha || 0).toFixed(2)}` : null,
+            preds.pipeline_version ? `v${preds.pipeline_version}` : null
+        ].filter(Boolean);
+
+        // ── overall_strategy: 실제 가중치 기준 상위 모델로 생성 ──
+        const _topModels = Object.entries(mw).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([m]) => MODEL_ABBR_KW[m] || m);
+        const overall_strategy = _topModels.length > 0
+            ? `${_topModels.join('·')} 중심 앙상블 예측. 메타러너 ${preds.meta_active ? '활성 (α=' + (preds.meta_alpha || 0).toFixed(2) + ')' : '비활성'}.`
+            : `앙상블 예측. 메타러너 ${preds.meta_active ? '활성' : '비활성'}.`;
+
         const strategy = {
-            summary:        `제${preds.target_round}회차 주간 앙상블 분석 완료. 추천 번호: ${top5.slice(0, 5).join(', ')}`,
-            confidence:     preds.meta_active ? 85 : 78,
-            keywords:       ['주간 분석', 'XGBoost+LSTM+TF', ...(preds.meta_active ? ['메타러너 활성'] : [])],
+            summary:        `제${preds.target_round}회차 주간 앙상블 분석 완료. 추천 번호: ${_top5Nums.join(', ')}`,
+            confidence,
+            keywords,
             hot_cold_analysis: {
                 hot_ratio:  Math.round(hotNums.length  / 45 * 100),
                 cold_ratio: Math.round(coldNums.length / 45 * 100)
             },
-            overall_strategy: `XGBoost·LSTM·Transformer 3개 앙상블 기반 예측. 메타러너 ${preds.meta_active ? '활성 (α=' + (preds.meta_alpha || 0).toFixed(2) + ')' : '비활성'}.`,
+            overall_strategy,
             risk_assessment:  null
         };
 
@@ -1217,7 +1251,9 @@ const DeepLearning = {
         if (!effectivePipeline && result.evidence && result.evidence.model_weights) {
             effectivePipeline = {
                 modelWeights: result.evidence.model_weights,
-                weightReasons: '딥러닝 앙상블 분석 완료',
+                weightReasons: result.evidence.task_key
+                    ? `Task: ${result.evidence.task_key} | Meta: ${result.meta_active ? '활성' : '비활성'}`
+                    : '',
                 rlGenerated: true
             };
         }
@@ -1890,32 +1926,30 @@ const DeepLearning = {
         if (condContainer && pipeline.modelWeights) {
             const MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7', gnn: '#ef4444' };
             const MODEL_LABELS = { lstm: 'LSTM', xgboost: 'XGBoost', cnn: 'CNN', transformer: 'Transformer', markov: 'Markov', autoencoder: 'Autoenc.', gnn: 'GNN' };
-            // 구버전 DB 캐시에 누락된 모델 키를 기본값으로 보완 (예: autoencoder:0.0 → 0.045)
-            const DEFAULT_WEIGHTS = { lstm: 0.213, xgboost: 0.182, cnn: 0.212, transformer: 0.212, markov: 0.091, autoencoder: 0.045, gnn: 0.045 };
+            // DEFAULT_WEIGHTS 제거 — 실데이터만 사용. 없으면 0%.
             const rawWeights = pipeline.modelWeights;
-            const weights = {};
-            Object.keys(MODEL_LABELS).forEach(name => {
-                const v = rawWeights[name];
-                weights[name] = (v != null && v > 0) ? v : DEFAULT_WEIGHTS[name] || 0;
-            });
-            const weightValues = Object.values(weights).map(v => v || 0);
 
-            const maxW = weightValues.length > 0 ? Math.max(...weightValues) : 0;
-            const barsHtml = Object.entries(weights).map(([name, w_val]) => {
-                const pct = (w_val * 100).toFixed(1);
-                const barW = maxW > 0 ? (w_val / maxW * 100).toFixed(1) : 0;
+            // 실제 합계 계산 후 정규화 (task_weights 합이 1.0이 아닐 수 있음)
+            const rawSum = Object.keys(MODEL_LABELS).reduce((s, k) => s + (rawWeights[k] || 0), 0);
+            const weightValues = Object.keys(MODEL_LABELS).map(k => rawSum > 0 ? (rawWeights[k] || 0) / rawSum : 0);
+            const maxW = Math.max(...weightValues, 0.001); // 0 나누기 방지
+
+            const barsHtml = Object.keys(MODEL_LABELS).map((name, i) => {
+                const w_val = weightValues[i];
+                const pct   = (w_val * 100).toFixed(1);
+                const barW  = (w_val / maxW * 100).toFixed(1);
                 const color = MODEL_COLORS[name] || '#9CA3AF';
-                // 구버전 캐시에서 기본값으로 보완된 경우 텍스트 색상을 흐리게
-                const isDefault = (rawWeights[name] == null || rawWeights[name] === 0);
+                const isZero = w_val === 0;
                 return `<div style="display:flex;align-items:center;gap:10px;font-size:12px">
-                    <span style="width:70px;color:#4B5563;font-weight:700;text-align:right">${MODEL_LABELS[name] || name}</span>
+                    <span style="width:70px;color:#4B5563;font-weight:700;text-align:right">${MODEL_LABELS[name]}</span>
                     <div style="flex:1;height:10px;background:#F3F4F6;border-radius:99px;overflow:hidden">
-                        <div style="width:${barW}%;height:100%;background:${isDefault ? color + '80' : color};border-radius:99px;transition:width 0.6s ease"></div>
+                        <div style="width:${barW}%;height:100%;background:${isZero ? '#E5E7EB' : color};border-radius:99px;transition:width 0.6s ease"></div>
                     </div>
-                    <span style="width:40px;color:${isDefault ? '#9CA3AF' : color};font-weight:800;text-align:right">${isDefault ? '~' : ''}${pct}%</span>
+                    <span style="width:40px;color:${isZero ? '#D1D5DB' : color};font-weight:800;text-align:right">${pct}%</span>
                 </div>`;
             }).join('');
-            const reason = pipeline.weightReasons || '';
+            // weightReasons: 실데이터(파이프라인이 task_key 등 저장했을 때)만 표시
+            const reason = (pipeline.weightReasons && pipeline.weightReasons !== '딥러닝 앙상블 분析 완료') ? pipeline.weightReasons : '';
             condContainer.innerHTML = `
                 <div class="card">
                     <div class="card-header">
