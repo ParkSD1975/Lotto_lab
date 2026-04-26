@@ -7,11 +7,300 @@ lotto_draws 데이터로부터 18+ 필터 유형의 통계를 계산하고
     from services.filter_stats import FilterStatsComputer
     computer = FilterStatsComputer(draws)  # draws: round 내림차순
     result = computer.compute_all()
+
+P2 추가: Poisson-Binomial PMF 기반 필터값 분포 계산
+- count-type 22개 필터: PB PMF (O(n²) DP, 정확)
+- range-type 2개 (sum, tail_sum): 전체 45개 사용 개선 MC
+- complex 2개 (ac, consecutive): 기존 방식 유지
 """
 
 import math
 from collections import Counter
 from typing import Any
+
+import numpy as np
+
+# ──────────────────────────────────────────────────────────────────────────────
+# P2: 모듈 상수 (Poisson-Binomial 적용 대상 필터 집합 및 속성 집합)
+# ──────────────────────────────────────────────────────────────────────────────
+PRIMES = {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43}
+COMPOSITES = {4, 6, 8, 9, 10, 12, 14, 15, 16, 18, 20, 21, 22, 24, 25, 26, 27, 28,
+              30, 32, 33, 34, 35, 36, 38, 39, 40, 42, 44, 45}
+SQUARES = {1, 4, 9, 16, 25, 36}
+TRIANGULARS = {1, 3, 6, 10, 15, 21, 28, 36, 45}
+TWINS = {11, 22, 33, 44}
+MUL3 = {3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45}
+MUL4 = {4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44}
+MUL5 = {5, 10, 15, 20, 25, 30, 35, 40, 45}
+MUL7 = {7, 14, 21, 28, 35, 42}
+MUL8 = {8, 16, 24, 32, 40}
+MUL34 = MUL3 & MUL4
+MUL35 = MUL3 & MUL5
+MUL45 = MUL4 & MUL5
+MULTIPLE_ALL = MUL3 | MUL4 | MUL5 | MUL7 | MUL8
+
+# count-type 필터 이름 집합 (Poisson-Binomial 적용 대상)
+COUNT_TYPE_FILTERS = {
+    "odd", "high", "prime", "composite", "square", "triangular", "twin",
+    "mul3", "mul4", "mul5", "mul7", "mul8", "mul34", "mul35", "mul45", "non_multiple",
+    "hot10", "neutral10", "cold10", "missing", "neighbor", "carryover",
+    *{f"digit{i}" for i in range(10)},
+}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# P2: Poisson-Binomial PMF 계산
+# ──────────────────────────────────────────────────────────────────────────────
+
+def poisson_binomial_pmf(probs: list) -> np.ndarray:
+    """DP로 정확한 Poisson-Binomial PMF 계산.
+
+    Args:
+        probs: 각 속성 번호의 출현 확률 리스트 (클램프 0~1 자동 적용)
+
+    Returns:
+        PMF 배열 [P(k=0), P(k=1), ..., P(k=len(probs))]
+    """
+    n = len(probs)
+    dp = np.zeros(n + 1)
+    dp[0] = 1.0
+    for p in probs:
+        p = min(1.0, max(0.0, float(p)))
+        for k in range(len(dp) - 1, 0, -1):
+            dp[k] = dp[k] * (1 - p) + dp[k - 1] * p
+        dp[0] *= (1 - p)
+    return dp
+
+
+def pmf_percentile_range(pmf: np.ndarray, lo: float = 0.20, hi: float = 0.80) -> tuple:
+    """PMF의 누적분포에서 lo~hi 분위수 구간 추출.
+
+    Args:
+        pmf: poisson_binomial_pmf() 반환값
+        lo: 하한 분위수 (기본 0.20)
+        hi: 상한 분위수 (기본 0.80)
+
+    Returns:
+        (lo_val, hi_val) 정수 튜플
+    """
+    cdf = np.cumsum(pmf)
+    lo_val = int(np.searchsorted(cdf, lo, side="left"))
+    hi_val = int(np.searchsorted(cdf, hi, side="left"))
+    # 인덱스 범위 보호
+    lo_val = min(lo_val, len(pmf) - 1)
+    hi_val = min(hi_val, len(pmf) - 1)
+    if lo_val > hi_val:
+        lo_val, hi_val = hi_val, lo_val
+    return lo_val, hi_val
+
+
+def build_dynamic_attr_sets(history_draws: list) -> dict:
+    """히스토리 기반 동적 집합 계산 (한 번만 계산, 재사용).
+
+    Args:
+        history_draws: 역순(최신→과거) 정렬된 당첨 이력
+
+    Returns:
+        {
+            "hot10_nums": set,
+            "neutral10_nums": set,
+            "cold10_nums": set,
+            "missing_nums": set,   # 10회 이상 미출현
+            "latest_nums": set,    # 직전 회차 당첨번호 (이월수)
+            "neighbor_nums": set,  # latest_nums의 ±1 번호
+        }
+    """
+    # 최근 10회 출현 빈도 (hot=3회이상 / neutral=1~2회 / cold=0회)
+    last_10 = [d.get("numbers", []) for d in history_draws[:10]]
+    appear_count: dict = {}
+    for draw_nums in last_10:
+        for n in draw_nums:
+            appear_count[n] = appear_count.get(n, 0) + 1
+
+    hot10_nums = {n for n in range(1, 46) if appear_count.get(n, 0) >= 3}
+    neutral10_nums = {n for n in range(1, 46) if 1 <= appear_count.get(n, 0) <= 2}
+    cold10_nums = {n for n in range(1, 46) if appear_count.get(n, 0) == 0}
+
+    # 10회 이상 미출현 번호
+    missing_nums: set = set()
+    for n in range(1, 46):
+        gap = 0
+        for d in history_draws:
+            if n in d.get("numbers", []):
+                break
+            gap += 1
+        if gap >= 10:
+            missing_nums.add(n)
+
+    # 직전 회차 당첨번호 및 이웃수
+    latest_nums = set(history_draws[0].get("numbers", [])) if history_draws else set()
+    neighbor_nums: set = set()
+    for n in latest_nums:
+        for offset in (-1, 1):
+            nb = n + offset
+            if 1 <= nb <= 45:
+                neighbor_nums.add(nb)
+
+    return {
+        "hot10_nums":     hot10_nums,
+        "neutral10_nums": neutral10_nums,
+        "cold10_nums":    cold10_nums,
+        "missing_nums":   missing_nums,
+        "latest_nums":    latest_nums,
+        "neighbor_nums":  neighbor_nums,
+    }
+
+
+def get_attr_set(filter_name: str, dynamic_sets: dict):
+    """filter_name → 해당 속성 번호 집합 반환.
+
+    count-type이 아닌 경우 None 반환.
+
+    Args:
+        filter_name: 필터 이름 문자열
+        dynamic_sets: build_dynamic_attr_sets() 반환값
+
+    Returns:
+        set | None
+    """
+    if filter_name not in COUNT_TYPE_FILTERS:
+        return None
+
+    # 정적 집합
+    static_map = {
+        "odd":          {n for n in range(1, 46) if n % 2 == 1},
+        "high":         {n for n in range(1, 46) if n >= 23},
+        "prime":        PRIMES,
+        "composite":    COMPOSITES,
+        "square":       SQUARES,
+        "triangular":   TRIANGULARS,
+        "twin":         TWINS,
+        "mul3":         MUL3,
+        "mul4":         MUL4,
+        "mul5":         MUL5,
+        "mul7":         MUL7,
+        "mul8":         MUL8,
+        "mul34":        MUL34,
+        "mul35":        MUL35,
+        "mul45":        MUL45,
+        "non_multiple": {n for n in range(1, 46) if n not in MULTIPLE_ALL},
+    }
+
+    if filter_name in static_map:
+        return static_map[filter_name]
+
+    # 동적 집합
+    dynamic_map = {
+        "hot10":     dynamic_sets.get("hot10_nums", set()),
+        "neutral10": dynamic_sets.get("neutral10_nums", set()),
+        "cold10":    dynamic_sets.get("cold10_nums", set()),
+        "missing":   dynamic_sets.get("missing_nums", set()),
+        "neighbor":  dynamic_sets.get("neighbor_nums", set()),
+        "carryover": dynamic_sets.get("latest_nums", set()),
+    }
+
+    if filter_name in dynamic_map:
+        return dynamic_map[filter_name]
+
+    # digit0~9
+    if filter_name.startswith("digit") and len(filter_name) == 6:
+        try:
+            d = int(filter_name[5])
+            return {n for n in range(1, 46) if n % 10 == d}
+        except ValueError:
+            pass
+
+    return None
+
+
+def compute_pb_range(
+    filter_name: str,
+    model_probs: dict,
+    dynamic_sets: dict,
+    draw_size: int = 6,
+    lo: float = 0.20,
+    hi: float = 0.80,
+) -> tuple:
+    """Poisson-Binomial PMF로 count-type 필터 범위 계산.
+
+    Args:
+        filter_name: 필터 이름
+        model_probs: 모델의 번호별 확률 {num: prob}
+        dynamic_sets: build_dynamic_attr_sets() 반환값
+        draw_size: 추첨 번호 개수 (기본 6)
+        lo: 하한 분위수
+        hi: 상한 분위수
+
+    Returns:
+        (lo_val, hi_val) — count-type이 아닌 경우 (0, 999)
+    """
+    attr_set = get_attr_set(filter_name, dynamic_sets)
+    if attr_set is None:
+        return (0, 999)
+
+    if not attr_set:
+        return (0, 0)
+
+    # ── 입력 정규화 (BUGFIX) ────────────────────────────────────────────
+    # model_probs의 입력 스케일이 모델마다 다름:
+    #   - LSTM/CNN/Transformer 등 sigmoid 출력: 각 n별 P(n in draw) ≈ 0.13, 합 ≈ 6
+    #   - XGBoost/Markov softmax 출력: 합 ≈ 1.0 (확률분포)
+    # 어느 쪽이든 합=1로 정규화한 뒤 ×draw_size 하면 P(n in draw)가 됨.
+    # 이전 버그: 입력 스케일을 가정하지 않고 무조건 ×draw_size 하여
+    # sigmoid 출력의 경우 attr_probs가 1.0에 saturate되어 PMF가 attr_set
+    # 크기에 근접하는 가짜 결과 발생 (예: composite max=30, twin=4~4).
+    raw = {n: max(0.0, float(model_probs.get(n, 0.0))) for n in range(1, 46)}
+    total = sum(raw.values())
+    if total <= 0:
+        return (0, 0)
+    norm = {n: v / total for n, v in raw.items()}     # 합=1 정규화
+    attr_probs = [
+        min(1.0, draw_size * norm[n])                  # P(n in 6 picks)
+        for n in attr_set
+    ]
+    pmf = poisson_binomial_pmf(attr_probs)
+    return pmf_percentile_range(pmf, lo, hi)
+
+
+def compute_mc_range_full(
+    filter_fn,
+    model_probs: dict,
+    n_sim: int = 300,
+    lo: float = 0.20,
+    hi: float = 0.80,
+) -> tuple:
+    """개선된 MC: 전체 45개 번호를 사용하여 필터값 분포의 lo~hi 분위수 반환.
+
+    기존 top-15 대신 전체 45개 번호 사용으로 정확도 향상.
+
+    Args:
+        filter_fn: 정렬된 조합 리스트를 받아 필터값을 반환하는 함수
+        model_probs: 모델의 번호별 확률 {num: prob}
+        n_sim: 시뮬레이션 횟수
+        lo: 하한 분위수
+        hi: 상한 분위수
+
+    Returns:
+        (lo_val, hi_val)
+    """
+    nums = list(range(1, 46))
+    probs = np.array([float(model_probs.get(n, 0.0)) for n in nums], dtype=float)
+    prob_sum = probs.sum()
+    if prob_sum <= 0:
+        probs = np.ones(45) / 45.0
+    else:
+        probs /= prob_sum  # 정규화
+
+    vals = []
+    for _ in range(n_sim):
+        combo = sorted(np.random.choice(nums, 6, replace=False, p=probs).tolist())
+        vals.append(filter_fn(combo))
+    vals.sort()
+    lo_idx = int(n_sim * lo)
+    hi_idx = int(n_sim * hi)
+    lo_idx = min(lo_idx, len(vals) - 1)
+    hi_idx = min(hi_idx, len(vals) - 1)
+    return vals[lo_idx], vals[hi_idx]
 
 import config
 
@@ -51,6 +340,8 @@ class FilterStatsComputer:
             self._number_range(),
             self._neighbor_count(),
             self._multiple_3(),
+            self._multiple_7(),
+            self._multiple_8(),
             self._zone_pattern(),
             self._decade_distribution(),
         ]
@@ -412,6 +703,46 @@ class FilterStatsComputer:
             all_vals=all_vals,
             recent_vals=recent_vals,
             description="6개 중 3의 배수(3,6,9,...,45)의 개수.",
+        )
+
+    # ─────────────────────────────────────────
+    # 16b. 7의 배수 개수
+    # ─────────────────────────────────────────
+    def _multiple_7(self) -> dict:
+        MUL7 = {7, 14, 21, 28, 35, 42}
+
+        def calc(nums):
+            return sum(1 for n in nums if n in MUL7)
+
+        all_vals = [calc(nums) for nums in self.all_numbers]
+        recent_vals = [calc(nums) for nums in self.recent_numbers]
+        return self._build_range_filter(
+            key="multiple_7",
+            name="7의 배수 개수",
+            icon="filter_7",
+            all_vals=all_vals,
+            recent_vals=recent_vals,
+            description="6개 중 7의 배수(7,14,21,28,35,42)의 개수.",
+        )
+
+    # ─────────────────────────────────────────
+    # 16c. 8의 배수 개수
+    # ─────────────────────────────────────────
+    def _multiple_8(self) -> dict:
+        MUL8 = {8, 16, 24, 32, 40}
+
+        def calc(nums):
+            return sum(1 for n in nums if n in MUL8)
+
+        all_vals = [calc(nums) for nums in self.all_numbers]
+        recent_vals = [calc(nums) for nums in self.recent_numbers]
+        return self._build_range_filter(
+            key="multiple_8",
+            name="8의 배수 개수",
+            icon="filter_8",
+            all_vals=all_vals,
+            recent_vals=recent_vals,
+            description="6개 중 8의 배수(8,16,24,32,40)의 개수.",
         )
 
     # ─────────────────────────────────────────

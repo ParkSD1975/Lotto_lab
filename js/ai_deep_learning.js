@@ -1774,7 +1774,7 @@ const DeepLearning = {
                 const cellHtml = cellText === '-'
                     ? '<span class="text-gray-300">-</span>'
                     : `<span class="font-mono font-semibold text-gray-600">${cellText}</span>`;
-                html += `<td class="px-2 py-3 text-center truncate" title="${title}">${cellHtml}</td>`;
+                html += `<td class="px-2 py-3 text-center truncate" title="${title.replace(/"/g, '&quot;')}">${cellHtml}</td>`;
             });
             html += '</tr>';
         }
