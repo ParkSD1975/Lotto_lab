@@ -665,6 +665,19 @@ const DeepLearning = {
             });
         }
 
+        // ── 공통 헬퍼: 번호 그룹에서 model_exp(기대수) 계산 ──
+        const _MODEL_KEYS = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
+        const _calcModelExp = (nums) => {
+            const me = {};
+            _MODEL_KEYS.forEach(m => {
+                const pctSum = nums.reduce((s, n) => s + (xaiMap[n]?.[m + '_pct'] || 0), 0);
+                me[m] = parseFloat((pctSum / 100 * 6).toFixed(2));
+            });
+            return me;
+        };
+        const _calcExp = (nums) =>
+            parseFloat((nums.reduce((s, n) => s + (xaiMap[n]?.probability || 0), 0) * 6).toFixed(2));
+
         // ── 4. magic_square_analysis (9궁) ──
         const gungGroups = {};
         for (let n = 1; n <= 45; n++) {
@@ -673,7 +686,15 @@ const DeepLearning = {
             gungGroups[g].numbers.push(n);
             gungGroups[g].prob_sum += (xaiMap[n]?.probability || 0);
         }
-        const magic_square_analysis = Object.values(gungGroups).sort((a, b) => a.section - b.section);
+        const magic_square_analysis = Object.values(gungGroups)
+            .sort((a, b) => a.section - b.section)
+            .map(g => ({
+                ...g,
+                label:     g.section + '궁',
+                exp:       _calcExp(g.numbers),
+                model_exp: _calcModelExp(g.numbers),
+                gap: 0, str: ''
+            }));
 
         // ── 5. lotto_paper_analysis (로또용지 행/열) ──
         const paperRowMap = {};
@@ -684,7 +705,17 @@ const DeepLearning = {
             paperRowMap[row].numbers.push(n);
             paperRowMap[row].prob_sum += (xaiMap[n]?.probability || 0);
         }
-        const lotto_paper_analysis = { rows: Object.values(paperRowMap).sort((a, b) => a.row - b.row) };
+        const lotto_paper_analysis = {
+            rows: Object.values(paperRowMap)
+                .sort((a, b) => a.row - b.row)
+                .map(r => ({
+                    ...r,
+                    label:     r.row + '행',
+                    exp:       _calcExp(r.numbers),
+                    model_exp: _calcModelExp(r.numbers),
+                    gap: 0, str: ''
+                }))
+        };
 
         // ── 6. number_band_analysis (번호대 1~10 / 11~20 / ...) ──
         const BANDS = [
@@ -694,33 +725,43 @@ const DeepLearning = {
             { range: '31~40', min: 31, max: 40 },
             { range: '41~45', min: 41, max: 45 }
         ];
-        const number_band_analysis = BANDS.map(b => ({
-            range:         b.range,
-            numbers:       Array.from({ length: b.max - b.min + 1 }, (_, i) => b.min + i),
-            probabilities: Array.from({ length: b.max - b.min + 1 }, (_, i) => {
-                const x = xaiMap[b.min + i] || {};
-                return parseFloat(((x.probability || 0) * 100).toFixed(2));
-            })
-        }));
+        const number_band_analysis = BANDS.map(b => {
+            const nums = Array.from({ length: b.max - b.min + 1 }, (_, i) => b.min + i);
+            return {
+                range:         b.range,
+                label:         b.range,
+                numbers:       nums,
+                probabilities: nums.map(n => parseFloat(((xaiMap[n]?.probability || 0) * 100).toFixed(2))),
+                exp:           _calcExp(nums),
+                model_exp:     _calcModelExp(nums),
+                gap: 0, str: ''
+            };
+        });
 
         // ── 7. tail_analysis (끝수 0~9) ──
         const tailGroups = {};
         for (let t = 0; t <= 9; t++) tailGroups[t] = [];
         for (let n = 1; n <= 45; n++) tailGroups[n % 10].push(n);
-        const tail_analysis = Object.entries(tailGroups).map(([tail, nums]) => ({
-            tail_digit: parseInt(tail),
-            counts: {
-                xgboost:     parseFloat(nums.reduce((s, n) => s + (xaiMap[n]?.xgboost_pct     || 0), 0).toFixed(1)),
-                lstm:        parseFloat(nums.reduce((s, n) => s + (xaiMap[n]?.lstm_pct        || 0), 0).toFixed(1)),
-                cnn:         0,
-                transformer: parseFloat(nums.reduce((s, n) => s + (xaiMap[n]?.transformer_pct || 0), 0).toFixed(1)),
-                markov:      parseFloat(nums.reduce((s, n) => s + (xaiMap[n]?.markov_pct      || 0), 0).toFixed(1)),
-                autoencoder: 0,
-                gnn:         0
-            },
-            gap: 0,
-            str: ''
-        }));
+        const tail_analysis = Object.entries(tailGroups).map(([tail, nums]) => {
+            const t = parseInt(tail);
+            return {
+                tail:      t,
+                tail_digit: t,
+                exp:       _calcExp(nums),
+                model_exp: _calcModelExp(nums),
+                counts: {
+                    xgboost:     parseFloat(nums.reduce((s, n) => s + (xaiMap[n]?.xgboost_pct     || 0), 0).toFixed(1)),
+                    lstm:        parseFloat(nums.reduce((s, n) => s + (xaiMap[n]?.lstm_pct        || 0), 0).toFixed(1)),
+                    cnn:         parseFloat(nums.reduce((s, n) => s + (xaiMap[n]?.cnn_pct         || 0), 0).toFixed(1)),
+                    transformer: parseFloat(nums.reduce((s, n) => s + (xaiMap[n]?.transformer_pct || 0), 0).toFixed(1)),
+                    markov:      parseFloat(nums.reduce((s, n) => s + (xaiMap[n]?.markov_pct      || 0), 0).toFixed(1)),
+                    autoencoder: parseFloat(nums.reduce((s, n) => s + (xaiMap[n]?.autoencoder_pct || 0), 0).toFixed(1)),
+                    gnn:         parseFloat(nums.reduce((s, n) => s + (xaiMap[n]?.gnn_pct         || 0), 0).toFixed(1))
+                },
+                gap: 0,
+                str: ''
+            };
+        });
 
         // ── strategy ──
         const hotNums  = hot_cold_data.filter(h => h.temperature === 'hot').map(h => h.number);
