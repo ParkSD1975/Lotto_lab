@@ -1633,6 +1633,24 @@ const DeepLearning = {
             neighbor: 'neighbor_number_patterns', carryover: 'carryover_count'
         };
         const FILTER_MAX = { mul8: 5, non_multiple: 6 };
+        // 필터별 물리적 상한/하한 (6개 번호 기준 절대 범위) - DB 데이터 클램프
+        const FILTER_CLAMP = {
+            sum: [21, 255], tail_sum: [0, 54], ac: [0, 10],
+            odd: [0, 6], high: [0, 6], prime: [0, 6], composite: [0, 6],
+            consecutive: [0, 5], square: [0, 6], triangular: [0, 6], twin: [0, 6],
+            mul3: [0, 6], mul4: [0, 6], mul5: [0, 6], mul7: [0, 6], mul8: [0, 5],
+            mul34: [0, 3], mul35: [0, 3], mul45: [0, 2],
+            non_multiple: [0, 6], hot10: [0, 6], neutral10: [0, 6],
+            cold10: [0, 6], missing: [0, 6], neighbor: [0, 6], carryover: [0, 6]
+        };
+        const _clampRange = (key, mn, mx) => {
+            const c = FILTER_CLAMP[key];
+            if (!c) return [mn, mx];
+            let lo = Math.max(c[0], mn);
+            let hi = Math.min(c[1], mx);
+            if (lo > hi) [lo, hi] = [hi, lo];
+            return [lo, hi];
+        };
         // localStorage에서 현재 활성 필터 min~max 읽기
         const _getCurrentSetting = (key) => {
             const lsKey = FILTER_TO_LS[key];
@@ -1663,14 +1681,21 @@ const DeepLearning = {
         };
         const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
         let html = '<div class="overflow-x-auto rounded-2xl border border-gray-100 shadow-sm bg-white">';
-        html += '<table class="w-full text-xs">';
+        html += '<table class="w-full text-xs table-fixed">';
+        // 컬럼 폭 통일: 지표 12% / 현재 9% / 앙상블 9% / 모델 7개 × 10%
+        html += '<colgroup>';
+        html += '<col style="width:12%">';
+        html += '<col style="width:9%">';
+        html += '<col style="width:9%">';
+        for (let i = 0; i < models.length; i++) html += '<col style="width:10%">';
+        html += '</colgroup>';
         html += '<thead><tr>';
-        html += '<th class="px-5 py-4 text-left font-bold text-gray-700">지표</th>';
-        html += '<th class="px-4 py-4 text-center font-bold text-emerald-600 bg-emerald-50/50">현재<br>설정</th>';
-        html += '<th class="px-4 py-4 text-center font-bold text-blue-600 bg-blue-50/50">앙상블<br>범위</th>';
+        html += '<th class="px-3 py-4 text-left font-bold text-gray-700">지표</th>';
+        html += '<th class="px-2 py-4 text-center font-bold text-emerald-600 bg-emerald-50/50">현재<br>설정</th>';
+        html += '<th class="px-2 py-4 text-center font-bold text-blue-600 bg-blue-50/50">앙상블<br>범위</th>';
         models.forEach(m => {
             const cfg = MODEL_CONFIG[m];
-            html += `<th class="px-4 py-4 text-center font-bold text-gray-500">${cfg.label}<br><span class="text-gray-400 font-normal text-[10px]">예상범위</span></th>`;
+            html += `<th class="px-2 py-4 text-center font-bold text-gray-500">${cfg.label}<br><span class="text-gray-400 font-normal text-[10px]">예상범위</span></th>`;
         });
         html += '</tr></thead><tbody>';
         let rowIdx = 0;
@@ -1682,7 +1707,10 @@ const DeepLearning = {
         const formatRatioRange = (key, rawRange) => {
             const isRatioKey = (key === 'odd' || key === 'high');
             if (!isRatioKey) {
-                if (Array.isArray(rawRange)) return rawRange[0] + '~' + rawRange[1];
+                if (Array.isArray(rawRange)) {
+                    const [lo, hi] = _clampRange(key, rawRange[0], rawRange[1]);
+                    return lo + '~' + hi;
+                }
                 return rawRange || '-';
             }
             let lo, hi;
@@ -1691,6 +1719,7 @@ const DeepLearning = {
                 const parts = rawRange.split('~');
                 lo = parseInt(parts[0]); hi = parseInt(parts[1]);
             } else return rawRange || '-';
+            [lo, hi] = _clampRange(key, lo, hi);
             const patterns = [];
             for (let v = lo; v <= hi; v++) {
                 const other = 6 - v;
@@ -1704,9 +1733,10 @@ const DeepLearning = {
         };
         const formatModelRatio = (key, exp) => {
             if (!exp) return '-';
-            const min = exp.min != null ? exp.min : null;
-            const max = exp.max != null ? exp.max : null;
+            let min = exp.min != null ? exp.min : null;
+            let max = exp.max != null ? exp.max : null;
             if (min === null || max === null) return '-';
+            [min, max] = _clampRange(key, min, max);
             const isRatioKey = (key === 'odd' || key === 'high');
             if (!isRatioKey) return `${min}~${max}`;
             const patterns = [];
@@ -1728,14 +1758,14 @@ const DeepLearning = {
             const currentSetting = _getCurrentSetting(key);
             rowIdx++;
             html += `<tr class="border-b border-gray-50 last:border-0 hover:bg-gray-50 transition-colors">`;
-            html += `<td class="px-5 py-3 font-bold text-gray-700">${label}</td>`;
+            html += `<td class="px-3 py-3 font-bold text-gray-700 truncate">${label}</td>`;
             // 현재 설정 컬럼: 설정됨=초록, 없음=회색 대시
             if (currentSetting) {
-                html += `<td class="px-4 py-3 text-center font-mono font-bold text-emerald-600 bg-emerald-50/30">${currentSetting}</td>`;
+                html += `<td class="px-2 py-3 text-center font-mono font-bold text-emerald-600 bg-emerald-50/30 truncate">${currentSetting}</td>`;
             } else {
-                html += `<td class="px-4 py-3 text-center text-gray-300 bg-emerald-50/10">-</td>`;
+                html += `<td class="px-2 py-3 text-center text-gray-300 bg-emerald-50/10">-</td>`;
             }
-            html += `<td class="px-4 py-3 text-center font-mono font-bold text-blue-600 bg-blue-50/30">${ensembleRange}</td>`;
+            html += `<td class="px-2 py-3 text-center font-mono font-bold text-blue-600 bg-blue-50/30 truncate">${ensembleRange}</td>`;
             models.forEach(m => {
                 const cfg = MODEL_CONFIG[m];
                 const exp = modelExp[m];
@@ -1744,7 +1774,7 @@ const DeepLearning = {
                 const cellHtml = cellText === '-'
                     ? '<span class="text-gray-300">-</span>'
                     : `<span class="font-mono font-semibold text-gray-600">${cellText}</span>`;
-                html += `<td class="px-4 py-3 text-center" title="${title}">${cellHtml}</td>`;
+                html += `<td class="px-2 py-3 text-center truncate" title="${title}">${cellHtml}</td>`;
             });
             html += '</tr>';
         }
@@ -2174,12 +2204,12 @@ const DeepLearning = {
 
         const _fmtRange = (prob) => {
             if (prob == null || isNaN(prob)) return '-';
-            if (prob < 0.30)  return '0개';
-            if (prob < 0.55)  return '0~1개';
-            if (prob < 0.72)  return '1~1개';
-            if (prob < 1.20)  return '1~2개';
-            if (prob < 1.80)  return '1~3개';
-            return '2~3개';
+            if (prob < 0.30)  return '0~0';
+            if (prob < 0.55)  return '0~1';
+            if (prob < 0.72)  return '1~1';
+            if (prob < 1.20)  return '1~2';
+            if (prob < 1.80)  return '1~3';
+            return '2~3';
         };
         const MODEL_ORDER = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
         const MODEL_COLORS = {
@@ -2224,12 +2254,12 @@ const DeepLearning = {
 
         const _fmtRange = (prob) => {
             if (prob == null || isNaN(prob)) return '-';
-            if (prob < 0.30)  return '0개';
-            if (prob < 0.55)  return '0~1개';
-            if (prob < 0.72)  return '1~1개';
-            if (prob < 1.20)  return '1~2개';
-            if (prob < 1.80)  return '1~3개';
-            return '2~3개';
+            if (prob < 0.30)  return '0~0';
+            if (prob < 0.55)  return '0~1';
+            if (prob < 0.72)  return '1~1';
+            if (prob < 1.20)  return '1~2';
+            if (prob < 1.80)  return '1~3';
+            return '2~3';
         };
         const MODEL_ORDER = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
         const MODEL_ABBR = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV', autoencoder: 'ATC', gnn: 'GNN' };
@@ -2296,12 +2326,12 @@ const DeepLearning = {
 
         const _fmtRange = (prob) => {
             if (prob == null || isNaN(prob)) return '-';
-            if (prob < 0.30)  return '0개';
-            if (prob < 0.55)  return '0~1개';
-            if (prob < 0.72)  return '1~1개';
-            if (prob < 1.20)  return '1~2개';
-            if (prob < 1.80)  return '1~3개';
-            return '2~3개';
+            if (prob < 0.30)  return '0~0';
+            if (prob < 0.55)  return '0~1';
+            if (prob < 0.72)  return '1~1';
+            if (prob < 1.20)  return '1~2';
+            if (prob < 1.80)  return '1~3';
+            return '2~3';
         };
         const BAND_LABEL_MAP = {
             '01~10': '단번대', '1~10': '단번대',
@@ -2359,12 +2389,12 @@ const DeepLearning = {
 
         const _fmtRange = (prob) => {
             if (prob == null || isNaN(prob)) return '-';
-            if (prob < 0.30)  return '0개';
-            if (prob < 0.55)  return '0~1개';
-            if (prob < 0.72)  return '1~1개';
-            if (prob < 1.20)  return '1~2개';
-            if (prob < 1.80)  return '1~3개';
-            return '2~3개';
+            if (prob < 0.30)  return '0~0';
+            if (prob < 0.55)  return '0~1';
+            if (prob < 0.72)  return '1~1';
+            if (prob < 1.20)  return '1~2';
+            if (prob < 1.80)  return '1~3';
+            return '2~3';
         };
         const MODEL_ORDER = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
         const MODEL_ABBR = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV', autoencoder: 'ATC', gnn: 'GNN' };
@@ -2426,12 +2456,12 @@ const DeepLearning = {
         };
         const _fmtRange = (prob) => {
             if (prob == null || isNaN(prob)) return '-';
-            if (prob < 0.30)  return '0개';
-            if (prob < 0.55)  return '0~1개';
-            if (prob < 0.72)  return '1~1개';
-            if (prob < 1.20)  return '1~2개';
-            if (prob < 1.80)  return '1~3개';
-            return '2~3개';
+            if (prob < 0.30)  return '0~0';
+            if (prob < 0.55)  return '0~1';
+            if (prob < 0.72)  return '1~1';
+            if (prob < 1.20)  return '1~2';
+            if (prob < 1.80)  return '1~3';
+            return '2~3';
         };
 
         let html = '<div class="overflow-x-auto rounded-2xl border border-gray-200 shadow-sm bg-white">';
