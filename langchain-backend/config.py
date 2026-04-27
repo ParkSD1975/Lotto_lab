@@ -9,8 +9,15 @@ load_dotenv(override=True)
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
 
-# ── Google / Gemini ──
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
+# ── Google / Gemma / Gemini ──
+# 여러 변수명 순서대로 확인 (HF Space 시크릿 변수명이 다를 수 있음)
+GOOGLE_API_KEY = (
+    os.getenv("GOOGLE_API_KEY") or
+    os.getenv("GEMMA_API_KEY") or
+    os.getenv("GEMINI_API_KEY") or
+    os.getenv("GOOGLE_GEMMA_KEY") or
+    ""
+)
 EMBEDDING_MODEL = "models/text-embedding-004"
 LLM_MODEL = "gemma-4-31b-it"
 
@@ -29,19 +36,20 @@ except UnicodeEncodeError:
     os.makedirs(CHROMA_DB_PATH, exist_ok=True)
 
 # ── LSTM 모델 설정 ──
-LSTM_SEQ_LEN = 30          # 최근 30회차를 시퀀스로
-LSTM_INPUT_DIM = 65        # 57 + 8 (Cyclical/FFT Features)
-LSTM_HIDDEN_DIM = 128
-LSTM_NUM_LAYERS = 2
-LSTM_DROPOUT = 0.2          # 과적합 방지를 위해 20% 뉴런 무작위 비활성화
+LSTM_SEQ_LEN = 30                # 최근 30회차를 시퀀스로
+LSTM_INPUT_DIM = 65              # T-1 결정 A: 동결 (Phase 1~4 출력은 posthoc gate)
+LSTM_HIDDEN_DIM = 64             # G-2: 128→64 (1,100회차 데이터 적합)
+LSTM_NUM_LAYERS = 1              # G-2: 2→1
+LSTM_BIDIRECTIONAL = False       # G-2: True→False
+LSTM_DROPOUT = 0.2
 LSTM_EPOCHS = 100
-LSTM_BATCH_SIZE = 64        # 한 번에 학습할 데이터 묶음 크기
+LSTM_BATCH_SIZE = 64
 LSTM_LR = 0.001
 LSTM_WEIGHT_DECAY = 1e-5
 LSTM_EARLY_STOP_PATIENCE = 15
-LSTM_POS_WEIGHT = 6.5      # 양성 가중치 (45개 중 6개)
-LSTM_FOCAL_GAMMA = 2.0     # [New] Focal Loss Gamma
-LSTM_FOCAL_ALPHA = 0.25    # [New] Focal Loss Alpha
+LSTM_POS_WEIGHT = 6.5            # G-1: BCEWithLogitsLoss + pos_weight 단일 보정
+# G-1 적용 — Focal Loss 폐기 (이중 보정 mode collapse 위험)
+# LSTM_FOCAL_GAMMA, LSTM_FOCAL_ALPHA 제거됨
 
 # ── XGBoost 설정 ──
 XGB_N_ESTIMATORS = 200
@@ -80,6 +88,24 @@ CNN_LR = 0.001
 CNN_WEIGHT_DECAY = 1e-5
 CNN_EARLY_STOP_PATIENCE = 15
 
+# ── GNN 모델 설정 (G-7) ──
+# 이전: gnn_model.py 24~33줄 내부 하드코딩 → config.py로 통합
+GNN_NODE_FEAT_DIM = 10
+GNN_HIDDEN_DIM = 64               # GAT layer 1 출력
+GNN_HEAD_DIM_2 = 32               # GAT layer 2 출력
+GNN_HEADS = [4, 2]                # [layer1_heads, layer2_heads]
+GNN_DROPOUT = 0.25                # G-7-B: 0.3 → 0.25
+GNN_LR = 0.0008                   # G-7-B: 0.001 → 0.0008 (BCE 보조 추가로 미세 감소)
+GNN_WEIGHT_DECAY = 1e-4
+GNN_EPOCHS = 80                   # G-7-B: 300 → 80 (1,100회차에 과대)
+GNN_PATIENCE = 15                 # G-7-B: 30 → 15
+GNN_MIN_HIST = 50                 # 학습 샘플 생성 최소 이력 회차
+GNN_TOPK = 15                     # G-7-C: 10 → 15 (dense graph 정보 손실 방지)
+GNN_POS_WEIGHT = 6.5              # BCE 보조 손실 (G-1과 동일 정책)
+GNN_BCE_AUX_WEIGHT = 0.3          # G-7-A: total = SoftmaxRanking + 0.3 × BCE
+GNN_FEATURE_NORMALIZE = True      # G-7-D: PowerTransformer (Yeo-Johnson) 적용
+GNN_FEATURE_NORMALIZE_INDICES = [0, 1, 2, 3, 4, 6]  # freq×3, gap×2, hot_streak (long-tail)
+
 # ── 앙상블 설정 ──
 ENSEMBLE_INITIAL_WEIGHTS = {
     "transformer": 0.30,
@@ -91,12 +117,53 @@ ENSEMBLE_INITIAL_WEIGHTS = {
 ENSEMBLE_MIN_WEIGHT = 0.05
 ENSEMBLE_BLEND_RATIO = 0.7   # 기존 가중치 유지 비율
 
+# ── M-1: MetaLearner 재구축 ──
+# alpha 기본값 (학습 전 first-run seed). fit_alpha()로 walk-forward 갱신.
+META_ALPHA_DEFAULT = 0.30
+# AE 게이트 boolean 임계값 — 학습 fold AE 재구성오차 분포의 95p
+AE_GATE_PERCENTILE = 95
+# fit_alpha() 동작에 필요한 최소 검증 데이터
+META_ALPHA_MIN_VAL_SAMPLES = 50
+
+# Task 8종 → 21지표 재설계 predictor 매핑 (M-1 결정 A)
+# 7개 base 모델(LSTM/CNN/Transformer/XGBoost/GNN/Markov/AE)과 별개로,
+# 향후 Phase 1~4 predictor가 추가되면 task별로 어느 predictor를 사용할지 결정.
+# 현재는 placeholder — 21지표 PR이 들어올 때 활성화.
+TASK_PREDICTOR_MAP = {
+    "recommend_top":         ["main_45"],                    # 메인 1~45 모델만
+    "exclude":               ["main_45", "ae"],              # AE 강화
+    "filter_range":          ["sum", "ac", "endings_sum"],   # 스칼라 지표
+    "filter_count_attr":     ["high_low", "odd_even", "carryover", "neighbor", "consecutive"],
+    "filter_count_temporal": ["hotcold_12", "missing_4"],
+    "filter_count_relation": ["decade_5", "gung_9", "paper_14", "multiple_6", "prime_3"],
+    "filter_spatial":        ["paper_14", "gung_9"],
+    "regression":            ["regression"],
+}
+
+# Task 가중치 매트릭스 외부화 (M-1 결정 F)
+# True면 saved_models/task_weights.json에서 로드, 없으면 ensemble.py 하드코딩 default 사용
+TASK_WEIGHTS_EXTERNAL = True
+TASK_WEIGHTS_FILE = "task_weights.json"  # MODEL_DIR 상대 경로
+
 # ── 모델 저장 경로 ──
 MODEL_DIR = os.path.join(os.path.dirname(__file__), "saved_models")
 os.makedirs(MODEL_DIR, exist_ok=True)
 
+# ── S-1: SLA 한도 ──
+# HF Spaces 무료 단계 기준 (RAM 15GB / 2 cores / 120s timeout)
+SLA_TRAIN_WALL_TIME_MAX = 86400      # 주간 학습 ≤ 24h (cron 1회/주)
+SLA_INFER_WALL_TIME_MAX = 30          # 단일 회차 추론 ≤ 30s
+SLA_INFER_MEM_MAX_GB = 12             # 추론 메모리 peak ≤ 12GB (안전마진 3GB)
+SLA_TRAIN_MEM_MAX_GB = 14             # 학습 메모리 peak ≤ 14GB
+SLA_API_TIMEOUT = 120                 # API timeout (초)
+SLA_HISTORY_FILE = "sla_history.parquet"   # MODEL_DIR 상대
+
 # ── 랜덤 기준선 ──
 RANDOM_BASELINE = 1.0 / 45.0  # 기본 확률 (약 0.022)
+
+# ── G-6: 재현성 (Random Seed) ──
+# 모든 모델·numpy·torch·random 초기화에 사용. validation.seed_utils.set_global_seed() 호출.
+RANDOM_SEED = 42
 
 # ── 소수 집합 ──
 PRIMES = {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43}

@@ -16,7 +16,7 @@ from torch.utils.data import DataLoader
 
 import config
 from .lstm_model import LottoSequenceDataset
-from .focal_loss import FocalLoss  # [New]
+# G-1: FocalLoss 폐기. BCEWithLogitsLoss + pos_weight 단일 보정으로 변경.
 
 
 # ──────────────────────────────────────────────
@@ -201,6 +201,10 @@ class TransformerTrainer:
         Returns:
             학습 결과 dict
         """
+        # G-6: 재현성 seed 적용
+        from validation.seed_utils import set_global_seed
+        set_global_seed()
+
         # 데이터셋 생성 (LSTM과 동일한 LottoSequenceDataset 재활용)
         dataset = LottoSequenceDataset(draws, seq_len=config.TRANSFORMER_SEQ_LEN)
 
@@ -232,10 +236,8 @@ class TransformerTrainer:
             else:
                 print("  [Transformer] 기존 뇌가 없어 초기 상태에서 학습합니다.")
 
-        # [Upgrade] Focal Loss 적용
-        criterion = FocalLoss(
-            gamma=config.LSTM_FOCAL_GAMMA,
-            alpha=config.LSTM_FOCAL_ALPHA,
+        # G-1: BCEWithLogitsLoss + pos_weight 단일 보정 (Focal Loss 폐기)
+        criterion = nn.BCEWithLogitsLoss(
             pos_weight=torch.full([45], config.LSTM_POS_WEIGHT, device=self.device)
         )
 

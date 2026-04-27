@@ -200,9 +200,14 @@ class LottoEnsemble:
         self.weights = self._load_meta_weights()
 
         # P7: Stacking 메타러너 (100+ 회차 로그 누적 후 자동 활성화)
+        # M-1-C: meta_alpha는 meta_learner.alpha (학습 가능 파라미터, fit_alpha 갱신)
         self.meta_learner  = MetaLearner(self.save_dir)
-        self.meta_alpha    = 0.30   # 메타 블렌딩 비율 (0=비활성, 1=메타 전용)
         self._meta_loaded  = False  # 최초 predict 때 한 번만 로드 시도
+
+    @property
+    def meta_alpha(self) -> float:
+        """M-1-C: alpha를 meta_learner의 learnable property로 위임."""
+        return self.meta_learner.alpha
 
     def _load_meta_weights(self):
         """저장된 메타 가중치(학습된 비중)를 불러옵니다."""
@@ -248,6 +253,175 @@ class LottoEnsemble:
             pass
 
         return base_weights
+
+    # ── M-1-F: Task 가중치 매트릭스 외부화 ─────────────────────────────────
+    def _task_weights_path(self) -> str:
+        try:
+            import config
+            return os.path.join(self.save_dir,
+                                getattr(config, "TASK_WEIGHTS_FILE", "task_weights.json"))
+        except Exception:
+            return os.path.join(self.save_dir, "task_weights.json")
+
+    def load_task_weights(self) -> dict:
+        """M-1-F: saved_models/task_weights.json 로드.
+
+        파일 없거나 부분 누락 시 본 모듈의 TASK_WEIGHTS 하드코딩 default로 보완.
+        return: 8 task × 7 model 매트릭스 (최종 사용용)
+        """
+        try:
+            import config
+            external = getattr(config, "TASK_WEIGHTS_EXTERNAL", True)
+        except Exception:
+            external = True
+
+        # default를 deep copy
+        merged = {task: weights.copy() for task, weights in TASK_WEIGHTS.items()}
+
+        if not external:
+            return merged
+
+        path = self._task_weights_path()
+        if not os.path.exists(path):
+            return merged
+
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                ext_data = json.load(f)
+            for task, weights in ext_data.items():
+                if task not in merged:
+                    continue
+                if not isinstance(weights, dict):
+                    continue
+                for m, v in weights.items():
+                    if m in merged[task] and isinstance(v, (int, float)) and v >= 0:
+                        merged[task][m] = float(v)
+        except Exception as e:
+            print(f"  [Ensemble] task_weights.json 로드 실패 (default 사용): {e}")
+
+        return merged
+
+    def save_task_weights(self, task_weights: dict) -> None:
+        """M-1-F: 학습된 task 가중치 매트릭스를 외부 파일에 영속화."""
+        path = self._task_weights_path()
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(task_weights, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"  [Ensemble] task_weights.json 저장 실패: {e}")
+
+    # ── M-1-E: AE 게이트 boolean 플래그 broadcast ──────────────────────────
+    def _ae_threshold_path(self) -> str:
+        return os.path.join(self.save_dir, "ae_anomaly_threshold.json")
+
+    def calibrate_anomaly_threshold(self, train_fold_draws: list, percentile: int = None) -> dict:
+        """M-1-E: 학습 fold AE 재구성오차 분포의 percentile로 임계값 산출.
+
+        Args:
+            train_fold_draws: 학습 fold draws (각 회차마다 AE 평가)
+            percentile: 기본 95 (config.AE_GATE_PERCENTILE)
+
+        Returns:
+            {threshold, n_samples, percentile, mean, std}
+        """
+        if percentile is None:
+            try:
+                import config as _cfg
+                percentile = getattr(_cfg, "AE_GATE_PERCENTILE", 95)
+            except Exception:
+                percentile = 95
+
+        ae = self.models.get("autoencoder")
+        if ae is None or len(train_fold_draws) < 5:
+            return {"threshold": 0.5, "n_samples": 0, "percentile": percentile,
+                    "fitted": False, "reason": "AE 미초기화 또는 fold 부족"}
+
+        recon_errors = []
+        for i in range(3, len(train_fold_draws)):
+            window = train_fold_draws[i - 3 : i]
+            try:
+                excl = ae.predict_exclusions(window, threshold=0.0)  # threshold=0 → 모든 번호 오차
+                if isinstance(excl, dict) and excl:
+                    recon_errors.append(float(np.mean(list(excl.values()))))
+            except Exception:
+                continue
+
+        if not recon_errors:
+            return {"threshold": 0.5, "n_samples": 0, "percentile": percentile,
+                    "fitted": False, "reason": "AE predict 실패"}
+
+        arr = np.array(recon_errors, dtype=np.float64)
+        threshold = float(np.percentile(arr, percentile))
+        try:
+            with open(self._ae_threshold_path(), "w") as f:
+                json.dump({
+                    "threshold": threshold,
+                    "percentile": percentile,
+                    "n_samples": len(arr),
+                    "mean": float(arr.mean()),
+                    "std": float(arr.std()),
+                }, f, indent=2)
+        except Exception:
+            pass
+
+        return {"threshold": threshold, "n_samples": len(arr),
+                "percentile": percentile, "fitted": True,
+                "mean": float(arr.mean()), "std": float(arr.std())}
+
+    def _load_ae_threshold(self) -> float:
+        """저장된 AE 임계값 로드 — 없으면 static fallback 0.5."""
+        path = self._ae_threshold_path()
+        if not os.path.exists(path):
+            return 0.5
+        try:
+            with open(path, "r") as f:
+                data = json.load(f)
+            return float(data.get("threshold", 0.5))
+        except Exception:
+            return 0.5
+
+    def compute_anomaly_flag(self, draws: list, threshold: float = None) -> dict:
+        """M-1-E: 회차별 AE 재구성오차 → boolean "이상 회차" 플래그.
+
+        17 predictor가 자기 출력에 직접 AE 페널티를 적용하지 않고,
+        본 메서드의 boolean 결과를 broadcast 받아 *복잡 모델 가중치 dampening*에 사용.
+
+        Args:
+            draws: round 내림차순 draws (최근 3개 회차로 평가)
+            threshold: 명시적 임계값 — None이면 saved_models/ae_anomaly_threshold.json
+
+        Returns:
+            {
+              "is_anomaly":   bool,
+              "recon_error":  float,
+              "threshold":    float,
+              "available":    bool,    # AE 모델/임계값 사용 가능 여부
+            }
+        """
+        if threshold is None:
+            threshold = self._load_ae_threshold()
+
+        ae = self.models.get("autoencoder")
+        if ae is None or len(draws) < 3:
+            return {"is_anomaly": False, "recon_error": 0.0,
+                    "threshold": threshold, "available": False}
+
+        try:
+            excl = ae.predict_exclusions(draws[:3], threshold=0.0)
+            if not isinstance(excl, dict) or not excl:
+                return {"is_anomaly": False, "recon_error": 0.0,
+                        "threshold": threshold, "available": False}
+            recon_error = float(np.mean(list(excl.values())))
+        except Exception:
+            return {"is_anomaly": False, "recon_error": 0.0,
+                    "threshold": threshold, "available": False}
+
+        return {
+            "is_anomaly":  bool(recon_error > threshold),
+            "recon_error": recon_error,
+            "threshold":   threshold,
+            "available":   True,
+        }
 
     def _load_db_hit_counts(self, recent_n: int = 20) -> dict:
         """[Phase 1.1] Supabase model_performance_log에서 최근 N회차 모델별 적중률 조회.

@@ -12,7 +12,7 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 
 import config
-from .focal_loss import FocalLoss  # [New]
+# G-1: FocalLoss 폐기. BCEWithLogitsLoss + pos_weight 단일 보정으로 변경.
 
 # ──────────────────────────────────────────────
 #  Dataset
@@ -137,7 +137,7 @@ class LottoSequenceDataset(Dataset):
 #  Model
 # ──────────────────────────────────────────────
 class LottoLSTM(nn.Module):
-    """Bidirectional LSTM with Attention.
+    """LSTM with Attention. (G-2 적용 — bidirectional=False, hidden=64, layer=1)
 
     Input: (batch, seq_len=30, features=65)
     Output: (batch, 45) - Logits (no sigmoid)
@@ -149,8 +149,12 @@ class LottoLSTM(nn.Module):
         hidden_dim: int = config.LSTM_HIDDEN_DIM,
         num_layers: int = config.LSTM_NUM_LAYERS,
         dropout: float = config.LSTM_DROPOUT,
+        bidirectional: bool = config.LSTM_BIDIRECTIONAL,
     ):
         super().__init__()
+
+        self.bidirectional = bidirectional
+        self.num_directions = 2 if bidirectional else 1
 
         self.lstm = nn.LSTM(
             input_size=input_dim,
@@ -158,19 +162,21 @@ class LottoLSTM(nn.Module):
             num_layers=num_layers,
             batch_first=True,
             dropout=dropout if num_layers > 1 else 0,
-            bidirectional=True,
+            bidirectional=bidirectional,
         )
+
+        out_dim = hidden_dim * self.num_directions
 
         # Attention 메커니즘
         self.attention = nn.Sequential(
-            nn.Linear(hidden_dim * 2, hidden_dim),
+            nn.Linear(out_dim, hidden_dim),
             nn.Tanh(),
             nn.Linear(hidden_dim, 1),
         )
 
         # 출력 레이어
         self.fc = nn.Sequential(
-            nn.Linear(hidden_dim * 2, hidden_dim),
+            nn.Linear(out_dim, hidden_dim),
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(hidden_dim, 45),
@@ -214,6 +220,10 @@ class LSTMTrainer:
 
     def train(self, draws: list, fine_tune: bool = True) -> dict:
         """전체 학습 실행."""
+        # G-6: 재현성 seed 적용
+        from validation.seed_utils import set_global_seed
+        set_global_seed()
+
         # 데이터셋 생성
         dataset = LottoSequenceDataset(draws, seq_len=config.LSTM_SEQ_LEN)
 
@@ -244,10 +254,8 @@ class LSTMTrainer:
             else:
                 print("  [LSTM] 기존 뇌가 없어 초기 상태에서 학습합니다.")
 
-        # [Upgrade] Focal Loss 적용
-        criterion = FocalLoss(
-            gamma=config.LSTM_FOCAL_GAMMA,
-            alpha=config.LSTM_FOCAL_ALPHA,
+        # G-1: BCEWithLogitsLoss + pos_weight 단일 보정 (Focal Loss 폐기 — 이중 보정 mode collapse 위험)
+        criterion = nn.BCEWithLogitsLoss(
             pos_weight=torch.full([45], config.LSTM_POS_WEIGHT, device=self.device)
         )
 

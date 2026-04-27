@@ -1,14 +1,15 @@
 """
 LottoGNN – Graph Attention Network (순수 PyTorch, 외부 라이브러리 불필요)
 
-아키텍처:
+아키텍처 (G-7 적용):
   Node: 45개 번호 (1~45)
-  Edge: 동반출현 횟수로 가중치 부여 (symmetric)
-  Node feature: 10차원 (출현빈도 3개 윈도우, GAP 3개, 핫스트릭, 홀짝, 고저, 정규화 번호값)
+  Edge: 동반출현 횟수 → Top-K=15 희소화 (G-7-C)
+  Node feature: 10차원, freq/gap/hot 6개는 PowerTransformer 정규화 (G-7-D)
   GAT Layer 1: 10 → 64  (4-head)
   GAT Layer 2: 64 → 32  (2-head)
   Classifier:  32 → 32 → 1  (per-node 출현 로짓)
-  Loss: BCEWithLogitsLoss (pos_weight=6.5, 6양성/39음성 보정)
+  Loss (G-7-A): SoftmaxRankingLoss + 0.3 × BCEWithLogitsLoss(pos_weight=6.5)
+  Hyperparam (G-7-B): epochs=80, patience=15, LR=0.0008, dropout=0.25 — config.py
 """
 
 import os
@@ -19,18 +20,30 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import config
+# G-7-D: PowerTransformer 정규화 (옵셔널)
+try:
+    from sklearn.preprocessing import PowerTransformer
+    _SKLEARN_OK = True
+except ImportError:
+    _SKLEARN_OK = False
 
-# ── 하이퍼파라미터 ────────────────────────────────────────────────────────────
-NODE_FEAT_DIM = 10
-HIDDEN_DIM    = 64
-N_HEADS_1     = 4
-N_HEADS_2     = 2
-DROPOUT       = 0.3
-LEARNING_RATE = 1e-3
-MAX_EPOCHS    = 300
-PATIENCE      = 30
-MIN_HIST      = 50      # 학습 샘플 생성을 위한 최소 이력 회차
-POS_WEIGHT    = 6.5     # BCELoss 호환용 (현재 SoftmaxRankingLoss에서 미사용)
+# ── 하이퍼파라미터 (G-7-B: config.py에서 로드) ──────────────────────────────
+NODE_FEAT_DIM = config.GNN_NODE_FEAT_DIM
+HIDDEN_DIM    = config.GNN_HIDDEN_DIM
+HEAD_DIM_2    = config.GNN_HEAD_DIM_2
+N_HEADS_1     = config.GNN_HEADS[0]
+N_HEADS_2     = config.GNN_HEADS[1]
+DROPOUT       = config.GNN_DROPOUT
+LEARNING_RATE = config.GNN_LR
+WEIGHT_DECAY  = config.GNN_WEIGHT_DECAY
+MAX_EPOCHS    = config.GNN_EPOCHS
+PATIENCE      = config.GNN_PATIENCE
+MIN_HIST      = config.GNN_MIN_HIST
+TOPK          = config.GNN_TOPK
+POS_WEIGHT    = config.GNN_POS_WEIGHT
+BCE_AUX_WEIGHT = config.GNN_BCE_AUX_WEIGHT
+FEATURE_NORMALIZE = config.GNN_FEATURE_NORMALIZE
+FEATURE_NORMALIZE_IDX = config.GNN_FEATURE_NORMALIZE_INDICES
 
 
 # ── 손실 함수: Softmax Ranking Loss ──────────────────────────────────────────
@@ -53,6 +66,26 @@ class SoftmaxRankingLoss(nn.Module):
         if pos_mask.sum() == 0:
             return torch.tensor(0.0, requires_grad=True)
         return -log_probs[pos_mask].mean()          # NLL for winning numbers
+
+
+# ── G-7-A: Combined Loss = SoftmaxRanking + 0.3 × BCE ───────────────────────
+class CombinedGNNLoss(nn.Module):
+    """G-7-A 결정: Softmax 단독은 정답 외 번호의 prob 미세 조정에 약함.
+    BCE 보조로 logit 안정성 확보 + mode collapse 추가 방어.
+
+    total = SoftmaxRankingLoss + bce_weight × BCEWithLogitsLoss(pos_weight=6.5)
+    """
+    def __init__(self, bce_weight: float = BCE_AUX_WEIGHT,
+                 pos_weight: float = POS_WEIGHT, device: torch.device = None):
+        super().__init__()
+        self.softmax_rank = SoftmaxRankingLoss()
+        pw = torch.full([45], pos_weight, device=device) if device is not None \
+             else torch.full([45], pos_weight)
+        self.bce = nn.BCEWithLogitsLoss(pos_weight=pw)
+        self.bce_weight = bce_weight
+
+    def forward(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+        return self.softmax_rank(logits, labels) + self.bce_weight * self.bce(logits, labels)
 
 
 # ── Graph Attention Layer ─────────────────────────────────────────────────────
@@ -82,12 +115,24 @@ class GraphAttentionLayer(nn.Module):
         self.leaky_relu = nn.LeakyReLU(negative_slope=0.2)
         self.layer_norm = nn.LayerNorm(out_dim)
 
-    def forward(self, h: torch.Tensor, adj: torch.Tensor) -> torch.Tensor:
+    def forward(self, h: torch.Tensor, adj: torch.Tensor,
+                return_attention: bool = False):
+        """
+        Args:
+            h: [N, in_dim] 노드 피처
+            adj: [N, N] 정규화 인접 행렬
+            return_attention: True면 (out, attention[heads, N, N]) 반환
+
+        Returns:
+            return_attention=False: out [N, out_dim]
+            return_attention=True:  (out, attn_weights [n_heads, N, N])
+        """
         N   = h.size(0)                          # 45
         Wh  = self.W(h)                          # [N, out_dim]
         Wh3 = Wh.view(N, self.n_heads, self.head_dim)  # [N, H, D]
 
         head_outs = []
+        attn_per_head = [] if return_attention else None
         for k in range(self.n_heads):
             wh_k = Wh3[:, k, :]                            # [N, D]
 
@@ -103,6 +148,8 @@ class GraphAttentionLayer(nn.Module):
 
             # 소프트맥스 + 엣지 강도 가중
             alpha = F.softmax(e, dim=1) * adj   # [N,N]
+            if return_attention:
+                attn_per_head.append(alpha.detach())   # 학습된 attention 보존
             alpha = self.dropout(alpha)
 
             head_outs.append(alpha @ wh_k)      # [N, D]
@@ -110,37 +157,52 @@ class GraphAttentionLayer(nn.Module):
         out = torch.cat(head_outs, dim=-1)       # [N, out_dim]
         out = F.elu(out)
         out = self.layer_norm(out)
+
+        if return_attention:
+            attn = torch.stack(attn_per_head, dim=0)   # [n_heads, N, N]
+            return out, attn
         return out
 
 
 # ── GNN 모델 ──────────────────────────────────────────────────────────────────
 class LottoGNNModel(nn.Module):
-    """2-layer Graph Attention Network + per-node 분류기"""
+    """2-layer Graph Attention Network + per-node 분류기 (G-7 적용)"""
 
     def __init__(self):
         super().__init__()
         self.gat1 = GraphAttentionLayer(
-            NODE_FEAT_DIM, HIDDEN_DIM,    N_HEADS_1, DROPOUT
+            NODE_FEAT_DIM, HIDDEN_DIM,  N_HEADS_1, DROPOUT
         )
         self.gat2 = GraphAttentionLayer(
-            HIDDEN_DIM,   HIDDEN_DIM // 2, N_HEADS_2, DROPOUT * 0.7
+            HIDDEN_DIM,    HEAD_DIM_2,  N_HEADS_2, DROPOUT * 0.7
         )
         self.classifier = nn.Sequential(
-            nn.Linear(HIDDEN_DIM // 2, 32),
+            nn.Linear(HEAD_DIM_2, 32),
             nn.ReLU(),
             nn.Dropout(0.2),
             nn.Linear(32, 1),
         )
 
-    def forward(self, x: torch.Tensor, adj: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, adj: torch.Tensor,
+                return_attention: bool = False):
         """
-        x   : [45, NODE_FEAT_DIM]
-        adj : [45, 45]  (정규화 인접 행렬)
-        반환 : [45]  per-node 로짓 (sigmoid 적용 전)
+        Args:
+            x: [45, NODE_FEAT_DIM]
+            adj: [45, 45] 정규화 인접 행렬
+            return_attention: G-7-E — True면 (logits, layer1_attn) 반환
+
+        Returns:
+            return_attention=False: [45] per-node logits
+            return_attention=True:  (logits [45], layer1_attn [n_heads_1, 45, 45])
         """
-        h = self.gat1(x, adj)                     # [45, HIDDEN_DIM]
-        h = self.gat2(h, adj)                     # [45, HIDDEN_DIM//2]
-        return self.classifier(h).squeeze(-1)     # [45]
+        if return_attention:
+            h, attn1 = self.gat1(x, adj, return_attention=True)
+            h = self.gat2(h, adj)
+            logits = self.classifier(h).squeeze(-1)
+            return logits, attn1
+        h = self.gat1(x, adj)
+        h = self.gat2(h, adj)
+        return self.classifier(h).squeeze(-1)
 
 
 # ── GNNTrainer ────────────────────────────────────────────────────────────────
@@ -151,7 +213,9 @@ class GNNTrainer:
         os.makedirs(self.save_dir, exist_ok=True)
         self.model       = LottoGNNModel().to(self.device)
         self._adj_counts = np.zeros((45, 45), dtype=np.float32)
+        self._feature_transformer = None  # G-7-D: PowerTransformer (학습 시 fit)
         self._load_adjacency_counts()
+        self._load_feature_transformer()
 
     # ── 영속성 헬퍼 ──────────────────────────────────────────────────────────
     def _load_adjacency_counts(self):
@@ -171,9 +235,44 @@ class GNNTrainer:
         with open(path, "w") as f:
             json.dump(self._adj_counts.tolist(), f)
 
+    # ── G-7-D: PowerTransformer 영속성 ───────────────────────────────────
+    def _save_feature_transformer(self):
+        if self._feature_transformer is None:
+            return
+        import pickle
+        path = os.path.join(self.save_dir, "gnn_feature_transformer.pkl")
+        with open(path, "wb") as f:
+            pickle.dump(self._feature_transformer, f)
+
+    def _load_feature_transformer(self):
+        path = os.path.join(self.save_dir, "gnn_feature_transformer.pkl")
+        if not os.path.exists(path) or not _SKLEARN_OK:
+            return
+        try:
+            import pickle
+            with open(path, "rb") as f:
+                self._feature_transformer = pickle.load(f)
+        except Exception as e:
+            print(f"  [GNN] feature transformer 로드 실패 (raw feature 사용): {e}")
+            self._feature_transformer = None
+
+    def _apply_feature_transform(self, raw_feats: np.ndarray) -> np.ndarray:
+        """G-7-D: raw feature → 정규화된 feature.
+
+        FEATURE_NORMALIZE_IDX 컬럼만 PowerTransformer 적용, 나머지는 raw.
+        transformer가 fit되지 않았으면 raw 그대로 반환.
+        """
+        if not FEATURE_NORMALIZE or self._feature_transformer is None:
+            return raw_feats
+        out = raw_feats.copy()
+        out[:, FEATURE_NORMALIZE_IDX] = self._feature_transformer.transform(
+            raw_feats[:, FEATURE_NORMALIZE_IDX]
+        )
+        return out.astype(np.float32)
+
     # ── 그래프 / 피처 구성 ───────────────────────────────────────────────────
     @staticmethod
-    def _normalize_adjacency(adj_counts: np.ndarray, top_k: int = 10) -> np.ndarray:
+    def _normalize_adjacency(adj_counts: np.ndarray, top_k: int = TOPK) -> np.ndarray:
         """
         원시 동반출현 카운트 행렬 → Top-K 희소 대칭 정규화 인접 행렬
 
@@ -182,7 +281,8 @@ class GNNTrainer:
         Dense graph에서 2-layer GAT를 통과하면 모든 노드 표현이 평균화되어
         균일 예측(uniform)으로 수렴한다 → top_k 이웃만 남겨 희소화.
 
-        top_k=10: 각 번호는 동반출현 횟수 상위 10개 번호하고만 연결.
+        G-7-C: top_k=15 (기존 10) — 1,100회차 dense graph에서 정보 손실 방지.
+        검증: validation/timeseries_cv 5-fold에서 K∈{10,15,20,25} grid search.
         """
         adj = adj_counts.copy().astype(np.float32)
         N   = adj.shape[0]
@@ -213,21 +313,24 @@ class GNNTrainer:
         return (D @ adj @ D).astype(np.float32)
 
     @staticmethod
-    def _build_features(draws: list) -> np.ndarray:
+    def _build_features_raw(draws: list) -> np.ndarray:
         """
-        히스토리 draws → 노드 피처 행렬 [45, NODE_FEAT_DIM]
+        히스토리 draws → 노드 피처 행렬 [45, NODE_FEAT_DIM] (원시값, 미정규화)
 
         피처 구성 (인덱스 0~9):
-          0  freq_10   : 최근 10회차 출현율
-          1  freq_20   : 최근 20회차 출현율
-          2  freq_50   : 최근 50회차 출현율
-          3  cur_gap   : 현재 GAP (정규화, 0~1)
-          4  avg_gap   : 평균 GAP (정규화)
-          5  gap_dev   : (현재-평균)/평균 편차 (클립 -1~1)
-          6  hot_streak: 연속 출현 길이 (정규화)
-          7  odd        : 홀수=1, 짝수=0
-          8  low        : 1~22=1, 23~45=0
-          9  pos_norm   : (번호-1)/44
+          0  freq_10   : 최근 10회차 출현율   (G-7-D PowerTransformer)
+          1  freq_20   : 최근 20회차 출현율   (G-7-D PowerTransformer)
+          2  freq_50   : 최근 50회차 출현율   (G-7-D PowerTransformer)
+          3  cur_gap_n : 현재 GAP/50 클립    (G-7-D PowerTransformer)
+          4  avg_gap_n : 평균 GAP/15 클립    (G-7-D PowerTransformer)
+          5  gap_dev   : (현재-평균)/평균 편차 (raw — 이미 -1~1)
+          6  hot_streak: 연속 출현 길이/5 클립 (G-7-D PowerTransformer)
+          7  odd        : 홀수=1, 짝수=0      (raw)
+          8  low        : 1~22=1, 23~45=0   (raw)
+          9  pos_norm   : (번호-1)/44       (raw)
+
+        G-7-D: 인덱스 0~4, 6은 long-tail 분포 → train fold에서 PowerTransformer fit.
+                인덱스 5, 7, 8, 9는 raw 그대로.
         """
         N        = len(draws)
         features = np.zeros((45, NODE_FEAT_DIM), dtype=np.float32)
@@ -297,6 +400,10 @@ class GNNTrainer:
 
     # ── 학습 ─────────────────────────────────────────────────────────────────
     def train(self, draws: list, fine_tune: bool = True):
+        # G-6: 재현성 seed 적용
+        from validation.seed_utils import set_global_seed
+        set_global_seed()
+
         print("  [GNN] Graph Attention Network 학습 시작...")
         draws_sorted = sorted(draws, key=lambda x: x["round"])
 
@@ -313,26 +420,41 @@ class GNNTrainer:
         adj_norm   = self._normalize_adjacency(self._adj_counts)
         adj_tensor = torch.FloatTensor(adj_norm).to(self.device)
 
-        feat_list  = []
-        label_list = []
+        # ── 1단계: raw feature 수집 (정규화 fit 위해) ─────────────────────
+        raw_feat_list = []
+        label_list    = []
         for i in range(MIN_HIST, len(draws_sorted)):
             hist  = draws_sorted[:i]
-            feats = self._build_features(hist)
+            raw   = self._build_features_raw(hist)
             label = np.zeros(45, dtype=np.float32)
             for num in draws_sorted[i].get("numbers", []):
                 if 1 <= num <= 45:
                     label[num - 1] = 1.0
-            feat_list.append(feats)
+            raw_feat_list.append(raw)
             label_list.append(label)
 
-        if not feat_list:
+        if not raw_feat_list:
             print("  [GNN] 학습 데이터 부족 (이력 < 50 회차)")
             return
 
-        n_samples = len(feat_list)
+        n_samples = len(raw_feat_list)
         print(f"  [GNN] 학습 샘플 수: {n_samples}")
 
-        # GPU/CPU 텐서 사전 변환
+        # ── G-7-D: PowerTransformer fit (모든 train 샘플의 long-tail 컬럼만) ─
+        if FEATURE_NORMALIZE and _SKLEARN_OK:
+            stacked = np.vstack([f[:, FEATURE_NORMALIZE_IDX] for f in raw_feat_list])
+            self._feature_transformer = PowerTransformer(
+                method="yeo-johnson", standardize=True
+            )
+            self._feature_transformer.fit(stacked)
+            self._save_feature_transformer()
+            print(f"  [GNN] PowerTransformer fit 완료 ({stacked.shape[0]} rows × "
+                  f"{len(FEATURE_NORMALIZE_IDX)} cols)")
+        elif FEATURE_NORMALIZE and not _SKLEARN_OK:
+            print("  [GNN] sklearn 미설치 → raw feature 사용")
+
+        # ── 2단계: 정규화 적용 후 텐서 변환 ───────────────────────────────
+        feat_list = [self._apply_feature_transform(f) for f in raw_feat_list]
         feat_tensors  = [torch.FloatTensor(f).to(self.device) for f in feat_list]
         label_tensors = [torch.FloatTensor(l).to(self.device) for l in label_list]
 
@@ -358,14 +480,17 @@ class GNNTrainer:
             except Exception as e:
                 print(f"  [GNN] 기존 가중치 로드 실패 (처음부터 학습): {e}")
 
-        # ── 옵티마이저 & 손실 ──────────────────────────────────────────────
-        # SoftmaxRankingLoss: 45개 번호를 경쟁적으로 학습 → uniform 수렴 방지
-        criterion = SoftmaxRankingLoss()
+        # ── 옵티마이저 & 손실 (G-7-A) ─────────────────────────────────────
+        # SoftmaxRankingLoss + 0.3 × BCEWithLogitsLoss(pos_weight=6.5)
+        # — Softmax 단독 → BCE 보조로 logit 안정화, mode collapse 추가 방어
+        criterion = CombinedGNNLoss(
+            bce_weight=BCE_AUX_WEIGHT, pos_weight=POS_WEIGHT, device=self.device
+        )
         optimizer = optim.Adam(
-            self.model.parameters(), lr=LEARNING_RATE, weight_decay=1e-4
+            self.model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY
         )
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="min", patience=12, factor=0.5, min_lr=1e-5
+            optimizer, mode="min", patience=8, factor=0.5, min_lr=1e-5
         )
 
         best_loss    = float("inf")
@@ -441,7 +566,8 @@ class GNNTrainer:
         recent       = draws_sorted[-100:]   # 최근 100회차로 피처 계산
 
         adj_norm = self._normalize_adjacency(self._adj_counts)
-        feats    = self._build_features(recent)
+        raw_feats = self._build_features_raw(recent)
+        feats     = self._apply_feature_transform(raw_feats)   # G-7-D
 
         x   = torch.FloatTensor(feats).to(self.device)
         adj = torch.FloatTensor(adj_norm).to(self.device)
@@ -464,12 +590,14 @@ class GNNTrainer:
         """
         GNN 관계 특화 메서드 — 연속/인접 번호 공동출현 확률(관계형 필터) 전용.
 
-        Returns:
+        Returns (G-7-E 적용):
             {
               "node_probs"        : {1~45: float}     — 번호별 노드 확률
               "consecutive_probs" : {n: float, ...}   — P(n, n+1 동반) ≈ geo-mean conditional
               "top_pairs"         : [(i,j,prob), ...]  — 상위 20 동반쌍 (확률 내림차순)
-              "attention_weights" : [[45×45 float]]   — GAT layer-1 어텐션 (proxy)
+              "attention_weights" : [[45×45 float]]   — 인접 행렬 log proxy (구조 정보)
+              "gat_layer1_attn"   : [[heads, 45, 45]] — G-7-E: GAT layer-1 학습된 attention
+                                                          (모델 미로드 시 None)
               "edge_density"      : float             — 실제화 엣지 밀도
             }
         """
@@ -515,6 +643,27 @@ class GNNTrainer:
         # 값이 너무 작으므로 log 스케일로 변환해서 보기 편하게
         attn_proxy = np.log1p(adj_norm * 100).tolist()  # (45,45)
 
+        # ── G-7-E: GAT layer-1 학습된 attention 추출 ─────────────────────
+        gat_layer1_attn = None
+        model_path = os.path.join(self.save_dir, "gnn_model.pt")
+        if os.path.exists(model_path) and len(draws) >= 5:
+            try:
+                # 최근 100회로 피처 빌드
+                draws_sorted = sorted(draws, key=lambda x: x["round"])
+                recent       = draws_sorted[-100:]
+                raw_feats    = self._build_features_raw(recent)
+                feats        = self._apply_feature_transform(raw_feats)
+                x   = torch.FloatTensor(feats).to(self.device)
+                adj_t = torch.FloatTensor(adj_norm).to(self.device)
+                self.model.eval()
+                with torch.no_grad():
+                    _, attn = self.model(x, adj_t, return_attention=True)
+                # attn shape: [n_heads_1, 45, 45]
+                gat_layer1_attn = attn.cpu().numpy().tolist()
+            except Exception as e:
+                # smoke test 환경 등에서는 None
+                gat_layer1_attn = None
+
         # ── 5. 엣지 밀도 계산 ────────────────────────────────────────────
         threshold = float(np.percentile(counts[counts > 0], 75)) if counts.max() > 0 else 1.0
         strong_edges = int((counts > threshold).sum()) // 2   # symmetric → /2
@@ -526,5 +675,6 @@ class GNNTrainer:
             "consecutive_probs":  consecutive_probs,
             "top_pairs":          top_pairs,
             "attention_weights":  attn_proxy,
+            "gat_layer1_attn":    gat_layer1_attn,
             "edge_density":       edge_density,
         }
