@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html class="light" lang="ko">
 
 <head>
@@ -24,11 +24,14 @@
 
     <script src="js/config.js"></script>
     <script src="js/theme.js"></script>
-    <script src="js/aiProxy.js"></script>
+    <script src="js/aiProxy.js?v=20260426"></script>
     <script src="js/common_v2.js"></script>
     <script src="js/filter/FilterService.js"></script>
+    <script src="js/filter/FilterLifecycle.js"></script>
+    <script src="js/filter/FilterRuleEngine.js"></script>
     <script src="js/layout.js"></script>
-    <script src="js/deep_insight_panel.js"></script>
+    <script src="js/deep_insight_panel.js?v=20260426"></script>
+    <script src="js/premium_insight_panel.js?v=20260426"></script>
     <script src="js/NLPProcessor.js"></script>
     <script src="js/NLPInputComponent.js"></script>
     <script src="js/BasicAnalysisNLP.js"></script>
@@ -333,8 +336,8 @@
             renderFilterZones();
             renderDrawsList();
 
-            // 로딩 속도 최적화를 위해 자동 AI 분석(타이틀 분석) 실행 제거
-            // initDeepInsight();
+            // 기간 변경 시 DL 인사이트 패널 갱신
+            initDeepInsight();
         }
 
         // [신규] 분석 업데이트 함수
@@ -398,20 +401,10 @@
             cursor: default;
         }
 
-        .hot-bg {
-            background: #DC2626;
-            border: 1px solid #B91C1C;
-        }
-
-        .neutral-bg {
-            background: #6B7280;
-            border: 1px solid #4B5563;
-        }
-
-        .cold-bg {
-            background: #2563EB;
-            border: 1px solid #1D4ED8;
-        }
+        /* hot/cold 상태는 ring(외곽선)으로 표현, 배경은 번호대별 표준 그라디언트 */
+        .hot-bg   { box-shadow: 0 0 0 2.5px #DC2626, 0 0 0 4px rgba(220,38,38,0.18); }
+        .neutral-bg { box-shadow: 0 0 0 2.5px #9CA3AF, 0 0 0 4px rgba(156,163,175,0.15); }
+        .cold-bg  { box-shadow: 0 0 0 2.5px #2563EB, 0 0 0 4px rgba(37,99,235,0.18); }
 
         .winning-bg {
             background: #111827;
@@ -609,13 +602,10 @@
                         <p class="text-sm text-gray-600">번호별 출현 빈도를 분석하여 핫, 중립, 콜드 그룹으로 분류합니다.</p>
                     </div>
 
-                        <div class="ai-section p-8 pb-10 mb-6 font-sans">
-                            <h3 class="text-lg font-bold text-gray-900 mb-4">딥러닝 Insight</h3>
-                            <div id="dlInsightContainer">
-                                <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
-                                    <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
-                                    <span class="text-sm">딥러닝 모델 분석 중 (7개 모델)...</span>
-                                </div>
+                        <div id="dlInsightContainer" class="mb-6 font-sans">
+                            <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
+                                <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
+                                <span class="text-sm">딥러닝 모델 분석 중 (7개 모델)...</span>
                             </div>
                         </div>
 
@@ -656,7 +646,7 @@
                                 <thead>
                                     <tr class="bg-gray-50">
                                         <th class="py-3 px-6 text-center text-sm font-semibold text-gray-600 border border-gray-200"
-                                            style="width: 100px;">당첨<br />개수</th>
+                                            style="width: 100px;">기간 내<br />출현 횟수</th>
                                         <th class="py-3 px-8 text-center text-sm font-semibold border border-gray-200"
                                             style="color: #DC2626; min-width: 200px;">Hot<br />(과열)</th>
                                         <th class="py-3 px-6 text-center text-sm font-semibold border border-gray-200"
@@ -1017,6 +1007,16 @@
             renderDrawsList();
         }
 
+        // ── FilterEngine Lifecycle Integration (Phase 3) ─────────────
+        window.addEventListener('filterLifecycle', function _filterLifecycleHandler(e) {
+            var _detail = e.detail;
+            if (_detail.type === 'NEW_ROUND') {
+                if (typeof checkAndResetOnNewDraw === 'function') checkAndResetOnNewDraw();
+            } else if (_detail.type === 'LOGOUT' || _detail.type === 'RESTORED') {
+                if (typeof loadFilterSettings === 'function') loadFilterSettings();
+            }
+        });
+
         // [New] 다른 탭/창에서 바스켓 변경 및 필터 변경 시도 감지 (localStorage 이벤트)
         // [표준] 다른 탭/창에서 바스켓 변경 및 필터 변경 시도 감지 (localStorage 이벤트)
         window.addEventListener('storage', async (e) => {
@@ -1142,8 +1142,7 @@
             const { hot, neutral, cold } = getClassifiedNumbers(currentPeriod, selectedRound);
 
             const getNumberStyle = (n) => {
-                const color = window.Utils.getBallColor(n);
-                return `background-color: ${color}; border-color: ${color};`;
+                return `background: ${getBallGradient(n)};`;
             };
 
             if (excludeNumbers.length === 0) excludeZone.innerHTML = '<p class="text-sm text-gray-400 text-center">번호를 드래그하여 추가하세요</p>';
@@ -1173,6 +1172,15 @@
             allData.forEach(d => { options += `<option value="${d.round}">${d.round}회</option>`; });
             select.innerHTML = options;
             select.value = selectedRound;
+        }
+
+        // 번호대별 표준 그라디언트 (lotto_ball_colors.md 기준)
+        function getBallGradient(n) {
+            if (n <= 10) return 'linear-gradient(135deg, #f59e0b, #d97706)';
+            if (n <= 20) return 'linear-gradient(135deg, #3b82f6, #2563eb)';
+            if (n <= 30) return 'linear-gradient(135deg, #ef4444, #dc2626)';
+            if (n <= 40) return 'linear-gradient(135deg, #6b7280, #4b5563)';
+            return 'linear-gradient(135deg, #10b981, #059669)';
         }
 
         function getClassifiedNumbers(period, fromRound) {
@@ -1291,21 +1299,20 @@
                     let style = '';
 
                     // [수정] 모든 번호에 수동 필터 표준 색상 적용
-                    const color = window.Utils.getBallColor(n);
-                    
                     if (isDraggable) {
-                        // 미래 회차: 드래그 가능
-                        className = 'font-bold shadow-sm ring-1 ring-inset ring-black/10 cursor-grab active:cursor-grabbing text-white';
-                        style = `background-color: ${color}; border-color: ${color};`;
+                        // 미래 회차: 드래그 가능 — 번호대 그라디언트 + hot/cold 링
+                        className = `font-bold shadow-sm text-white cursor-grab active:cursor-grabbing ${typeClass}`;
+                        style = `background: ${getBallGradient(n)};`;
                     } else {
                         // 과거/최근 회차
                         if (isWinning) {
-                            // 당첨번호: 표준 색상
-                            className = 'font-bold shadow-sm ring-1 ring-inset ring-black/10 text-white';
-                            style = `background-color: ${color}; border-color: ${color};`;
+                            // 당첨번호: 번호대 그라디언트 + hot/cold 링
+                            className = `font-bold shadow-sm text-white ${typeClass}`;
+                            style = `background: ${getBallGradient(n)};`;
                         } else {
                             // 미당첨: 옅은 회색
                             className = 'bg-gray-50 text-gray-300 border border-gray-100';
+                            style = '';
                         }
                     }
 
@@ -1327,28 +1334,64 @@
         function renderCountTable() {
             if (allData.length === 0) return;
             const { hot, neutral, cold } = getClassifiedNumbers(currentPeriod, selectedRound);
-            const countMap = { hot: {}, neutral: {}, cold: {} };
             const latestRoundInDB = allData[0].round;
-            let startIdx = 0;
-            if (selectedRound <= latestRoundInDB) { startIdx = allData.findIndex(d => d.round === selectedRound) + 1; }
-            const recentDraws = allData.slice(startIdx, startIdx + currentPeriod);
 
+            // startIdx: selectedRound 기준 직전 회차부터 시작
+            let startIdx = 0;
+            if (selectedRound <= latestRoundInDB) {
+                const foundIdx = allData.findIndex(d => d.round === selectedRound);
+                if (foundIdx !== -1) startIdx = foundIdx + 1;
+                // foundIdx === -1(= selectedRound 미존재, 예: 0) → startIdx=0 유지
+            }
+
+            // 각 번호의 기간 내 출현 횟수(count) 계산: startIdx부터 currentPeriod 회차 동안 몇 번 출현했는지
+            const periodDraws = allData.slice(startIdx, startIdx + currentPeriod);
+            const gapMap = { hot: {}, neutral: {}, cold: {} };
             [hot, neutral, cold].forEach((nums, typeIdx) => {
                 const type = ['hot', 'neutral', 'cold'][typeIdx];
                 nums.forEach(num => {
                     let count = 0;
-                    recentDraws.forEach(draw => { if (draw.numbers.includes(num)) count++; });
-                    if (!countMap[type][count]) countMap[type][count] = [];
-                    countMap[type][count].push(num);
+                    periodDraws.forEach(draw => { if (draw.numbers.includes(num)) count++; });
+                    if (!gapMap[type][count]) gapMap[type][count] = [];
+                    gapMap[type][count].push(num);
                 });
             });
 
-            const maxCount = Math.max(...Object.keys(countMap.hot).map(Number), ...Object.keys(countMap.neutral).map(Number), ...Object.keys(countMap.cold).map(Number), 0);
-            let html = '';
-            for (let count = maxCount; count >= 0; count--) {
-                html += `<tr class="hover:bg-gray-50"><td class="py-3 px-6 text-center font-semibold text-gray-900 border border-gray-200">${count}회</td><td class="py-3 px-8 text-center border border-gray-200">${countMap.hot[count] ? countMap.hot[count].sort((a, b) => a - b).join(', ') : '-'}</td><td class="py-3 px-6 text-center border border-gray-200">${countMap.neutral[count] ? countMap.neutral[count].sort((a, b) => a - b).join(', ') : '-'}</td><td class="py-3 px-6 text-center border border-gray-200">${countMap.cold[count] ? countMap.cold[count].sort((a, b) => a - b).join(', ') : '-'}</td></tr>`;
+            // 번호대별 표준 색상 볼 렌더링 (lotto_ball_colors.md 기준)
+            function renderBalls(nums) {
+                if (!nums || !nums.length) return '<span class="text-gray-300 text-xs">-</span>';
+                return nums.sort((a, b) => a - b).map(n =>
+                    `<span style="display:inline-flex;align-items:center;justify-content:center;width:27px;height:27px;border-radius:50%;background:${getBallGradient(n)};color:white;font-size:0.65rem;font-weight:700;flex-shrink:0;">${n}</span>`
+                ).join('');
             }
-            document.getElementById('countTableBody').innerHTML = html;
+
+            const allGaps = new Set([
+                ...Object.keys(gapMap.hot).map(Number),
+                ...Object.keys(gapMap.neutral).map(Number),
+                ...Object.keys(gapMap.cold).map(Number)
+            ]);
+            const sortedGaps = [...allGaps].sort((a, b) => b - a); // 출현 많은 순(높은 횟수부터)
+
+            let html = '';
+            for (const gap of sortedGaps) {
+                if (!gapMap.hot[gap] && !gapMap.neutral[gap] && !gapMap.cold[gap]) continue;
+                html += `<tr class="hover:bg-gray-50">
+                    <td class="py-2 px-3 text-center border border-gray-200 whitespace-nowrap">
+                        <span class="font-bold text-gray-800">${gap}</span><span class="text-xs text-gray-400">회</span>
+                    </td>
+                    <td class="py-2 px-2 text-center border border-gray-200">
+                        <div class="flex flex-wrap justify-center gap-0.5">${renderBalls(gapMap.hot[gap])}</div>
+                    </td>
+                    <td class="py-2 px-2 text-center border border-gray-200">
+                        <div class="flex flex-wrap justify-center gap-0.5">${renderBalls(gapMap.neutral[gap])}</div>
+                    </td>
+                    <td class="py-2 px-2 text-center border border-gray-200">
+                        <div class="flex flex-wrap justify-center gap-0.5">${renderBalls(gapMap.cold[gap])}</div>
+                    </td>
+                </tr>`;
+            }
+            document.getElementById('countTableBody').innerHTML = html ||
+                `<tr><td colspan="4" class="py-4 text-center text-gray-400 text-sm">데이터 없음</td></tr>`;
         }
 
         function updateFilters() {
@@ -1495,8 +1538,8 @@
 
                 const numberBalls = draw.numbers.map(num => {
                     const type = currentHot.includes(num) ? 'hot' : currentNeutral.includes(num) ? 'neutral' : 'cold';
-                    const className = type === 'hot' ? 'hot-bg' : type === 'neutral' ? 'neutral-bg' : 'cold-bg';
-                    return `<span class="lotto-number ${className}">${num}</span>`;
+                    const ringClass = type === 'hot' ? 'hot-bg' : type === 'neutral' ? 'neutral-bg' : 'cold-bg';
+                    return `<span class="lotto-number text-white font-bold shadow-sm ${ringClass}" style="background:${getBallGradient(num)};">${num}</span>`;
                 }).join('');
 
                 const getHighlightClass = (col, val) => {
@@ -1572,11 +1615,324 @@
         // ==========================================================
         // [Merged] AI 분석 함수 (NLP + QnA Sidebar)
 
-        // 딥러닝 인사이트 패널 초기화
-        function initDeepInsight() {
-            if (window.DeepInsightPanel) {
-                DeepInsightPanel.render('dlInsightContainer', 'hot10', '핫번호 개수');
+        // ── 딥러닝 인사이트: 통합 핫/뉴트럴/콜드 패널 ────────────────────
+        // 설계 원칙:
+        //  1. 분류 기준 = 프론트 CRITERIA[currentPeriod] (5/10/15/20회 각각 다름)
+        //  2. DL 예측 = matrix_data 각 모델의 상위 번호를 hot/neutral/cold로 분류
+        //  3. 즉시 렌더(동기) → 모델 셀만 비동기 업데이트 (레이아웃 고정)
+        const _HNC_MODELS = [
+            { key: 'lstm',        label: 'LSTM'        },
+            { key: 'xgboost',     label: 'XGBOOST'     },
+            { key: 'cnn',         label: 'CNN'          },
+            { key: 'transformer', label: 'TRANSFORMER'  },
+            { key: 'markov',      label: 'MARKOV'       },
+            { key: 'autoencoder', label: 'AUTOENCODER'  },
+            { key: 'gnn',         label: 'GNN'          },
+        ];
+
+        // matrix_data에서 각 모델의 상위 번호를 hot/neutral/cold로 분류하여 예측
+        function _computeHNCPredictions(matrixData, hot, neutral, cold) {
+            const hotPreds = {}, neuPreds = {}, coldPreds = {};
+
+            _HNC_MODELS.forEach(m => {
+                // 모델 점수 기준 상위 번호 정렬
+                const sorted = [...matrixData]
+                    .filter(x => x.models?.[m.key]?.score != null)
+                    .sort((a, b) => (b.models[m.key].score || 0) - (a.models[m.key].score || 0));
+
+                // top6 (딥러닝이 다음 회차에 추천하는 6개)
+                const top6 = sorted.slice(0, 6).map(x => x.num);
+                hotPreds[m.key]  = top6.filter(n => hot.includes(n)).length;
+                neuPreds[m.key]  = top6.filter(n => neutral.includes(n)).length;
+                coldPreds[m.key] = top6.filter(n => cold.includes(n)).length;
+            });
+
+            // 앙상블: 전 모델 중 최솟값~최댓값
+            const hArr = Object.values(hotPreds),  nArr = Object.values(neuPreds),  cArr = Object.values(coldPreds);
+            const ensHot  = { min: Math.min(...hArr), max: Math.max(...hArr), avg: (hArr.reduce((s,v)=>s+v,0)/hArr.length).toFixed(1) };
+            const ensNeu  = { min: Math.min(...nArr), max: Math.max(...nArr), avg: (nArr.reduce((s,v)=>s+v,0)/nArr.length).toFixed(1) };
+            const ensCold = { min: Math.min(...cArr), max: Math.max(...cArr), avg: (cArr.reduce((s,v)=>s+v,0)/cArr.length).toFixed(1) };
+
+            return { hot: hotPreds, neutral: neuPreds, cold: coldPreds, ensHot, ensNeu, ensCold };
+        }
+
+        // 비동기 로딩 후 모델 셀만 업데이트 (레이아웃 유지)
+        function _updateHNCCells(preds, targetRound, hot, neutral, cold) {
+            _HNC_MODELS.forEach(m => {
+                const hEl = document.getElementById(`hnc-h-${m.key}`);
+                const nEl = document.getElementById(`hnc-n-${m.key}`);
+                const cEl = document.getElementById(`hnc-c-${m.key}`);
+                if (hEl) { hEl.textContent = preds.hot[m.key] ?? '-'; hEl.style.color = '#1e293b'; }
+                if (nEl) { nEl.textContent = preds.neutral[m.key] ?? '-'; nEl.style.color = '#1e293b'; }
+                if (cEl) { cEl.textContent = preds.cold[m.key] ?? '-'; cEl.style.color = '#1e293b'; }
+            });
+            // 앙상블 셀
+            const ehEl = document.getElementById('hnc-ens-h');
+            const enEl = document.getElementById('hnc-ens-n');
+            const ecEl = document.getElementById('hnc-ens-c');
+            if (ehEl) ehEl.textContent = `${preds.ensHot.min}~${preds.ensHot.max}`;
+            if (enEl) enEl.textContent = `${preds.ensNeu.min}~${preds.ensNeu.max}`;
+            if (ecEl) ecEl.textContent = `${preds.ensCold.min}~${preds.ensCold.max}`;
+            // 합의도 (모델 간 일치율 = 앙상블 범위가 좁을수록 높음)
+            const spread = (preds.ensHot.max - preds.ensHot.min) + (preds.ensNeu.max - preds.ensNeu.min);
+            const agr = Math.max(0, Math.round(100 - spread * 14));
+            const agrEl = document.getElementById('hnc-agreement');
+            const agrBarEl = document.getElementById('hnc-agreement-bar');
+            if (agrEl) agrEl.textContent = agr + '%';
+            if (agrBarEl) agrBarEl.style.width = agr + '%';
+            // 필승 공략 업데이트
+            const stratEl = document.getElementById('hnc-strategy');
+            if (stratEl) {
+                const hEns = preds.ensHot, nEns = preds.ensNeu, cEns = preds.ensCold;
+                const agreeStr = agr >= 70
+                    ? `모델 합의도 <strong>${agr}%</strong>로 수렴 — 신뢰도 높음`
+                    : `모델 합의도 <strong>${agr}%</strong>로 분산 — 범위 내 유연한 조합 구성 권장`;
+                stratEl.innerHTML = `[딥러닝 예측] 핫번호(${hot.length}개 중) <strong>${hEns.min}~${hEns.max}개</strong>, 뉴트럴(${neutral.length}개 중) <strong>${nEns.min}~${nEns.max}개</strong>, 콜드(${cold.length}개 중) <strong>${cEns.min}~${cEns.max}개</strong>가 당첨 조합에 포함될 것으로 7개 모델이 예측합니다.<br>→ ${agreeStr}. 핫+뉴트럴+콜드 합산은 항상 6개.`;
             }
+        }
+
+        function _hncEnsemble(modelExp) {
+            const entries = Object.entries(modelExp || {}).filter(([,v]) => v && v.min != null);
+            if (!entries.length) return { cMin: '-', cMax: '-', agreement: 0 };
+            const mins = entries.map(([,v]) => v.min);
+            const maxs = entries.map(([,v]) => v.max);
+            const interMin = Math.max(...mins), interMax = Math.min(...maxs);
+            const unionMin = Math.min(...mins), unionMax = Math.max(...maxs);
+            const agreed = entries.filter(([,v]) => v.min <= interMax && v.max >= interMin).length;
+            const agreement = Math.round((agreed / entries.length) * 100);
+            const cMin = interMin <= interMax ? interMin : unionMin;
+            const cMax = interMin <= interMax ? interMax : unionMax;
+            return { cMin, cMax, unionMin, unionMax, agreement };
+        }
+
+        function _hncFlow(vals) {
+            if (!vals || vals.length < 3) return null;
+            const mean = vals.reduce((s, v) => s + v, 0) / vals.length;
+            const variance = vals.reduce((s, v) => s + (v - mean) ** 2, 0) / vals.length;
+            const std = Math.sqrt(variance);
+            const half = Math.floor(vals.length / 2);
+            const recentHalf = vals.slice(0, half);
+            const olderHalf  = vals.slice(half);
+            const recentAvg  = recentHalf.reduce((s, v) => s + v, 0) / recentHalf.length;
+            const olderAvg   = olderHalf.reduce((s, v) => s + v, 0) / olderHalf.length;
+            const trendPct   = olderAvg > 0 ? ((recentAvg - olderAvg) / olderAvg) * 100 : 0;
+            const trend      = trendPct > 5 ? '상승' : trendPct < -5 ? '하락' : '유지';
+            const volatility = mean > 0 ? std / mean : 0;
+            return { mean, std, recentAvg, olderAvg, trendPct, trend, volatility, last: vals[0] };
+        }
+
+        function _hncMiniBar(vals, color) {
+            if (!vals || !vals.length) return '';
+            const max = Math.max(...vals, 1);
+            return vals.slice(0, 20).map(v => {
+                const pct = Math.round((v / max) * 100);
+                return `<div title="${v}개" style="flex:0 0 auto; width:9px; background:${color}; opacity:${0.3 + (pct / 100) * 0.7}; border-radius:2px 2px 0 0; height:${Math.max(4, pct * 0.36)}px; align-self:flex-end;"></div>`;
+            }).join('');
+        }
+
+        // ── 패널 HTML 빌더 (즉시 렌더용 — 모델 셀은 로딩 placeholder) ──────
+        function _buildHotColdHTML(hotCount, neuCount, coldCount, hVals, nVals, cVals, targetRound) {
+            const tabsHTML = [5,10,15,20].map(n =>
+                `<button onclick="setPeriod(${n})" style="padding:4px 12px; border-radius:999px; font-size:0.8rem; font-weight:${currentPeriod===n?'800':'500'}; background:${currentPeriod===n?'#2563eb':'transparent'}; color:${currentPeriod===n?'white':'#94a3b8'}; border:none; cursor:pointer; transition:all .15s;">${n}회</button>`
+            ).join('');
+
+            // 열 너비 균등 고정
+            const colGroup = `<colgroup>
+                <col style="width:13%;">
+                ${_HNC_MODELS.map(()=>'<col style="width:11%;">').join('')}
+                <col style="width:11%;">
+            </colgroup>`;
+            const modelHeaders = _HNC_MODELS.map(m =>
+                `<th style="text-align:center; padding:8px 4px; font-size:0.6rem; font-weight:800; color:#64748b; letter-spacing:0.3px; border-right:1px solid #f1f5f9;">${m.label}</th>`
+            ).join('');
+
+            // 로딩 placeholder 셀 (비동기 업데이트 타깃)
+            function makeRow(type, label, color, ring, count) {
+                const cells = _HNC_MODELS.map(m =>
+                    `<td id="hnc-${type[0]}-${m.key}" style="text-align:center; padding:9px 4px; font-size:0.82rem; font-weight:700; color:#cbd5e1; border-right:1px solid #f1f5f9;">·</td>`
+                ).join('');
+                return `<tr style="border-top:1px solid #f1f5f9;">
+                    <td style="padding:10px 10px; border-right:1px solid #e2e8f0;">
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            <span style="width:9px; height:9px; border-radius:50%; background:${color}; box-shadow:0 0 0 2px ${ring}; flex-shrink:0; display:inline-block;"></span>
+                            <div>
+                                <div style="font-size:0.8rem; font-weight:700; color:#0f172a;">${label}</div>
+                                <div style="font-size:0.62rem; color:#94a3b8;">${count}개 분류</div>
+                            </div>
+                        </div>
+                    </td>
+                    ${cells}
+                    <td id="hnc-ens-${type[0]}" style="text-align:center; padding:9px 8px; font-size:0.85rem; font-weight:900; color:${color};">·</td>
+                </tr>`;
+            }
+
+            // 흐름 진단 (실측)
+            function flowLine(flow, label, color, count) {
+                if (!flow) return '';
+                const trendColor = flow.trend==='상승'?'#ef4444':flow.trend==='하락'?'#3b82f6':'#6b7280';
+                const volLabel = flow.volatility<0.15?'안정':flow.volatility<0.3?'보통':'불안정';
+                const crit = CRITERIA[currentPeriod];
+                const critDesc = label.includes('핫')
+                    ? `(기준: ${currentPeriod}회 중 ${crit.hot}회↑)`
+                    : label.includes('뉴')
+                    ? `(기준: ${currentPeriod}회 중 ${crit.neutral[1]}~${crit.neutral[0]}회)`
+                    : `(기준: ${currentPeriod}회 중 ${crit.cold[0]}~${crit.cold[1]}회)`;
+                return `<div style="margin-bottom:6px; font-size:0.82rem; color:#334155; line-height:1.7; word-break:keep-all;">
+                    <span style="font-weight:800; color:${color};">${label}</span>
+                    <span style="color:#94a3b8; font-size:0.72rem;"> ${critDesc} ${count}개</span>
+                    — 최근${hVals.length}회 평균 <strong>${flow.mean.toFixed(1)}개</strong> (범위 ${Math.min(...(label.includes('핫')?hVals:label.includes('뉴')?nVals:cVals))}~${Math.max(...(label.includes('핫')?hVals:label.includes('뉴')?nVals:cVals))}개),
+                    직전 <strong>${flow.last}개</strong>,
+                    <strong style="color:${trendColor}">${flow.trend}세 (${flow.trendPct>=0?'+':''}${flow.trendPct.toFixed(0)}%)</strong> ${volLabel}
+                </div>`;
+            }
+
+            // 회차별 바 차트
+            function makeBarChart(vals, color, fullLabel) {
+                if (!vals?.length) return '';
+                const max = Math.max(...vals, 1);
+                const bars = vals.slice(0,20).map((v,i)=>{
+                    const pct = Math.round((v/max)*100);
+                    const h = Math.max(4, Math.round(pct*0.38));
+                    const rnd = allData[i]?.round || '';
+                    return `<div style="display:flex; flex-direction:column; align-items:center; flex:1; min-width:0;">
+                        <span style="font-size:0.55rem; color:${color}; font-weight:700; margin-bottom:1px; line-height:1;">${v}</span>
+                        <div title="${rnd}회: ${v}개" style="width:100%; background:${color}; opacity:${0.3+(pct/100)*0.7}; border-radius:2px 2px 0 0; height:${h}px;"></div>
+                        <span style="font-size:0.48rem; color:#94a3b8; margin-top:1px; white-space:nowrap; overflow:hidden;">${rnd}</span>
+                    </div>`;
+                }).join('');
+                return `<div style="margin-bottom:8px;">
+                    <div style="font-size:0.68rem; color:${color}; font-weight:700; margin-bottom:3px;">${fullLabel}</div>
+                    <div style="display:flex; align-items:flex-end; gap:2px; height:52px; background:#f8fafc; border-radius:8px; padding:6px 8px 0;">${bars}</div>
+                </div>`;
+            }
+
+            const hFlow = _hncFlow(hVals), nFlow = _hncFlow(nVals), cFlow = _hncFlow(cVals);
+
+            return `
+            <div style="background:white; border-radius:16px; overflow:hidden; box-shadow:0 4px 24px rgba(0,0,0,0.09); font-family:'Pretendard',sans-serif;">
+                <div style="background:linear-gradient(135deg,#1e293b,#0f172a); padding:18px 22px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+                    <div style="display:flex; align-items:center; gap:12px;">
+                        <div style="width:36px; height:36px; background:linear-gradient(135deg,#3b82f6,#6366f1); border-radius:10px; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                            <span class="material-symbols-outlined" style="color:white; font-size:18px;">local_fire_department</span>
+                        </div>
+                        <div>
+                            <div style="color:white; font-weight:700; font-size:14px;">AI 프리미엄 전략 리포트</div>
+                            <div style="color:#94a3b8; font-size:10px; letter-spacing:0.08em; margin-top:2px;">INTELLIGENT ANALYSIS — 핫/뉴트럴/콜드 (${currentPeriod}회 기준)</div>
+                        </div>
+                    </div>
+                    <div style="display:flex; gap:4px;">${tabsHTML}</div>
+                </div>
+
+                <div style="padding:16px 20px 10px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
+                        <div>
+                            <span style="font-size:0.68rem; color:#64748b; font-weight:800; letter-spacing:1px; text-transform:uppercase; display:block; margin-bottom:4px;">딥러닝 7모델 — 당첨 조합 내 예측 개수</span>
+                            <span style="font-size:0.7rem; color:#94a3b8;">각 모델 top6 추천 번호를 현재 기간 hot/neutral/cold 기준으로 분류</span>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:8px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:7px 12px;">
+                            <div>
+                                <div style="font-size:0.6rem; color:#64748b; font-weight:800; margin-bottom:3px;">모델 합의도</div>
+                                <div style="height:6px; width:90px; background:#e2e8f0; border-radius:3px; overflow:hidden;">
+                                    <div id="hnc-agreement-bar" style="width:0%; height:100%; background:linear-gradient(90deg,#38bdf8,#2563eb); transition:width .5s;"></div>
+                                </div>
+                            </div>
+                            <span id="hnc-agreement" style="font-size:0.88rem; font-weight:900; color:#1e293b;">-</span>
+                        </div>
+                    </div>
+                    <div style="overflow-x:auto; border-radius:10px; border:1px solid #e2e8f0;">
+                        <table style="width:100%; border-collapse:collapse; table-layout:fixed; min-width:580px;">
+                            ${colGroup}
+                            <thead>
+                                <tr style="background:#f8fafc; border-bottom:2px solid #e2e8f0;">
+                                    <th style="text-align:left; padding:9px 10px; font-size:0.62rem; font-weight:800; color:#64748b; border-right:1px solid #e2e8f0;">분류 (분류번호수)</th>
+                                    ${modelHeaders}
+                                    <th style="text-align:center; padding:9px 8px; font-size:0.62rem; font-weight:800; color:#64748b;">앙상블</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${makeRow('hot',     '🔴 핫',     '#ef4444', 'rgba(239,68,68,0.3)',   hotCount)}
+                                ${makeRow('neutral', '⚪ 뉴트럴', '#9ca3af', 'rgba(156,163,175,0.3)', neuCount)}
+                                ${makeRow('cold',    '🔵 콜드',   '#3b82f6', 'rgba(59,130,246,0.3)',  coldCount)}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div style="padding:14px 20px; border-top:1px solid #f1f5f9;">
+                    <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+                        <span style="width:4px; height:15px; background:#2563eb; border-radius:2px; flex-shrink:0;"></span>
+                        <span style="font-size:0.88rem; font-weight:900; color:#0f172a;">실측 흐름 진단 (최근 ${hVals.length}회)</span>
+                    </div>
+                    ${flowLine(hFlow, '🔴 핫',     '#ef4444', hotCount)}
+                    ${flowLine(nFlow, '⚪ 뉴트럴', '#9ca3af', neuCount)}
+                    ${flowLine(cFlow, '🔵 콜드',   '#3b82f6', coldCount)}
+                </div>
+
+                <div style="padding:0 20px 16px; border-top:1px solid #f1f5f9;">
+                    <div style="display:flex; align-items:center; gap:8px; padding-top:14px; margin-bottom:10px;">
+                        <span style="width:4px; height:15px; background:#8b5cf6; border-radius:2px; flex-shrink:0;"></span>
+                        <span style="font-size:0.88rem; font-weight:900; color:#0f172a;">회차별 당첨 조합 분포</span>
+                        <span style="font-size:0.7rem; color:#94a3b8;">각 회차 당첨 6개 중 hot/neutral/cold 포함 개수</span>
+                    </div>
+                    ${makeBarChart(hVals, '#ef4444', '🔴 핫번호 포함수 (최근 '+hVals.length+'회)')}
+                    ${makeBarChart(nVals, '#9ca3af', '⚪ 뉴트럴번호 포함수')}
+                    ${makeBarChart(cVals, '#3b82f6', '🔵 콜드번호 포함수')}
+                </div>
+
+                <div style="background:#0f172a; padding:16px 20px; color:white;">
+                    <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+                        <span class="material-symbols-outlined" style="font-size:17px; color:#38bdf8; flex-shrink:0;">verified</span>
+                        <span style="font-size:0.88rem; font-weight:900; color:#38bdf8;">${targetRound ? targetRound+'회차 ' : ''}필승 공략</span>
+                    </div>
+                    <div id="hnc-strategy" style="font-size:0.84rem; line-height:1.85; color:rgba(255,255,255,0.75); word-break:keep-all;">
+                        딥러닝 모델 분석 중... <span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle; animation:spin 1s linear infinite;">progress_activity</span>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        function initDeepInsight() {
+            const container = document.getElementById('dlInsightContainer');
+            if (!container || !allData.length) return;
+
+            // ── 1단계: 로컬 계산 (동기, 즉시) ────────────────────────
+            const { hot, neutral, cold } = getClassifiedNumbers(currentPeriod, selectedRound);
+
+            const recent20 = allData.slice(0, 20);
+            const hVals=[], nVals=[], cVals=[];
+            recent20.forEach(d => {
+                const { hot: h, neutral: n, cold: c } = getClassifiedNumbers(currentPeriod, d.round);
+                let hc=0, nc=0, cc=0;
+                (d.numbers||[]).forEach(num => {
+                    if(h.includes(num)) hc++;
+                    else if(n.includes(num)) nc++;
+                    else cc++;
+                });
+                hVals.push(hc); nVals.push(nc); cVals.push(cc);
+            });
+
+            const targetRound = allData[0]?.round ? allData[0].round + 1 : '';
+
+            // ── 2단계: 즉시 렌더 (패널 구조 고정) ────────────────────
+            container.innerHTML = _buildHotColdHTML(
+                hot.length, neutral.length, cold.length, hVals, nVals, cVals, targetRound
+            );
+
+            // ── 3단계: 비동기 — matrix_data로 모델 셀 업데이트 ────────
+            if (!window.AIProxy) return;
+            (async () => {
+                try {
+                    const deepRaw = await AIProxy.getDeepAnalysis().catch(() => null);
+                    const data = deepRaw?.data || deepRaw;
+                    const matrix = data?.analysis?.matrix_data || [];
+                    if (!matrix.length) return;
+
+                    const preds = _computeHNCPredictions(matrix, hot, neutral, cold);
+                    _updateHNCCells(preds, targetRound, hot, neutral, cold);
+                } catch(e) {
+                    console.error('[initDeepInsight DL]', e);
+                }
+            })();
         }
 
         async function submitCustomAIAnalysis() {
@@ -1765,11 +2121,19 @@
                 return;
             }
 
-            // [수정] 공통 함수로 최소/최대값 설정
+            // 최소/최대값 계산 후 UI에 반영
             calculateAndSetMinMax(currentPeriod);
 
+            // highlightTenDraws는 내부에서 deactivateRecent10IfActive()를 호출하므로
+            // isRecentTenFilter = true 세팅보다 먼저 실행 (이 시점엔 false라 no-op)
+            const recent10 = allData.slice(0, 10);
+            highlightTenDraws(recent10[0].round);
+
+            // 하이라이트 이후 플래그 설정 (markManual/deactivate 위험 구간 통과 후)
             isRecentTenFilter = true;
-            updateFilters();
+
+            // updateFilters() 대신 saveFilterSettings() 직접 호출
+            // (updateFilters → markManual → deactivateRecent10IfActive → isRecentTenFilter=false 가 되는 버그 방지)
             saveFilterSettings();
             updateRecent10FilterUI();
 
@@ -1778,8 +2142,6 @@
                 toggleFilterApply();
             }
 
-            const recent10 = allData.slice(0, 10);
-            highlightTenDraws(recent10[0].round);
             renderDrawsList();
         }
 

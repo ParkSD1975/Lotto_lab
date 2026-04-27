@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html class="light" lang="ko">
 
 <head>
@@ -21,10 +21,12 @@
     <script src="js/theme.js"></script>
 
     <script src="js/common_v2.js"></script>
-    <script src="js/aiProxy.js"></script>
+    <script src="js/aiProxy.js?v=20260426"></script>
     <script src="js/filter/FilterService.js"></script>
+    <script src="js/filter/FilterLifecycle.js"></script>
+    <script src="js/filter/FilterRuleEngine.js"></script>
     <script src="js/layout.js"></script>
-    <script src="js/deep_insight_panel.js"></script>
+    <script src="js/deep_insight_panel.js?v=20260426"></script>
 
     <!-- NLP Modules -->
     <script src="js/NLPProcessor.js"></script>
@@ -692,7 +694,7 @@
                         <div class="grid grid-cols-4 gap-4 mb-6">
                             <div onclick="highlightStatCard(1)" id="statCard1"
                                 class="stat-card bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col items-center">
-                                <span class="text-xs font-semibold text-gray-500 mb-1">1~5회 (최근)</span>
+                                <span class="text-xs font-semibold text-gray-500 mb-1">0~5회 (최근)</span>
                                 <span class="text-2xl font-bold" style="color: #E64A19;" id="cardCount1">-</span>
                             </div>
                             <div onclick="highlightStatCard(2)" id="statCard2"
@@ -719,7 +721,7 @@
                                         <th class="py-3 px-6 text-center text-xs font-semibold text-gray-600 border border-gray-200"
                                             style="width: 120px;">미출현<br />기간</th>
                                         <th class="py-3 px-8 text-center text-xs font-semibold border border-gray-200"
-                                            style="color: #E64A19; min-width: 200px;">1-5회<br />(최근 출현)</th>
+                                            style="color: #E64A19; min-width: 200px;">0-5회<br />(최근 출현)</th>
                                         <th class="py-3 px-6 text-center text-xs font-semibold border border-gray-200"
                                             style="color: #4B5563;">6-10회<br />(중간 공백)</th>
                                         <th class="py-3 px-6 text-center text-xs font-semibold border border-gray-200"
@@ -897,7 +899,7 @@
                                     </tr>
                                     <tr class="bg-[#1e293b] text-white">
                                         <th class="py-2 px-3 text-center text-xs font-semibold border-b border-r border-[#334155] w-20"
-                                            style="color: #FF8A65;">1-5회</th>
+                                            style="color: #FF8A65;">0-5회</th>
                                         <th class="py-2 px-3 text-center text-xs font-semibold border-b border-r border-[#334155] w-20"
                                             style="color: #9CA3AF;">6-10회</th>
                                         <th class="py-2 px-3 text-center text-xs font-semibold border-b border-r border-[#334155] w-20"
@@ -906,7 +908,7 @@
                                             style="color: #60A5FA;">16+회</th>
 
                                         <th class="py-2 px-3 text-center text-xs font-semibold border-b border-r border-[#334155] w-20"
-                                            style="color: #FF8A65;">1-5회</th>
+                                            style="color: #FF8A65;">0-5회</th>
                                         <th class="py-2 px-3 text-center text-xs font-semibold border-b border-r border-[#334155] w-20"
                                             style="color: #9CA3AF;">6-10회</th>
                                         <th class="py-2 px-3 text-center text-xs font-semibold border-b border-r border-[#334155] w-20"
@@ -1005,6 +1007,7 @@
                 }
 
                 allData = data;
+                window.allDrawData = allData; // [추가] AI 패널 연동용 전역 변수
                 if (allData.length > 0) {
                     const latestRound = allData[0].round;
                     selectedRound = latestRound + 1;
@@ -1039,12 +1042,287 @@
 
                 document.getElementById('customFilterToggle').checked = useCustomFilter;
 
-                document.getElementById('customFilterToggle').checked = useCustomFilter;
+                initDeepInsight();
 
             } catch (err) {
                 console.error('데이터 로드 실패:', err);
                 document.getElementById('drawsList').innerHTML = `<tr><td colspan="10" class="p-10 text-center text-red-500">데이터 로드 실패<br>${err.message}</td></tr>`;
             }
+        }
+
+        // ── 딥러닝 인사이트: 미출현 그룹 패널 ──────────────────────────────
+        // 설계 원칙:
+        //  1. 분류 기준 = getMissRange() → 4그룹 (0~5 / 6~10 / 11~15 / 16+)
+        //  2. DL 예측 = matrix_data 각 모델 top6을 그룹별로 분류
+        //  3. 즉시 렌더(동기) → 모델 셀만 비동기 업데이트 (레이아웃 고정)
+        const _MISS_MODELS = [
+            { key: 'lstm',        label: 'LSTM'        },
+            { key: 'xgboost',     label: 'XGBOOST'     },
+            { key: 'cnn',         label: 'CNN'          },
+            { key: 'transformer', label: 'TRANSFORMER'  },
+            { key: 'markov',      label: 'MARKOV'       },
+            { key: 'autoencoder', label: 'AUTOENCODER'  },
+            { key: 'gnn',         label: 'GNN'          },
+        ];
+
+        function _computeMissingPredictions(matrixData, g1, g2, g3, g4) {
+            const p1 = {}, p2 = {}, p3 = {}, p4 = {};
+            _MISS_MODELS.forEach(m => {
+                const sorted = [...matrixData]
+                    .filter(x => x.models?.[m.key]?.score != null)
+                    .sort((a, b) => (b.models[m.key].score || 0) - (a.models[m.key].score || 0));
+                const top6 = sorted.slice(0, 6).map(x => x.num);
+                p1[m.key] = top6.filter(n => g1.includes(n)).length;
+                p2[m.key] = top6.filter(n => g2.includes(n)).length;
+                p3[m.key] = top6.filter(n => g3.includes(n)).length;
+                p4[m.key] = top6.filter(n => g4.includes(n)).length;
+            });
+            function ens(obj) {
+                const arr = Object.values(obj);
+                return { min: Math.min(...arr), max: Math.max(...arr), avg: (arr.reduce((s,v)=>s+v,0)/arr.length).toFixed(1) };
+            }
+            return { g1: p1, g2: p2, g3: p3, g4: p4, ens1: ens(p1), ens2: ens(p2), ens3: ens(p3), ens4: ens(p4) };
+        }
+
+        function _updateMissingCells(preds, targetRound, g1, g2, g3, g4) {
+            _MISS_MODELS.forEach(m => {
+                ['g1','g2','g3','g4'].forEach(g => {
+                    const el = document.getElementById(`miss-${g}-${m.key}`);
+                    if (el) { el.textContent = preds[g][m.key] ?? '-'; el.style.color = '#1e293b'; }
+                });
+            });
+            [1,2,3,4].forEach(i => {
+                const el = document.getElementById(`miss-ens-g${i}`);
+                const ens = preds[`ens${i}`];
+                if (el && ens) el.textContent = `${ens.min}~${ens.max}`;
+            });
+            const spread = (preds.ens1.max - preds.ens1.min) + (preds.ens2.max - preds.ens2.min);
+            const agr = Math.max(0, Math.round(100 - spread * 14));
+            const agrEl = document.getElementById('miss-agreement');
+            const agrBarEl = document.getElementById('miss-agreement-bar');
+            if (agrEl) agrEl.textContent = agr + '%';
+            if (agrBarEl) agrBarEl.style.width = agr + '%';
+            const stratEl = document.getElementById('miss-strategy');
+            if (stratEl) {
+                const agreeStr = agr >= 70
+                    ? `모델 합의도 <strong>${agr}%</strong>로 수렴 — 신뢰도 높음`
+                    : `모델 합의도 <strong>${agr}%</strong>로 분산 — 범위 내 유연한 조합 구성 권장`;
+                stratEl.innerHTML = `[딥러닝 예측] 0~5회(${g1.length}개 중) <strong>${preds.ens1.min}~${preds.ens1.max}개</strong>, 6~10회(${g2.length}개 중) <strong>${preds.ens2.min}~${preds.ens2.max}개</strong>, 11~15회(${g3.length}개 중) <strong>${preds.ens3.min}~${preds.ens3.max}개</strong>, 16+회(${g4.length}개 중) <strong>${preds.ens4.min}~${preds.ens4.max}개</strong>가 당첨 조합에 포함될 것으로 7개 모델이 예측합니다.<br>→ ${agreeStr}. 4그룹 합산은 항상 6개.`;
+            }
+        }
+
+        function _buildMissingHTML(g1Count, g2Count, g3Count, g4Count, g1Vals, g2Vals, g3Vals, g4Vals, targetRound) {
+            const G1_COLOR = '#E64A19', G2_COLOR = '#4B5563', G3_COLOR = '#16A34A', G4_COLOR = '#1A6DFF';
+
+            const colGroup = `<colgroup>
+                <col style="width:15%;">
+                ${_MISS_MODELS.map(()=>'<col style="width:10.5%;">').join('')}
+                <col style="width:10.5%;">
+            </colgroup>`;
+
+            const modelHeaders = _MISS_MODELS.map(m =>
+                `<th style="text-align:center; padding:8px 4px; font-size:0.6rem; font-weight:800; color:#64748b; letter-spacing:0.3px; border-right:1px solid #f1f5f9;">${m.label}</th>`
+            ).join('');
+
+            function makeRow(gKey, label, color, ring, count) {
+                const cells = _MISS_MODELS.map(m =>
+                    `<td id="miss-${gKey}-${m.key}" style="text-align:center; padding:9px 4px; font-size:0.82rem; font-weight:700; color:#cbd5e1; border-right:1px solid #f1f5f9;">·</td>`
+                ).join('');
+                return `<tr style="border-top:1px solid #f1f5f9;">
+                    <td style="padding:10px 10px; border-right:1px solid #e2e8f0;">
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            <span style="width:9px; height:9px; border-radius:50%; background:${color}; box-shadow:0 0 0 2px ${ring}; flex-shrink:0; display:inline-block;"></span>
+                            <div>
+                                <div style="font-size:0.8rem; font-weight:700; color:#0f172a;">${label}</div>
+                                <div style="font-size:0.62rem; color:#94a3b8;">${count}개 분류</div>
+                            </div>
+                        </div>
+                    </td>
+                    ${cells}
+                    <td id="miss-ens-${gKey}" style="text-align:center; padding:9px 8px; font-size:0.85rem; font-weight:900; color:${color};">·</td>
+                </tr>`;
+            }
+
+            function flowLine(vals, label, color, count) {
+                if (!vals || vals.length < 3) return '';
+                const mean = vals.reduce((s,v)=>s+v,0)/vals.length;
+                const half = Math.floor(vals.length/2);
+                const recentAvg = vals.slice(0,half).reduce((s,v)=>s+v,0)/half;
+                const olderAvg  = vals.slice(half).reduce((s,v)=>s+v,0)/half;
+                const trendPct  = olderAvg > 0 ? ((recentAvg-olderAvg)/olderAvg)*100 : 0;
+                const trend     = trendPct > 5 ? '상승' : trendPct < -5 ? '하락' : '유지';
+                const trendColor = trend==='상승'?'#ef4444':trend==='하락'?'#3b82f6':'#6b7280';
+                const variance  = vals.reduce((s,v)=>s+(v-mean)**2,0)/vals.length;
+                const std       = Math.sqrt(variance);
+                const vol       = mean > 0 ? std/mean : 0;
+                const volLabel  = vol < 0.15 ? '안정' : vol < 0.3 ? '보통' : '불안정';
+                const last      = vals[0];
+                return `<div style="margin-bottom:6px; font-size:0.82rem; color:#334155; line-height:1.7; word-break:keep-all;">
+                    <span style="font-weight:800; color:${color};">${label}</span>
+                    <span style="color:#94a3b8; font-size:0.72rem;"> ${count}개</span>
+                    — 최근${vals.length}회 평균 <strong>${mean.toFixed(1)}개</strong> (범위 ${Math.min(...vals)}~${Math.max(...vals)}개),
+                    직전 <strong>${last}개</strong>,
+                    <strong style="color:${trendColor}">${trend}세 (${trendPct>=0?'+':''}${trendPct.toFixed(0)}%)</strong> ${volLabel}
+                </div>`;
+            }
+
+            function makeBarChart(vals, color, fullLabel) {
+                if (!vals?.length) return '';
+                const max = Math.max(...vals, 1);
+                const bars = vals.slice(0,20).map((v,i)=>{
+                    const pct = Math.round((v/max)*100);
+                    const h   = Math.max(4, Math.round(pct*0.38));
+                    const rnd = allData[i]?.round || '';
+                    return `<div style="display:flex; flex-direction:column; align-items:center; flex:1; min-width:0;">
+                        <span style="font-size:0.55rem; color:${color}; font-weight:700; margin-bottom:1px; line-height:1;">${v}</span>
+                        <div title="${rnd}회: ${v}개" style="width:100%; background:${color}; opacity:${0.3+(pct/100)*0.7}; border-radius:2px 2px 0 0; height:${h}px;"></div>
+                        <span style="font-size:0.48rem; color:#94a3b8; margin-top:1px; white-space:nowrap; overflow:hidden;">${rnd}</span>
+                    </div>`;
+                }).join('');
+                return `<div style="margin-bottom:8px;">
+                    <div style="font-size:0.68rem; color:${color}; font-weight:700; margin-bottom:3px;">${fullLabel}</div>
+                    <div style="display:flex; align-items:flex-end; gap:2px; height:52px; background:#f8fafc; border-radius:8px; padding:6px 8px 0;">${bars}</div>
+                </div>`;
+            }
+
+            return `
+            <div style="background:white; border-radius:16px; overflow:hidden; box-shadow:0 4px 24px rgba(0,0,0,0.09); font-family:'Pretendard',sans-serif;">
+                <div style="background:linear-gradient(135deg,#1e293b,#0f172a); padding:18px 22px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+                    <div style="display:flex; align-items:center; gap:12px;">
+                        <div style="width:36px; height:36px; background:linear-gradient(135deg,#3b82f6,#6366f1); border-radius:10px; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                            <span class="material-symbols-outlined" style="color:white; font-size:18px;">local_fire_department</span>
+                        </div>
+                        <div>
+                            <div style="color:white; font-weight:700; font-size:14px;">AI 프리미엄 전략 리포트</div>
+                            <div style="color:#94a3b8; font-size:10px; letter-spacing:0.08em; margin-top:2px;">INTELLIGENT ANALYSIS — 미출현 그룹 분석 (0~5회 / 6~10회 / 11~15회 / 16+회)</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="padding:16px 20px 10px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
+                        <div>
+                            <span style="font-size:0.68rem; color:#64748b; font-weight:800; letter-spacing:1px; text-transform:uppercase; display:block; margin-bottom:4px;">딥러닝 7모델 — 당첨 조합 내 예측 개수</span>
+                            <span style="font-size:0.7rem; color:#94a3b8;">각 모델 top6 추천 번호를 현재 미출현 그룹 기준으로 분류</span>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:8px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:7px 12px;">
+                            <div>
+                                <div style="font-size:0.6rem; color:#64748b; font-weight:800; margin-bottom:3px;">모델 합의도</div>
+                                <div style="height:6px; width:90px; background:#e2e8f0; border-radius:3px; overflow:hidden;">
+                                    <div id="miss-agreement-bar" style="width:0%; height:100%; background:linear-gradient(90deg,#38bdf8,#2563eb); transition:width .5s;"></div>
+                                </div>
+                            </div>
+                            <span id="miss-agreement" style="font-size:0.88rem; font-weight:900; color:#1e293b;">-</span>
+                        </div>
+                    </div>
+                    <div style="overflow-x:auto; border-radius:10px; border:1px solid #e2e8f0;">
+                        <table style="width:100%; border-collapse:collapse; table-layout:fixed; min-width:580px;">
+                            ${colGroup}
+                            <thead>
+                                <tr style="background:#f8fafc; border-bottom:2px solid #e2e8f0;">
+                                    <th style="text-align:left; padding:9px 10px; font-size:0.62rem; font-weight:800; color:#64748b; border-right:1px solid #e2e8f0;">분류 (번호수)</th>
+                                    ${modelHeaders}
+                                    <th style="text-align:center; padding:9px 8px; font-size:0.62rem; font-weight:800; color:#64748b;">앙상블</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${makeRow('g1', '🟠 0~5회',   G1_COLOR, 'rgba(230,74,25,0.3)',   g1Count)}
+                                ${makeRow('g2', '⬛ 6~10회',  G2_COLOR, 'rgba(75,85,99,0.3)',    g2Count)}
+                                ${makeRow('g3', '🟢 11~15회', G3_COLOR, 'rgba(22,163,74,0.3)',  g3Count)}
+                                ${makeRow('g4', '🔵 16+회',   G4_COLOR, 'rgba(26,109,255,0.3)', g4Count)}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div style="padding:14px 20px; border-top:1px solid #f1f5f9;">
+                    <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+                        <span style="width:4px; height:15px; background:#2563eb; border-radius:2px; flex-shrink:0;"></span>
+                        <span style="font-size:0.88rem; font-weight:900; color:#0f172a;">실측 흐름 진단 (최근 ${g1Vals.length}회)</span>
+                    </div>
+                    ${flowLine(g1Vals, '🟠 0~5회',   G1_COLOR, g1Count)}
+                    ${flowLine(g2Vals, '⬛ 6~10회',  G2_COLOR, g2Count)}
+                    ${flowLine(g3Vals, '🟢 11~15회', G3_COLOR, g3Count)}
+                    ${flowLine(g4Vals, '🔵 16+회',   G4_COLOR, g4Count)}
+                </div>
+
+                <div style="padding:0 20px 16px; border-top:1px solid #f1f5f9;">
+                    <div style="display:flex; align-items:center; gap:8px; padding-top:14px; margin-bottom:10px;">
+                        <span style="width:4px; height:15px; background:#8b5cf6; border-radius:2px; flex-shrink:0;"></span>
+                        <span style="font-size:0.88rem; font-weight:900; color:#0f172a;">회차별 당첨 조합 분포</span>
+                        <span style="font-size:0.7rem; color:#94a3b8;">각 회차 당첨 6개 중 그룹별 포함 개수</span>
+                    </div>
+                    ${makeBarChart(g1Vals, G1_COLOR, '🟠 0~5회 포함수 (최근 '+g1Vals.length+'회)')}
+                    ${makeBarChart(g2Vals, G2_COLOR, '⬛ 6~10회 포함수')}
+                    ${makeBarChart(g3Vals, G3_COLOR, '🟢 11~15회 포함수')}
+                    ${makeBarChart(g4Vals, G4_COLOR, '🔵 16+회 포함수')}
+                </div>
+
+                <div style="background:#0f172a; padding:16px 20px; color:white;">
+                    <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+                        <span class="material-symbols-outlined" style="font-size:17px; color:#38bdf8; flex-shrink:0;">verified</span>
+                        <span style="font-size:0.88rem; font-weight:900; color:#38bdf8;">${targetRound ? targetRound+'회차 ' : ''}필승 공략</span>
+                    </div>
+                    <div id="miss-strategy" style="font-size:0.84rem; line-height:1.85; color:rgba(255,255,255,0.75); word-break:keep-all;">
+                        딥러닝 모델 분석 중... <span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle; animation:spin 1s linear infinite;">progress_activity</span>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        function initDeepInsight() {
+            const container = document.getElementById('dlInsightContainer');
+            if (!container || !allData?.length) return;
+
+            // ── 1단계: 현재 미출현 그룹 분류 (동기) ──────────────────────
+            const g1 = [], g2 = [], g3 = [], g4 = [];
+            for (let num = 1; num <= 45; num++) {
+                const range = getMissRange(currentMiss[num] ?? 0);
+                if (range === 1) g1.push(num);
+                else if (range === 2) g2.push(num);
+                else if (range === 3) g3.push(num);
+                else g4.push(num);
+            }
+
+            // ── 2단계: 최근 20회차 그룹별 당첨 개수 계산 ─────────────────
+            const recent20 = allData.slice(0, 20);
+            const g1Vals = [], g2Vals = [], g3Vals = [], g4Vals = [];
+            recent20.forEach(draw => {
+                const missAtRound = missHistory[draw.round] || {};
+                let c1 = 0, c2 = 0, c3 = 0, c4 = 0;
+                (draw.numbers || []).forEach(num => {
+                    const range = getMissRange(missAtRound[num] ?? 0);
+                    if (range === 1) c1++;
+                    else if (range === 2) c2++;
+                    else if (range === 3) c3++;
+                    else c4++;
+                });
+                g1Vals.push(c1); g2Vals.push(c2); g3Vals.push(c3); g4Vals.push(c4);
+            });
+
+            const targetRound = allData[0]?.round ? allData[0].round + 1 : '';
+
+            // ── 3단계: 즉시 렌더 (패널 구조 고정) ─────────────────────────
+            container.innerHTML = _buildMissingHTML(
+                g1.length, g2.length, g3.length, g4.length,
+                g1Vals, g2Vals, g3Vals, g4Vals, targetRound
+            );
+
+            // ── 4단계: 비동기 — matrix_data로 모델 셀 업데이트 ────────────
+            if (!window.AIProxy) return;
+            (async () => {
+                try {
+                    const deepRaw = await AIProxy.getDeepAnalysis().catch(() => null);
+                    const data = deepRaw?.data || deepRaw;
+                    const matrix = data?.analysis?.matrix_data || [];
+                    if (!matrix.length) return;
+
+                    const preds = _computeMissingPredictions(matrix, g1, g2, g3, g4);
+                    _updateMissingCells(preds, targetRound, g1, g2, g3, g4);
+                } catch(e) {
+                    console.error('[initDeepInsight Missing DL]', e);
+                }
+            })();
         }
 
 
@@ -1136,7 +1414,7 @@
 
             console.log(`✅ 프론트엔드 계산 방식으로 미출현 히스토리 생성중...`);
             const missCount = {};
-            for (let i = 1; i <= 45; i++) { missCount[i] = 1; }
+            for (let i = 1; i <= 45; i++) { missCount[i] = 0; } // 초기: 출현 이력 없음 = 0회 미출현
 
             if (!allData || allData.length === 0) return;
             const sortedData = [...allData].sort((a, b) => a.round - b.round);
@@ -1145,8 +1423,16 @@
 
             sortedData.forEach(draw => {
                 missHistory[draw.round] = { ...missCount };
+                
+                // [추가] AI 패널용 미출현수 개수(11회 이상 미출현 번호가 당첨된 개수) 계산
+                let mCount = 0;
+                draw.numbers.forEach(num => {
+                    if (missCount[num] >= 11) mCount++;
+                });
+                draw.missing_count = mCount;
+
                 for (let i = 1; i <= 45; i++) {
-                    if (draw.numbers.includes(i)) { missCount[i] = 1; }
+                    if (draw.numbers.includes(i)) { missCount[i] = 0; } // 당첨 직후 = 0회 미출현
                     else { missCount[i]++; }
                 }
             });
@@ -1701,7 +1987,7 @@
             let html = '<div class="grid grid-cols-4 gap-4">';
 
             [
-                { range: 1, color: '#E64A19', label: '1-5회' },
+                { range: 1, color: '#E64A19', label: '0-5회' },
                 { range: 2, color: '#4B5563', label: '6-10회' },
                 { range: 3, color: '#16A34A', label: '11-15회' },
                 { range: 4, color: '#1A6DFF', label: '16+회' }
@@ -2013,7 +2299,13 @@
                 document.getElementById(`range${i}Max`).value = maxVal;
             }
 
-            // 4. UI 및 필터 활성화 (표준: 보라색 그라디언트)
+            // 5. 리스트 갱신 및 하이라이트
+            // ※ highlightRows(0)은 markManual() → deactivateRecent10IfActive()를 호출하므로
+            //    isRecentTenFilter = true 세팅보다 먼저 실행해야 함 (이 시점엔 false라 no-op)
+            renderDrawsList();
+            highlightRows(0);
+
+            // 4. UI 및 필터 활성화 (표준: 보라색 그라디언트) — highlightRows 이후 설정
             isRecentTenFilter = true;
             btn.classList.remove('from-blue-500', 'to-blue-600');
             btn.classList.add('from-purple-500', 'to-purple-700');
@@ -2021,10 +2313,6 @@
 
             useRangeFilter = true;
             document.getElementById('rangeFilterToggle').checked = true;
-
-            // 5. 리스트 갱신 및 하이라이트
-            renderDrawsList();
-            highlightRows(0);
 
             localStorage.setItem('missing_period_is_manual', 'false');
             saveFilterSettings(); // [Fix] 활성화 상태 저장 (force=true 경로 제외, checkAndResetOnNewDraw에서 별도 저장)
@@ -2094,12 +2382,7 @@
             }
         }
 
-        // 딥러닝 인사이트 패널 초기화
-        function initDeepInsight() {
-            if (window.DeepInsightPanel) {
-                DeepInsightPanel.render('dlInsightContainer', 'missing', '미출현수 개수');
-            }
-        }
+        // initDeepInsight → 위에 정의됨 (line ~1054 참조)
 
         function updateAnalysis() { }
 
@@ -2150,6 +2433,16 @@
                     if (customTog) customTog.checked = false;
                     renderDrawsList();
                 }
+
+                // ── FilterEngine Lifecycle Integration (Phase 3) ─────────────
+        window.addEventListener('filterLifecycle', function _filterLifecycleHandler(e) {
+            var _detail = e.detail;
+            if (_detail.type === 'NEW_ROUND') {
+                if (typeof checkAndResetOnNewDraw === 'function') checkAndResetOnNewDraw();
+            } else if (_detail.type === 'LOGOUT' || _detail.type === 'RESTORED') {
+                if (typeof loadFilterSettings === 'function') loadFilterSettings();
+            }
+        });
 
                 // [추가] 대시보드(filter.html) 또는 다른 탭에서 필터를 변경했을 때 실시간 반영
                 window.addEventListener('storage', async (e) => {

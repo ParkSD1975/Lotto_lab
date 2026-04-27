@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html class="light" lang="ko">
 
 <head>
@@ -21,13 +21,16 @@
     <script src="js/theme.js"></script>
     <script src="js/common_v2.js"></script>
     <script src="js/filter/FilterService.js"></script>
+    <script src="js/filter/FilterLifecycle.js"></script>
+    <script src="js/filter/FilterRuleEngine.js"></script>
     <script src="js/layout.js"></script>
-    <script src="js/deep_insight_panel.js"></script>
+    <script src="js/deep_insight_panel.js?v=20260426"></script>
+    <script src="js/premium_insight_panel.js?v=20260426"></script>
     <script src="js/NLPProcessor.js"></script>
     <script src="js/NLPInputComponent.js"></script>
 
     <script src="js/BasicAnalysisNLP.js"></script>
-    <script src="js/aiProxy.js"></script>
+    <script src="js/aiProxy.js?v=20260426"></script>
     <script>
         // 전역 변수 설정
         let allDrawData = [];
@@ -212,6 +215,16 @@
                 window.isLoadingSettings = false;
             }
         }
+
+        // ── FilterEngine Lifecycle Integration (Phase 3) ─────────────
+        window.addEventListener('filterLifecycle', function _filterLifecycleHandler(e) {
+            var _detail = e.detail;
+            if (_detail.type === 'NEW_ROUND') {
+                if (typeof checkAndResetOnNewDraw === 'function') checkAndResetOnNewDraw();
+            } else if (_detail.type === 'LOGOUT' || _detail.type === 'RESTORED') {
+                if (typeof loadFilterSettings === 'function') loadFilterSettings();
+            }
+        });
 
         // [표준화] 실시간 동기화 리스너
         window.addEventListener('storage', async function (e) {
@@ -401,15 +414,8 @@
                     <!-- Stats & AI -->
                     <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
                         <div class="grid grid-cols-5 gap-3 mb-6" id="statCards"></div>
-                        <div class="ai-section p-8 pb-10 mb-6 font-sans">
-                            <h3 class="text-lg font-bold text-gray-900 mb-4">딥러닝 Insight</h3>
-                            <div id="dlInsightContainer">
-                                <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
-                                    <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
-                                    <span class="text-sm">딥러닝 모델 분석 중 (7개 모델)...</span>
-                                </div>
-                            </div>
-                        </div>
+                        <!-- AI 프리미엄 전략 리포트 -->
+                        <div id="dlInsightContainer" class="mb-6"></div>
                         <!-- Graph -->
                         <div class="mb-6">
                             <div class="flex items-center justify-between mb-4">
@@ -453,7 +459,7 @@
                             </div>
                             <div class="space-y-3">
                                 <input type="range" id="rangeSlider" min="10" max="1203" value="100"
-                                    oninput="updateRange(this.value)" />
+                                    oninput="updateRange(this.value, true)" />
                                 <div class="flex items-center justify-between text-sm">
                                     <span class="text-gray-600">최근 <span id="rangeDisplay"
                                             class="font-bold text-blue-600">100</span>회 분석 대상</span>
@@ -484,7 +490,7 @@
                                 <span class="text-sm font-bold text-gray-700">필터 적용</span>
                                 <label class="relative inline-flex items-center cursor-pointer">
                                     <input type="checkbox" id="applyFilterCheck" onchange="applyFilter()"
-                                        class="sr-only peer" checked>
+                                        class="sr-only peer">
                                     <div
                                         class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600">
                                     </div>
@@ -614,6 +620,7 @@
                 });
 
                 processData(data);
+                window.allDrawData = allDrawData; // [표준화] AI 패널용 전역 노출
 
                 // 초기 설정
                 const totalCount = allDrawData.length;
@@ -635,6 +642,9 @@
                 } else {
                     updateRange(currentRange);
                 }
+
+                // AI 프리미엄 전략 리포트 초기 렌더링
+                initDeepInsight();
 
             } catch (err) {
                 console.error('데이터 로드 실패:', err);
@@ -896,21 +906,20 @@
         }
 
         function setRange(value) {
-            markManual();
             const slider = document.getElementById('rangeSlider');
             if (slider) slider.value = value;
-            updateRange(value);
+            updateRange(value, true); // 사용자 조작
         }
 
-        function updateRange(value) {
-            markManual();
+        function updateRange(value, fromUser = false) {
+            if (fromUser) markManual(); // 사용자 조작 시에만 recent10 해제
             currentRange = parseInt(value);
             const display = document.getElementById('rangeDisplay');
             if (display) display.textContent = value + '회';
             updateSliderBackground(value);
             updatePresetButtons(currentRange);
 
-            const displayData = allDrawData.slice(0, currentRange);
+            const displayData = getFilteredDraws();
             updateStats(displayData);
             updateCharts(displayData);
             renderDrawsList(displayData);
@@ -956,55 +965,222 @@
             renderDrawsList(allDrawData.slice(0, currentRange));
         }
 
-        function applyRecent10Filters() {
-            if (isRecentTenFilter) {
-                deactivateRecent10IfActive();
-                applyFilter();
-                saveFilterSettings();
-                return;
-            }
+        // 필터 조건 적용 후 데이터 반환
+        function getFilteredDraws() {
+            const isEnabled = document.getElementById('applyFilterCheck')?.checked ?? true;
+            const slicedData = allDrawData.slice(0, currentRange);
+            if (!isEnabled) return slicedData;
 
-            const recent10 = allDrawData.slice(0, 10);
-            if (!recent10.length) return;
+            const minEnt = parseFloat(document.getElementById('min_entropy')?.value ?? 0);
+            const maxEnt = parseFloat(document.getElementById('max_entropy')?.value ?? 2.58);
 
-            Object.keys(rangeDefinitions).forEach(type => {
-                const counts = recent10.map(d => d.counts[type]);
-                const minEl = document.getElementById(`min_${type}`);
-                const maxEl = document.getElementById(`max_${type}`);
-                if (minEl && maxEl) {
-                    minEl.value = Math.min(...counts);
-                    maxEl.value = Math.max(...counts);
+            return slicedData.filter(draw => {
+                // 번호대별 카운트 조건
+                for (const type of Object.keys(rangeDefinitions)) {
+                    const min = parseInt(document.getElementById(`min_${type}`)?.value ?? 0);
+                    const max = parseInt(document.getElementById(`max_${type}`)?.value ?? 6);
+                    const count = draw.counts[type];
+                    if (count < min || count > max) return false;
                 }
+                // 엔트로피 조건
+                if (draw.entropy < minEnt || draw.entropy > maxEnt) return false;
+                return true;
             });
-
-            const entValues = recent10.map(d => d.entropy);
-            const minEntEl = document.getElementById('min_entropy');
-            const maxEntEl = document.getElementById('max_entropy');
-            if (minEntEl && maxEntEl) {
-                minEntEl.value = Math.max(0, Math.min(...entValues) - 0.25).toFixed(2);
-                maxEntEl.value = Math.min(2.32, Math.max(...entValues) + 0.15).toFixed(2);
-            }
-
-            isRecentTenFilter = true;
-            highlightStartRound = allDrawData[0].round;
-            const btn = document.getElementById('recent10FilterBtn');
-            const btnText = document.getElementById('recent10BtnText');
-            if (btn) {
-                btn.classList.remove('from-blue-500', 'to-blue-600');
-                btn.classList.add('from-purple-500', 'to-purple-700');
-            }
-            if (btnText) btnText.textContent = '필터 해제';
-
-            const chk = document.getElementById('applyFilterCheck');
-            if (chk) chk.checked = true;
-
-            applyFilter();
-            saveFilterSettings();
         }
 
         function applyFilter() {
-            renderDrawsList(allDrawData.slice(0, currentRange));
-            updateCharts(allDrawData.slice(0, currentRange));
+            const displayData = getFilteredDraws();
+            renderDrawsList(displayData);
+            updateCharts(displayData);
+        }
+
+        // renderDrawsList — 회차별 리스트 렌더링
+        function renderDrawsList(data) {
+            const container = document.getElementById('drawsList');
+            if (!container) return;
+            container.innerHTML = '';
+
+            const countEl = document.getElementById('displayedCount');
+            if (countEl) countEl.textContent = data.length;
+
+            if (!data || data.length === 0) {
+                container.innerHTML = '<tr><td colspan="8" class="p-10 text-center text-gray-500">조건에 맞는 데이터가 없습니다.</td></tr>';
+                return;
+            }
+
+            // 번호 → 번호대 컬러 매핑
+            function getBallColor(num) {
+                if (num <= 10)  return rangeColors['단번대'];
+                if (num <= 20)  return rangeColors['10번대'];
+                if (num <= 30)  return rangeColors['20번대'];
+                if (num <= 40)  return rangeColors['30번대'];
+                return rangeColors['40번대'];
+            }
+
+            data.forEach((draw, index) => {
+                const tr = document.createElement('tr');
+                tr.onclick = () => highlightRows(draw.round);
+                tr.className = 'hover:bg-gray-50 transition-colors cursor-pointer text-center';
+
+                // 행 하이라이트 (highlightRows로 선택된 10회차 범위 or 최근10 필터 활성)
+                const startRound = highlightStartRound !== null ? Number(highlightStartRound) : null;
+                const isRangeHighlight = startRound !== null &&
+                    Number(draw.round) <= startRound &&
+                    Number(draw.round) > startRound - 10;
+                const isTop10Highlight = isRecentTenFilter && index < 10;
+
+                if (isRangeHighlight || isTop10Highlight) tr.classList.add('row-highlight');
+
+                // 당첨번호 공
+                const ballsHtml = draw.numbers.map(num => {
+                    const color = getBallColor(num);
+                    return `<span class="w-8 h-8 flex items-center justify-center rounded-full text-[11px] font-bold text-white shadow-sm" style="background-color:${color};">${String(num).padStart(2, '0')}</span>`;
+                }).join('');
+
+                // 번호대별 카운트 열
+                let countsHtml = '';
+                Object.keys(rangeDefinitions).forEach(type => {
+                    const count = draw.counts[type];
+                    const isValHL = selectedHighlight.col === type && selectedHighlight.val === count;
+                    const hlClass = isValHL ? 'val-highlight' : 'text-gray-700 hover:bg-gray-100';
+                    countsHtml += `
+                        <td class="py-3 px-2">
+                            <span class="inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold cursor-pointer transition-all ${hlClass}"
+                                onclick="event.stopPropagation(); toggleCellHighlight('${type}', ${count})">
+                                ${count}
+                            </span>
+                        </td>`;
+                });
+
+                // 엔트로피
+                const ent = (draw.entropy !== undefined && draw.entropy !== null)
+                    ? Number(draw.entropy).toFixed(2) : '-';
+
+                tr.innerHTML = `
+                    <td class="py-3 px-4 text-sm font-bold text-gray-600 sticky left-0 bg-inherit z-10 whitespace-nowrap">${draw.round}회</td>
+                    <td class="py-3 px-4"><div class="flex gap-1 justify-center items-center">${ballsHtml}</div></td>
+                    ${countsHtml}
+                    <td class="py-3 px-2 text-sm font-mono text-gray-500">${ent}</td>
+                `;
+                container.appendChild(tr);
+            });
+        }
+
+        // ─── 슬라이더 배경 (CSS 변수) ───────────────────────────────────────
+        function updateSliderBackground(value) {
+            const total = allDrawData.length || 1203;
+            const slider = document.getElementById('rangeSlider');
+            if (slider) {
+                const percent = ((value - 10) / (total - 10)) * 100;
+                slider.style.setProperty('--value-percent', percent + '%');
+            }
+        }
+
+        // ─── 차트 탭 전환 ────────────────────────────────────────────────────
+        function setChartTab(tab) {
+            chartTab = tab;
+            const btnRate   = document.getElementById('tabRate');
+            const btnTrend  = document.getElementById('tabTrend');
+            const rateEl    = document.getElementById('rateChartContainer');
+            const trendEl   = document.getElementById('trendChartContainer');
+
+            if (tab === 'rate') {
+                if (btnRate)  btnRate.className  = 'px-4 py-2 text-sm font-medium bg-blue-500 text-white rounded-lg transition-colors';
+                if (btnTrend) btnTrend.className = 'px-4 py-2 text-sm font-medium bg-gray-200 text-gray-700 rounded-lg transition-colors';
+                if (rateEl)  { rateEl.classList.remove('hidden'); rateEl.classList.add('flex'); }
+                if (trendEl)   trendEl.classList.add('hidden');
+            } else {
+                if (btnRate)  btnRate.className  = 'px-4 py-2 text-sm font-medium bg-gray-200 text-gray-700 rounded-lg transition-colors';
+                if (btnTrend) btnTrend.className = 'px-4 py-2 text-sm font-medium bg-blue-500 text-white rounded-lg transition-colors';
+                if (rateEl)  { rateEl.classList.add('hidden'); rateEl.classList.remove('flex'); }
+                if (trendEl)   trendEl.classList.remove('hidden');
+                updateTrendChart();
+            }
+        }
+
+        // ─── 차트 일괄 갱신 ──────────────────────────────────────────────────
+        function updateCharts(data) {
+            updateRateChart(data);
+            if (chartTab === 'trend') updateTrendChart();
+        }
+
+        // ─── 당첨율 바 차트 (div 기반) ───────────────────────────────────────
+        function updateRateChart(data) {
+            const container = document.getElementById('rateChartContainer');
+            if (!container) return;
+
+            const total = data.length;
+            const graphTarget = selectedRangeType || '단번대';
+            const color = rangeColors[graphTarget] || '#3B82F6';
+            const maxCount = graphTarget === '40번대' ? 5 : 6; // 40번대는 숫자 5개뿐
+
+            // 0~maxCount 분포 집계
+            const counts = Array(maxCount + 1).fill(0);
+            data.forEach(d => {
+                const val = d.counts[graphTarget];
+                if (val !== undefined && val <= maxCount) counts[val]++;
+            });
+
+            const maxPct = total > 0 ? Math.max(...counts.map(c => c / total * 100)) : 1;
+
+            let barsHtml   = `<div class="flex items-end justify-between h-[85%] border-b border-gray-300 w-full">`;
+            let labelsHtml = `<div class="flex justify-between items-start h-[15%] pt-2 text-xs text-gray-500 font-medium w-full">`;
+
+            for (let i = 0; i <= maxCount; i++) {
+                const pct    = total > 0 ? (counts[i] / total * 100).toFixed(1) : '0.0';
+                const height = maxPct > 0 ? (counts[i] / total * 100 / maxPct * 100) : 0;
+
+                barsHtml += `
+                    <div class="flex-1 px-1 sm:px-2 flex flex-col items-center justify-end h-full group">
+                        ${pct > 0 ? `<span class="text-[10px] text-gray-500 mb-1 font-medium">${pct}%</span>` : ''}
+                        <div class="w-full max-w-[40px] rounded-t-sm transition-all duration-500"
+                            style="height:${Math.max(height, 2)}%; background-color:${color};"></div>
+                    </div>`;
+                labelsHtml += `<div class="flex-1 text-center">${i}개</div>`;
+            }
+
+            barsHtml   += `</div>`;
+            labelsHtml += `</div>`;
+            container.innerHTML = barsHtml + labelsHtml;
+        }
+
+        // ─── 회차별 추세 선 차트 (Canvas / Chart.js) ─────────────────────────
+        function updateTrendChart() {
+            const graphTarget = selectedRangeType || '단번대';
+            const color  = rangeColors[graphTarget] || '#3B82F6';
+            const data   = allDrawData.slice(0, currentRange).slice().reverse();
+            const labels = data.map(d => d.round + '회');
+            const values = data.map(d => d.counts[graphTarget] ?? 0);
+
+            if (trendChartInstance) trendChartInstance.destroy();
+            const ctx = document.getElementById('trendChart')?.getContext('2d');
+            if (!ctx) return;
+
+            trendChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: graphTarget,
+                        data: values,
+                        borderColor: color,
+                        backgroundColor: color + '20',
+                        borderWidth: 2,
+                        tension: 0.3,
+                        pointRadius: 2,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, ticks: { stepSize: 1 }, grid: { display: false } },
+                        x: { display: true, ticks: { maxTicksLimit: 10 }, grid: { display: false } }
+                    }
+                }
+            });
         }
 
         function updatePresetButtons(value) {
@@ -1302,10 +1478,45 @@ ${Object.entries(rangeMetrics).map(([r, m]) => `- ${r}: ${m.trend} (최근5회 �
             }
         }
 
+        // 번호대 타입 → filterKey/Label 매핑
+        // filterKey = 범위 이름 그대로 → _numberBandResolver 가 number_band_analysis / range_analysis 순으로 탐색
+        const _rangeBandMap = {
+            '단번대':  { key: '단번대',  label: '단번대 (1~10)' },
+            '10번대': { key: '10번대', label: '10번대 (11~20)' },
+            '20번대': { key: '20번대', label: '20번대 (21~30)' },
+            '30번대': { key: '30번대', label: '30번대 (31~40)' },
+            '40번대': { key: '40번대', label: '40번대 (41~45)' },
+        };
+
+        function setPremiumRange(type) {
+            selectedRangeType = type;
+            updateStatCardStyles();
+            initDeepInsight();
+        }
+
         // 딥러닝 인사이트 패널 초기화
         function initDeepInsight() {
+            const activeType = selectedRangeType || '단번대';
+
+            if (window.PremiumInsightPanel) {
+                const mapped = _rangeBandMap[activeType] || _rangeBandMap['단번대'];
+                const recent = (allDrawData || []).slice(0, 20).map(d =>
+                    (d.counts && d.counts[activeType] !== undefined) ? d.counts[activeType] : 0
+                );
+                const tabs = {
+                    items: Object.keys(_rangeBandMap).map(k => ({ key: k, label: k })),
+                    activeKey: activeType,
+                    onSelect: (k) => setPremiumRange(k)
+                };
+                PremiumInsightPanel.render('dlInsightContainer', mapped.key, mapped.label, {
+                    recentValues: recent, skipMenuFetch: true, tabs
+                });
+                return;
+            }
+
+            // 폴백: 기존 DeepInsightPanel
             if (window.DeepInsightPanel) {
-                DeepInsightPanel.renderGroup('dlInsightContainer', 'number_band');
+                DeepInsightPanel.renderFromDB('dlInsightContainer', 'number_band', '번호대 분석');
             }
         }
 

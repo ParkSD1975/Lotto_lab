@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html class="light" lang="ko">
 
 <head>
@@ -24,9 +24,12 @@
     <script src="js/theme.js"></script>
     <script src="js/common_v2.js"></script>
     <script src="js/filter/FilterService.js"></script>
+    <script src="js/filter/FilterLifecycle.js"></script>
+    <script src="js/filter/FilterRuleEngine.js"></script>
     <script src="js/layout.js"></script>
-    <script src="js/deep_insight_panel.js"></script>
-    <script src="js/aiProxy.js"></script>
+    <script src="js/deep_insight_panel.js?v=20260426"></script>
+    <script src="js/premium_insight_panel.js?v=20260426"></script>
+    <script src="js/aiProxy.js?v=20260426"></script>
 
     <!-- NLP Modules -->
     <script src="js/NLPProcessor.js"></script>
@@ -327,7 +330,7 @@
                 console.log("수동 필터 조작 감지: 최근 10회차 모드 해제");
                 isRecentTenFilter = false;
                 highlightStartRound = null;
-                
+
                 const btn = document.getElementById('recent10FilterBtn');
                 const btnText = document.getElementById('recent10BtnText');
                 if (btn) {
@@ -335,7 +338,7 @@
                     btn.classList.add('from-blue-500', 'to-blue-600');
                 }
                 if (btnText) btnText.textContent = '최근 10회차 필터 적용';
-                
+
                 saveFilterSettings(); // 상태 저장 및 동기화
             }
         }
@@ -398,6 +401,16 @@
             applyFilter(false);
         }
 
+        // ── FilterEngine Lifecycle Integration (Phase 3) ─────────────
+        window.addEventListener('filterLifecycle', function _filterLifecycleHandler(e) {
+            var _detail = e.detail;
+            if (_detail.type === 'NEW_ROUND') {
+                if (typeof checkAndResetOnNewDraw === 'function') checkAndResetOnNewDraw();
+            } else if (_detail.type === 'LOGOUT' || _detail.type === 'RESTORED') {
+                if (typeof loadFilterSettings === 'function') loadFilterSettings();
+            }
+        });
+
         // 대시보드 실시간 동기화 (Storage Event) - 단일 리스너
         window.addEventListener('storage', async (event) => {
             if (_oddEvenSelfSaving) return; // 자체 저장 이벤트 무시
@@ -409,7 +422,7 @@
                         if (_p.enabled === false && !_p.settings && _p.min === undefined && !_p.selectedRatios) {
                             resetFilterUI(); return;
                         }
-                    } catch(_) {}
+                    } catch (_) { }
                 }
                 console.log('🔄 대시보드 필터 변경 감지: 홀짝 패턴 설정 동기화');
                 const loaded = await loadFilterSettings();
@@ -471,11 +484,11 @@
 
                     updateUIState();
                     applyFilter(true); // UI 갱신 (저장 스킵)
-                    
+
                     setTimeout(() => {
                         renderExcludedOddEvenBadges();
                     }, 0);
-                    
+
                     return true;
                 }
                 return false;
@@ -798,13 +811,10 @@
                             </div>
                         </div>
 
-                        <div class="ai-section p-8 pb-10 mb-6 font-sans">
-                            <h3 class="text-lg font-bold text-gray-900 mb-4">딥러닝 Insight</h3>
-                            <div id="dlInsightContainer">
-                                <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
-                                    <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
-                                    <span class="text-sm">딥러닝 모델 분석 중 (7개 모델)...</span>
-                                </div>
+                        <div id="dlInsightContainer" class="mb-6">
+                            <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
+                                <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
+                                <span class="text-sm">딥러닝 모델 분석 중 (7개 모델)...</span>
                             </div>
                         </div>
 
@@ -860,8 +870,8 @@
                                 <div class="flex items-center gap-4 w-full justify-between">
                                     <div class="flex items-center gap-3">
                                         <label class="relative inline-flex items-center cursor-pointer">
-                                            <input type="checkbox" id="applyFilterCheck"
-                                                onchange="applyFilter()" class="sr-only peer" checked>
+                                            <input type="checkbox" id="applyFilterCheck" onchange="applyFilter()"
+                                                class="sr-only peer" checked>
                                             <div
                                                 class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500">
                                             </div>
@@ -968,7 +978,7 @@
             let oddCount = 0;
             numbers.forEach(n => { if (n % 2 !== 0) oddCount++; });
             let evenCount = 6 - oddCount;
-            return { odd: oddCount, even: evenCount, ratio: `${oddCount}:${evenCount}` };
+            return { odd: oddCount, even: evenCount, odd_count: oddCount, even_count: evenCount, ratio: `${oddCount}:${evenCount}` };
         }
 
         // 심층 통계 계산 (연속 출현, 미출현 등)
@@ -1049,21 +1059,31 @@
                 });
 
                 allDrawData = data.map(item => {
-                    const numbers = item.numbers || [];
-                    let oe = calculateOddEven(numbers);
+                    try {
+                        const numbers = item.numbers || [];
+                        let oe = calculateOddEven(numbers);
 
-                    if (featuresMap.has(item.round)) {
-                        const feat = featuresMap.get(item.round);
-                        if (feat.odd_count !== undefined && feat.even_count !== undefined) {
-                            oe = {
-                                odd: feat.odd_count,
-                                even: feat.even_count,
-                                ratio: `${feat.odd_count}:${feat.even_count}`
-                            };
+                        if (featuresMap.has(item.round)) {
+                            const feat = featuresMap.get(item.round);
+                            // feature 데이터가 있는 경우 우선 적용
+                            if (feat.odd_count !== undefined && feat.even_count !== undefined) {
+                                oe = {
+                                    odd: feat.odd_count,
+                                    even: feat.even_count,
+                                    odd_count: feat.odd_count,
+                                    even_count: feat.even_count,
+                                    ratio: `${feat.odd_count}:${feat.even_count}`
+                                };
+                            }
                         }
+                        return { ...item, numbers: Array.isArray(numbers) ? numbers : [], ...oe };
+                    } catch (mapErr) {
+                        console.error('Item Mapping Error:', item.round, mapErr);
+                        return { ...item, numbers: [], odd: 0, even: 0, ratio: '0:0' };
                     }
-                    return { ...item, numbers, ...oe };
                 });
+
+                window.allDrawData = allDrawData; // AI 인사이트 패널 연동
 
                 // 🔥 [NEW] 홀짝 정보 사전 계산
                 await preprocessOddEvenData();
@@ -1089,6 +1109,9 @@
 
                 updateRange(currentRange);
                 setTimeout(() => { updateSliderBackground(currentRange); }, 100);
+
+                // [표준화] AI 인사이트 초기화
+                initDeepInsight();
             } catch (err) {
                 console.error('Data Load Error:', err);
                 const listEl = document.getElementById('drawsList');
@@ -1167,7 +1190,7 @@
             currentRange = parseInt(value);
             markManual(); // [추가] 수동 조작 마킹
             deactivateRecent10IfActive(); // [추가] 범위 조정 시 최근 10회차 해제
-            
+
             document.getElementById('rangeDisplay').textContent = value + '회';
             updateSliderBackground(currentRange);
             updatePresetButtons(currentRange);
@@ -1377,10 +1400,22 @@
             container.innerHTML = '<div class="p-4 text-center">프롬프트 라이브러리가 준비중입니다.</div>';
         }
 
-        // 딥러닝 인사이트 패널 초기화
+        // [표준화] 딥러닝 인사이트 패널 초기화
         function initDeepInsight() {
-            if (window.DeepInsightPanel) {
-                DeepInsightPanel.render('dlInsightContainer', 'odd', '홀수 개수');
+            if (window.PremiumInsightPanel) {
+                const src = (typeof allDrawData !== 'undefined' && allDrawData.length) ? allDrawData
+                    : (window.allDrawData || []);
+                const recent = src.slice(0, 20).map(d => {
+                    // [수정] odd_count 또는 odd 필드를 우선 사용 (DeepInsightPanel과 동일 로직)
+                    if (typeof d.odd_count === 'number') return d.odd_count;
+                    if (typeof d.odd === 'number') return d.odd;
+                    return (d.numbers || []).filter(n => n % 2 !== 0).length;
+                }).filter(v => typeof v === 'number' && !isNaN(v));
+
+                // [수정] filterKey를 'odd'로 설정하여 premium_insight_panel의 비율 분석(Ratio Analysis) 리졸버 작동 유도
+                PremiumInsightPanel.render('dlInsightContainer', 'odd', '홀짝 비율', { recentValues: recent });
+            } else if (window.DeepInsightPanel) {
+                DeepInsightPanel.renderFromDB('dlInsightContainer', 'odd', '홀수 개수');
             }
         }
 
@@ -1417,19 +1452,14 @@
          */
         async function runAIAnalysis(query) {
             if (!query) return;
-            
+
             // 챗봇 모달 오픈
             if (typeof openQnaModal === 'function') {
                 openQnaModal(query);
             }
         }
 
-        // 딥러닝 인사이트 패널 초기화
-        function initDeepInsight() {
-            if (window.DeepInsightPanel) {
-                DeepInsightPanel.render('dlInsightContainer', 'odd', '홀수 개수');
-            }
-        }
+        // [삭제] 중복 정의된 initDeepInsight 삭제 및 상단 통합본 사용
 
         async function executeLocalAIAnalysis(params) {
             const { containerId, subjectRound, targetRound, userPrompt, contextData } = params;
@@ -1648,6 +1678,11 @@
                 if (input) input.focus();
             }, 300);
         }
+
+        /**
+         * [표준화] AI 통합 분석 실행 함수
+         */
+        // [삭제] 중복 정의된 initDeepInsight 삭제 및 상단 통합본 사용
 
         function closeQnaModal() {
             const modal = document.getElementById('aiQnaModal');

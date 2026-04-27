@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html class="light" lang="ko">
 
 <head>
@@ -22,10 +22,12 @@
     <script src="js/config.js"></script>
     <script src="js/theme.js"></script>
     <script src="js/common_v2.js"></script>
-    <script src="js/aiProxy.js"></script>
+    <script src="js/aiProxy.js?v=20260426"></script>
     <script src="js/filter/FilterService.js"></script>
+    <script src="js/filter/FilterLifecycle.js"></script>
+    <script src="js/filter/FilterRuleEngine.js"></script>
     <script src="js/layout.js"></script>
-    <script src="js/deep_insight_panel.js"></script>
+    <script src="js/premium_insight_panel.js?v=20260426"></script>
     <script src="js/NLPProcessor.js"></script>
     <script src="js/NLPInputComponent.js"></script>
     <script src="js/BasicAnalysisNLP.js"></script>
@@ -60,7 +62,7 @@
         let excludedComposites = new Set();
         let isRecentTenFilter = false;
         let _compositeSelfSaving = false;
-        const storageKey = 'composite_number_filter';
+        const storageKey = 'composite_count';
 
         // [추가] 수동 변경 시 호출되는 함수
         function markManual() {
@@ -68,13 +70,15 @@
         }
 
         // [추가] 수동 조작 시 최근 10회차 모드 자동 해제
+        // ※ saveFilterSettings() 호출 제거 — 호출 측(toggleSelection 등)에서 applyFilter()로 저장 처리.
+        //   여기서 먼저 저장하면 _compositeSelfSaving=true 로 잠겨 이후 저장이 차단된다.
         function deactivateRecent10IfActive() {
             if (isRecentTenFilter) {
                 console.log("수동 필터 조작 감지: 최근 10회차 모드 해제");
                 isRecentTenFilter = false;
                 highlightStartRound = null;
                 updateRecentTenFilterFlag();
-                saveFilterSettings(); // 상태 저장 및 동기화
+                // saveFilterSettings() 제거 — 호출 측에서 저장 처리
             }
         }
 
@@ -171,7 +175,7 @@
 
                 // 2. Fallback: localStorage
                 if (!saved) {
-                    const raw = localStorage.getItem('composite_count') || localStorage.getItem('composite_count_filter') || localStorage.getItem('composite_filter');
+                    const raw = localStorage.getItem('composite_count') || localStorage.getItem('composite_count_filter') || localStorage.getItem('composite_filter') || localStorage.getItem('composite_number_filter');
                     if (raw) try {
                         const parsed = JSON.parse(raw);
                         // Utils.saveFilter envelope 형식 { settings: {...}, enabled, ... } 언박싱
@@ -520,52 +524,61 @@
                         <p class="text-sm text-gray-600">합성수 30개(4, 6, 8, 9, 10...)의 출현 개수를 분석합니다.</p>
                     </div>
 
-                    <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
-                        <div class="grid grid-cols-7 gap-3 mb-6">
-                            <div id="card-0" onclick="toggleSelection(0)"
-                                class="cursor-pointer bg-white rounded-xl p-3 border border-gray-200 relative overflow-hidden group hover:shadow-md transition-all text-center">
-                                <div class="stat-label text-xs font-semibold text-gray-500 mb-1">0개</div>
-                                <p id="count_0" class="stat-value text-lg font-bold text-gray-900">0.0%</p>
+                    <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm transition-all duration-300">
+                        <!-- Stat Cards (3-Column Premium Style) -->
+                        <div class="grid grid-cols-3 gap-4 mb-6">
+                            <div id="card-avg" class="bg-white rounded-xl p-4 border border-gray-200 relative overflow-hidden group hover:shadow-md transition-all">
+                                <div class="flex flex-col h-full justify-between relative z-10">
+                                    <div class="flex items-center gap-2 mb-2">
+                                        <div class="bg-white p-1.5 rounded-lg shadow-sm">
+                                            <span class="material-symbols-outlined text-blue-500 text-xl">analytics</span>
+                                        </div>
+                                        <span class="text-sm font-semibold text-gray-500">평균 합성수 개수</span>
+                                    </div>
+                                    <div class="flex items-end gap-1">
+                                        <span id="val-avg" class="text-2xl font-bold text-gray-900">-</span>
+                                        <span class="text-xs text-gray-400 mb-1 font-medium">Mean</span>
+                                    </div>
+                                </div>
+                                <div class="absolute -right-4 -bottom-4 w-24 h-24 bg-gray-100 rounded-full opacity-50 group-hover:scale-110 transition-transform"></div>
                             </div>
-                            <div id="card-1" onclick="toggleSelection(1)"
-                                class="cursor-pointer bg-white rounded-xl p-3 border border-gray-200 relative overflow-hidden group hover:shadow-md transition-all text-center">
-                                <div class="stat-label text-xs font-semibold text-gray-500 mb-1">1개</div>
-                                <p id="count_1" class="stat-value text-lg font-bold text-gray-900">0.0%</p>
+                            <div id="card-min" class="bg-white rounded-xl p-4 border border-gray-200 relative overflow-hidden group hover:shadow-md transition-all">
+                                <div class="flex flex-col h-full justify-between relative z-10">
+                                    <div class="flex items-center gap-2 mb-2">
+                                        <div class="bg-white p-1.5 rounded-lg shadow-sm">
+                                            <span class="material-symbols-outlined text-green-500 text-xl">trending_down</span>
+                                        </div>
+                                        <span class="text-sm font-semibold text-gray-500">최소 합성수 개수</span>
+                                    </div>
+                                    <div class="flex items-end gap-1">
+                                        <span id="val-min" class="text-2xl font-bold text-gray-900">-</span>
+                                        <span class="text-xs text-gray-400 mb-1 font-medium">Min</span>
+                                    </div>
+                                </div>
+                                <div class="absolute -right-4 -bottom-4 w-24 h-24 bg-gray-100 rounded-full opacity-50 group-hover:scale-110 transition-transform"></div>
                             </div>
-                            <div id="card-2" onclick="toggleSelection(2)"
-                                class="cursor-pointer bg-white rounded-xl p-3 border border-gray-200 relative overflow-hidden group hover:shadow-md transition-all text-center">
-                                <div class="stat-label text-xs font-semibold text-gray-500 mb-1">2개</div>
-                                <p id="count_2" class="stat-value text-lg font-bold text-gray-900">0.0%</p>
-                            </div>
-                            <div id="card-3" onclick="toggleSelection(3)"
-                                class="cursor-pointer bg-white rounded-xl p-3 border border-gray-200 relative overflow-hidden group hover:shadow-md transition-all text-center">
-                                <div class="stat-label text-xs font-semibold text-gray-500 mb-1">3개</div>
-                                <p id="count_3" class="stat-value text-lg font-bold text-gray-900">0.0%</p>
-                            </div>
-                            <div id="card-4" onclick="toggleSelection(4)"
-                                class="cursor-pointer bg-white rounded-xl p-3 border border-gray-200 relative overflow-hidden group hover:shadow-md transition-all text-center">
-                                <div class="stat-label text-xs font-semibold text-gray-500 mb-1">4개</div>
-                                <p id="count_4" class="stat-value text-lg font-bold text-gray-900">0.0%</p>
-                            </div>
-                            <div id="card-5" onclick="toggleSelection(5)"
-                                class="cursor-pointer bg-white rounded-xl p-3 border border-gray-200 relative overflow-hidden group hover:shadow-md transition-all text-center">
-                                <div class="stat-label text-xs font-semibold text-gray-500 mb-1">5개</div>
-                                <p id="count_5" class="stat-value text-lg font-bold text-gray-900">0.0%</p>
-                            </div>
-                            <div id="card-6" onclick="toggleSelection(6)"
-                                class="cursor-pointer bg-white rounded-xl p-3 border border-gray-200 relative overflow-hidden group hover:shadow-md transition-all text-center">
-                                <div class="stat-label text-xs font-semibold text-gray-500 mb-1">6개</div>
-                                <p id="count_6" class="stat-value text-lg font-bold text-gray-900">0.0%</p>
+                            <div id="card-max" class="bg-white rounded-xl p-4 border border-gray-200 relative overflow-hidden group hover:shadow-md transition-all">
+                                <div class="flex flex-col h-full justify-between relative z-10">
+                                    <div class="flex items-center gap-2 mb-2">
+                                        <div class="bg-white p-1.5 rounded-lg shadow-sm">
+                                            <span class="material-symbols-outlined text-red-500 text-xl">trending_up</span>
+                                        </div>
+                                        <span class="text-sm font-semibold text-gray-500">최대 합성수 개수</span>
+                                    </div>
+                                    <div class="flex items-end gap-1">
+                                        <span id="val-max" class="text-2xl font-bold text-gray-900">-</span>
+                                        <span class="text-xs text-gray-400 mb-1 font-medium">Max</span>
+                                    </div>
+                                </div>
+                                <div class="absolute -right-4 -bottom-4 w-24 h-24 bg-gray-100 rounded-full opacity-50 group-hover:scale-110 transition-transform"></div>
                             </div>
                         </div>
 
-                        <div class="ai-section p-8 pb-10 mb-6 font-sans">
-                            <h3 class="text-lg font-bold text-gray-900 mb-4">딥러닝 Insight</h3>
-                            <div id="dlInsightContainer">
-                                <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
-                                    <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
-                                    <span class="text-sm">딥러닝 모델 분석 중 (7개 모델)...</span>
-                                </div>
+                        <!-- AI Premium Strategy Report Container -->
+                        <div id="dlInsightContainer" class="mb-6">
+                            <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
+                                <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
+                                <span class="text-sm font-sans">딥러닝 모델 분석 중 (7개 모델)...</span>
                             </div>
                         </div>
 
@@ -783,6 +796,16 @@
             applyFilter(false);
         }
 
+        // ── FilterEngine Lifecycle Integration (Phase 3) ─────────────
+        window.addEventListener('filterLifecycle', function _filterLifecycleHandler(e) {
+            var _detail = e.detail;
+            if (_detail.type === 'NEW_ROUND') {
+                if (typeof checkAndResetOnNewDraw === 'function') checkAndResetOnNewDraw();
+            } else if (_detail.type === 'LOGOUT' || _detail.type === 'RESTORED') {
+                if (typeof loadFilterSettings === 'function') loadFilterSettings();
+            }
+        });
+
         // 🔥 대시보드(filter.html) 혹은 다른 페이지에서의 설정을 실시간 동기화
         window.addEventListener('storage', async (e) => {
             if (_compositeSelfSaving) return;
@@ -800,11 +823,10 @@
                     } catch(_) {}
                 }
                 console.log('🔄 Dashboard -> Composite Number Sync Detected');
-                const latestRound = (allDrawData && allDrawData.length > 0) ? allDrawData[0].round : null;
-                const currentRound = latestRound ? latestRound + 1 : null;
-                const loaded = await loadFilterSettings(currentRound);
+                const loaded = await loadFilterSettings();
                 if (loaded) {
-                    applyFilter(true);
+                    // 외부 탭으로부터 온 동기화는 재저장하지 않음 (save=false)
+                    applyFilter(false); 
                 }
             }
         });
@@ -835,7 +857,6 @@
 
                 const data = drawsResult.data;
 
-                // 🔥 DB 데이터를 Map으로 변환
                 featuresMap = new Map();
                 if (featuresResult.data && featuresResult.data.length > 0) {
                     featuresResult.data.forEach(row => {
@@ -900,7 +921,10 @@
             }
         }
 
-        function setDefaultFilter() {
+        /**
+         * 초기값 설정 함수 (applyFilter 호출을 분리하여 중복 방지)
+         */
+        function setDefaultFilterValues() {
             const last10 = allDrawData.slice(0, 10);
             if (last10.length === 0) return;
 
@@ -915,7 +939,11 @@
                 activeFilters.add(i);
             }
             updateUIState();
-            applyFilter(); // [추가됨] 초기화 후 필터 적용
+        }
+
+        function setDefaultFilter() {
+            setDefaultFilterValues();
+            applyFilter(true); // 수동 초기화 시에만 저장 허용
         }
 
         function toggleSelection(count) {
@@ -935,12 +963,21 @@
                 const btn = document.getElementById(`filter-btn-${i}`);
                 const card = document.getElementById(`card-${i}`);
 
-                if (activeFilters.has(i)) {
-                    btn.classList.add('filter-btn-active');
-                    card.classList.add('stat-card-active');
-                } else {
-                    btn.classList.remove('filter-btn-active');
-                    card.classList.remove('stat-card-active');
+                if (btn) {
+                    if (activeFilters.has(i)) {
+                        btn.classList.add('filter-btn-active');
+                    } else {
+                        btn.classList.remove('filter-btn-active');
+                    }
+                }
+                
+                // [수정] 상단 카드는 요약형으로 변경되었으므로, 존재하지 않을 경우 스킵하여 오류 방지
+                if (card) {
+                    if (activeFilters.has(i)) {
+                        card.classList.add('stat-card-active');
+                    } else {
+                        card.classList.remove('stat-card-active');
+                    }
                 }
             }
         }
@@ -1026,11 +1063,40 @@ ${distText}
 `;
         }
 
-        // 딥러닝 인사이트 패널 초기화
+        // AI 전략 리포트 초기화
         function initDeepInsight() {
-            if (window.DeepInsightPanel) {
-                DeepInsightPanel.render('dlInsightContainer', 'composite', '합성수 개수');
+            if (window.PremiumInsightPanel) {
+                // 최근 20회차 데이터를 추출하여 AI 리포트에 전달 (N/A 방지)
+                const recent = (allDrawData || []).slice(0, 20)
+                    .map(d => {
+                        const count = (typeof d.compositeCount === 'number') ? d.compositeCount : calculateCompositeCount(d.numbers || []);
+                        return count;
+                    })
+                    .filter(v => typeof v === 'number' && !isNaN(v));
+
+                console.log('[composite_number] Rendering AI Report for round:', (allDrawData[0]?.round || 'unknown'));
+                PremiumInsightPanel.render('dlInsightContainer', 'composite', '합성수', {
+                    recentValues: recent
+                });
             }
+        }
+
+        /**
+         * [추가] 합성수 판별 및 개수 계산 유틸리티
+         */
+        function isPrime(num) {
+            const primes = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43];
+            return primes.includes(num);
+        }
+
+        function isComposite(num) {
+            if (num <= 1) return false;
+            return !isPrime(num);
+        }
+
+        function calculateCompositeCount(numbers) {
+            if (!numbers || !Array.isArray(numbers)) return 0;
+            return numbers.filter(n => isComposite(n)).length;
         }
 
         function updateRange(value) {
@@ -1064,20 +1130,28 @@ ${distText}
         }
 
         function calculateStats() {
+            if (!allDrawData || !allDrawData.length) return;
             const targetData = allDrawData.slice(0, currentRange);
-            const counts = [0, 0, 0, 0, 0, 0, 0];
 
-            targetData.forEach(draw => {
-                if (draw.compositeCount >= 0 && draw.compositeCount <= 6) {
-                    counts[draw.compositeCount]++;
-                }
-            });
+            const compositeCounts = targetData.map(d => (typeof d.compositeCount === 'number') ? d.compositeCount : calculateCompositeCount(d.numbers || []))
+                                              .filter(v => typeof v === 'number' && !isNaN(v));
 
-            const total = targetData.length;
-            for (let i = 0; i <= 6; i++) {
-                const percent = total === 0 ? 0 : ((counts[i] / total) * 100).toFixed(1);
-                document.getElementById(`count_${i}`).innerText = `${percent}%`;
-            }
+            if (compositeCounts.length === 0) return;
+
+            // 평균, 최소, 최대 계산
+            const sum = compositeCounts.reduce((a, b) => a + b, 0);
+            const avg = (sum / compositeCounts.length).toFixed(1);
+            const min = Math.min(...compositeCounts);
+            const max = Math.max(...compositeCounts);
+
+            // UI 업데이트 (ac_value.html 스타일의 3개 요약 카드)
+            const valAvg = document.getElementById('val-avg');
+            const valMin = document.getElementById('val-min');
+            const valMax = document.getElementById('val-max');
+
+            if (valAvg) valAvg.textContent = avg;
+            if (valMin) valMin.textContent = min;
+            if (valMax) valMax.textContent = max;
         }
 
         function drawChart() {
@@ -1305,6 +1379,65 @@ ${distText}
             statsRange = parseInt(val);
             document.getElementById('statsRangeDisplay').innerText = statsRange;
             renderStatsTable();
+        }
+
+        /**
+         * 필터링 및 리스트 렌더링 핵심 함수
+         * @param {boolean} save - 저장 여부 (기본 true)
+         */
+        function applyFilter(save = true) {
+            const drawsCount = allDrawData.length;
+            if (drawsCount === 0) return;
+
+            // 1. 데이터 필터링 (최근 N회차 + 선택된 개수 + 제외수)
+            let filtered = allDrawData.slice(0, currentRange);
+
+            // 선택된 개수 필터 (activeFilters)
+            if (activeFilters.size > 0) {
+                filtered = filtered.filter(d => activeFilters.has(d.compositeCount));
+            }
+
+            // 제외수 필터 (통계 모달에서 선택)
+            if (excludedComposites.size > 0) {
+                filtered = filtered.filter(d => {
+                    const hasExcluded = d.numbers.some(num => excludedComposites.has(num));
+                    return !hasExcluded;
+                });
+            }
+
+            // 2. 리스트 렌더링
+            renderDrawsList(filtered);
+
+            // 3. 통계 및 차트 업데이트
+            calculateStats();
+            drawChart();
+
+            // 4. 상태 저장 (필요한 경우에만)
+            if (save) {
+                saveFilterSettings();
+            }
+        }
+
+        async function saveFilterSettings() {
+            if (!window.Utils || !window.Utils.saveFilter) return;
+            
+            _compositeSelfSaving = true;
+            try {
+                const settings = {
+                    enabled: document.getElementById('applyFilterCheck')?.checked ?? true,
+                    selectedCounts: Array.from(activeFilters),
+                    excludedComposites: Array.from(excludedComposites),
+                    range: currentRange,
+                    isRecentTen: isRecentTenFilter
+                };
+
+                await window.Utils.saveFilter(storageKey, settings);
+                console.log('✅ 합성수 필터 저장 완료');
+            } catch (e) {
+                console.error('필터 저장 실패:', e);
+            } finally {
+                setTimeout(() => { _compositeSelfSaving = false; }, 500);
+            }
         }
 
         // 미출현 기간 계산 함수 (해당 회차 기준 과거 탐색)

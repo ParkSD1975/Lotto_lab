@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html class="light" lang="ko">
 
 <head>
@@ -26,9 +26,11 @@
     <script src="js/theme.js"></script>
     <script src="js/common_v2.js"></script>
     <script src="js/filter/FilterService.js"></script>
+    <script src="js/filter/FilterLifecycle.js"></script>
+    <script src="js/filter/FilterRuleEngine.js"></script>
+    <script src="js/aiProxy.js?v=20260426"></script>
     <script src="js/layout.js"></script>
-    <script src="js/deep_insight_panel.js"></script>
-    <script src="js/aiProxy.js"></script>
+    <script src="js/premium_insight_panel.js?v=20260426"></script>
 
     <!-- NLP Modules -->
     <script src="js/NLPProcessor.js"></script>
@@ -38,6 +40,7 @@
     <script>
         // 전역 변수 및 설정
         const twinNumbers = new Set([11, 22, 33, 44]);
+        const isTwin = (n) => twinNumbers.has(n); // [복구] 데이터 계산용 함수
         let allDrawData = [];
         let chatHistory = []; // AI 대화 이력
         let featuresMap = new Map();
@@ -56,9 +59,68 @@
         let debounceTimer = null;
         let isAIAnalyzing = false;
 
-        function isTwin(num) {
-            return twinNumbers.has(num);
-        }
+        // [추가] Chart.js 커스텀 플러그인 (필터 라인 및 값 표시)
+        const minMaxLabelsPlugin = {
+            id: 'minMaxLabels',
+            afterDatasetsDraw: (chart) => {
+                const ctx = chart.ctx;
+                const xAxis = chart.scales.x;
+                const yAxis = chart.scales.y;
+                
+                // twin_number는 범위 필터(min/max)를 사용하지 않으므로 요소를 찾지 못하면 중단
+                const minInput = document.getElementById('minFilter');
+                const maxInput = document.getElementById('maxFilter');
+                if (!minInput || !maxInput) return;
+
+                const minVal = minInput.value ? parseInt(minInput.value) : null;
+                const maxVal = maxInput.value ? parseInt(maxInput.value) : null;
+                const isDistribution = (typeof chartMode !== 'undefined' && chartMode === 'distribution');
+
+                const drawLine = (val, color, labelText) => {
+                    if (isDistribution) {
+                        if (val < xAxis.min || val > xAxis.max) return;
+                    } else {
+                        if (val < yAxis.min || val > yAxis.max) return;
+                    }
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.lineWidth = 1;
+                    ctx.strokeStyle = color;
+                    ctx.setLineDash([5, 3]);
+
+                    let xPos, yPos;
+                    if (isDistribution) {
+                        xPos = xAxis.getPixelForValue(val);
+                        if (xPos === undefined || isNaN(xPos)) return;
+                        ctx.moveTo(xPos, yAxis.top);
+                        ctx.lineTo(xPos, yAxis.bottom);
+                        ctx.stroke();
+                        ctx.fillStyle = color;
+                        ctx.font = 'bold 11px Pretendard';
+                        ctx.textAlign = 'center';
+                        ctx.fillText(labelText || val, xPos, yAxis.top - 5);
+                    } else {
+                        yPos = yAxis.getPixelForValue(val);
+                        if (yPos === undefined || isNaN(yPos)) return;
+                        ctx.moveTo(xAxis.left, yPos);
+                        ctx.lineTo(xAxis.right, yPos);
+                        ctx.stroke();
+                        ctx.fillStyle = color;
+                        ctx.font = 'bold 11px Pretendard';
+                        ctx.textAlign = 'right';
+                        ctx.fillText(labelText || val, xAxis.right - 5, yPos - 5);
+                    }
+                    ctx.restore();
+                };
+
+                if (minVal !== null) drawLine(minVal, 'rgba(59, 130, 246, 0.8)', `Min:${minVal}`);
+                if (maxVal !== null) drawLine(maxVal, 'rgba(239, 68, 68, 0.8)', `Max:${maxVal}`);
+            }
+        };
+
+
+
+
 
         function calculateTwinCount(numbers) {
             if (!numbers || !Array.isArray(numbers)) return 0;
@@ -101,41 +163,41 @@
             const data = (allDrawData || []).slice(0, range);
             if (data.length === 0) return null;
 
-            const twinCounts = data.map(d => d.twinCount || calculateTwinCount(d.numbers));
+            const tCounts = data.map(d => d.twin_count || calculateTwinCount(d.numbers));
 
             // 1. 기본 통계
-            const avg = twinCounts.reduce((a, b) => a + b, 0) / twinCounts.length;
-            const variance = twinCounts.reduce((s, v) => s + Math.pow(v - avg, 2), 0) / twinCounts.length;
+            const avg = tCounts.reduce((a, b) => a + b, 0) / tCounts.length;
+            const variance = tCounts.reduce((s, v) => s + Math.pow(v - avg, 2), 0) / tCounts.length;
             const stdDev = Math.sqrt(variance);
 
             // 2. 이동평균 및 추세
-            const ma5 = twinCounts.slice(0, 5).reduce((a, b) => a + b, 0) / Math.min(5, twinCounts.length);
-            const ma10 = twinCounts.slice(0, 10).reduce((a, b) => a + b, 0) / Math.min(10, twinCounts.length);
-            const ma20 = twinCounts.slice(0, 20).reduce((a, b) => a + b, 0) / Math.min(20, twinCounts.length);
+            const ma5 = tCounts.slice(0, 5).reduce((a, b) => a + b, 0) / Math.min(5, tCounts.length);
+            const ma10 = tCounts.slice(0, 10).reduce((a, b) => a + b, 0) / Math.min(10, data.length);
+            const ma20 = tCounts.slice(0, 20).reduce((a, b) => a + b, 0) / Math.min(20, data.length);
             const trend = ma5 > ma10 ? '🔥 상승(과열)' : '📉 하락(안정)';
 
             // 3. 분포 집계
             const dist = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0 };
-            twinCounts.forEach(c => { if (dist[c] !== undefined) dist[c]++; });
+            tCounts.forEach(c => { if (dist[c] !== undefined) dist[c]++; });
             const distText = Object.entries(dist).map(([k, v]) => `${k}개(${v}회)`).join(', ');
 
             // 4. Gap/Streak 분석
             let zeroGap = 0;
             for (let i = 0; i < allDrawData.length; i++) {
-                const tc = allDrawData[i].twinCount || calculateTwinCount(allDrawData[i].numbers);
+                const tc = allDrawData[i].twin_count || calculateTwinCount(allDrawData[i].numbers);
                 if (tc > 0) break;
                 zeroGap++;
             }
 
             let hotStreak = 0;
             for (let i = 0; i < allDrawData.length; i++) {
-                const tc = allDrawData[i].twinCount || calculateTwinCount(allDrawData[i].numbers);
+                const tc = allDrawData[i].twin_count || calculateTwinCount(allDrawData[i].numbers);
                 if (tc < 2) break;
                 hotStreak++;
             }
 
-            const recent20Str = allDrawData.slice(0, 20).map(d => `${d.round}회(${d.twinCount}개)`).join(', ');
-            const recent30Str = allDrawData.slice(0, 30).map(d => `[${d.round}회:${d.twinCount}개]`).join(' ');
+            const recent20Str = allDrawData.slice(0, 20).map(d => `${d.round}회(${d.twin_count}개)`).join(', ');
+            const recent30Str = allDrawData.slice(0, 30).map(d => `[${d.round}회:${d.twin_count}개]`).join(' ');
 
             return {
                 range, avg, stdDev, ma5, ma10, ma20, trend,
@@ -238,7 +300,7 @@
 
             // [적용 로직] 최근 10회차 수집
             const recent10 = allDrawData.slice(0, 10);
-            const counts = new Set(recent10.map(d => d.twinCount));
+            const counts = new Set(recent10.map(d => d.twin_count));
 
             for (let i = 0; i <= 4; i++) {
                 const fBtn = document.getElementById(`filter-btn-${i}`);
@@ -374,7 +436,7 @@
             // 최근 10회차 필터와 일치하는지 여부 확인 (색상 결정용)
             let isMatchingRecent10 = false;
             if (isActive && allDrawData && allDrawData.length >= 10) {
-                const recent10CountSet = new Set(allDrawData.slice(0, 10).map(d => d.twinCount));
+                const recent10CountSet = new Set(allDrawData.slice(0, 10).map(d => d.twin_count));
                 const activeCountSet = new Set();
                 for (let i = 0; i <= 4; i++) {
                     const fBtn = document.getElementById(`filter-btn-${i}`);
@@ -620,15 +682,7 @@
                             </div>
                         </div>
 
-                        <div class="ai-section p-8 pb-10 mb-6 font-sans">
-                            <h3 class="text-lg font-bold text-gray-900 mb-4">딥러닝 Insight</h3>
-                            <div id="dlInsightContainer">
-                                <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
-                                    <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
-                                    <span class="text-sm">딥러닝 모델 분석 중 (7개 모델)...</span>
-                                </div>
-                            </div>
-                        </div>
+                        <div id="premiumInsight" class="mb-10"></div>
 
                         <div class="mb-6">
                             <div class="flex items-center justify-between mb-4">
@@ -957,6 +1011,16 @@
                     applyFilter(false);
                 }
 
+                // ── FilterEngine Lifecycle Integration (Phase 3) ─────────────
+        window.addEventListener('filterLifecycle', function _filterLifecycleHandler(e) {
+            var _detail = e.detail;
+            if (_detail.type === 'NEW_ROUND') {
+                if (typeof checkAndResetOnNewDraw === 'function') checkAndResetOnNewDraw();
+            } else if (_detail.type === 'LOGOUT' || _detail.type === 'RESTORED') {
+                if (typeof loadFilterSettings === 'function') loadFilterSettings();
+            }
+        });
+
                 // [표준화] 대시보드 실시간 동기화 (Storage Event)
                 window.addEventListener('storage', async (e) => {
                     if (_twinSelfSaving) return;
@@ -983,7 +1047,7 @@
                 });
 
                 document.getElementById('loadingOverlay').style.display = 'none';
-                initDeepInsight();
+                await initDeepInsight();
 
             } catch (err) {
                 console.error('데이터 로드 실패:', err);
@@ -997,20 +1061,40 @@
             }
         });
 
+        /**
+         * [표준화] AI 통합 분석 실행 함수 (Premium 버전)
+         */
+        async function initDeepInsight() {
+            if (window.PremiumInsightPanel) {
+                const containerId = 'premiumInsight';
+                if (!allDrawData || allDrawData.length === 0) return;
+
+                // 최근 30회차 데이터 (흐름 진단용)
+                const recentValues = allDrawData.slice(0, 30).map(d => d.twin_count || 0);
+
+                // filterKey: 'twin', subject: '동형수'
+                await PremiumInsightPanel.render(containerId, 'twin', '동형수', {
+                    recentValues: recentValues
+                });
+            }
+        }
+
         function processData(rawData) {
             // 1. 기본 데이터 가공
             allDrawData = rawData.map(item => {
                 const numbers = item.numbers || [];
-                let twinCount;
+                let twin_count;
 
                 if (featuresMap.has(item.round)) {
-                    twinCount = Number(featuresMap.get(item.round));
+                    twin_count = Number(featuresMap.get(item.round));
                 } else {
-                    twinCount = numbers.filter(n => isTwin(n)).length;
+                    twin_count = numbers.filter(n => isTwin(n)).length;
                 }
 
-                return { ...item, numbers: numbers, twinCount: twinCount };
+                return { ...item, numbers: numbers, twin_count: twin_count };
             });
+
+            window.allDrawData = allDrawData; // [추가] AI 패널 연동용 전역 변수 고정
 
             // 2. GAP 지표 계산 (미출현 기간 중심)
             // chronologicalData: 과거 -> 최신
@@ -1018,7 +1102,7 @@
             let currentGap = 0;
 
             chronologicalData.forEach((draw) => {
-                if (draw.twinCount > 0) {
+                if (draw.twin_count > 0) {
                     draw.gap = currentGap; // 출현 시점: 이전까지 미출현했던 기간(GAP)
                     currentGap = 0; // 리셋
                 } else {
@@ -1061,7 +1145,7 @@
             if (allDrawData.length < 10) return;
             const recent10 = allDrawData.slice(0, 10);
 
-            const counts = recent10.map(d => d.twinCount);
+            const counts = recent10.map(d => d.twin_count);
             const minCount = Math.min(...counts);
             const maxCount = Math.max(...counts);
 
@@ -1087,7 +1171,7 @@
 
             const countMap = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0 };
             data.forEach(d => {
-                if (countMap[d.twinCount] !== undefined) countMap[d.twinCount]++;
+                if (countMap[d.twin_count] !== undefined) countMap[d.twin_count]++;
             });
 
             for (let i = 0; i <= 4; i++) {
@@ -1181,14 +1265,14 @@
                     </td>
                     <td class="py-2 px-4 text-center w-28">
                         <div class="flex justify-center">
-                            <span class="inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold transition-all cursor-pointer hover:bg-gray-100 ${getHighlightClass(draw.twinCount)}"
-                                onclick="event.stopPropagation(); toggleCellHighlight('twin', ${draw.twinCount})">
-                                ${draw.twinCount}
+                            <span class="inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold transition-all cursor-pointer hover:bg-gray-100 ${getHighlightClass(draw.twin_count)}"
+                                onclick="event.stopPropagation(); toggleCellHighlight('twin', ${draw.twin_count})">
+                                ${draw.twin_count}
                             </span>
                         </div>
                     </td>
                     <td class="py-2 px-4 text-center w-20">
-                        ${draw.twinCount > 0 ?
+                        ${draw.twin_count > 0 ?
                         `<div class="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold mx-auto shadow-sm ring-2 ring-blue-100">당</div>` :
                         `<span class="text-sm font-medium text-gray-300">${draw.gap ?? 0}</span>`
                     }
@@ -1239,7 +1323,7 @@
             const data = allDrawData.slice(0, range);
             const counts = [0, 0, 0, 0, 0];
             data.forEach(d => {
-                if (counts[d.twinCount] !== undefined) counts[d.twinCount]++;
+                if (counts[d.twin_count] !== undefined) counts[d.twin_count]++;
             });
             return {
                 labels: ['0개', '1개', '2개', '3개', '4개'],
@@ -1251,7 +1335,7 @@
             if (!allDrawData.length) return { labels: [], values: [] };
             const data = allDrawData.slice(0, range);
             const labels = data.map(d => d.round).reverse();
-            const values = data.map(d => d.twinCount).reverse();
+            const values = data.map(d => d.twin_count).reverse();
             return { labels, values };
         }
 
@@ -1381,7 +1465,7 @@
             const html = data.map((draw, idx) => {
                 return `<tr>
                     <td class="sticky left-0 z-20 bg-white border-r border-b border-gray-200 px-3 py-2 text-center text-sm font-semibold text-black w-16">${draw.round}</td>
-                    <td class="sticky left-16 z-10 bg-white border-r border-b border-gray-200 px-3 py-2 text-center text-sm font-bold w-20 text-black">${draw.twinCount}</td>
+                    <td class="sticky left-16 z-10 bg-white border-r border-b border-gray-200 px-3 py-2 text-center text-sm font-bold w-20 text-black">${draw.twin_count}</td>
                     ${twinNums.map(n => {
                     const has = draw.numbers.includes(n);
                     let cellContent = '';
@@ -1504,12 +1588,7 @@
             }
         }
 
-        // 딥러닝 인사이트 패널 초기화
-        function initDeepInsight() {
-            if (window.DeepInsightPanel) {
-                DeepInsightPanel.render('dlInsightContainer', 'twin', '동형수 개수');
-            }
-        }
+
 
     </script>
 

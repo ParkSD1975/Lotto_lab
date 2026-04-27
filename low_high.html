@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html class="light" lang="ko">
 
 <head>
@@ -23,8 +23,11 @@
     <script src="js/theme.js"></script>
     <script src="js/common_v2.js"></script>
     <script src="js/filter/FilterService.js"></script>
+    <script src="js/filter/FilterLifecycle.js"></script>
+    <script src="js/filter/FilterRuleEngine.js"></script>
     <script src="js/layout.js"></script>
-    <script src="js/deep_insight_panel.js"></script>
+    <script src="js/premium_insight_panel.js?v=20260426"></script>
+    <script src="js/aiProxy.js?v=20260426"></script>
 
     <!-- NLP Modules -->
     <script src="js/NLPProcessor.js"></script>
@@ -271,11 +274,11 @@
                             </div>
                         </div>
 
-                        <div class="ai-section p-8 pb-10 mb-6 font-sans">
-                            <h3 class="text-lg font-bold text-gray-900 mb-4">딥러닝 Insight</h3>
+                        <div class="ai-section mb-6 font-sans">
                             <div id="dlInsightContainer">
                                 <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
-                                    <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
+                                    <span
+                                        class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
                                     <span class="text-sm">딥러닝 모델 분석 중 (7개 모델)...</span>
                                 </div>
                             </div>
@@ -563,7 +566,7 @@
                 isRecentTenFilter = false;
                 highlightStartRound = null;
                 updateRecentTenFilterFlag();
-                saveFilterSettings(); // 상태 저장 및 동기화
+                // [수정] saveFilterSettings() 제거 — 호출 측에서 저장 처리 (경쟁 상태 방지)
             }
         }
 
@@ -605,7 +608,7 @@
                 if (window.Utils && typeof window.Utils.saveFilter === 'function') {
                     await window.Utils.saveFilter(storageKey, payload, enabled, targetRound);
                 }
-                
+
                 // localStorage sync for storage event
                 localStorage.setItem(storageKey, JSON.stringify({ ...payload, enabled, targetRound }));
 
@@ -727,6 +730,8 @@
             return {
                 low: lowCount,
                 high: highCount,
+                low_count: lowCount,
+                high_count: highCount,
                 ratio: `${lowCount}:${highCount}`,
                 sum: sum,
                 endSum: endSum
@@ -816,13 +821,13 @@
                 }
 
                 // 3. 데이터 매핑 및 계산
-                allDrawData = data.map(item => {
+                window.allDrawData = data.map(item => {
                     const numbers = extractNumbers(item);
                     const bonus = Number(item.bonus || item.bnus_no || 0);
                     const lh = calculateLowHigh(numbers);
                     return { ...item, numbers, bonus, ...lh };
                 });
-                console.log(`✅ 저고 데이터 로드: ${allDrawData.length}개`);
+                console.log(`✅ 저고 데이터 로드: ${window.allDrawData.length}개`);
 
                 // UI 초기화
                 const totalCount = allDrawData.length;
@@ -830,8 +835,8 @@
                 document.getElementById('totalRangeDisplay').textContent = `최대 ${totalCount.toLocaleString()}회`;
                 const allBtn = document.getElementById('preset1203');
                 if (allBtn) {
-                   allBtn.setAttribute('onclick', `setRange(${totalCount})`);
-                   allBtn.innerText = "전체";
+                    allBtn.setAttribute('onclick', `setRange(${totalCount})`);
+                    allBtn.innerText = "전체";
                 }
 
                 initUI();
@@ -1388,10 +1393,14 @@
             container.innerHTML = '<div class="p-4 text-center">프롬프트 라이브러리가 준비중입니다.</div>';
         }
 
-        // 딥러닝 인사이트 패널 초기화
+        // 딥러닝 인사이트 패널 초기화 (표준화 버전)
         function initDeepInsight() {
-            if (window.DeepInsightPanel) {
-                DeepInsightPanel.render('dlInsightContainer', 'high', '고번호 개수');
+            if (window.PremiumInsightPanel && window.allDrawData) {
+                // [수정] 최근 30회차의 '고(high)' 개수 추출하여 비율 분석 컨텍스트로 전달
+                const recentValues = window.allDrawData.slice(0, 30).map(d => d.high);
+                window.PremiumInsightPanel.render('dlInsightContainer', 'high', '저고 비율', { 
+                    recentValues: recentValues 
+                });
             }
         }
 
@@ -1650,6 +1659,16 @@
             renderDrawsList(allDrawData ? allDrawData.slice(0, currentRange) : []);
         }
 
+        // ── FilterEngine Lifecycle Integration (Phase 3) ─────────────
+        window.addEventListener('filterLifecycle', function _filterLifecycleHandler(e) {
+            var _detail = e.detail;
+            if (_detail.type === 'NEW_ROUND') {
+                if (typeof checkAndResetOnNewDraw === 'function') checkAndResetOnNewDraw();
+            } else if (_detail.type === 'LOGOUT' || _detail.type === 'RESTORED') {
+                if (typeof loadFilterSettings === 'function') loadFilterSettings();
+            }
+        });
+
         // [추가] 대시보드 실시간 동기화 (Storage Event)
         window.addEventListener('storage', async function (e) {
             if (_lowHighSelfSaving) return;
@@ -1663,7 +1682,7 @@
                         if (_p.enabled === false && !_p.settings && _p.min === undefined && !_p.selectedRatios) {
                             resetFilterUI(); return;
                         }
-                    } catch(_) {}
+                    } catch (_) { }
                 }
                 console.log(`[low_high] Storage event detected for: ${e.key}, reloading...`);
                 const latestRound = (allDrawData && allDrawData.length > 0) ? allDrawData[0].round : null;

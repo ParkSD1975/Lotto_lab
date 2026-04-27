@@ -25,12 +25,15 @@
     <script src="js/config.js"></script>
     <script src="js/theme.js"></script>
     <script src="js/common_v2.js"></script>
-    <script src="js/aiProxy.js"></script>
+    <script src="js/aiProxy.js?v=20260426"></script>
     <script src="js/filter/FilterService.js"></script>
+    <script src="js/filter/FilterLifecycle.js"></script>
+    <script src="js/filter/FilterRuleEngine.js"></script>
     <script src="js/layout.js"></script>
     <script>
         // [캐시 버스터] 최신 분석 로직 강제 적용
-        document.write('<script src="js/deep_insight_panel.js?v=' + Date.now() + '"><\/script>');
+        document.write('<script src="js/deep_insight_panel.js?v=20260426"><\/script>');
+        document.write('<script src="js/premium_insight_panel.js?v=20260426"><\/script>');
     </script>
     <script src="js/NLPInputComponent.js"></script>
     <script src="js/NLPProcessor.js"></script>
@@ -149,11 +152,11 @@
 
         // 로또 번호 색상 반환 함수
         function getBallColor(n) {
-            if (n <= 10) return 'ball-yellow';
-            if (n <= 20) return 'ball-blue';
-            if (n <= 30) return 'ball-red';
-            if (n <= 40) return 'ball-gray';
-            return 'ball-green';
+            if (n <= 10) return 'ball-y';
+            if (n <= 20) return 'ball-b';
+            if (n <= 30) return 'ball-r';
+            if (n <= 40) return 'ball-g';
+            return 'ball-gr';
         }
 
         // [수정됨] 필터 설정 저장 함수 (DB 저장)
@@ -285,25 +288,11 @@
             margin: 0 2px;
         }
 
-        .ball-yellow {
-            background: #fbbf24;
-        }
-
-        .ball-blue {
-            background: #60a5fa;
-        }
-
-        .ball-red {
-            background: #f87171;
-        }
-
-        .ball-gray {
-            background: #9ca3af;
-        }
-
-        .ball-green {
-            background: #4ade80;
-        }
+        .ball-y { background: linear-gradient(135deg, #f59e0b, #d97706); }
+        .ball-b { background: linear-gradient(135deg, #3b82f6, #2563eb); }
+        .ball-r { background: linear-gradient(135deg, #ef4444, #dc2626); }
+        .ball-g { background: linear-gradient(135deg, #6b7280, #4b5563); }
+        .ball-gr { background: linear-gradient(135deg, #10b981, #059669); }
 
         .custom-scrollbar::-webkit-scrollbar {
             width: 8px;
@@ -607,7 +596,7 @@
 
                     <div class="rounded-xl overflow-hidden">
                         <!-- [Fix 문제3] 배지 영역을 스크롤 컨테이너 안으로 이동 → 리스트 위치 고정 -->
-                        <div id="excludedSumsBadgeArea" class="overflow-hidden bg-white px-6" style="max-height:0;">
+                        <div id="excludedSumsBadgeArea" class="invisible bg-white px-6 transition-all duration-300 overflow-hidden" style="min-height:0; max-height:0;">
                             <div class="py-3 border-b border-gray-100">
                                 <div class="text-xs font-bold text-gray-500 mb-2 flex items-center gap-1">
                                     <span class="material-symbols-outlined text-[14px]">block</span>
@@ -629,13 +618,14 @@
                             </button>
                         </div>
 
-                        <div class="max-h-[600px] overflow-y-auto custom-scrollbar">
+                        <div class="max-h-[600px] overflow-y-auto custom-scrollbar bg-white shadow-sm border border-gray-200">
                             <table class="w-full text-sm">
                                 <thead class="sticky top-0 bg-[#1e293b] border-b border-[#334155] z-10">
                                     <tr class="text-sm font-semibold uppercase text-white">
                                         <th class="py-3 px-4 text-center w-16">회차</th>
                                         <th class="py-3 px-4 text-center">당첨번호</th>
                                         <th class="py-3 px-4 text-center w-20">합계</th>
+                                        <th class="py-3 px-4 text-center w-24">합계차</th>
                                         <th class="py-3 px-4 text-center w-20">증감</th>
                                         <th class="py-3 px-4 text-center w-20">추세</th>
                                     </tr>
@@ -778,11 +768,12 @@
                 document.querySelector('#loadingOverlay p:nth-child(3)').textContent = "데이터 가공 중...";
                 allDrawData = data.map(item => {
                     const numbers = item.numbers || [];
-                    const sum = (item.sum !== undefined && item.sum !== null) ? item.sum : calculateSum(numbers);
-                    return { ...item, numbers: numbers, sum: sum };
+                    const total_sum = (item.total_sum !== undefined && item.total_sum !== null) ? item.total_sum : ((item.sum !== undefined && item.sum !== null) ? item.sum : calculateSum(numbers));
+                    return { ...item, numbers: numbers, total_sum: total_sum, sum: total_sum };
                 });
                 
-                // [표준] 전역 AppState 동기화 (AI 인사이트 패널 연동용)
+                // [표준] 전역 변수 설정 (AI 인사이트 패널 연동용)
+                window.allDrawData = allDrawData;
                 if (!window.AppState) window.AppState = {};
                 window.AppState.allDrawData = allDrawData;
                 window.AppState.currentRange = currentRange;
@@ -852,7 +843,7 @@
         function updateStatistics(range) {
             if (!allDrawData.length) return;
             const data = allDrawData.slice(0, range);
-            const sums = data.map(d => d.sum);
+            const sums = data.map(d => d.total_sum);
 
             const avg = (sums.reduce((a, b) => a + b, 0) / sums.length).toFixed(1);
             const min = Math.min(...sums);
@@ -909,7 +900,7 @@
             if (!allDrawData.length) return;
 
             let data = allDrawData.slice(0, currentRange);
-            const allSums = allDrawData.slice(0, currentRange).map(d => d.sum);
+            const allSums = allDrawData.slice(0, currentRange).map(d => d.total_sum);
             const avgValue = allSums.length > 0 ? (allSums.reduce((a, b) => a + b, 0) / allSums.length) : 0;
 
             document.getElementById('displayedCount').textContent = data.length;
@@ -924,10 +915,12 @@
             for (let i = data.length - 1; i >= 0; i--) {
                 let changeSymbol = '-';
                 let trendValue = 1;
+                let sumDiff = 0;
 
                 if (i < data.length - 1) {
-                    const currentSum = data[i].sum;
-                    const prevSum = data[i + 1].sum;
+                    const currentSum = data[i].total_sum;
+                    const prevSum = data[i + 1].total_sum;
+                    sumDiff = currentSum - prevSum;
 
                     if (currentSum > prevSum) changeSymbol = '↑';
                     else if (currentSum < prevSum) changeSymbol = '↓';
@@ -941,10 +934,11 @@
                     }
                     trendValue = trendCount;
                 } else {
+                    sumDiff = 0;
                     trendValue = 1;
                     prevChangeSymbol = '';
                 }
-                trendData[i] = { changeSymbol, trendValue };
+                trendData[i] = { changeSymbol, trendValue, sumDiff };
             }
 
             data.forEach((draw, index) => {
@@ -956,17 +950,16 @@
                     highlightRecent10Rows(draw.round); 
                 };
 
-                // 기본 행 스타일 (하이라이트는 applyRecent10Highlight()에서 처리)
-                tr.className = 'border-b border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer';
-
-                const sumColor = draw.sum >= avgValue ? 'text-red-600' : 'text-blue-600';
-                const { changeSymbol, trendValue } = trendData[index];
-                let arrowColor = 'text-gray-400';
+                const sumColor = draw.total_sum >= avgValue ? 'text-red-600' : 'text-blue-600';
+                const { changeSymbol, trendValue, sumDiff } = trendData[index];
                 if (changeSymbol === '↑') arrowColor = 'text-red-600';
                 if (changeSymbol === '↓') arrowColor = 'text-blue-600';
 
+                const diffText = sumDiff > 0 ? `+${sumDiff}` : (sumDiff < 0 ? `${sumDiff}` : '0');
+                const diffColor = sumDiff > 0 ? 'text-red-600' : (sumDiff < 0 ? 'text-blue-600' : 'text-gray-400');
+
                 // Highlight logic for cells
-                const isSumHighlighted = selectedHighlight.col === 'sum' && selectedHighlight.val === draw.sum;
+                const isSumHighlighted = selectedHighlight.col === 'sum' && selectedHighlight.val === draw.total_sum;
                 const sumBgClass = isSumHighlighted ? 'val-highlight' : 'text-gray-700 hover:bg-gray-200';
                 const sumTextClass = isSumHighlighted ? '' : sumColor;
 
@@ -981,10 +974,13 @@
                     <td class="py-3 px-4 text-center text-sm font-bold text-gray-900 whitespace-nowrap">${draw.round}회</td>
                     <td class="py-3 px-4 text-center"><div class="flex justify-center items-center gap-1.5">${numberHtml}${bonusHtml !== '-' ? `<span class="text-[10px] text-gray-400 mx-0.5">+</span>${bonusHtml}` : ''}</div></td>
                     <td class="py-3 px-4 text-center">
-                        <span onclick="event.stopPropagation(); toggleCellHighlight('sum', ${draw.sum})"
+                        <span onclick="event.stopPropagation(); toggleCellHighlight('sum', ${draw.total_sum})"
                               class="inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold cursor-pointer transition-all ${sumBgClass} ${sumTextClass}">
-                            ${draw.sum}
+                            ${draw.total_sum}
                         </span>
+                    </td>
+                    <td class="py-3 px-4 text-center">
+                        <span class="text-sm font-bold ${diffColor}">${index < data.length - 1 ? diffText : '-'}</span>
                     </td>
                     <td class="py-3 px-4 text-center">
                         <span class="text-sm font-bold ${arrowColor}">${changeSymbol !== '-' ? changeSymbol : '-'}</span>
@@ -1326,46 +1322,42 @@
         }
 
         // 제외 합계 배지 렌더링
+        
         function renderExcludedSumsBadges() {
             const area = document.getElementById('excludedSumsBadgeArea');
             const container = document.getElementById('excludedSumsBadges');
             if (!area || !container) return;
 
-            // 자동 제외: 최근 10회차 필터 활성 시 캐시 갱신, 비활성 시 캐시 유지
+            // [표준] 기본 환경 데이터 확보
+            if (typeof excludedSums === 'undefined') window.excludedSums = [];
+            if (typeof restoredAutoSums === 'undefined') window.restoredAutoSums = [];
+            if (typeof cachedAutoExcluded === 'undefined') window.cachedAutoExcluded = [];
+
+            // 1. 자동 제외 데이터 갱신 (직전 끝수합 필터 활성화 시)
             const recent10Btn = document.getElementById('recent10FilterBtn');
             const isRecent10Active = recent10Btn && recent10Btn.classList.contains('from-purple-500');
+            
             if (isRecent10Active && allDrawData && allDrawData.length >= 10) {
-                const raw = [...new Set(allDrawData.slice(0, 10).map(d => {
-                    if (d.sum !== undefined && d.sum !== null) return parseInt(d.sum);
-                    if (d.numbers && Array.isArray(d.numbers)) return d.numbers.reduce((a, b) => a + b, 0);
-                    return null;
-                }).filter(s => s !== null && !isNaN(s)))];
-                // 활성 상태에서만 캐시 갱신 (비활성 시 마지막 캐시 유지)
+                const raw = [...new Set(allDrawData.slice(0, 10).map(d => parseInt(d.sum)).filter(s => !isNaN(s)))];
                 cachedAutoExcluded = raw.filter(s => !restoredAutoSums.includes(s)).sort((a, b) => a - b);
             }
-            const autoExcluded = cachedAutoExcluded;
+            const autoExcluded = cachedAutoExcluded || [];
 
-            const hasManual = excludedSums && excludedSums.length > 0;
+            const hasManual = excludedSums.length > 0;
             const hasAuto = autoExcluded.length > 0;
 
-            // 배지 영역이 이미 열려있는지 확인 (layout shift 보상용)
-            const wasCollapsed = area.offsetHeight === 0;
-
+            // 2. [Layout Shift 방지] 배지가 없을 때 처리
             if (!hasManual && !hasAuto) {
-                // 닫힐 때: 먼저 스크롤 보상 후 닫기
-                const prevHeight = area.scrollHeight;
-                area.style.maxHeight = '0';
+                area.style.maxHeight = '0px';
+                area.style.minHeight = '0px';
+                area.classList.add('invisible');
                 container.innerHTML = '';
-                if (prevHeight > 0) {
-                    // transition 없이 즉시 스크롤 보상 (리스트 위치 고정)
-                    window.scrollBy({ top: -prevHeight, behavior: 'instant' });
-                }
                 return;
             }
 
+            // 3. 배지 HTML 생성
             let html = '';
-
-            // 수동 제외 - 빨간색, 클릭 시 복원
+            // 수동 제외 - 빨간색
             if (hasManual) {
                 html += excludedSums.slice().sort((a, b) => a - b).map(sum =>
                     `<button onclick="restoreExcludedSum(${sum})" title="클릭 시 복원"
@@ -1374,8 +1366,7 @@
                     </button>`
                 ).join('');
             }
-
-            // 자동 제외 - 인디고색, X 클릭 시 복원(제외 취소)
+            // 자동 제외 - 파란색
             if (hasAuto) {
                 html += autoExcluded.map(sum =>
                     `<button onclick="restoreAutoSum(${sum})" title="클릭 시 자동 제외 취소"
@@ -1384,24 +1375,14 @@
                     </button>`
                 ).join('');
             }
-
             container.innerHTML = html;
 
-            if (wasCollapsed) {
-                // 처음 열릴 때: transition 없이 즉시 표시 + 스크롤 보상 (리스트 위치 고정)
-                area.style.transition = 'none';
-                area.style.maxHeight = '300px';
-                requestAnimationFrame(() => {
-                    const newHeight = area.scrollHeight;
-                    // 리스트가 밀리지 않도록 같은 높이만큼 스크롤 보상
-                    window.scrollBy({ top: newHeight, behavior: 'instant' });
-                    // transition 복원
-                    requestAnimationFrame(() => { area.style.transition = 'max-height 0.25s ease'; });
-                });
-            } else {
-                area.style.maxHeight = '300px';
-            }
+            // 4. [Layout Shift 방지] 배지 영역 활성화
+            area.classList.remove('invisible');
+            area.style.minHeight = '60px';
+            area.style.maxHeight = '300px';
         }
+
 
         // 수동 제외 복원
         function restoreExcludedSum(val) {
@@ -1774,7 +1755,10 @@ ${safeContent}</div>`;
 
         // 딥러닝 인사이트 패널 초기화
         function initDeepInsight() {
-            if (window.DeepInsightPanel) {
+            if (window.PremiumInsightPanel) {
+                const recent = (window.allDrawData || []).slice(0, 20).map(d => d.total_sum).filter(v => typeof v === 'number');
+                PremiumInsightPanel.render('dlInsightContainer', 'sum', '총합', { recentValues: recent });
+            } else if (window.DeepInsightPanel) {
                 DeepInsightPanel.render('dlInsightContainer', 'sum', '총합');
             }
         }
@@ -2194,6 +2178,16 @@ ${finalRules}
                 container.innerHTML = `<div class="text-xs text-red-500 p-2 bg-red-50 rounded">AI 분석 실행 중 오류발생: ${err.message}</div>`;
             }
         }
+
+        // ── FilterEngine Lifecycle Integration (Phase 3) ─────────────
+        window.addEventListener('filterLifecycle', function _filterLifecycleHandler(e) {
+            var _detail = e.detail;
+            if (_detail.type === 'NEW_ROUND') {
+                if (typeof checkAndResetOnNewDraw === 'function') checkAndResetOnNewDraw();
+            } else if (_detail.type === 'LOGOUT' || _detail.type === 'RESTORED') {
+                if (typeof loadFilterSettings === 'function') loadFilterSettings();
+            }
+        });
 
         // [표준화] 대시보드 실시간 동기화 (Storage Event)
         window.addEventListener('storage', async function (e) {

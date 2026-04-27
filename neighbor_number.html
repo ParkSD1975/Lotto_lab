@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html class="light" lang="ko">
 
 <head>
@@ -23,11 +23,14 @@
     <script src="js/config.js"></script>
     <script src="js/theme.js"></script>
     <script src="js/common_v2.js"></script>
-    <script src="js/aiProxy.js"></script>
+    <script src="js/aiProxy.js?v=20260426"></script>
 
     <script src="js/filter/FilterService.js"></script>
+    <script src="js/filter/FilterLifecycle.js"></script>
+    <script src="js/filter/FilterRuleEngine.js"></script>
     <script src="js/layout.js"></script>
-    <script src="js/deep_insight_panel.js"></script>
+    <script src="js/deep_insight_panel.js?v=20260426"></script>
+    <script src="js/premium_insight_panel.js?v=20260426"></script>
 
     <!-- NLP Modules -->
     <script src="js/NLPProcessor.js"></script>
@@ -234,15 +237,8 @@
                             </div>
                         </div>
 
-                        <div class="ai-section p-8 pb-10 mb-6 font-sans">
-                            <h3 class="text-lg font-bold text-gray-900 mb-4">딥러닝 Insight</h3>
-                            <div id="dlInsightContainer">
-                                <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
-                                    <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
-                                    <span class="text-sm">딥러닝 모델 분석 중 (7개 모델)...</span>
-                                </div>
-                            </div>
-                        </div>
+                        <!-- [표준화] AI 프리미엄 전략 리포트 컨테이너 -->
+                        <div id="premiumInsight" class="mb-6"></div>
 
                         <div class="mb-6">
                             <div class="flex items-center justify-between mb-4">
@@ -567,6 +563,16 @@
             applyFilter();
         }
 
+        // ── FilterEngine Lifecycle Integration (Phase 3) ─────────────
+        window.addEventListener('filterLifecycle', function _filterLifecycleHandler(e) {
+            var _detail = e.detail;
+            if (_detail.type === 'NEW_ROUND') {
+                if (typeof checkAndResetOnNewDraw === 'function') checkAndResetOnNewDraw();
+            } else if (_detail.type === 'LOGOUT' || _detail.type === 'RESTORED') {
+                if (typeof loadFilterSettings === 'function') loadFilterSettings();
+            }
+        });
+
         // [Fix] 대시보드 실시간 동기화 (Storage Event)
         // _neighborSelfSaving=true면 자체 저장 이벤트 → 무시 (race condition 방지)
         // 대시보드 synthetic event(isTrusted=false)는 _neighborSelfSaving=false → 정상 처리
@@ -636,6 +642,9 @@
 
                 processData(data);
 
+                // [추가] 전역 데이터 노출 (AI Insight용)
+                window.allDrawData = allDrawData;
+
                 // 초기 설정
                 const totalCount = allDrawData.length;
                 const rangeSlider = document.getElementById('rangeSlider');
@@ -650,6 +659,9 @@
 
                 // [추가] 새 회차 감합 시 자동 필터 적용
                 checkAndResetOnNewDraw();
+
+                // [수정] AI 분석 자동 실행 (표준화)
+                await initDeepInsight();
 
             } catch (err) {
                 console.error('데이터 로드 실패:', err);
@@ -729,26 +741,19 @@
                     // 4. 중복 당첨 확인 (이웃수와 보볼이웃수의 교집합이 당첨번호에 있는지)
                     hasCommonNeighbor = bobolMatchedNumbers.some(num => matchedNeighbors.includes(num));
 
-                    // 🔥 [핵심 로직] DB 데이터가 존재하면 우선 사용 (안전장치)
-                    if (featuresMap.has(draw.round)) {
-                        const feat = featuresMap.get(draw.round);
-                        // DB 컬럼명을 알 수 없으므로 일반적인 네이밍 규칙으로 체크 (값 보정)
-                        if (feat.neighbor_match_count !== undefined) neighborMatchCount = feat.neighbor_match_count;
-                        else if (feat.neighbor_count !== undefined) neighborMatchCount = feat.neighbor_count;
-
-                        if (feat.bobol_neighbor_match_count !== undefined) bobolNeighborMatchCount = feat.bobol_neighbor_match_count;
-                    }
+                    // ℹ️ DB 오버라이드 제거 — 클라이언트 계산값이 항상 정확 (최신 회차 보정)
+                    // featuresMap DB 데이터는 과거 배치 계산으로 stale할 수 있으므로 사용 안 함
                 }
 
                 return {
                     ...draw,
                     prevNumbers,
                     prevNeighbors,
-                    neighborMatchCount,
+                    neighbor_count: neighborMatchCount,
                     matchedNeighbors,
 
                     prevBonusNeighbors, // 렌더링 시 필요
-                    bobolNeighborMatchCount,
+                    bobol_neighbor_count: bobolNeighborMatchCount,
                     hasCommonNeighbor
                 };
             });
@@ -775,19 +780,19 @@
             const validTotal = validData.length;
             if (validTotal === 0) return;
 
-            const sum = validData.reduce((acc, curr) => acc + curr.neighborMatchCount, 0);
+            const sum = validData.reduce((acc, curr) => acc + curr.neighbor_count, 0);
             const avg = (sum / validTotal).toFixed(2);
             document.getElementById('stat_avg').textContent = avg + '개';
 
-            const zeroCount = validData.filter(d => d.neighborMatchCount === 0).length;
+            const zeroCount = validData.filter(d => d.neighbor_count === 0).length;
             const zeroRate = ((zeroCount / validTotal) * 100).toFixed(1);
             document.getElementById('stat_zero').textContent = zeroRate + '%';
 
-            const oneTwoCount = validData.filter(d => d.neighborMatchCount >= 1 && d.neighborMatchCount <= 2).length;
+            const oneTwoCount = validData.filter(d => d.neighbor_count >= 1 && d.neighbor_count <= 2).length;
             const oneTwoRate = ((oneTwoCount / validTotal) * 100).toFixed(1);
             document.getElementById('stat_one_two').textContent = oneTwoRate + '%';
 
-            const threePlusCount = validData.filter(d => d.neighborMatchCount >= 3).length;
+            const threePlusCount = validData.filter(d => d.neighbor_count >= 3).length;
             const threePlusRate = ((threePlusCount / validTotal) * 100).toFixed(1);
             document.getElementById('stat_three_plus').textContent = threePlusRate + '%';
         }
@@ -812,7 +817,7 @@
             const isFilterApplied = document.getElementById('applyFilterCheck').checked;
 
             if (isFilterApplied) {
-                const count = draw.neighborMatchCount;
+                const count = draw.neighbor_count;
                 return count >= min && count <= max;
             }
             return true;
@@ -861,7 +866,7 @@
                     : '';
 
                 // 당첨개수 (일반 이웃수 매칭) 배지
-                const matchCount = draw.neighborMatchCount;
+                const matchCount = draw.neighbor_count;
                 let badgeClass = 'bg-gray-100 text-gray-600';
                 if (matchCount === 1) badgeClass = 'bg-blue-100 text-blue-700';
                 else if (matchCount === 2) badgeClass = 'bg-orange-100 text-orange-700';
@@ -939,7 +944,7 @@
 
             // 1. 최근 10회차 데이터 수집
             const recent10 = allDrawData.slice(0, 10);
-            const matches = recent10.map(d => d.neighborMatchCount);
+            const matches = recent10.map(d => d.neighbor_count);
             const minVal = Math.min(...matches);
             const maxVal = Math.max(...matches);
 
@@ -1005,7 +1010,7 @@
             const total = validData.length;
             const counts = [0, 0, 0, 0, 0, 0, 0];
             validData.forEach(d => {
-                const val = d.neighborMatchCount;
+                const val = d.neighbor_count;
                 if (val >= 0 && val <= 6) counts[val]++;
             });
             const maxPct = Math.max(...counts.map(c => c / total * 100));
@@ -1044,7 +1049,7 @@
         function updateTrendChart() {
             const validData = allDrawData.slice(0, currentRange).filter(d => d.prevNumbers.length > 0).reverse();
             const labels = validData.map(d => d.round + '회');
-            const values = validData.map(d => d.neighborMatchCount);
+            const values = validData.map(d => d.neighbor_count);
 
             if (trendChartInstance) trendChartInstance.destroy();
             const ctx = document.getElementById('trendChart').getContext('2d');
@@ -1107,7 +1112,7 @@
         function initFilters() {
             const recent10 = allDrawData.slice(0, 10).filter(d => d.prevNumbers.length > 0);
             if (recent10.length === 0) return;
-            const matchCounts = recent10.map(d => d.neighborMatchCount);
+            const matchCounts = recent10.map(d => d.neighbor_count);
             const minVal = Math.min(...matchCounts);
             const maxVal = Math.max(...matchCounts);
             document.getElementById('filterMin').value = minVal;
@@ -1232,7 +1237,7 @@
 
                 // [데이터 보강] 최근 currentRange회 데이터 기반 통계 계산
                 const data = allDrawData.slice(0, currentRange);
-                const allValues = data.map(d => d.neighborMatchCount);
+                const allValues = data.map(d => d.neighbor_count);
 
                 // 기본 통계
                 const avg = allValues.reduce((a, b) => a + b, 0) / allValues.length;
@@ -1240,8 +1245,8 @@
                 const stdDev = Math.sqrt(variance);
 
                 // 이동평균 및 추세
-                const recent5Avg = data.slice(0, 5).reduce((s, d) => s + d.neighborMatchCount, 0) / Math.min(5, data.length);
-                const recent10Avg = data.slice(0, 10).reduce((s, d) => s + d.neighborMatchCount, 0) / Math.min(10, data.length);
+                const recent5Avg = data.slice(0, 5).reduce((s, d) => s + d.neighbor_count, 0) / Math.min(5, data.length);
+                const recent10Avg = data.slice(0, 10).reduce((s, d) => s + d.neighbor_count, 0) / Math.min(10, data.length);
                 const trendDirection = recent5Avg > recent10Avg ? '상승세' : '하락세';
 
                 // 분포 계산
@@ -1250,7 +1255,7 @@
                 const distText = Object.entries(dist).sort((a, b) => a[0] - b[0]).map(([k, v]) => `${k}:${v}회`).join(', ');
 
                 // 최근 20회 상세
-                const recent20 = data.slice(0, 20).map(d => `${d.round}회(${d.neighborMatchCount}개)`).join(', ');
+                const recent20 = data.slice(0, 20).map(d => `${d.round}회(${d.neighbor_count}개)`).join(', ');
 
                 // Memory Context
                 const memoryStr = chatHistory.slice(-6).map(m => `${m.role.toUpperCase()}: ${m.text}`).join('\n');
@@ -1447,9 +1452,14 @@ ${contextData}
         }
 
         // 딥러닝 인사이트 패널 초기화
-        function initDeepInsight() {
-            if (window.DeepInsightPanel) {
-                DeepInsightPanel.render('dlInsightContainer', 'neighbor', '이웃수 개수');
+        // [수정] 딥러닝 인사이트 패널 (PremiumInsightPanel 표준)
+        async function initDeepInsight() {
+            if (window.PremiumInsightPanel) {
+                const recentMatches = allDrawData.slice(0, 10).map(d => d.neighbor_count).join(',');
+                await window.PremiumInsightPanel.render('premiumInsight', 'neighbor', '이웃수', {
+                    recentValues: recentMatches,
+                    skipMenuFetch: true // [추가] 서버에 아직 이웃수 전용 캐시가 없으므로 404 에러를 방지하기 위해 실시간 분석으로 직행
+                });
             }
         }
 
@@ -1488,22 +1498,5 @@ ${contextData}
         </div>
     </div>
 
-    <!-- NLP Modules -->
-    <script src="js/NLPProcessor.js"></script>
-    <script src="js/NLPInputComponent.js"></script>
-    <script src="js/BasicAnalysisNLP.js"></script>
 </body>
-</html>
-            placeholder="추가 질문 입력..." onkeyup="if(event.key === 'Enter') submitModalFollowUp()">
-        <button onclick="submitModalFollowUp()"
-            class="absolute right-2 top-1/2 -translate-y-1/2 text-blue-500 hover:text-blue-700">
-            <span class="material-symbols-outlined text-lg">send</span>
-        </button>
-    </div>
-</div>
-</div>
-<!-- NLP Modules -->
-
-</body>
-
 </html>

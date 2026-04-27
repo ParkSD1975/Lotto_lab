@@ -2,7 +2,7 @@ import json
 import logging
 from typing import Dict, Any, List
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.prompts import PromptTemplate
+from langchain_core.prompts import PromptTemplate
 from config import GOOGLE_API_KEY, LLM_MODEL
 import config
 
@@ -10,11 +10,10 @@ logger = logging.getLogger(__name__)
 
 class MemoParser:
     def __init__(self):
-        self.llm = ChatGoogleGenerativeAI(
-            model=LLM_MODEL,
-            google_api_key=GOOGLE_API_KEY,
-            temperature=0.1
-        )
+        llm_kwargs = {"model": LLM_MODEL, "temperature": 0.1}
+        if GOOGLE_API_KEY:
+            llm_kwargs["google_api_key"] = GOOGLE_API_KEY
+        self.llm = ChatGoogleGenerativeAI(**llm_kwargs)
         
         self.prompt = PromptTemplate(
             input_variables=["memo"],

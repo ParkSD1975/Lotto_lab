@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html class="light" lang="ko">
 
 <head>
@@ -22,8 +22,10 @@
     <script src="js/config.js?v=20240224_4"></script>
     <script src="js/theme.js"></script>
     <script src="js/common_v2.js?v=20240224_4"></script>
-    <script src="js/aiProxy.js?v=20240224_4"></script>
+    <script src="js/aiProxy.js?v=20260426"></script>
     <script src="js/filter/FilterService.js?v=20240224_4"></script>
+    <script src="js/filter/FilterLifecycle.js"></script>
+    <script src="js/filter/FilterRuleEngine.js"></script>
 
     <!-- NLP Modules -->
     <script src="js/NLPProcessor.js"></script>
@@ -31,7 +33,7 @@
     <script src="js/BasicAnalysisNLP.js"></script>
 
     <script src="js/layout.js"></script>
-    <script src="js/deep_insight_panel.js"></script>
+    <script src="js/deep_insight_panel.js?v=20260426"></script>
 
     <script>
         // ✅ Supabase 설정 (오류 해결을 위해 명시적 추가)
@@ -526,13 +528,10 @@
                             </div>
                         </div>
 
-                        <div class="ai-section p-8 pb-10 mb-6 font-sans">
-                            <h3 class="text-lg font-bold text-gray-900 mb-4">딥러닝 Insight</h3>
-                            <div id="dlInsightContainer">
-                                <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
-                                    <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
-                                    <span class="text-sm">딥러닝 모델 분석 중 (7개 모델)...</span>
-                                </div>
+                        <div id="dlInsightContainer" class="mb-6 font-sans">
+                            <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
+                                <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
+                                <span class="text-sm">딥러닝 모델 분석 중 (7개 모델)...</span>
                             </div>
                         </div>
 
@@ -887,6 +886,9 @@
                 // 초기화
                 await checkAndResetOnNewDraw();
                 updateRange(currentRange);
+                initDeepInsight();
+                // 페이지 오픈 시 첫 번째 번호 자동 로드 (렌더 후 DOM에서 읽기)
+                setTimeout(autoLoadFirstXAI, 200);
 
                 // [New] NLP 모듈 초기화 (UI 파괴 방지를 위해 전용 컨테이너 사용)
                 if (window.BasicAnalysisNLP) {
@@ -967,6 +969,9 @@
                 selectedHeaderNumbers.add(num);
                 headerCells.forEach(cell => cell.classList.add('selected'));
             }
+
+            // XAI 인라인 패널 렌더
+            renderNumberXAI(num);
         }
 
         function addSelectedToFilter(type) {
@@ -1298,12 +1303,303 @@ ${userPrompt}
             inputEl.value = '';
         }
 
-        // 딥러닝 인사이트 패널 초기화
-        function initDeepInsight() {
-            if (window.DeepInsightPanel) {
-                DeepInsightPanel.render('dlInsightContainer', 'hot10', '번호별 통계');
+        // ═══════════════════════════════════════════════════════
+        // XAI 번호별 인라인 패널 (AI 프리미엄 전략 리포트 동일 디자인)
+        // ═══════════════════════════════════════════════════════
+        const _XAI_MODELS = [
+            { key: 'lstm',        label: 'LSTM (시계열)',      color: '#818cf8' },
+            { key: 'xgboost',     label: 'XGBoost (패턴)',     color: '#60a5fa' },
+            { key: 'cnn',         label: 'CNN (공간)',          color: '#f472b6' },
+            { key: 'transformer', label: 'Transformer (맥락)', color: '#fb923c' },
+            { key: 'markov',      label: 'Markov (전이)',       color: '#34d399' },
+            { key: 'autoencoder', label: 'Autoencoder (압축)', color: '#a855f7' },
+            { key: 'gnn',         label: 'GNN (그래프)',        color: '#f59e0b' },
+        ];
+
+        let _xaiData = null;
+        let _xaiCurrentNum = null;
+
+        function _xaiBallColor(n) {
+            if (n <= 10) return '#F7C948';
+            if (n <= 20) return '#4a90d9';
+            if (n <= 30) return '#E04A4A';
+            if (n <= 40) return '#6B7280';
+            return '#48B05A';
+        }
+
+        function _xaiSkeleton(num) {
+            const bars = _XAI_MODELS.map(m => `
+                <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px; opacity:0.4;">
+                    <span style="font-size:0.68rem; font-weight:400; color:#64748b; width:110px; flex-shrink:0;">${m.label}</span>
+                    <div style="flex:1; background:#e2e8f0; height:10px; border-radius:5px;"></div>
+                    <span style="width:28px;"></span>
+                </div>`).join('');
+            return `
+            <div style="background:white; border-radius:24px; border:1px solid #e2e8f0; overflow:hidden; box-shadow:0 4px 16px rgba(15,23,42,0.04);">
+                <div style="background:#0f172a; padding:1rem 1.5rem; display:flex; align-items:center; gap:12px;">
+                    <div style="width:36px; height:36px; flex-shrink:0; background:#1e293b; border-radius:10px; display:flex; align-items:center; justify-content:center;">
+                        <span class="material-symbols-outlined" style="font-size:20px; color:#38bdf8;">psychology</span>
+                    </div>
+                    <div style="flex:1; min-width:0;">
+                        <div style="font-size:0.95rem; font-weight:900; color:white; letter-spacing:-0.3px;">AI 딥러닝 XAI 모델 분석</div>
+                        <div style="font-size:0.62rem; color:#94a3b8; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; margin-top:1px;">INTELLIGENT ANALYSIS — ${num}번 분석 중...</div>
+                    </div>
+                </div>
+                <div style="padding:1.25rem 1.5rem; background:#f8fafc;">${bars}</div>
+                <div style="padding:1.25rem 1.5rem;">
+                    <div style="background:#0f172a; border-radius:14px; padding:1.25rem; text-align:center; color:#475569; font-size:0.8rem;">
+                        <span class="material-symbols-outlined" style="color:#38bdf8; font-size:20px; display:block; margin:0 auto 8px; animation:spin 1.2s linear infinite;">progress_activity</span>
+                        AI 심층 분석 리포트 불러오는 중...
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        async function _loadXAIData() {
+            if (_xaiData) return _xaiData;
+            if (!window.AIProxy) return null;
+            try {
+                const raw = await window.AIProxy.getDeepAnalysis();
+                const d = (raw && raw.data) ? raw.data : raw;
+                if (d && d.analysis) { _xaiData = d; return d; }
+            } catch (e) { console.warn('[XAI]', e); }
+            return null;
+        }
+
+        async function renderNumberXAI(num) {
+            num = parseInt(num);
+            _xaiCurrentNum = num;
+            const el = document.getElementById('dlInsightContainer');
+            if (!el) return;
+
+            el.innerHTML = _xaiSkeleton(num);
+
+            const data = await _loadXAIData();
+            if (_xaiCurrentNum !== num) return;
+
+            if (!data) {
+                el.innerHTML = `<div style="padding:2rem; text-align:center; color:#94a3b8; font-size:0.85rem;">분석 데이터를 불러올 수 없습니다.<br>잠시 후 다시 시도해주세요.</div>`;
+                return;
             }
-        });
+
+            const matrixSrc = (data.analysis && data.analysis.matrix_data) ? data.analysis.matrix_data : (data.matrix_data || []);
+            const item = matrixSrc.find(m => m.num === num);
+            const top5 = data.top_5 || [];
+            const exclude10 = data.exclude_10 || [];
+            const isRecommended = top5.includes(num);
+            const isExcluded = exclude10.includes(num);
+
+            const statusText = isRecommended ? '강력추천' : isExcluded ? '제외예상' : '일반';
+            const statusStyle = isRecommended
+                ? 'background:#dcfce7; color:#16a34a; border:1px solid #bbf7d0;'
+                : isExcluded
+                ? 'background:#fee2e2; color:#dc2626; border:1px solid #fecaca;'
+                : 'background:#f1f5f9; color:#475569; border:1px solid #e2e8f0;';
+
+            // total은 내부 랭킹 점수(0~100,000 규모) — 최고점 대비 상대 비율(0~100)로 정규화
+            const maxTotal = matrixSrc.length > 0 ? Math.max(matrixSrc[0].total || 1, 1) : 1;
+            const scoreNorm = item ? Math.min(100, Math.round((item.total || 0) / maxTotal * 100)) : 0;
+            // 전체 순위
+            const rank = matrixSrc.findIndex(m => m.num === num) + 1;
+            const gap    = item ? item.gap : '--';
+            const freq   = item ? (item.freq * 100).toFixed(1) : '--';
+            const hasBoost   = item && item.boost > 1.0;
+            const hasPenalty = item && item.penalty < 1.0;
+
+            const modelBars = _XAI_MODELS.map(m => {
+                const mVal = (item && item.models) ? (item.models[m.key] || {}) : {};
+                const score = mVal.score || 0;
+                return `
+                <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
+                    <span style="font-size:0.68rem; font-weight:400; color:#64748b; width:110px; flex-shrink:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${m.label}</span>
+                    <div style="flex:1; background:#f1f5f9; height:10px; border-radius:5px; overflow:hidden;">
+                        <div style="width:${score}%; height:100%; border-radius:5px; background:${m.color}; transition:width 0.6s cubic-bezier(0.4,0,0.2,1);"></div>
+                    </div>
+                    <span style="font-size:0.75rem; font-weight:900; color:#1e293b; width:28px; text-align:right;">${score}</span>
+                </div>`;
+            }).join('');
+
+            const corrBadge = hasPenalty
+                ? `<span style="background:#fee2e2; color:#dc2626; font-size:0.65rem; font-weight:800; padding:2px 8px; border-radius:20px; border:1px solid #fecaca; margin-left:4px;">⚠️ 과출현 제어</span>`
+                : hasBoost
+                ? `<span style="background:#d1fae5; color:#059669; font-size:0.65rem; font-weight:800; padding:2px 8px; border-radius:20px; border:1px solid #a7f3d0; margin-left:4px;">⚡ 주기임박</span>`
+                : '';
+
+            el.innerHTML = `
+            <div style="background:white; border-radius:24px; border:1px solid #e2e8f0; overflow:hidden; box-shadow:0 4px 16px rgba(15,23,42,0.04);">
+                <!-- 헤더 -->
+                <div style="background:#0f172a; padding:1rem 1.5rem; display:flex; align-items:center; gap:12px;">
+                    <div style="width:36px; height:36px; flex-shrink:0; background:#1e293b; border-radius:10px; display:flex; align-items:center; justify-content:center;">
+                        <span class="material-symbols-outlined" style="font-size:20px; color:#38bdf8;">psychology</span>
+                    </div>
+                    <div style="flex:1; min-width:0;">
+                        <div style="font-size:0.95rem; font-weight:900; color:white; letter-spacing:-0.3px;">AI 딥러닝 XAI 모델 분석</div>
+                        <div style="font-size:0.62rem; color:#94a3b8; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; margin-top:1px;">INTELLIGENT ANALYSIS — ${num}번 분석결과</div>
+                    </div>
+                </div>
+                <!-- 번호 요약 -->
+                <div style="background:#f8fafc; border-bottom:1px solid #f1f5f9; padding:1.25rem 1.5rem;">
+                    <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+                        <span style="width:52px; height:52px; border-radius:50%; background:${_xaiBallColor(num)}; color:white; font-size:1.2rem; font-weight:900; display:flex; align-items:center; justify-content:center; box-shadow:0 4px 12px rgba(0,0,0,0.15); flex-shrink:0;">${num}</span>
+                        <div style="flex:1; min-width:0;">
+                            <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:4px;">
+                                <span style="font-size:1rem; font-weight:900; color:#1e293b;">${num}번 분석결과</span>
+                                <span style="${statusStyle} font-size:0.7rem; font-weight:800; padding:3px 10px; border-radius:20px;">${statusText}</span>
+                                ${corrBadge}
+                            </div>
+                            <span style="font-size:0.82rem; color:#64748b; font-weight:600;">AI 종합 점수: <strong style="color:#2563eb; font-size:0.95rem; font-weight:900;">${scoreNorm}점</strong> <span style="font-size:0.72rem; color:#94a3b8; font-weight:600;">(45번 중 ${rank}위)</span></span>
+                        </div>
+                    </div>
+                    <div style="display:flex; gap:10px; margin-top:12px; flex-wrap:wrap;">
+                        <span style="font-size:0.75rem; color:#64748b; font-weight:700; background:white; padding:4px 12px; border-radius:8px; border:1px solid #e2e8f0;">Gap: <strong style="color:#1e293b;">${gap}</strong></span>
+                        <span style="font-size:0.75rem; color:#64748b; font-weight:700; background:white; padding:4px 12px; border-radius:8px; border:1px solid #e2e8f0;">빈도: <strong style="color:#1e293b;">${freq}%</strong></span>
+                    </div>
+                </div>
+                <!-- 모델별 기여도 -->
+                <div style="padding:1.25rem 1.5rem; background:#f8fafc; border-bottom:1px solid #f1f5f9;">
+                    <div style="font-size:0.7rem; color:#64748b; font-weight:800; letter-spacing:1px; text-transform:uppercase; margin-bottom:12px;">7개 모델별 기여도</div>
+                    ${modelBars}
+                </div>
+                <!-- AI 심층 분석 리포트 -->
+                <div style="padding:1.25rem 1.5rem;">
+                    <div style="background:#0f172a; border-radius:14px; padding:1.25rem;">
+                        <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
+                            <span class="material-symbols-outlined" style="color:#38bdf8; font-size:18px;">auto_awesome</span>
+                            <span style="font-size:0.78rem; font-weight:800; color:white; letter-spacing:0.5px;">AI 심층 분석 리포트</span>
+                        </div>
+                        <div id="xai-evidence-slot" style="color:#94a3b8; font-size:0.78rem; display:flex; align-items:center; gap:8px;">
+                            <span class="material-symbols-outlined" style="font-size:16px; color:#38bdf8; animation:spin 1.2s linear infinite;">progress_activity</span>
+                            리포트 불러오는 중...
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+
+            // evidence 비동기 로드
+            // 클라이언트 폴백 리포트 생성 (API 실패 시에도 항상 표시)
+            function _buildClientReport(item, num, matrixSrc, isRecommended, isExcluded) {
+                const lines = [];
+                if (!item) return ['분석 데이터가 없습니다.'];
+
+                // 순위
+                const r = matrixSrc.findIndex(m => m.num === num) + 1;
+                const statusStr = isRecommended ? '강력 추천 번호' : isExcluded ? '제외 예상 번호' : '일반 번호';
+                lines.push(`${num}번은 45개 번호 중 AI 종합 점수 ${r}위 — ${statusStr}로 분류됩니다.`);
+
+                // Gap / 빈도
+                const gapStr = item.gap > 0 ? `${item.gap}회 연속 미출현` : '직전 회차 당첨';
+                const freqPct = (item.freq * 100).toFixed(1);
+                const avgGap = item.personal_avg_gap ? item.personal_avg_gap.toFixed(1) : '7.5';
+                const gapStatus = item.gap > (item.personal_avg_gap || 7.5) ? '개인 평균 초과 — 출현 임박 신호' : '아직 개인 평균 이하';
+                lines.push(`현재 ${gapStr}(개인 평균 ${avgGap}회), ${gapStatus}. 최근 50회 출현 빈도 ${freqPct}%.`);
+
+                // 보정 정보
+                if (item.penalty < 1.0) {
+                    const penPct = Math.round((1 - item.penalty) * 100);
+                    lines.push(`최근 과출현 감지 — 모델 점수 ${penPct}% 하향 보정(과출현 제어). 단기간 재출현 가능성이 통계적으로 낮습니다.`);
+                } else if (item.boost > 1.0) {
+                    const boostPct = Math.round((item.boost - 1) * 100);
+                    lines.push(`출현 주기 초과 감지 — 모델 점수 ${boostPct}% 상향 보정(주기임박). 가까운 회차 출현 가능성이 높습니다.`);
+                }
+
+                // 최고 기여 모델
+                if (item.models) {
+                    const topModel = _XAI_MODELS
+                        .map(m => ({ label: m.label, score: (item.models[m.key] || {}).score || 0 }))
+                        .sort((a, b) => b.score - a.score)[0];
+                    if (topModel && topModel.score > 0) {
+                        lines.push(`7개 AI 모델 중 ${topModel.label}이 ${topModel.score}점으로 가장 높은 기여도를 보입니다.`);
+                    }
+                }
+                return lines;
+            }
+
+            let evidenceText = (data.evidence && data.evidence[num]) || null;
+            if (!evidenceText) {
+                try {
+                    const url = window.AI_SERVER_URL || 'https://parksungdeok-lotto-ai-backend.hf.space';
+                    const targetRound = data.target_round || (allData && allData.length > 0 ? allData[0].round + 1 : 0);
+                    const res = await fetch(url + '/api/explain/', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ number: num, user_query: '이 번호에 대한 심층 분석을 해줘', target_round: targetRound }),
+                        signal: AbortSignal.timeout(25000)
+                    });
+                    if (res.ok) {
+                        const xd = await res.json();
+                        evidenceText = xd.explanation || null;
+                        if (evidenceText) {
+                            if (!data.evidence) data.evidence = {};
+                            data.evidence[num] = evidenceText;
+                        }
+                    }
+                } catch (e) { console.warn('[XAI] LLM evidence 실패, 클라이언트 폴백 사용:', e); }
+            }
+
+            if (_xaiCurrentNum !== num) return;
+
+            const evEl = document.getElementById('xai-evidence-slot');
+            if (!evEl) return;
+
+            // API 성공 시: LLM 텍스트 렌더 / 실패 시: 클라이언트 폴백 렌더
+            function _renderEvidenceLines(lines) {
+                return lines.map((reason, i) => {
+                    const isWarn = /경고|제외|부족|과출현|하향/.test(reason);
+                    const isGood = /추천|유력|적합|임박|강함|상향/.test(reason);
+                    const iconClr   = isWarn ? '#f87171' : isGood ? '#38bdf8' : '#64748b';
+                    const icon      = isWarn ? 'warning'  : isGood ? 'auto_awesome' : 'check_circle';
+                    const borderClr = isWarn ? '#f87171'  : isGood ? '#38bdf8' : '#334155';
+                    return `<div style="background:#0f172a; border-left:3px solid ${borderClr}; border-radius:8px; padding:9px 12px; margin-bottom:6px; display:flex; align-items:flex-start; gap:8px;">
+                        <span class="material-symbols-outlined" style="font-size:14px; color:${iconClr}; flex-shrink:0; margin-top:1px;">${icon}</span>
+                        <span style="font-size:0.78rem; font-weight:600; line-height:1.6; color:#f1f5f9;">${reason}</span>
+                    </div>`;
+                }).join('');
+            }
+
+            if (evidenceText) {
+                // LLM 응답 — 문장 단위 분리 (파이프 구분 또는 문장 단위)
+                const lines = evidenceText.includes(' | ')
+                    ? evidenceText.split(' | ').filter(r => r.trim())
+                    : evidenceText.split(/(?<=[.!?])\s+/).filter(r => r.trim()).slice(0, 5);
+                evEl.innerHTML = _renderEvidenceLines(lines);
+            } else {
+                // 클라이언트 폴백 (API 실패)
+                const fallbackLines = _buildClientReport(item, num, matrixSrc, isRecommended, isExcluded);
+                evEl.innerHTML = _renderEvidenceLines(fallbackLines);
+            }
+        }
+
+        // 페이지 오픈 시 리스트 첫 번째 번호 자동 로드
+        function autoLoadFirstXAI() {
+            const firstHeader = document.querySelector('.number-header');
+            if (!firstHeader) return;
+            const m = firstHeader.className.match(/header-num-(\d+)/);
+            if (m) renderNumberXAI(parseInt(m[1]));
+        }
+
+        // 딥러닝 인사이트 패널 초기화 (placeholder — 실제 로드는 autoLoadFirstXAI)
+        function initDeepInsight() {
+            const el = document.getElementById('dlInsightContainer');
+            if (el) el.innerHTML = `
+                <div style="padding:2.5rem; text-align:center; color:#94a3b8;">
+                    <span class="material-symbols-outlined" style="font-size:2.5rem; color:#cbd5e1; display:block; margin-bottom:8px;">psychology</span>
+                    <p style="font-size:0.85rem; font-weight:600; color:#64748b;">AI 딥러닝 XAI 분석 준비 중...</p>
+                </div>`;
+        }
+
+        async function executeAnalysis() {
+            const displayData = allData.slice(0, currentRange);
+            const latestDraw = allData[0];
+            const subjectRound = latestDraw ? latestDraw.round : 0;
+            const targetRound = subjectRound + 1;
+
+            const hitCounts = new Array(46).fill(0);
+            displayData.forEach(draw => {
+                draw.numbers.forEach(num => { hitCounts[num]++ });
+            });
+
+            let sortedNums = [];
+            for (let i = 1; i <= 45; i++) sortedNums.push({ num: i, count: hitCounts[i] });
             sortedNums.sort((a, b) => b.count - a.count);
 
             const hotNums = sortedNums.slice(0, 5).map(x => x.num).join(', ');
@@ -1958,6 +2254,7 @@ ${targetRound}회차 기준으로 다음을 작성하세요:
             </div>
         </div>
     </div>
+
 </body>
 
 </html>

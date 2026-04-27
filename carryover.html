@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html class="light" lang="ko">
 
 <head>
@@ -22,10 +22,13 @@
     <script src="js/config.js"></script>
     <script src="js/theme.js"></script>
     <script src="js/common_v2.js"></script>
-    <script src="js/aiProxy.js"></script>
+    <script src="js/aiProxy.js?v=20260426"></script>
     <script src="js/filter/FilterService.js"></script>
+    <script src="js/filter/FilterLifecycle.js"></script>
+    <script src="js/filter/FilterRuleEngine.js"></script>
     <script src="js/layout.js"></script>
-    <script src="js/deep_insight_panel.js"></script>
+    <script src="js/deep_insight_panel.js?v=20260426"></script>
+    <script src="js/premium_insight_panel.js?v=20260426"></script>
 
     <!-- NLP Modules -->
     <script src="js/NLPProcessor.js"></script>
@@ -352,15 +355,8 @@
                         <div class="grid grid-cols-7 gap-3 mb-6" id="statCards">
                         </div>
 
-                        <div class="ai-section p-8 pb-10 mb-6 font-sans">
-                            <h3 class="text-lg font-bold text-gray-900 mb-4">딥러닝 Insight</h3>
-                            <div id="dlInsightContainer">
-                                <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
-                                    <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
-                                    <span class="text-sm">딥러닝 모델 분석 중 (7개 모델)...</span>
-                                </div>
-                            </div>
-                        </div>
+                        <!-- [표준화] AI 프리미엄 전략 리포트 컨테이너 -->
+                        <div id="premiumInsight" class="mb-6"></div>
 
                         <div class="mb-6">
                             <div class="flex items-center justify-between mb-4">
@@ -472,7 +468,7 @@
                                         <th class="py-4 px-4 w-20 sticky left-0 bg-[#1e293b] z-40 text-sm">회차</th>
                                         <th class="py-4 px-4 w-[300px] text-sm">당첨번호</th>
                                         <th class="py-4 px-2 w-20 text-sm">보너스</th>
-                                        <th class="py-4 px-2 w-24 text-sm">이월개수</th>
+                                        <th class="py-4 px-2 w-24 text-sm">이월(기본)</th>
                                         <th class="py-4 px-2 w-24 text-sm">이월(전체)</th>
                                         <th class="py-4 px-2 w-24 text-sm">보너스이월</th>
                                         <th class="py-4 px-2 w-24 text-sm">GAP</th>
@@ -512,6 +508,9 @@
 
                 processData(data);
 
+                // [추가] 전역 데이터 노출 (AI Insight용)
+                window.allDrawData = allDrawData;
+
                 const totalCount = allDrawData.length;
                 const rangeSlider = document.getElementById('rangeSlider');
                 if (rangeSlider) rangeSlider.max = totalCount;
@@ -534,7 +533,7 @@
                 updateRange(currentRange);
 
                 // AI 분석 자동 실행 (페이지 로드 시)
-                initDeepInsight();
+                await initDeepInsight();
             } catch (err) {
                 console.error('데이터 로드 실패:', err);
                 const listEl = document.getElementById('drawsList');
@@ -576,8 +575,8 @@
 
                 allDrawData.push({
                     ...current,
-                    carryoverCount: carryoverCount,
-                    carryoverCountBonusIncl: carryoverCountBonusIncl,
+                    carryover_count: carryoverCount,
+                    carryover_countBonusIncl: carryoverCountBonusIncl,
                     carryoverNumbers: carryoverNumbers,
                     bonusCarryoverNumbers: bonusCarryoverNumbers,
                     bonusCarryover: bonusCarryover ? 1 : 0,
@@ -591,7 +590,7 @@
             for (let i = allDrawData.length - 1; i >= 0; i--) {
                 const draw = allDrawData[i];
                 // 일반 이월 GAP
-                if (draw.carryoverCount > 0) {
+                if (draw.carryover_count > 0) {
                     draw.gap = 0;
                     currentGap = 0;
                 } else {
@@ -644,8 +643,8 @@
             let min = 6;
             let max = 0;
             recent10.forEach(d => {
-                if (d.carryoverCount < min) min = d.carryoverCount;
-                if (d.carryoverCount > max) max = d.carryoverCount;
+                if (d.carryover_count < min) min = d.carryover_count;
+                if (d.carryover_count > max) max = d.carryover_count;
             });
             selectedCounts.clear();
             for (let i = min; i <= max; i++) {
@@ -655,7 +654,7 @@
             let bMin = 6;
             let bMax = 0;
             recent10.forEach(d => {
-                let val = d.carryoverCountBonusIncl > 6 ? 6 : d.carryoverCountBonusIncl;
+                let val = d.carryover_countBonusIncl > 6 ? 6 : d.carryover_countBonusIncl;
                 if (val < bMin) bMin = val;
                 if (val > bMax) bMax = val;
             });
@@ -696,7 +695,7 @@
             if (isRecentTenFilter) {
                 isRecentTenFilter = false;
                 highlightStartRound = null;
-                
+
                 const btn = document.getElementById('recent10FilterBtn');
                 const btnText = document.getElementById('recent10BtnText');
                 if (btn) {
@@ -704,13 +703,13 @@
                     btn.classList.add('from-blue-500', 'to-blue-600', 'shadow-blue-200');
                 }
                 if (btnText) btnText.textContent = '최근 10회차 필터 적용';
-                
+
                 const toggle = document.getElementById('applyFilterCheck');
                 if (toggle) toggle.checked = true;
 
                 // 하이라이트 즉시 해제
                 document.querySelectorAll('.row-highlight').forEach(el => el.classList.remove('row-highlight'));
-                
+
                 localStorage.setItem('carryover_filter_isManual', 'true');
                 saveFilterSettings();
             }
@@ -762,8 +761,8 @@
             // 기본 이월수 범위
             let min = 6, max = 0;
             recent10.forEach(d => {
-                if (d.carryoverCount < min) min = d.carryoverCount;
-                if (d.carryoverCount > max) max = d.carryoverCount;
+                if (d.carryover_count < min) min = d.carryover_count;
+                if (d.carryover_count > max) max = d.carryover_count;
             });
             selectedCounts.clear();
             for (let i = min; i <= max; i++) {
@@ -773,7 +772,7 @@
             // 보너스 포함 이월수 범위
             let bMin = 6, bMax = 0;
             recent10.forEach(d => {
-                let val = d.carryoverCountBonusIncl > 6 ? 6 : d.carryoverCountBonusIncl;
+                let val = d.carryover_countBonusIncl > 6 ? 6 : d.carryover_countBonusIncl;
                 if (val < bMin) bMin = val;
                 if (val > bMax) bMax = val;
             });
@@ -836,7 +835,7 @@
                 const btn = document.getElementById(`bonus-filter-btn-${i}`);
                 if (!btn) continue;
                 btn.className = 'filter-btn-circle';
-                if (isActive) btn.classList.add('filter-btn-blue-active');
+                if (isActive) btn.classList.add('filter-btn-teal-active');
             }
         }
 
@@ -880,7 +879,7 @@
             const data = allDrawData.slice(0, range);
             const countMap = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
             data.forEach(d => {
-                if (countMap[d.carryoverCount] !== undefined) countMap[d.carryoverCount]++;
+                if (countMap[d.carryover_count] !== undefined) countMap[d.carryover_count]++;
             });
             for (let i = 0; i <= 6; i++) {
                 const percent = (countMap[i] / data.length * 100).toFixed(1);
@@ -899,9 +898,9 @@
         }
 
         function checkDrawFilter(draw) {
-            if (selectedCounts.size > 0 && !selectedCounts.has(draw.carryoverCount)) return false;
+            if (selectedCounts.size > 0 && !selectedCounts.has(draw.carryover_count)) return false;
             // [Fix] 보너스 포함 이월수 필터 로직 추가
-            if (selectedBonusIncludedCounts.size > 0 && !selectedBonusIncludedCounts.has(draw.carryoverCountBonusIncl)) return false;
+            if (selectedBonusIncludedCounts.size > 0 && !selectedBonusIncludedCounts.has(draw.carryover_countBonusIncl)) return false;
             return true;
         }
 
@@ -969,7 +968,7 @@
                     : `<span class="text-sm font-medium text-gray-300">${draw.bonusGap ?? 0}</span>`;
 
                 let gapContent = '';
-                if (draw.carryoverCount > 0) {
+                if (draw.carryover_count > 0) {
                     gapContent = `<div class="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold mx-auto shadow-sm ring-2 ring-blue-100">당</div>`;
                 } else {
                     gapContent = `<span class="text-sm font-medium text-gray-300">${draw.gap ?? 0}</span>`;
@@ -993,17 +992,17 @@
                     <td class="py-4 px-2">${bonusHtml}</td>
                     <td class="py-4 px-2">
                         <div class="flex justify-center">
-                            <span onclick="event.stopPropagation(); toggleCellHighlight('count', ${draw.carryoverCount})" 
-                                class="w-12 h-8 flex items-center justify-center cursor-pointer hover:bg-gray-200 transition-colors font-bold ${getHighlightClass('count', draw.carryoverCount)} ${getTextColor('count', draw.carryoverCount, 'text-gray-800')}">
-                                ${draw.carryoverCount}
+                            <span onclick="event.stopPropagation(); toggleCellHighlight('count', ${draw.carryover_count})" 
+                                class="w-12 h-8 flex items-center justify-center cursor-pointer hover:bg-gray-200 transition-colors font-bold ${getHighlightClass('count', draw.carryover_count)} ${getTextColor('count', draw.carryover_count, 'text-gray-800')}">
+                                ${draw.carryover_count}
                             </span>
                         </div>
                     </td>
                     <td class="py-4 px-2">
                         <div class="flex justify-center">
-                            <span onclick="event.stopPropagation(); toggleCellHighlight('countBonus', ${draw.carryoverCountBonusIncl})" 
-                                class="w-12 h-8 flex items-center justify-center cursor-pointer hover:bg-gray-200 transition-colors font-bold ${getHighlightClass('countBonus', draw.carryoverCountBonusIncl)} ${getTextColor('countBonus', draw.carryoverCountBonusIncl, 'text-gray-500')}">
-                                ${draw.carryoverCountBonusIncl}
+                            <span onclick="event.stopPropagation(); toggleCellHighlight('countBonus', ${draw.carryover_countBonusIncl})" 
+                                class="w-12 h-8 flex items-center justify-center cursor-pointer hover:bg-gray-200 transition-colors font-bold ${getHighlightClass('countBonus', draw.carryover_countBonusIncl)} ${getTextColor('countBonus', draw.carryover_countBonusIncl, 'text-gray-500')}">
+                                ${draw.carryover_countBonusIncl}
                             </span>
                         </div>
                     </td>
@@ -1041,13 +1040,13 @@
 
             if (!isLoaded) {
                 console.log(`✨ 신규 회차 감지 (${targetRound}회) - 필터 자동 초기화 및 최근 10회차 적용`);
-                
+
                 // 최근 10회차 필터 적용
                 applyRecent10Filters();
-                
+
                 // 초기화된 값 저장
                 await saveFilterSettings(targetRound);
-                
+
                 console.log(`✅ ${targetRound}회차 필터 초기 설정 완료`);
             } else {
                 console.log(`ℹ️ ${targetRound}회차 기존 필터 로드 완료`);
@@ -1123,7 +1122,7 @@
 
                 // Rich statistics for AI analysis
                 const data = allDrawData.slice(0, currentRange);
-                const allValues = data.map(d => d.carryoverCount);
+                const allValues = data.map(d => d.carryover_count);
 
                 // Basic statistics
                 const avg = allValues.reduce((a, b) => a + b, 0) / allValues.length;
@@ -1131,8 +1130,8 @@
                 const stdDev = Math.sqrt(variance);
 
                 // Moving averages
-                const recent5Avg = data.slice(0, 5).reduce((s, d) => s + d.carryoverCount, 0) / Math.min(5, data.length);
-                const recent10Avg = data.slice(0, 10).reduce((s, d) => s + d.carryoverCount, 0) / Math.min(10, data.length);
+                const recent5Avg = data.slice(0, 5).reduce((s, d) => s + d.carryover_count, 0) / Math.min(5, data.length);
+                const recent10Avg = data.slice(0, 10).reduce((s, d) => s + d.carryover_count, 0) / Math.min(10, data.length);
                 const trendDirection = recent5Avg > recent10Avg ? '상승세' : '하락세';
 
                 // Distribution calculation
@@ -1141,7 +1140,7 @@
                 const distText = Object.entries(dist).sort((a, b) => a[0] - b[0]).map(([k, v]) => `${k}개:${v}회`).join(', ');
 
                 // Recent 20 rounds detail
-                const recent20 = data.slice(0, 20).map(d => `${d.round}회(${d.carryoverCount}개)`).join(', ');
+                const recent20 = data.slice(0, 20).map(d => `${d.round}회(${d.carryover_count}개)`).join(', ');
 
                 const richContext = `
 - 최근 20회: ${recent20}
@@ -1191,7 +1190,7 @@
         function updateRateChart(data) {
             const total = data.length;
             const counts = [0, 0, 0, 0, 0, 0, 0];
-            data.forEach(d => { if (counts[d.carryoverCount] !== undefined) counts[d.carryoverCount]++; });
+            data.forEach(d => { if (counts[d.carryover_count] !== undefined) counts[d.carryover_count]++; });
 
             const labels = ['0개', '1개', '2개', '3개', '4개', '5개', '6개'];
             const datasetData = counts.map(c => (c / total * 100).toFixed(1));
@@ -1249,7 +1248,7 @@
         function updateTrendChart() {
             const data = allDrawData.slice(0, currentRange).reverse();
             const labels = data.map(d => d.round + '회');
-            const values = data.map(d => d.carryoverCount);
+            const values = data.map(d => d.carryover_count);
 
             const movingAvg = [];
             for (let i = 0; i < values.length; i++) {
@@ -1321,11 +1320,14 @@
 
         // 🔹 [AI 분석 엔진 - 이월수 전용 로직 개선]
         // common_v2.js의 AIAnalysis 엔진을 사용하여 hot_cold.html과 동일한 디자인 적용
-        // 딥러닝 인사이트 패널 초기화
-        // 딥러닝 인사이트 패널 초기화
-        function initDeepInsight() {
-            if (window.DeepInsightPanel) {
-                DeepInsightPanel.render('dlInsightContainer', 'carryover', '이월수 개수');
+        // [수정] 딥러닝 인사이트 패널 (PremiumInsightPanel 표준 연결)
+        async function initDeepInsight() {
+            if (window.PremiumInsightPanel) {
+                const recentMatches = allDrawData.slice(0, 10).map(d => d.carryover_count).join(',');
+                await window.PremiumInsightPanel.render('premiumInsight', 'carryover', '이월수', {
+                    recentValues: recentMatches,
+                    skipMenuFetch: true // [추가] 서버에 아직 이월수 전용 캐시가 없으므로 404 에러를 방지하기 위해 실시간 분석으로 직행
+                });
             }
         }
 
@@ -1349,22 +1351,22 @@
 
             // 최근 5회차 흐름 문자열 생성
             const recentData = allDrawData.slice(0, 5);
-            const recentTrend = recentData.map(d => `${d.round}회(${d.carryoverCount}개)`).join(', ');
-            const recentCounts = recentData.map(d => d.carryoverCount);
+            const recentTrend = recentData.map(d => `${d.round}회(${d.carryover_count}개)`).join(', ');
+            const recentCounts = recentData.map(d => d.carryover_count);
             const avgCarryover = (recentCounts.reduce((a, b) => a + b, 0) / recentCounts.length).toFixed(1);
 
             // [심화 데이터 추출]
             // Zero Gap: 이월수가 0개(멸)인 상태가 얼마나 지속되었나
             let zeroGap = 0;
             for (let i = 0; i < allDrawData.length; i++) {
-                if (allDrawData[i].carryoverCount === 0) break;
+                if (allDrawData[i].carryover_count === 0) break;
                 zeroGap++;
             }
 
             // Hot Streak: 이월수가 1개 이상 연속해서 나오고 있는 횟수
             let hotStreak = 0;
             for (let i = 0; i < allDrawData.length; i++) {
-                if (allDrawData[i].carryoverCount === 0) break;
+                if (allDrawData[i].carryover_count === 0) break;
                 hotStreak++;
             }
 
@@ -1373,7 +1375,7 @@
 - 기준 회차: ${subjectRound}회
 - 최근 5회 이월수 흐름: [${recentTrend}]
 - 최근 5회 평균 이월수: ${avgCarryover}개
-- 직전 회차 이월수: ${subjectData.carryoverCount}개
+- 직전 회차 이월수: ${subjectData.carryover_count}개
 - 이월수 Zero Gap: ${zeroGap}회차 (이월수 '멸' 이후 경과)
 - 이월수 출현 Streak: ${hotStreak}회차 연속 출현 중
             `;
@@ -1388,7 +1390,7 @@
             // 4. AI 엔진 실행 (AIAnalysis 엔진 사용 시도)
             if (window.AIAnalysis) {
                 await window.AIAnalysis.executeAnalysis({
-                    containerId: 'dlInsightContainer', 
+                    containerId: 'dlInsightContainer',
                     analysisType: 'carryover',
                     subjectRound: subjectRound,
                     targetRound: targetRound,
@@ -1438,7 +1440,7 @@
                         targetRound: targetRound,
                         subjectRound: subjectRound
                     });
-                    
+
                     let content = typeof data === 'string' ? data : (data.response || data.recommendation || JSON.stringify(data));
                     container.innerHTML = `<div class="prose prose-sm max-w-none text-gray-800 leading-relaxed">${content}</div>`;
                 } else {
@@ -1490,13 +1492,13 @@
                 // [Modified] Token Optimization: Hybrid Context for Carryover
                 const recentLimit = 30;
                 const recentData = allDrawData.slice(0, recentLimit);
-                const recentStrings = recentData.map(draw => `${draw.round}회(${draw.carryoverCount}개)`);
+                const recentStrings = recentData.map(draw => `${draw.round}회(${draw.carryover_count}개)`);
 
                 // Older summary
                 const olderData = allDrawData.slice(recentLimit);
                 let olderSummary = '';
                 if (olderData.length > 0) {
-                    const avg = (olderData.reduce((acc, d) => acc + d.carryoverCount, 0) / olderData.length).toFixed(1);
+                    const avg = (olderData.reduce((acc, d) => acc + d.carryover_count, 0) / olderData.length).toFixed(1);
                     olderSummary = ` | 이전 ${olderData.length}회 평균 이월수: ${avg}개`;
                 }
 
@@ -1654,6 +1656,16 @@ ${contextData}
             renderDrawsList(displayData);
         }
 
+        // ── FilterEngine Lifecycle Integration (Phase 3) ─────────────
+        window.addEventListener('filterLifecycle', function _filterLifecycleHandler(e) {
+            var _detail = e.detail;
+            if (_detail.type === 'NEW_ROUND') {
+                if (typeof checkAndResetOnNewDraw === 'function') checkAndResetOnNewDraw();
+            } else if (_detail.type === 'LOGOUT' || _detail.type === 'RESTORED') {
+                if (typeof loadFilterSettings === 'function') loadFilterSettings();
+            }
+        });
+
         // [표준] 대시보드 실시간 동기화 (Storage Event)
         window.addEventListener('storage', async function (e) {
             if (_carryoverSelfSaving) return;
@@ -1666,7 +1678,7 @@ ${contextData}
                 if (_p.enabled === false && !_p.settings && _p.min === undefined && !_p.selectedCounts) {
                     resetFilterUI(); return;
                 }
-            } catch(_) {}
+            } catch (_) { }
             console.log(`[carryover] 대시보드 필터 변경 감지 (${e.key}): UI 갱신`);
             const latestRound = (allDrawData && allDrawData.length > 0) ? allDrawData[0].round : null;
             const currentRound = latestRound ? latestRound + 1 : null;

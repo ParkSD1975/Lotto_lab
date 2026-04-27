@@ -54,6 +54,10 @@
             }
             // 모든 필터값 초기화 (0-0, 미적용 상태)
             _resetAllFilterStorage();
+            // FilterLifecycle LOGOUT 이벤트 발화 (수동 플래그 제거 + 페이지 UI 리셋 신호)
+            if (window.FilterLifecycle && typeof window.FilterLifecycle.onLogout === 'function') {
+                window.FilterLifecycle.onLogout();
+            }
         }
     };
 
@@ -174,9 +178,17 @@
                 if (window.initFilterService) {
                     await window.initFilterService();
                 }
+                // FilterLifecycle LOGIN 이벤트 발화
+                if (window.FilterLifecycle && typeof window.FilterLifecycle.onLogin === 'function') {
+                    window.FilterLifecycle.onLogin(currentUser);
+                }
             } else if (event === 'SIGNED_OUT') {
                 console.log('👋 로그아웃됨');
                 _resetAllFilterStorage();
+                // FilterLifecycle LOGOUT 이벤트 발화 (onAuthStateChange 경유)
+                if (window.FilterLifecycle && typeof window.FilterLifecycle.onLogout === 'function') {
+                    window.FilterLifecycle.onLogout();
+                }
             }
         });
 

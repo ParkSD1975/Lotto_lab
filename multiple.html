@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html class="light" lang="ko">
 
 <head>
@@ -22,10 +22,13 @@
     <script src="js/config.js"></script>
     <script src="js/theme.js"></script>
     <script src="js/common_v2.js"></script>
-    <script src="js/aiProxy.js"></script>
+    <script src="js/aiProxy.js?v=20260426"></script>
     <script src="js/filter/FilterService.js"></script>
+    <script src="js/filter/FilterLifecycle.js"></script>
+    <script src="js/filter/FilterRuleEngine.js"></script>
     <script src="js/layout.js"></script>
-    <script src="js/deep_insight_panel.js"></script>
+    <script src="js/deep_insight_panel.js?v=20260426"></script>
+    <script src="js/premium_insight_panel.js?v=20260426"></script>
 
     <script>
         // 전역 변수 설정
@@ -50,10 +53,12 @@
             '3배수': [3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45],
             '4배수': [4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44],
             '5배수': [5, 10, 15, 20, 25, 30, 35, 40, 45],
+            '7배수': [7, 14, 21, 28, 35, 42],
+            '8배수': [8, 16, 24, 32, 40],
             '3·4배수': [12, 24, 36],
             '3·5배수': [15, 30, 45],
             '4·5배수': [20, 40],
-            '배수외': [1, 2, 7, 11, 13, 14, 17, 19, 22, 23, 26, 29, 31, 34, 37, 38, 41, 43]
+            '배수외': [1, 2, 11, 13, 17, 19, 22, 23, 26, 29, 31, 34, 37, 38, 41, 43]
         };
 
         // 색상 정의
@@ -61,6 +66,8 @@
             '3배수': '#4F6AFF',
             '4배수': '#10B981',
             '5배수': '#EC4899',
+            '7배수': '#F97316',
+            '8배수': '#06B6D4',
             '3·4배수': '#8B5CF6',
             '3·5배수': '#F59E0B',
             '4·5배수': '#14B8A6',
@@ -72,100 +79,115 @@
         let _multipleSelfSaving = false; // 자체 저장 StorageEvent 루프 방지
 
         // [추가] 최근 10회차 필터를 비활성화하고 UI를 초기화하는 함수
-        function deactivateRecent10IfActive() {
-            if (isRecentTenFilter) {
-                isRecentTenFilter = false;
-                highlightStartRound = null;
+        // [Fix] 배수 타입별 filter_definition 키 매핑
+        const MULTIPLE_KEY_MAP = {
+            '3배수':  'multiple_3_count',
+            '4배수':  'multiple_4_count',
+            '5배수':  'multiple_5_count',
+            '7배수':  'multiple_7_count',
+            '8배수':  'multiple_8_count',
+            '3·4배수':'multiple_3_4_count',
+            '3·5배수':'multiple_3_5_count',
+            '4·5배수':'multiple_4_5_count',
+            '배수외': 'no_multiple_count'
+        };
 
-                const btn = document.getElementById('recent10FilterBtn');
-                const btnText = document.getElementById('recent10BtnText');
-                if (btn) {
-                    btn.classList.remove('from-purple-500', 'to-purple-700', 'shadow-purple-200');
-                    btn.classList.add('from-blue-500', 'to-blue-600', 'shadow-blue-200');
-                }
-                if (btnText) btnText.textContent = '최근 10회차 필터 적용';
-
-                localStorage.setItem('multiple_period_is_manual', 'true');
-                saveFilterSettings();
-            }
-        }
-
-        // [추가] 수동 조작 마킹 - 모든 수동 UI 조작에서 호출
-        function markManual() {
-            localStorage.setItem('multiple_period_is_manual', 'true');
-            deactivateRecent10IfActive();
-        }
-
-        // [Fix] 필터 설정 저장 함수 — Utils.saveFilter 사용으로 StorageEvent 발생 + 대시보드 동기화
+        // [Fix] 필터 설정 저장 함수 — 배수 타입별 개별 키 저장
         async function saveFilterSettings() {
-            const filters = {};
-            Object.keys(multipleDefinitions).forEach(type => {
-                const minInput = document.getElementById(`min_${type}`);
-                const maxInput = document.getElementById(`max_${type}`);
-                if (minInput && maxInput) {
-                    filters[type] = {
-                        min: parseInt(minInput.value),
-                        max: parseInt(maxInput.value)
-                    };
-                }
-            });
-
-            const data = { filters: filters, recent10FilterActive: isRecentTenFilter };
             const enabled = document.getElementById('applyFilterCheck').checked;
 
             if (window.Utils && window.Utils.saveFilter) {
                 try {
                     _multipleSelfSaving = true;
-                    await window.Utils.saveFilter('multiple_3_count', data, enabled);
+                    for (const [type, key] of Object.entries(MULTIPLE_KEY_MAP)) {
+                        const minInput = document.getElementById(`min_${type}`);
+                        const maxInput = document.getElementById(`max_${type}`);
+                        if (!minInput || !maxInput) continue;
+                        const minVal = parseInt(minInput.value);
+                        const maxVal = parseInt(maxInput.value);
+                        // selectedValues: discrete_select 호환 (대시보드 렌더링용)
+                        const selectedValues = [];
+                        for (let _v = minVal; _v <= maxVal; _v++) selectedValues.push(_v);
+                        const data = {
+                            min: minVal,
+                            max: maxVal,
+                            selectedValues: selectedValues,
+                            recent10FilterActive: isRecentTenFilter
+                        };
+                        await window.Utils.saveFilter(key, data, enabled);
+                    }
                 } finally {
                     _multipleSelfSaving = false;
                 }
             }
         }
 
-        // [Fix] 필터 설정 불러오기 — Utils.loadFilter + targetRound 전달로 대시보드 저장값 우선 로드
+        // [Fix] 필터 설정 불러오기 — 배수 타입별 개별 키 로드 (레거시 번들 자동 마이그레이션)
         async function loadFilterSettings(passedData = null) {
             if (!passedData && window.initFilterService && (!window.filterService || !window.filterService.initialized)) {
                 await window.initFilterService();
             }
 
-            let saved = passedData;
+            const latestRound = allDrawData?.[0]?.round || null;
+            let anyLoaded = false;
+            let firstEnabled = undefined;
+            let firstRecent10 = undefined;
 
-            if (!saved && window.Utils && window.Utils.loadFilter) {
-                const latestRound = allDrawData?.[0]?.round || null;
-                saved = await window.Utils.loadFilter('multiple_3_count', latestRound);
+            // [1] 개별 키 로드 시도
+            if (window.Utils && window.Utils.loadFilter) {
+                for (const [type, key] of Object.entries(MULTIPLE_KEY_MAP)) {
+                    const raw = await window.Utils.loadFilter(key, latestRound);
+                    if (!raw) continue;
+                    const data = (raw.settings !== undefined) ? { ...raw.settings, enabled: raw.enabled } : raw;
+                    const minInput = document.getElementById(`min_${type}`);
+                    const maxInput = document.getElementById(`max_${type}`);
+                    if (minInput && maxInput && data.min !== undefined && data.max !== undefined) {
+                        minInput.value = data.min;
+                        maxInput.value = data.max;
+                        filterState[type] = { min: parseInt(data.min), max: parseInt(data.max) };
+                    }
+                    if (!anyLoaded) {
+                        firstEnabled = data.enabled;
+                        firstRecent10 = data.recent10FilterActive;
+                    }
+                    anyLoaded = true;
+                }
             }
 
-            if (saved) {
-                if (saved.filters) {
-                    Object.keys(saved.filters).forEach(type => {
+            // [2] 레거시 번들 마이그레이션: 개별 키가 없으면 구 multiple_3_count 번들 읽기
+            if (!anyLoaded && window.Utils && window.Utils.loadFilter) {
+                const legacy = await window.Utils.loadFilter('multiple_3_count', latestRound);
+                if (legacy && legacy.filters) {
+                    Object.keys(legacy.filters).forEach(type => {
                         const minInput = document.getElementById(`min_${type}`);
                         const maxInput = document.getElementById(`max_${type}`);
-                        if (minInput && maxInput && saved.filters[type]) {
-                            minInput.value = saved.filters[type].min;
-                            maxInput.value = saved.filters[type].max;
-                            if (window.filterState) window.filterState[type] = {
-                                min: parseInt(minInput.value),
-                                max: parseInt(maxInput.value)
-                            };
+                        if (minInput && maxInput && legacy.filters[type]) {
+                            minInput.value = legacy.filters[type].min;
+                            maxInput.value = legacy.filters[type].max;
+                            filterState[type] = { min: parseInt(legacy.filters[type].min), max: parseInt(legacy.filters[type].max) };
                         }
                     });
+                    firstEnabled = legacy.enabled;
+                    firstRecent10 = legacy.recent10FilterActive;
+                    anyLoaded = true;
                 }
-                if (saved.enabled !== undefined) {
+            }
+
+            if (anyLoaded) {
+                if (firstEnabled !== undefined) {
                     const toggle = document.getElementById('applyFilterCheck');
-                    if (toggle) toggle.checked = saved.enabled;
+                    if (toggle) toggle.checked = firstEnabled;
                 }
-                // [Fix] recent10 버튼 UI 상태 복원
+                // recent10 버튼 UI 상태 복원
                 const btn = document.getElementById('recent10FilterBtn');
                 const btnText = document.getElementById('recent10BtnText');
                 if (btn && btnText) {
-                    if (saved.recent10FilterActive) {
-                        isRecentTenFilter = true;
+                    isRecentTenFilter = !!firstRecent10;
+                    if (isRecentTenFilter) {
                         btn.classList.remove('from-blue-500', 'to-blue-600', 'shadow-blue-200');
                         btn.classList.add('from-purple-500', 'to-purple-700', 'shadow-purple-200');
                         btnText.textContent = '필터 해제';
                     } else {
-                        isRecentTenFilter = false;
                         btn.classList.remove('from-purple-500', 'to-purple-700', 'shadow-purple-200');
                         btn.classList.add('from-blue-500', 'to-blue-600', 'shadow-blue-200');
                         btnText.textContent = '최근 10회차 필터 적용';
@@ -357,16 +379,13 @@
                     </div>
 
                     <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
-                        <div class="grid grid-cols-7 gap-3 mb-6" id="statCards">
+                        <div class="grid grid-cols-9 gap-3 mb-6" id="statCards">
                         </div>
 
-                        <div class="ai-section p-4 mb-6 font-sans">
-                            <h3 class="text-lg font-bold text-gray-900 mb-4">딥러닝 Insight</h3>
-                            <div id="dlInsightContainer">
-                                <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
-                                    <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
-                                    <span class="text-sm">딥러닝 모델 분석 중 (7개 모델)...</span>
-                                </div>
+                        <div id="dlInsightContainer" class="mb-6">
+                            <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
+                                <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
+                                <span class="text-sm">딥러닝 모델 분석 중 (7개 모델)...</span>
                             </div>
                         </div>
 
@@ -379,6 +398,8 @@
                                         <option value="3배수">3배수</option>
                                         <option value="4배수">4배수</option>
                                         <option value="5배수">5배수</option>
+                                        <option value="7배수">7배수</option>
+                                        <option value="8배수">8배수</option>
                                         <option value="3·4배수">3·4배수</option>
                                         <option value="3·5배수">3·5배수</option>
                                         <option value="4·5배수">4·5배수</option>
@@ -480,6 +501,10 @@
                                         <th class="py-3 px-2 text-center text-sm w-20 cursor-pointer hover:bg-slate-700 transition-colors"
                                             onclick="changeGraphType('5배수')">5배수</th>
                                         <th class="py-3 px-2 text-center text-sm w-20 cursor-pointer hover:bg-slate-700 transition-colors"
+                                            onclick="changeGraphType('7배수')">7배수</th>
+                                        <th class="py-3 px-2 text-center text-sm w-20 cursor-pointer hover:bg-slate-700 transition-colors"
+                                            onclick="changeGraphType('8배수')">8배수</th>
+                                        <th class="py-3 px-2 text-center text-sm w-20 cursor-pointer hover:bg-slate-700 transition-colors"
                                             onclick="changeGraphType('3·4배수')">3·4배수</th>
                                         <th class="py-3 px-2 text-center text-sm w-20 cursor-pointer hover:bg-slate-700 transition-colors"
                                             onclick="changeGraphType('3·5배수')">3·5배수</th>
@@ -491,7 +516,7 @@
                                 </thead>
                                 <tbody id="drawsList" class="divide-y divide-gray-100">
                                     <tr>
-                                        <td colspan="9" class="p-10 text-center text-gray-500">
+                                        <td colspan="11" class="p-10 text-center text-gray-500">
                                             <div class="flex items-center justify-center">
                                                 <span
                                                     class="material-symbols-outlined animate-spin mr-2">progress_activity</span>데이터를
@@ -526,7 +551,7 @@
                 if (error) throw error;
 
                 if (!data || data.length === 0) {
-                    document.getElementById('drawsList').innerHTML = '<tr><td colspan="9" class="p-10 text-center">데이터가 없습니다.</td></tr>';
+                    document.getElementById('drawsList').innerHTML = '<tr><td colspan="11" class="p-10 text-center">데이터가 없습니다.</td></tr>';
                     return;
                 }
                 console.log(`✅ 배수 DB 데이터 로드: ${data.length}개`);
@@ -551,6 +576,9 @@
                 // [수정] 필터 적용 상태는 loadFilterSettings에서 로드된 값을 따름
                 // (기존의 강제 true 설정을 제거하여 저장된 상태 유지)
                 updateRange(currentRange);
+
+                // AI 프리미엄 전략 리포트 초기 렌더링
+                initDeepInsight();
 
                 // [추가] 토요일인 경우 최근 10회차 필터 자동 적용
                 // [수정] 토요일 여부와 상관없이 새로운 회차가 업데이트되었을 때만 자동 필터 적용
@@ -603,7 +631,7 @@
 
             } catch (err) {
                 console.error('데이터 로드 실패:', err);
-                document.getElementById('drawsList').innerHTML = `<tr><td colspan="9" class="p-10 text-center text-red-500">데이터 로드 실패<br>${err.message}</td></tr>`;
+                document.getElementById('drawsList').innerHTML = `<tr><td colspan="11" class="p-10 text-center text-red-500">데이터 로드 실패<br>${err.message}</td></tr>`;
             }
         });
 
@@ -811,7 +839,7 @@
             document.getElementById('displayedCount').textContent = draws.length;
 
             if (!draws || draws.length === 0) {
-                container.innerHTML = '<tr><td colspan="9" class="p-10 text-center text-gray-500">표시할 데이터가 없습니다.</td></tr>';
+                container.innerHTML = '<tr><td colspan="11" class="p-10 text-center text-gray-500">표시할 데이터가 없습니다.</td></tr>';
                 return;
             }
 
@@ -1399,18 +1427,42 @@ ${contextData}
             '3배수':   { key: 'mul3',         label: '3의 배수' },
             '4배수':   { key: 'mul4',         label: '4의 배수' },
             '5배수':   { key: 'mul5',         label: '5의 배수' },
+            '7배수':   { key: 'mul7',         label: '7의 배수' },
+            '8배수':   { key: 'mul8',         label: '8의 배수' },
             '3·4배수': { key: 'mul34',        label: '3·4의 배수' },
             '3·5배수': { key: 'mul35',        label: '3·5의 배수' },
             '4·5배수': { key: 'mul45',        label: '4·5의 배수' },
             '배수외':  { key: 'non_multiple', label: '배수외' },
         };
 
-        // 딥러닝 인사이트 패널 초기화 — 선택된 카드 타입에 맞게 렌더링
+        // 딥러닝 인사이트 패널 초기화 — 선택된 배수 타입에 맞게 렌더링
+        function setPremiumMultiple(type) {
+            selectedGraphType = type;
+            initDeepInsight();
+        }
+
         function initDeepInsight() {
+            if (!selectedGraphType) selectedGraphType = '3배수';
+            if (window.PremiumInsightPanel) {
+                const mapped = _multipleFilterMap[selectedGraphType] || _multipleFilterMap['3배수'];
+                const recent = (allDrawData || []).slice(0, 20).map(d => {
+                    if (!d || !d.counts) return 0;
+                    return d.counts[selectedGraphType] ?? 0;
+                });
+                const tabs = {
+                    items: Object.keys(_multipleFilterMap).map(k => ({ key: k, label: k })),
+                    activeKey: selectedGraphType,
+                    onSelect: (k) => setPremiumMultiple(k)
+                };
+                PremiumInsightPanel.render('dlInsightContainer', mapped.key, mapped.label, {
+                    recentValues: recent, skipMenuFetch: true, tabs
+                });
+                return;
+            }
+            // PremiumInsightPanel 미로드 시 DeepInsightPanel 폴백
             if (!window.DeepInsightPanel) return;
-            const selected = (typeof selectedGraphType !== 'undefined' && selectedGraphType) || '3배수';
-            const mapped   = _multipleFilterMap[selected] || _multipleFilterMap['3배수'];
-            DeepInsightPanel.render('dlInsightContainer', mapped.key, mapped.label);
+            const mapped = _multipleFilterMap[selectedGraphType] || _multipleFilterMap['3배수'];
+            DeepInsightPanel.renderFromDB('dlInsightContainer', mapped.key, mapped.label);
         }
 
         // [표준화] 최근 10회차 필터 자동 적용
@@ -1443,17 +1495,19 @@ ${contextData}
             });
 
             // 3. UI 업데이트 (보라색 토글)
-            btn.classList.remove('from-blue-500', 'to-blue-600');
-            btn.classList.add('from-purple-500', 'to-purple-700');
+            btn.classList.remove('from-blue-500', 'to-blue-600', 'shadow-blue-200');
+            btn.classList.add('from-purple-500', 'to-purple-700', 'shadow-purple-200');
             btnText.textContent = '필터 해제';
 
-            const toggle = document.getElementById('recentTenToggle');
-            if (toggle) toggle.checked = true;
-
-            // 4. 하이라이트 및 리스트 갱신
+            // 4. 상태 플래그 먼저 설정 후 렌더링
+            //    applyFilter(true)로 skipSave=true → markManual() 호출 생략
+            //    (markManual이 deactivateRecent10IfActive를 호출해 즉시 해제되는 버그 방지)
             highlightStartRound = allDrawData[0].round;
             isRecentTenFilter = true;
-            applyFilter();
+            saveFilterSettings(); // 상태 저장 (isRecentTenFilter=true인 채로)
+            const displayData = getFilteredDraws();
+            renderDrawsList(displayData);
+            updateStats(displayData);
 
             console.log('최근 10회차 배수 필터 적용 완료');
         }
@@ -1502,10 +1556,25 @@ ${contextData}
             renderDrawsList(displayData);
         }
 
+        // ── FilterEngine Lifecycle Integration (Phase 3) ─────────────
+        window.addEventListener('filterLifecycle', function _filterLifecycleHandler(e) {
+            var _detail = e.detail;
+            if (_detail.type === 'NEW_ROUND') {
+                if (typeof checkAndResetOnNewDraw === 'function') checkAndResetOnNewDraw();
+            } else if (_detail.type === 'LOGOUT' || _detail.type === 'RESTORED') {
+                if (typeof loadFilterSettings === 'function') loadFilterSettings();
+            }
+        });
+
         // [Fix] 대시보드 실시간 동기화 (Storage Event) — 자체 저장 이벤트 무시
         window.addEventListener('storage', async function (e) {
             if (_multipleSelfSaving) return; // 자체 저장 이벤트 무시
-            const targetKeys = ['multiple_3_count', 'multiple_filter'];
+            const targetKeys = [
+                'multiple_3_count', 'multiple_4_count', 'multiple_5_count',
+                'multiple_7_count', 'multiple_8_count',
+                'multiple_3_4_count', 'multiple_3_5_count', 'multiple_4_5_count',
+                'no_multiple_count', 'multiple_filter'
+            ];
             if (targetKeys.includes(e.key)) {
                 // 로그아웃 감지
                 if (e.newValue) {

@@ -333,6 +333,16 @@ class FilterService {
         }
 
         console.log(`✅ 필터 저장: ${filterKey}`, { enabled, settings });
+
+        // [핵심] localStorage도 동기화 — Utils.loadFilter fresh-path와 filter_dashboard.js 양쪽이
+        // 동일한 값을 보도록 보장. targetRound가 있는 경우(회차별 설정)는 전역 localStorage를 덮지 않음.
+        if (!targetRound) {
+            try {
+                const envelope = { settings, enabled, _ts: Date.now() };
+                localStorage.setItem(actualFilterKey, JSON.stringify(envelope));
+            } catch (_) { /* localStorage 쓰기 실패 무시 */ }
+        }
+
         return data;
     }
 
@@ -807,6 +817,121 @@ class FilterService {
         });
 
         return `[커스텀분석 필터 (${filters.length}개 활성)]\n${lines.join('\n')}`;
+    }
+
+    // ==========================================
+    // [Phase 4] AI 필터 범위 로드 (Single Source of Truth)
+    // ==========================================
+
+    /**
+     * deep_analysis_history.analysis_data.range_analysis 에서 AI 추천 필터 범위 조회.
+     * 별도 테이블 없음 — 기존 JSONB 컬럼 재활용.
+     * @param {number|null} roundNumber - 특정 회차 지정 (null = 최신)
+     * @returns {object|null} { sum_min, sum_max, ac_value_min, ac_value_max, ... , _round, _source } 또는 null
+     */
+    async loadAIRanges(roundNumber = null) {
+        // 5분 캐시 (동일 회차 재조회 방지)
+        const cacheKey = `_aiRanges_${roundNumber || 'latest'}`;
+        const cached = this[cacheKey];
+        if (cached && (Date.now() - cached._ts < 5 * 60 * 1000)) return cached;
+
+        try {
+            let query = this.supabase
+                .from('deep_analysis_history')
+                .select('target_round, analysis_data')
+                .order('target_round', { ascending: false })
+                .limit(1);
+
+            if (roundNumber) query = query.eq('target_round', roundNumber);
+
+            const { data, error } = await query.maybeSingle();
+            if (error || !data) {
+                console.warn('[FilterService] deep_analysis_history 데이터 없음');
+                return null;
+            }
+
+            const analysis = typeof data.analysis_data === 'string'
+                ? JSON.parse(data.analysis_data)
+                : data.analysis_data;
+
+            const ra = analysis?.range_analysis || analysis?.analysis?.range_analysis;
+            if (!ra) {
+                console.warn('[FilterService] range_analysis 필드 없음');
+                return null;
+            }
+
+            // range_analysis 키 → [min, max] 파싱 헬퍼
+            const parseRange = (val) => {
+                if (!val) return [null, null];
+                if (Array.isArray(val)) return [Number(val[0]), Number(val[1])];
+                if (typeof val === 'string' && val.includes('~')) {
+                    const p = val.split('~');
+                    return [Number(p[0]), Number(p[1])];
+                }
+                return [null, null];
+            };
+            const r = (key) => parseRange(ra[key]?.range);
+
+            // filter_dashboard.js AI_KEY_MAP 호환 평탄화
+            const [sumMin, sumMax]         = r('sum');
+            const [acMin, acMax]           = r('ac');
+            const [tailMin, tailMax]       = r('tail_sum');
+            const [oddMin, oddMax]         = r('odd');
+            const [highMin, highMax]       = r('high');
+            const [consMin, consMax]       = r('consecutive');
+            const [primeMin, primeMax]     = r('prime');
+            const [compMin, compMax]       = r('composite');
+            const [squareMin, squareMax]   = r('square');
+            const [triMin, triMax]         = r('triangular');
+            const [twinMin, twinMax]       = r('twin');
+            const [mul3Min, mul3Max]       = r('mul3');
+            const [mul7Min, mul7Max]       = r('mul7');
+            const [mul8Min, mul8Max]       = r('mul8');
+            const [misMin, misMax]         = r('missing');
+            const [nbMin, nbMax]           = r('neighbor');
+
+            const result = {
+                // filter_dashboard.js AI_KEY_MAP 키
+                sum_min: sumMin,           sum_max: sumMax,
+                ac_value_min: acMin,       ac_value_max: acMax,
+                tail_sum_min: tailMin,     tail_sum_max: tailMax,
+                odd_count_min: oddMin,     odd_count_max: oddMax,
+                high_count_min: highMin,   high_count_max: highMax,
+                consecutive_min: consMin,  consecutive_max: consMax,
+                prime_min: primeMin,       prime_max: primeMax,
+                composite_min: compMin,    composite_max: compMax,
+                square_min: squareMin,     square_max: squareMax,
+                triangular_min: triMin,    triangular_max: triMax,
+                twin_min: twinMin,         twin_max: twinMax,
+                mul3_min: mul3Min,         mul3_max: mul3Max,
+                mul7_min: mul7Min,         mul7_max: mul7Max,
+                mul8_min: mul8Min,         mul8_max: mul8Max,
+                missing_min: misMin,       missing_max: misMax,
+                neighbor_min: nbMin,       neighbor_max: nbMax,
+                // 메타데이터
+                _round: data.target_round,
+                _source: 'ensemble',
+                _ts: Date.now()
+            };
+
+            this[cacheKey] = result;
+            console.log(`[FilterService] AI 범위 로드 완료 (${data.target_round}회차, 앙상블 기반)`);
+            return result;
+        } catch (e) {
+            console.warn('[FilterService] loadAIRanges 실패:', e);
+            return null;
+        }
+    }
+
+    /**
+     * AI 추천 범위 뱃지 HTML 생성 헬퍼.
+     * @param {number} min
+     * @param {number} max
+     * @returns {string} HTML 뱃지
+     */
+    static aiRangeBadge(min, max) {
+        if (min == null || max == null) return '';
+        return `<span class="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-50 text-indigo-600 ring-1 ring-indigo-200 cursor-pointer ai-range-badge" data-min="${min}" data-max="${max}" title="클릭하면 AI 추천값 적용">AI ${min}~${max}</span>`;
     }
 }
 

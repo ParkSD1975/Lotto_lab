@@ -17,11 +17,10 @@ from rag.data_loader import _compute_stats
 
 
 def get_llm() -> ChatGoogleGenerativeAI:
-    return ChatGoogleGenerativeAI(
-        model=LLM_MODEL,
-        google_api_key=GOOGLE_API_KEY,
-        temperature=0.7,
-    )
+    llm_kwargs = {"model": LLM_MODEL, "temperature": 0.7}
+    if GOOGLE_API_KEY:
+        llm_kwargs["google_api_key"] = GOOGLE_API_KEY
+    return ChatGoogleGenerativeAI(**llm_kwargs)
 
 
 async def generate_report(target_round: int = None) -> dict:

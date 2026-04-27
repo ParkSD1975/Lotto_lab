@@ -1,7 +1,7 @@
 import json
-from langchain.prompts import PromptTemplate
+from langchain_core.prompts import PromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.schema.output_parser import StrOutputParser
+from langchain_core.output_parsers import StrOutputParser
 import config
 
 # AI가 이해해야 할 시스템의 명령어 구조 정의
@@ -42,11 +42,10 @@ INTERPRET_PROMPT = """
 """
 
 def create_interpret_chain():
-    llm = ChatGoogleGenerativeAI(
-        model="gemini-2.0-flash",
-        temperature=0.0, # 정확한 포맷 변환을 위해 창의성 0 설정
-        google_api_key=config.GOOGLE_API_KEY
-    )
+    llm_kwargs = {"model": config.LLM_MODEL, "temperature": 0.0}
+    if config.GOOGLE_API_KEY:
+        llm_kwargs["google_api_key"] = config.GOOGLE_API_KEY
+    llm = ChatGoogleGenerativeAI(**llm_kwargs)
 
     prompt = PromptTemplate(
         template=INTERPRET_PROMPT,

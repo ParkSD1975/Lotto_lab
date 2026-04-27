@@ -131,9 +131,11 @@
 
     // ── 새 회차 감지 및 바스켓 초기화 ───────────────────────
     let isCheckingRound = false;
+    let _wasCleared = false; // 새 회차로 인해 초기화됐는지 추적 (syncFromDB 생략용)
     async function checkAndClearIfNewRound() {
         if (isCheckingRound || !window.supabaseClient) return;
         isCheckingRound = true;
+        _wasCleared = false;
 
         try {
             // 가장 최신 회차 번호만 1개 가져오기
@@ -153,7 +155,23 @@
             // 로컬에 이전 회차가 기록되어 있고, 최신 회차보다 작다면 (새 회차가 업데이트 되었다면)
             if (savedRound && savedRound < latestRound) {
                 console.log(`[Basket] 새로운 회차 감지 (${savedRound} -> ${latestRound}). 바스켓을 비웁니다.`);
+                // localStorage 초기화
                 save({ fixed: [], exclude: [], current_round: latestRound });
+                _wasCleared = true;
+                // ── FilterLifecycle 에 NEW_ROUND 통보 ──────────────────
+                if (window.FilterLifecycle && typeof window.FilterLifecycle.onNewRound === 'function') {
+                    window.FilterLifecycle.onNewRound(savedRound, latestRound);
+                }
+                // Supabase DB도 함께 초기화 (재로드 시 DB sync로 복원되는 것 방지)
+                if (window.filterService?.initialized) {
+                    try {
+                        await window.filterService.saveSetting('fixed_numbers', { numbers: [] }, false);
+                        await window.filterService.saveSetting('excluded_numbers', { numbers: [] }, false);
+                        console.log('[Basket] Supabase 고정수/제외수 초기화 완료');
+                    } catch (dbErr) {
+                        console.warn('[Basket] Supabase 초기화 실패:', dbErr);
+                    }
+                }
                 window.BasketUI.showToast('새로운 로또 회차가 업데이트되어 번호 바구니를 비웠습니다.', 'info');
             }
             // 기록된 회차가 없거나, 같거나 크다면 현재 최신 회차로 기록만 갱신
@@ -337,12 +355,13 @@
                 });
             }
 
-            if (window.filterService?.initialized) {
+            // 새 회차 체크를 먼저 실행 (신규 회차면 DB도 함께 초기화)
+            await checkAndClearIfNewRound();
+
+            // 새 회차로 초기화된 경우 DB sync 생략 (초기화 직후 복원 방지)
+            if (!_wasCleared && window.filterService?.initialized) {
                 await syncFromDB();
             }
-
-            // Sync from DB first, THEN check and clear if new round
-            await checkAndClearIfNewRound();
         }, 1000);
     });
 

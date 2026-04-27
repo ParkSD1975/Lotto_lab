@@ -9,23 +9,30 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from routes import analysis, chat, report, interpret, vectors
 from routes import predictions, performance, explain, pipeline, deep_analysis_v3
-from routes import smart_query
+from routes import smart_query, llm_filter
+from routes import predictions_v4           # P: Single Source of Truth API v4
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from pipeline.weekly_pipeline import WeeklyPipeline
+from pipeline.weekly_pipeline_v2 import WeeklyPipelineV2
 
 scheduler = AsyncIOScheduler()
 
 app = FastAPI(title="Lotto AI Backend v4", version="4.0.0")
 
+def _run_weekly_pipeline_v2():
+    """WeeklyPipelineV2 동기 래퍼 (APScheduler ThreadPoolExecutor용)"""
+    pipeline = WeeklyPipelineV2()
+    return pipeline.run()
+
+
 @app.on_event("startup")
 async def start_scheduler():
     """앱 시작 시 APScheduler 스케줄러 및 주간 파이프라인 등록"""
     try:
-        weekly_pipeline_bot = WeeklyPipeline()
-        scheduler.add_job(weekly_pipeline_bot.run, 'cron', day_of_week='sat', hour=21, minute=30, id='weekly_analysis')
+        scheduler.add_job(_run_weekly_pipeline_v2, 'cron', day_of_week='sat', hour=21, minute=30, id='weekly_analysis_v2')
         scheduler.start()
-        print("[INFO] Weekly Pipeline Scheduler started (APScheduler: Sat 21:30).")
+        print("[INFO] Weekly Pipeline V2 Scheduler started (APScheduler: Sat 21:30).")
     except Exception as e:
         print(f"[WARN] Scheduler 시작 실패 (무시하고 계속): {e}")
 
@@ -79,6 +86,41 @@ app.include_router(explain.router)
 app.include_router(pipeline.router)
 app.include_router(deep_analysis_v3.router)
 app.include_router(smart_query.router)
+app.include_router(llm_filter.router)
+app.include_router(predictions_v4.router)  # P: weekly_* 읽기 전용 엔드포인트
+
+
+@app.get("/debug-env")
+async def debug_env():
+    """임시 디버그: 어떤 API 키 환경변수가 설정돼 있는지 확인 (키 앞 8자리 표시)"""
+    import os
+    checks = ["GOOGLE_API_KEY", "GEMMA_API_KEY", "GEMINI_API_KEY", "GOOGLE_GEMMA_KEY", "HF_TOKEN", "HUGGINGFACE_TOKEN"]
+    result = {}
+    for k in checks:
+        val = os.getenv(k, "")
+        result[k] = val[:8] + "****" if val else "(not set)"
+
+    # Gemini API 직접 테스트
+    import httpx
+    key = os.getenv("GOOGLE_API_KEY", "")
+    if key:
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent?key={key}",
+                    json={"contents": [{"parts": [{"text": "hi"}]}]}
+                )
+                result["api_test"] = f"HTTP {resp.status_code}: {resp.text[:200]}"
+        except Exception as e:
+            result["api_test"] = f"request error: {str(e)[:200]}"
+    else:
+        result["api_test"] = "no key"
+
+    # 전체 환경변수에서 GOOGLE 관련 키 스캔
+    google_vars = {k: v[:8]+"****" for k, v in os.environ.items() if "google" in k.lower() or "gemma" in k.lower() or "gemini" in k.lower()}
+    result["google_env_scan"] = google_vars
+
+    return result
 
 
 @app.get("/health")

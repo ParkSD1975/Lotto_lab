@@ -45,6 +45,11 @@ document.addEventListener("DOMContentLoaded", function () {
             sidebarUrl: 'components/sidebar_custom.html',
             type: 'custom'
         },
+        'custom_simulator.html': {
+            gnbIndex: 3,
+            sidebarUrl: null,
+            type: 'full'
+        },
         // 번호 생성 페이지
         'generator.html': {
             gnbIndex: 4,
@@ -134,9 +139,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 document.head.appendChild(apScript);
             } else {
                 // 이미 로드된 경우 뱃지 갱신
-                if (window.AcctPanel && typeof window.AcctPanel.refresh === 'function') {
-                    setTimeout(function() { window.AcctPanel.refresh(); }, 50);
-                }
+                setTimeout(() => window.AcctPanel?.refresh(), 50);
             }
 
             // GNB 메뉴 처리
@@ -480,8 +483,8 @@ async function renderCustomMenuItems() {
         // [수정] filterService 우선 → auth.getUser() 비동기 타이밍 이슈 해결
         // 로그아웃 직후 auth 상태가 비확정일 때, filterService가 이미 확정된 userId를 가지고 있으면 우선 사용
         // _lastLoginUserId: 로그아웃 전에 auth.js에서 백업해둔 유저 ID (3번째 fallback)
-        const _menuUserId = (window.filterService && window.filterService.userId)
-            || ((await window.supabaseClient.auth.getUser()).data && (await window.supabaseClient.auth.getUser()).data.user ? (await window.supabaseClient.auth.getUser()).data.user.id : null)
+        const _menuUserId = window.filterService?.userId
+            || (await window.supabaseClient.auth.getUser()).data?.user?.id
             || localStorage.getItem('_lastLoginUserId')
             || null;
 
@@ -543,7 +546,7 @@ async function renderCustomMenuItems() {
                 const params = new URLSearchParams(window.location.search);
                 const currentId = params.get('id');
                 const isActive = currentId === item.id;
-                const isFilterEnabled = (item.filter_config && item.filter_config.enabled === true);
+                const isFilterEnabled = item.filter_config?.enabled === true;
 
                 // 해당 유형의 아이콘 가져오기 (없으면 기본 아이콘)
                 const iconName = iconMap[item.type] || 'auto_awesome';
@@ -649,10 +652,8 @@ function initHeaderModalFunctions() {
 
     // 1단계: 프롬프트 분석 (Real AI by Edge Function)
     window.analyzePrompt = async function () {
-        const titleEl = document.getElementById('newAnalysisTitle');
-        const title = titleEl ? titleEl.value.trim() : '';
-        const promptEl = document.getElementById('newAnalysisPrompt');
-        const prompt = promptEl ? promptEl.value.trim() : '';
+        const title = document.getElementById('newAnalysisTitle')?.value.trim();
+        const prompt = document.getElementById('newAnalysisPrompt')?.value.trim();
 
         if (!title || !prompt) {
             alert("분석 이름과 내용을 모두 입력해주세요.");
@@ -771,15 +772,15 @@ Return ONLY the JSON. No markdown.
             if (dynamicArea) dynamicArea.classList.remove('hidden');
 
             let ruleText = "알 수 없는 규칙";
-            const formula = (data.rules && data.rules.formula) ? data.rules.formula : null;
-            const val = (data.rules && data.rules.value) || 0;
+            const formula = data.rules?.formula;
+            const val = data.rules?.value || 0;
 
             if (formula === 'prev_plus_n') ruleText = `규칙: 직전 회차 번호 + ${val}`;
             else if (formula === 'prev_minus_n') ruleText = `규칙: 직전 회차 번호 - ${val}`;
             else if (formula === 'carryover') ruleText = "규칙: 이월수 (직전 회차 그대로)";
             else if (formula === 'draw_date_end') ruleText = "규칙: 당첨일(추첨일) 일자 기준 끝수 분석";
             else if (formula === 'round_end_digit') ruleText = val ? `규칙: 회차 끝수 분석 (오프셋: ${val})` : "규칙: 회차 끝수 분석";
-            else if (formula === 'math_expression') ruleText = '규칙: 수식 ( ' + (data.rules && data.rules.expression ? data.rules.expression : 'x') + ' )';
+            else if (formula === 'math_expression') ruleText = `규칙: 수식 ( ${data.rules?.expression || 'x'} )`;
 
             if (ruleTextEl) ruleTextEl.textContent = ruleText;
 
@@ -794,8 +795,8 @@ Return ONLY the JSON. No markdown.
             let aiRuleText = "AI 앙상블 분석";
             if (data.type === 'ai_ensemble_fixed') aiRuleText = "AI 강력 추천 고정수 분석";
             else if (data.type === 'ai_ensemble_excluded') aiRuleText = "AI 확률 기반 제외수 분석";
-            else if (data.type === 'ai_model_top') aiRuleText = '전술 모델(' + (data.rules && data.rules.model ? data.rules.model : 'Ensemble') + ') 상위 ' + (data.rules && data.rules.count ? data.rules.count : 10) + '개 분석';
-            else if (data.type === 'ai_model_bottom') aiRuleText = '전술 모델(' + (data.rules && data.rules.model ? data.rules.model : 'Ensemble') + ') 하위 ' + (data.rules && data.rules.count ? data.rules.count : 10) + '개 분석';
+            else if (data.type === 'ai_model_top') aiRuleText = `전술 모델(${data.rules?.model || 'Ensemble'}) 상위 ${data.rules?.count || 10}개 분석`;
+            else if (data.type === 'ai_model_bottom') aiRuleText = `전술 모델(${data.rules?.model || 'Ensemble'}) 하위 ${data.rules?.count || 10}개 분석`;
 
             if (ruleTextEl) ruleTextEl.textContent = aiRuleText;
 
@@ -840,10 +841,9 @@ Return ONLY the JSON. No markdown.
         btnSave.disabled = true;
 
         try {
-            const userTitleEl = document.getElementById('newAnalysisTitle');
-            const userTitle = userTitleEl ? userTitleEl.value.trim() : '';
-            const _saveUserId = (window.filterService && window.filterService.userId)
-                || ((await window.supabaseClient.auth.getUser()).data && (await window.supabaseClient.auth.getUser()).data.user ? (await window.supabaseClient.auth.getUser()).data.user.id : null);
+            const userTitle = document.getElementById('newAnalysisTitle')?.value.trim();
+            const _saveUserId = window.filterService?.userId
+                || (await window.supabaseClient.auth.getUser()).data?.user?.id;
             const { data, error } = await window.supabaseClient
                 .from('ai_custom_analyses')
                 .insert([{

@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html class="light" lang="ko">
 
 <head>
@@ -21,11 +21,14 @@
 
     <script src="js/config.js"></script>
     <script src="js/theme.js"></script>
-    <script src="js/aiProxy.js"></script>
+    <script src="js/aiProxy.js?v=20260426"></script>
     <script src="js/common_v2.js"></script>
     <script src="js/filter/FilterService.js"></script>
+    <script src="js/filter/FilterLifecycle.js"></script>
+    <script src="js/filter/FilterRuleEngine.js"></script>
     <script src="js/layout.js"></script>
-    <script src="js/deep_insight_panel.js"></script>
+    <script src="js/deep_insight_panel.js?v=20260426"></script>
+    <script src="js/premium_insight_panel.js?v=20260426"></script>
 
     <!-- NLP Modules -->
     <script src="js/NLPProcessor.js"></script>
@@ -56,8 +59,8 @@
                 isRecentTenFilter = false;
                 highlightStartRound = null;
                 if (typeof updateRecent10FilterUI === 'function') updateRecent10FilterUI();
+                // [수정] saveFilterSettings() 제거 — 호출 측에서 저장 처리 (경쟁 상태 방지)
                 localStorage.setItem('consecutive_number_is_manual', 'true');
-                saveFilterSettings();
             }
         }
 
@@ -384,13 +387,10 @@
                         <p class="text-sm text-gray-500 mb-3">출현 비중 통계 (클릭하여 조합 필터 설정)</p>
                         <div class="grid grid-cols-6 gap-3 mb-6" id="statCards"></div>
 
-                        <div class="ai-section p-8 pb-10 mb-6 font-sans">
-                            <h3 class="text-lg font-bold text-gray-900 mb-4">딥러닝 Insight</h3>
-                            <div id="dlInsightContainer">
-                                <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
-                                    <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
-                                    <span class="text-sm">딥러닝 모델 분석 중 (7개 모델)...</span>
-                                </div>
+                        <div id="dlInsightContainer" class="mb-8">
+                            <div class="flex items-center justify-center gap-3 py-14 text-gray-400 font-sans">
+                                <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
+                                <span class="text-sm">딥러닝 모델 분석 중 (7개 모델)...</span>
                             </div>
                         </div>
 
@@ -593,13 +593,19 @@
                     document.getElementById('drawsList').innerHTML = '<tr><td colspan="13" class="p-10 text-center text-gray-500">데이터가 없습니다.</td></tr>';
                     return;
                 }
-                console.log(`✅ 연번 DB 데이터 로드: ${data.length}개`);
+                
+                const totalCount = data.length;
+                console.log(`✅ 연번 DB 데이터 로드: ${totalCount}개`);
 
                 processData(data);
 
-                const totalCount = allDrawData.length;
+                // [추가] 전역 데이터 노출 (AI Insight용)
+                window.allDrawData = allDrawData;
                 const rangeSlider = document.getElementById('rangeSlider');
-                if (rangeSlider) rangeSlider.max = totalCount;
+                if (rangeSlider) {
+                    rangeSlider.max = totalCount;
+                    rangeSlider.value = currentRange;
+                }
                 document.getElementById('totalRangeDisplay').textContent = `최대 ${totalCount.toLocaleString()}회`;
                 const p1203 = document.getElementById('preset1203');
                 if (p1203) p1203.setAttribute('onclick', `setRange(${totalCount})`);
@@ -633,6 +639,16 @@
                     renderDrawsList(listData);
                 }
 
+                // ── FilterEngine Lifecycle Integration (Phase 3) ─────────────
+                window.addEventListener('filterLifecycle', function _filterLifecycleHandler(e) {
+                    var _detail = e.detail;
+                    if (_detail.type === 'NEW_ROUND') {
+                        if (typeof checkAndResetOnNewDraw === 'function') checkAndResetOnNewDraw();
+                    } else if (_detail.type === 'LOGOUT' || _detail.type === 'RESTORED') {
+                        if (typeof loadFilterSettings === 'function') loadFilterSettings();
+                    }
+                });
+
                 // [추가] 대시보드 연동을 위한 Storage 이벤트 리스너
                 window.addEventListener('storage', async function (e) {
                     if (_consecutiveSelfSaving) return; // 자체 저장 이벤트 무시
@@ -660,8 +676,8 @@
 
                 updateRange(currentRange);
 
-                // AI 분석 자동 실행 (common_v2 엔진 사용)
-                // initDeepInsight();
+                // [수정] AI 분석 자동 실행 (표준화)
+                initDeepInsight();
             } catch (err) {
                 console.error('데이터 로드 실패:', err);
                 const listEl = document.getElementById('drawsList');
@@ -747,12 +763,12 @@
 
         function processData(rawData) {
             allDrawData = rawData.map(draw => {
-                const neighborCount = countNeighbors(draw.numbers);
+                const consecutiveCount = countNeighbors(draw.numbers);
                 const neighborNums = getNeighborNumbers(draw.numbers);
                 const runs = getRuns(draw.numbers);
                 return {
                     ...draw,
-                    neighbor: neighborCount,
+                    consecutive_count: consecutiveCount,
                     neighborNumbers: neighborNums,
                     ...runs
                 };
@@ -785,8 +801,8 @@
             let min = 5;
             let max = 0;
             recent10.forEach(d => {
-                if (d.neighbor < min) min = d.neighbor;
-                if (d.neighbor > max) max = d.neighbor;
+                if (d.consecutive_count < min) min = d.consecutive_count;
+                if (d.consecutive_count > max) max = d.consecutive_count;
             });
 
             selectedCounts.clear();
@@ -902,7 +918,7 @@
 
             const counts = [0, 0, 0, 0, 0, 0];
             data.forEach(d => {
-                if (counts[d.neighbor] !== undefined) counts[d.neighbor]++;
+                if (counts[d.consecutive_count] !== undefined) counts[d.consecutive_count]++;
             });
 
             for (let i = 0; i <= 5; i++) {
@@ -916,7 +932,7 @@
             if (!isChecked) return true;
 
             // 연번 개수 필터
-            if (selectedCounts.size > 0 && !selectedCounts.has(draw.neighbor)) return false;
+            if (selectedCounts.size > 0 && !selectedCounts.has(draw.consecutive_count)) return false;
 
             // 연번 형태 필터
             const r3 = document.getElementById('chkRun3').checked;
@@ -979,7 +995,7 @@
             if (isRecentTenFilter) {
                 isRecentTenFilter = false;
                 highlightStartRound = null;
-                
+
                 const btn = document.getElementById('recent10FilterBtn');
                 const btnText = document.getElementById('recent10BtnText');
                 if (btn) {
@@ -987,15 +1003,15 @@
                     btn.classList.add('from-blue-500', 'to-blue-600', 'shadow-blue-200');
                 }
                 if (btnText) btnText.textContent = '최근 10회차 필터 적용';
-                
+
                 const toggle = document.getElementById('applyFilterCheck');
                 if (toggle) toggle.checked = true;
 
                 // 하이라이트 즉시 해제
                 document.querySelectorAll('.row-highlight').forEach(el => el.classList.remove('row-highlight'));
-                
+
+                // [수정] saveFilterSettings() 제거 — 호출 측에서 저장 처리 (경쟁 상태 방지)
                 localStorage.setItem('consecutive_filter_isManual', 'true');
-                saveFilterSettings();
             }
         }
 
@@ -1030,7 +1046,7 @@
             if (displayedCountEl) displayedCountEl.textContent = draws.length;
 
             draws.forEach((draw, index) => {
-                const currentNeighbor = draw.neighbor;
+                const currentNeighbor = draw.consecutive_count;
                 const currentRound_val = draw.round;
 
                 const notDrawnCells = Array.from({ length: 6 }, (_, count) => {
@@ -1042,7 +1058,7 @@
                         let notDrawnCount = 1;
                         let lastRound = null;
                         for (let i = index; i < allDrawData.length; i++) {
-                            if (allDrawData[i].neighbor === count) {
+                            if (allDrawData[i].consecutive_count === count) {
                                 lastRound = allDrawData[i].round;
                                 break;
                             }
@@ -1117,9 +1133,9 @@
                     <td class="py-4 px-4"><div class="flex gap-1 justify-center items-center w-[270px] mx-auto">${numberBalls}</div></td>
                     <td class="py-4 px-2">
                         <div class="flex justify-center">
-                            <span onclick="event.stopPropagation(); toggleCellHighlight('neighbor', ${draw.neighbor})" 
-                                class="inline-flex items-center justify-center w-8 h-8 rounded-full cursor-pointer hover:bg-gray-100 transition-all font-bold ${getHighlightClass('neighbor', draw.neighbor)}">
-                                ${draw.neighbor}
+                            <span onclick="event.stopPropagation(); toggleCellHighlight('consecutive_count', ${draw.consecutive_count})" 
+                                class="inline-flex items-center justify-center w-8 h-8 rounded-full cursor-pointer hover:bg-gray-100 transition-all font-bold ${getHighlightClass('consecutive_count', draw.consecutive_count)}">
+                                ${draw.consecutive_count}
                             </span>
                         </div>
                     </td>
@@ -1178,7 +1194,7 @@
         function updateRateChart(data) {
             const total = data.length;
             const counts = [0, 0, 0, 0, 0, 0];
-            data.forEach(d => { if (counts[d.neighbor] !== undefined) counts[d.neighbor]++; });
+            data.forEach(d => { if (counts[d.consecutive_count] !== undefined) counts[d.consecutive_count]++; });
 
             const maxPct = Math.max(...counts.map(c => c / total * 100));
             let html = '';
@@ -1209,7 +1225,7 @@
         function updateTrendChart() {
             const data = allDrawData.slice(0, currentRange).reverse();
             const labels = data.map(d => d.round + '회');
-            const values = data.map(d => d.neighbor);
+            const values = data.map(d => d.consecutive_count);
 
             const movingAvg = [];
             for (let i = 0; i < values.length; i++) {
@@ -1324,7 +1340,7 @@
                 const recent10 = allDrawData.slice(0, 10);
 
                 // 2. 연번 개수 필터 (selectedCounts)
-                const values = recent10.map(d => d.neighbor);
+                const values = recent10.map(d => d.consecutive_count);
                 const minVal = Math.min(...values);
                 const maxVal = Math.max(...values);
 
@@ -1428,10 +1444,19 @@
             }
         }
 
-        // 딥러닝 인사이트 패널 초기화
+        // [표준화] AI 프리미엄 인사이트 패널 초기화
         function initDeepInsight() {
-            if (window.DeepInsightPanel) {
-                DeepInsightPanel.render('dlInsightContainer', 'consecutive', '연번 쌍 수');
+            if (window.PremiumInsightPanel) {
+                // 연번 개수 분석에 필요한 최근 20회차 데이터 추출
+                const recent = (allDrawData || []).slice(0, 20)
+                    .map(d => d.consecutive_count)
+                    .filter(v => typeof v === 'number' && !isNaN(v));
+
+                PremiumInsightPanel.render('dlInsightContainer', 'consecutive', '연번', {
+                    recentValues: recent
+                });
+            } else if (window.DeepInsightPanel) {
+                DeepInsightPanel.renderFromDB('dlInsightContainer', 'consecutive', '연번');
             }
         }
 
@@ -1453,11 +1478,11 @@
         // 🔹 [New] AI 분석용 컨텍스트 생성 도우미 (통계/패턴 데이터 통합)
         function generateAnalysisContext(range) {
             const data = allDrawData.slice(0, range);
-            const basicStats = data.map(d => d.neighbor); // 연번 여부 (1 or 0 usually, check logic)
+            const basicStats = data.map(d => d.consecutive_count); // 연번 여부 (1 or 0 usually, check logic)
 
             // 1. 기초 통계
-            const neighborCount = basicStats.filter(v => v > 0).length;
-            const avg = neighborCount / data.length;
+            const consecutive_countCount = basicStats.filter(v => v > 0).length;
+            const avg = consecutive_countCount / data.length;
             const percent = (avg * 100).toFixed(1);
 
             // 2. 이동평균 (최근 5, 10, 20회)
@@ -1470,21 +1495,21 @@
             // 3. Gap & Streak
             let zeroGap = 0;
             for (let i = 0; i < allDrawData.length; i++) {
-                if (allDrawData[i].neighbor > 0) break;
+                if (allDrawData[i].consecutive_count > 0) break;
                 zeroGap++;
             }
             let consecStreak = 0;
             for (let i = 0; i < allDrawData.length; i++) {
-                if (allDrawData[i].neighbor === 0) break;
+                if (allDrawData[i].consecutive_count === 0) break;
                 consecStreak++;
             }
 
             // 4. 최근 20회 흐름 요약
-            const recentFlow = data.slice(0, 20).map(d => `${d.round}회(${d.neighbor})`).join(', ');
+            const recentFlow = data.slice(0, 20).map(d => `${d.round}회(${d.consecutive_count})`).join(', ');
 
             return `
 ## 1. 연번(Consecutive) 기초 통계 (최근 ${range}회)
-- 연번 출현 빈도: ${neighborCount}회 (${percent}%)
+- 연번 출현 빈도: ${consecutive_countCount}회 (${percent}%)
 - 이동평균 추세: 5회(${ma5}%) / 10회(${ma10}%) / 20회(${ma20}%)
 - 현재 추세 방향: ${trend}
 
@@ -1582,9 +1607,9 @@
                 const recentLimit = 20;
                 const recentData = allDrawData.slice(0, recentLimit);
                 const recentStrings = recentData.map(d => {
-                    // d.neighbor is assumed to be the consecutive count. If the data structure differs, verify.
-                    // Assuming d.neighbor exists as per previous code reading (line 1215: d.neighbor)
-                    return `${d.round}회(${d.neighbor}연번)`;
+                    // d.consecutive_count is assumed to be the consecutive count. If the data structure differs, verify.
+                    // Assuming d.consecutive_count exists as per previous code reading (line 1215: d.consecutive_count)
+                    return `${d.round}회(${d.consecutive_count}연번)`;
                 });
 
                 // Summary of older data (Frequency of consecutive appearances)
@@ -1592,7 +1617,7 @@
                 let olderSummary = '';
                 if (olderData.length > 0) {
                     const total = olderData.length;
-                    const hasNeighborCount = olderData.filter(d => d.neighbor > 0).length;
+                    const hasNeighborCount = olderData.filter(d => d.consecutive_count > 0).length;
                     const ratio = ((hasNeighborCount / total) * 100).toFixed(1);
                     olderSummary = ` | 이전 ${total}회차 중 연번 발생률: ${ratio}%`;
                 }

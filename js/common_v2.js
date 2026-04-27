@@ -50,7 +50,9 @@ if (window._COMMON_V2_LOADED) {
         MULTIPLES: {
             '3배수': [3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45],
             '4배수': [4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44],
-            '5배수': [5, 10, 15, 20, 25, 30, 35, 40, 45]
+            '5배수': [5, 10, 15, 20, 25, 30, 35, 40, 45],
+            '7배수': [7, 14, 21, 28, 35, 42],
+            '8배수': [8, 16, 24, 32, 40]
         },
 
         // [New] 표준 번호 그룹 정의 (백엔드와 동기화)
@@ -1110,6 +1112,7 @@ Format: JSON
                     'odd_even_filter': 'odd_even_pattern',
                     'composite_count': 'composite_count',
                     'composite_filter': 'composite_count',
+                    'composite_number_filter': 'composite_count',
                     'prime_number_patterns': 'prime_number_patterns',
                     'prime_filter': 'prime_number_patterns',
                     'triangular_number_patterns': 'triangular_number_patterns',
@@ -1118,8 +1121,26 @@ Format: JSON
                     'neighbor_number_filter': 'neighbor_number_patterns',
                     'neighbor_filter': 'neighbor_number_patterns',
                     'neighbor_count': 'neighbor_number_patterns',
-                    'multiple_3_count': 'multiple_3_count',
-                    'multiple_filter': 'multiple_3_count',
+                    'multiple_3_count':   'multiple_3_count',
+                    'multiple_4_count':   'multiple_4_count',
+                    'multiple_5_count':   'multiple_5_count',
+                    'multiple_7_count':   'multiple_7_count',
+                    'multiple_8_count':   'multiple_8_count',
+                    'multiple_3_4_count': 'multiple_3_4_count',
+                    'multiple_3_5_count': 'multiple_3_5_count',
+                    'multiple_4_5_count': 'multiple_4_5_count',
+                    'no_multiple_count':  'no_multiple_count',
+                    'multiple_filter':    'multiple_3_count', // 레거시 트리거 키
+                    'end_digit_0_count':  'end_digit_0_count',
+                    'end_digit_1_count':  'end_digit_1_count',
+                    'end_digit_2_count':  'end_digit_2_count',
+                    'end_digit_3_count':  'end_digit_3_count',
+                    'end_digit_4_count':  'end_digit_4_count',
+                    'end_digit_5_count':  'end_digit_5_count',
+                    'end_digit_6_count':  'end_digit_6_count',
+                    'end_digit_7_count':  'end_digit_7_count',
+                    'end_digit_8_count':  'end_digit_8_count',
+                    'end_digit_9_count':  'end_digit_9_count',
                     'ac_value': 'ac_value',
                     'ac_value_filter': 'ac_value',
                     'ac_filter': 'ac_value',
@@ -1209,7 +1230,28 @@ Format: JSON
                     'gung_filter': 'magic_square_pattern',
                     'magic_square_pattern': 'magic_square_pattern',
                     'regression_patterns': 'regression_analysis',
-                    'regression_analysis': 'regression_analysis'
+                    'regression_analysis': 'regression_analysis',
+                    // 배수 개별 키
+                    'multiple_3_count':   'multiple_3_count',
+                    'multiple_4_count':   'multiple_4_count',
+                    'multiple_5_count':   'multiple_5_count',
+                    'multiple_7_count':   'multiple_7_count',
+                    'multiple_8_count':   'multiple_8_count',
+                    'multiple_3_4_count': 'multiple_3_4_count',
+                    'multiple_3_5_count': 'multiple_3_5_count',
+                    'multiple_4_5_count': 'multiple_4_5_count',
+                    'no_multiple_count':  'no_multiple_count',
+                    // 끝수 개별 키
+                    'end_digit_0_count':  'end_digit_0_count',
+                    'end_digit_1_count':  'end_digit_1_count',
+                    'end_digit_2_count':  'end_digit_2_count',
+                    'end_digit_3_count':  'end_digit_3_count',
+                    'end_digit_4_count':  'end_digit_4_count',
+                    'end_digit_5_count':  'end_digit_5_count',
+                    'end_digit_6_count':  'end_digit_6_count',
+                    'end_digit_7_count':  'end_digit_7_count',
+                    'end_digit_8_count':  'end_digit_8_count',
+                    'end_digit_9_count':  'end_digit_9_count'
                 };
                 const standardKey = _lsKeyMap[pageKey] || pageKey;
 
@@ -1224,7 +1266,17 @@ Format: JSON
                     } catch (_) { lsParsed = null; }
                 }
 
-                // 2. [DB 조회] filterService 초기화된 경우만 (localStorage가 더 최신이면 스킵)
+                // 2. [빠른 경로] localStorage가 5분 이내에 저장된 경우 → DB 호출 완전 생략
+                //    대시보드 → 분석 페이지 이동 시 즉시 반영 (Supabase 왕복 지연 제거)
+                const _FRESH_MS = 5 * 60 * 1000; // 5분
+                if (lsParsed && lsTs > 0 && (Date.now() - lsTs) < _FRESH_MS) {
+                    if (lsParsed.settings !== undefined) {
+                        return { ...lsParsed.settings, enabled: lsParsed.enabled };
+                    }
+                    return lsParsed;
+                }
+
+                // 3. [DB 조회] localStorage가 오래됐거나 없는 경우만 — 다른 기기 sync 용도
                 if (window.filterService && window.filterService.initialized && typeof window.filterService.loadSetting === 'function') {
                     try {
                         const dbData = await window.filterService.loadSetting(standardKey, targetRound);
@@ -1239,7 +1291,7 @@ Format: JSON
                                 }
                                 return dbData;
                             }
-                            // localStorage가 같거나 더 최신 → localStorage 사용 (크로스탭 실시간 sync 우선)
+                            // localStorage가 같거나 더 최신 → localStorage 사용
                             console.log(`✅ [Utils.loadFilter] localStorage 우선 사용: ${standardKey} (ls:${lsTs} >= db:${dbTs})`);
                         }
                     } catch (dbErr) {

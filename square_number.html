@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html class="light" lang="ko">
 
 <head>
@@ -23,10 +23,12 @@
     <script src="js/config.js"></script>
     <script src="js/theme.js"></script>
     <script src="js/common_v2.js"></script>
-    <script src="js/aiProxy.js"></script>
+    <script src="js/aiProxy.js?v=20260426"></script>
     <script src="js/filter/FilterService.js"></script>
+    <script src="js/filter/FilterLifecycle.js"></script>
+    <script src="js/filter/FilterRuleEngine.js"></script>
     <script src="js/layout.js"></script>
-    <script src="js/deep_insight_panel.js"></script>
+    <script src="js/premium_insight_panel.js?v=20260426"></script>
 
     <!-- NLP Modules -->
     <script src="js/NLPProcessor.js"></script>
@@ -55,6 +57,7 @@
         let highlightStartRound = null;
         let isRecentTenFilter = false;
         let previousFilterState = null; // [추가] 최근 10회차 필터 적용 전 상태 저장
+        let activeFilters = new Set();  // [추가] 누락된 activeFilters 변수 선언
 
         function isSquare(num) {
             return squareNumbers.has(num);
@@ -78,21 +81,17 @@
 
         // [표준화] 필터 설정 저장 함수 (Utils.saveFilter 사용)
         async function saveFilterSettings() {
-            if (window.isLoadingSettings) return;
-            if (!_filterSettingsLoaded) return; // 초기 로드 완료 전 빈 상태 덮어쓰기 방지
+            if (_squareSelfSaving) return;
+            if (!_filterSettingsLoaded) return;
+            
+            _squareSelfSaving = true;
             try {
                 const toggle = document.getElementById('applyFilterCheck');
                 const enabled = toggle ? toggle.checked : true;
 
-                const activeCounts = [];
-                for (let i = 0; i <= 6; i++) {
-                    const btn = document.getElementById(`filter-btn-${i}`);
-                    if (btn && btn.classList.contains('filter-btn-active')) activeCounts.push(i);
-                }
-
-                const latestRound = allDrawData && allDrawData.length > 0 ? allDrawData[0].round : 0;
-                const targetRound = latestRound + 1;
-
+                const activeCounts = Array.from(activeFilters);
+                const latestRound = allDrawData && allDrawData.length > 0 ? allDrawData[0].round : 1219;
+                
                 const data = {
                     selectedCounts: activeCounts,
                     excludedNumbers: Array.from(excludedNumbers),
@@ -101,114 +100,52 @@
 
                 const storageKey = 'square_number_patterns';
                 if (window.Utils && window.Utils.saveFilter) {
-                    try {
-                        _squareSelfSaving = true;
-                        // [1] NULL 행 저장 (localStorage + 크로스탭 sync)
-                        await window.Utils.saveFilter(storageKey, data, enabled);
-                        // [2] 회차 특정 행 저장 (대시보드는 targetRound 행을 우선 읽음)
-                        if (window.filterService && window.filterService.initialized && targetRound) {
-                            await window.filterService.saveSetting(storageKey, data, enabled, targetRound);
-                        }
-                    } finally {
-                        _squareSelfSaving = false;
-                    }
+                    await window.Utils.saveFilter(storageKey, data, enabled);
+                    console.log('✅ 제곱수 필터 저장 완료');
                 }
             } catch (error) {
                 console.error('❌ 필터 저장 오류:', error);
+            } finally {
+                setTimeout(() => { _squareSelfSaving = false; }, 500);
             }
         }
 
         // [표준화] 필터 설정 불러오기 함수 (Utils.loadFilter 사용)
         async function loadFilterSettings() {
-            window.isLoadingSettings = true;
             const storageKey = 'square_number_patterns';
             try {
-                let saved = null;
+                if (!window.Utils || !window.Utils.loadFilter) return false;
+                
+                const latestRound = allDrawData && allDrawData.length > 0 ? allDrawData[0].round : null;
+                const raw = await window.Utils.loadFilter(storageKey, latestRound);
+                if (raw) {
+                    const saved = (raw.settings !== undefined) ? { ...raw.settings, enabled: raw.enabled } : raw;
+                    
+                    // 필터 적용 여부
+                    const toggle = document.getElementById('applyFilterCheck');
+                    if (toggle) toggle.checked = saved.enabled ?? true;
 
-                // Utils.loadFilter 우선 (DB + localStorage 통합)
-                if (window.Utils && window.Utils.loadFilter) {
-                    const latestRound = allDrawData && allDrawData.length > 0 ? allDrawData[0].round : null;
-                    const raw = await window.Utils.loadFilter(storageKey, latestRound);
-                    if (raw) {
-                        saved = (raw.settings !== undefined) ? { ...raw.settings, enabled: raw.enabled } : raw;
-                    }
-                }
-
-                // Fallback: localStorage
-                if (!saved) {
-                    const raw = localStorage.getItem(storageKey) || localStorage.getItem('square_number_patterns_filter') || localStorage.getItem('square_filter');
-                    if (raw) try { saved = JSON.parse(raw); } catch (e) { }
-                }
-
-                if (saved) {
                     // 개수 필터 복구
-                    const counts = new Set(saved.selectedCounts || []);
-                    for (let i = 0; i <= 6; i++) {
-                        const btn = document.getElementById(`filter-btn-${i}`);
-                        const card = document.getElementById(`card-${i}`);
-                        if (counts.has(i)) {
-                            if (btn) btn.classList.add('filter-btn-active');
-                            if (card) {
-                                card.classList.remove('bg-white', 'border-gray-200');
-                                card.classList.add('bg-blue-600', 'border-blue-600', 'shadow-md');
-                                const val = document.getElementById(`count_${i}`);
-                                if (val) { val.classList.remove('text-gray-900'); val.classList.add('text-white'); }
-                                const title = card.querySelector('.text-xs');
-                                if (title) { title.classList.remove('text-gray-500'); title.classList.add('text-blue-100'); }
-                            }
-                        } else {
-                            if (btn) btn.classList.remove('filter-btn-active');
-                            if (card) {
-                                card.classList.add('bg-white', 'border-gray-200');
-                                card.classList.remove('bg-blue-600', 'border-blue-600', 'shadow-md');
-                                const val = document.getElementById(`count_${i}`);
-                                if (val) { val.classList.add('text-gray-900'); val.classList.remove('text-white'); }
-                                const title = card.querySelector('.text-xs');
-                                if (title) { title.classList.add('text-gray-500'); title.classList.remove('text-blue-100'); }
-                            }
-                        }
-                    }
+                    activeFilters = new Set(saved.selectedCounts || []);
+                    updateUIState();
 
                     // 제외수 복구
                     excludedNumbers = new Set(saved.excludedNumbers || []);
-                    const squareNums = [1, 4, 9, 16, 25, 36];
-                    squareNums.forEach(n => {
-                        const chk = document.getElementById(`exclude_${n}`);
-                        if (chk) chk.checked = excludedNumbers.has(n);
-                    });
                     const input = document.getElementById('excludeNumbersInput');
                     if (input) input.value = Array.from(excludedNumbers).join(', ');
-
-                    // 필터 적용 여부 복구
-                    const toggle = document.getElementById('applyFilterCheck');
-                    if (toggle) toggle.checked = saved.enabled;
-
-                    if (saved.recent10FilterActive) {
-                        const btn = document.getElementById('recent10FilterBtn');
-                        const btnText = document.getElementById('recent10BtnText');
-                        if (btn && btnText) {
-                            btn.classList.remove('from-blue-500', 'to-blue-600');
-                            btn.classList.add('from-purple-500', 'to-purple-700');
-                            btnText.textContent = '필터 해제';
-                        }
-                        isRecentTenFilter = true;
-                    } else {
-                        const btn = document.getElementById('recent10FilterBtn');
-                        const btnText = document.getElementById('recent10BtnText');
-                        if (btn && btnText) {
-                            btn.classList.remove('from-purple-500', 'to-purple-700');
-                            btn.classList.add('from-blue-500', 'to-blue-600');
-                            btnText.textContent = '최근 10회차 필터 적용';
-                        }
-                        isRecentTenFilter = false;
-                    }
+                    
+                    // 최근 10회차 복구
+                    isRecentTenFilter = !!saved.recent10FilterActive;
+                    updateRecentTenFilterFlag();
 
                     return true;
                 }
                 return false;
+            } catch(e) {
+                console.error('필터 로드 실패:', e);
+                return false;
             } finally {
-                window.isLoadingSettings = false;
-                _filterSettingsLoaded = true; // 이 시점부터 saveFilterSettings 허용
+                _filterSettingsLoaded = true;
             }
         }
     </script>
@@ -374,55 +311,63 @@
                     </div>
 
                     <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
-                        <div class="grid grid-cols-7 gap-3 mb-6">
-                            <div id="card-0" onclick="toggleStatCard(0)"
-                                class="cursor-pointer bg-white rounded-xl p-3 border border-gray-200 relative overflow-hidden group hover:shadow-md transition-all text-center">
-                                <div class="text-xs font-semibold text-gray-500 mb-1">0개</div>
-                                <p id="count_0" class="text-lg font-bold text-gray-900">0.0%</p>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                            <!-- 평균 카드 -->
+                            <div class="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm hover:shadow-md transition-all group relative overflow-hidden">
+                                <div class="absolute top-0 right-0 w-24 h-24 bg-blue-50 rounded-full -mr-12 -mt-12 transition-transform group-hover:scale-110"></div>
+                                <div class="relative">
+                                    <div class="flex items-center gap-3 mb-4">
+                                        <div class="p-2.5 bg-blue-50 rounded-xl">
+                                            <span class="material-symbols-outlined text-blue-600">analytics</span>
+                                        </div>
+                                        <span class="text-sm font-bold text-gray-500 uppercase tracking-wider">평균 출현</span>
+                                    </div>
+                                    <div class="flex items-baseline gap-1">
+                                        <span id="val-avg" class="text-4xl font-black text-gray-900 tracking-tight">0.0</span>
+                                        <span class="text-lg font-bold text-gray-400">개</span>
+                                    </div>
+                                </div>
                             </div>
-                            <div id="card-1" onclick="toggleStatCard(1)"
-                                class="cursor-pointer bg-white rounded-xl p-3 border border-gray-200 relative overflow-hidden group hover:shadow-md transition-all text-center">
-                                <div class="text-xs font-semibold text-gray-500 mb-1">1개</div>
-                                <p id="count_1" class="text-lg font-bold text-gray-900">0.0%</p>
-                            </div>
-                            <div id="card-2" onclick="toggleStatCard(2)"
-                                class="cursor-pointer bg-white rounded-xl p-3 border border-gray-200 relative overflow-hidden group hover:shadow-md transition-all text-center">
-                                <div class="text-xs font-semibold text-gray-500 mb-1">2개</div>
-                                <p id="count_2" class="text-lg font-bold text-gray-900">0.0%</p>
-                            </div>
-                            <div id="card-3" onclick="toggleStatCard(3)"
-                                class="cursor-pointer bg-white rounded-xl p-3 border border-gray-200 relative overflow-hidden group hover:shadow-md transition-all text-center">
-                                <div class="text-xs font-semibold text-gray-500 mb-1">3개</div>
-                                <p id="count_3" class="text-lg font-bold text-gray-900">0.0%</p>
-                            </div>
-                            <div id="card-4" onclick="toggleStatCard(4)"
-                                class="cursor-pointer bg-white rounded-xl p-3 border border-gray-200 relative overflow-hidden group hover:shadow-md transition-all text-center">
-                                <div class="text-xs font-semibold text-gray-500 mb-1">4개</div>
-                                <p id="count_4" class="text-lg font-bold text-gray-900">0.0%</p>
-                            </div>
-                            <div id="card-5" onclick="toggleStatCard(5)"
-                                class="cursor-pointer bg-white rounded-xl p-3 border border-gray-200 relative overflow-hidden group hover:shadow-md transition-all text-center">
-                                <div class="text-xs font-semibold text-gray-500 mb-1">5개</div>
-                                <p id="count_5" class="text-lg font-bold text-gray-900">0.0%</p>
-                            </div>
-                            <div id="card-6" onclick="toggleStatCard(6)"
-                                class="cursor-pointer bg-white rounded-xl p-3 border border-gray-200 relative overflow-hidden group hover:shadow-md transition-all text-center">
-                                <div class="text-xs font-semibold text-gray-500 mb-1">6개</div>
-                                <p id="count_6" class="text-lg font-bold text-gray-900">0.0%</p>
-                            </div>
-                        </div>
 
-                        <div class="ai-section p-8 pb-10 mb-6 font-sans">
-                            <h3 class="text-lg font-bold text-gray-900 mb-4">딥러닝 Insight</h3>
-                            <div id="dlInsightContainer">
-                                <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
-                                    <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
-                                    <span class="text-sm">딥러닝 모델 분석 중 (7개 모델)...</span>
+                            <!-- 최소값 카드 -->
+                            <div class="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm hover:shadow-md transition-all group relative overflow-hidden">
+                                <div class="absolute top-0 right-0 w-24 h-24 bg-emerald-50 rounded-full -mr-12 -mt-12 transition-transform group-hover:scale-110"></div>
+                                <div class="relative">
+                                    <div class="flex items-center gap-3 mb-4">
+                                        <div class="p-2.5 bg-emerald-50 rounded-xl">
+                                            <span class="material-symbols-outlined text-emerald-600">vertical_align_bottom</span>
+                                        </div>
+                                        <span class="text-sm font-bold text-gray-500 uppercase tracking-wider">최소 기록</span>
+                                    </div>
+                                    <div class="flex items-baseline gap-1">
+                                        <span id="val-min" class="text-4xl font-black text-gray-900 tracking-tight">0</span>
+                                        <span class="text-lg font-bold text-gray-400">개</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 최대값 카드 -->
+                            <div class="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm hover:shadow-md transition-all group relative overflow-hidden">
+                                <div class="absolute top-0 right-0 w-24 h-24 bg-rose-50 rounded-full -mr-12 -mt-12 transition-transform group-hover:scale-110"></div>
+                                <div class="relative">
+                                    <div class="flex items-center gap-3 mb-4">
+                                        <div class="p-2.5 bg-rose-50 rounded-xl">
+                                            <span class="material-symbols-outlined text-rose-600">vertical_align_top</span>
+                                        </div>
+                                        <span class="text-sm font-bold text-gray-500 uppercase tracking-wider">최대 기록</span>
+                                    </div>
+                                    <div class="flex items-baseline gap-1">
+                                        <span id="val-max" class="text-4xl font-black text-gray-900 tracking-tight">0</span>
+                                        <span class="text-lg font-bold text-gray-400">개</span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
 
-                        <div class="mb-6">
+                        <!-- [표준화] AI 프리미엄 전략 리포트 컨테이너 -->
+                        <div id="premiumInsight" class="mb-6"></div>
+
+                        <div class="mb-6 border-t border-gray-100 pt-6">
                             <div class="flex items-center justify-between mb-4">
                                 <h3 class="text-xl font-bold text-gray-900">그래프</h3>
                                 <div class="flex gap-2">
@@ -663,21 +608,16 @@
             }
             if (btnText) btnText.textContent = '최근 10회차 필터 적용';
             
-            const chk = document.getElementById('applyFilterCheck');
-            if (chk) chk.checked = true;
-
-            // 하이라이트 즉시 해제
+            // 기존 하이라이트 해제
             document.querySelectorAll('.row-highlight').forEach(el => el.classList.remove('row-highlight'));
 
-            // 필터 선택 상태 색상 복원 (보라 -> 파랑)
-            for (let i = 0; i <= 6; i++) {
-                const filterBtn = document.getElementById(`filter-btn-${i}`);
-                if (filterBtn && filterBtn.classList.contains('filter-btn-active')) {
-                    updateCardUI(i, true);
-                }
+            // 필터 복원
+            if (previousFilterState) {
+                activeFilters = new Set(previousFilterState);
+                updateUIState();
             }
             
-            saveFilterSettings();
+            applyFilter();
         }
 
         // [레거시] 최근 10회차 버튼 상태 초기화 헬퍼 (함수명 유지용)
@@ -685,52 +625,27 @@
             deactivateRecent10IfActive();
         }
 
-        function toggleStatCard(count) {
-            markManual();
-            const card = document.getElementById(`card-${count}`);
-            const valueText = document.getElementById(`count_${count}`);
-            const titleText = card.querySelector('.text-xs');
-
-            const isActive = card.classList.contains('bg-blue-600');
-            const filterBtn = document.getElementById(`filter-btn-${count}`);
-
-            if (isActive) {
-                card.classList.remove('bg-blue-600', 'border-blue-600', 'shadow-md');
-                card.classList.add('bg-white', 'border-gray-200');
-                valueText.classList.remove('text-white'); valueText.classList.add('text-gray-900');
-                titleText.classList.remove('text-blue-100'); titleText.classList.add('text-gray-500');
-                if (filterBtn) filterBtn.classList.remove('filter-btn-active');
-            } else {
-                card.classList.remove('bg-white', 'border-gray-200');
-                card.classList.add('bg-blue-600', 'border-blue-600', 'shadow-md');
-                valueText.classList.remove('text-gray-900'); valueText.classList.add('text-white');
-                titleText.classList.remove('text-gray-500'); titleText.classList.add('text-blue-100');
-                if (filterBtn) filterBtn.classList.add('filter-btn-active');
+        function updateUIState() {
+            for (let i = 0; i <= 6; i++) {
+                const btn = document.getElementById(`filter-btn-${i}`);
+                if (btn) {
+                    if (activeFilters.has(i)) {
+                        btn.classList.add('filter-btn-active');
+                    } else {
+                        btn.classList.remove('filter-btn-active');
+                    }
+                }
             }
-            applyFilter();
         }
 
-        function toggleFilterButton(num) {
+        function toggleFilterButton(count) {
             markManual();
-            const btn = document.getElementById(`filter-btn-${num}`);
-            btn.classList.toggle('filter-btn-active');
-
-            const card = document.getElementById(`card-${num}`);
-            const valueText = document.getElementById(`count_${num}`);
-            const titleText = card.querySelector('.text-xs');
-            const isBtnActive = btn.classList.contains('filter-btn-active');
-
-            if (isBtnActive) {
-                card.classList.remove('bg-white', 'border-gray-200');
-                card.classList.add('bg-blue-600', 'border-blue-600', 'shadow-md');
-                valueText.classList.remove('text-gray-900'); valueText.classList.add('text-white');
-                titleText.classList.remove('text-gray-500'); titleText.classList.add('text-blue-100');
+            if (activeFilters.has(count)) {
+                activeFilters.delete(count);
             } else {
-                card.classList.remove('bg-blue-600', 'border-blue-600', 'shadow-md');
-                card.classList.add('bg-white', 'border-gray-200');
-                valueText.classList.remove('text-white'); valueText.classList.add('text-gray-900');
-                titleText.classList.remove('text-blue-100'); titleText.classList.add('text-gray-500');
+                activeFilters.add(count);
             }
+            updateUIState();
             applyFilter();
         }
 
@@ -760,27 +675,16 @@
         }
 
         // [표준화] 필터 적용 및 저장 함수
-        async function applyFilter() {
-            await saveFilterSettings();
-            const isFilterEnabled = document.getElementById('applyFilterCheck').checked;
+        async function applyFilter(save = true) {
+            const isFilterEnabled = document.getElementById('applyFilterCheck')?.checked ?? true;
 
             // 리스트는 필터링과 무관하게 분석 범위(currentRange)만 반영
-            const drawsToShow = allDrawData.slice(0, currentRange);
-            renderDrawsList(drawsToShow);
+            let filteredData = allDrawData.slice(0, currentRange);
 
-            // [표준화] AI 정보와 기타 요소들은 필터링된 데이터 사용 가능
-            let filteredData = drawsToShow;
             if (isFilterEnabled) {
-                // 1. 소수/제곱수 개수 필터
-                const activeCounts = [];
-                for (let i = 0; i <= 6; i++) {
-                    const btn = document.getElementById(`filter-btn-${i}`);
-                    if (btn && btn.classList.contains('filter-btn-active')) {
-                        activeCounts.push(i);
-                    }
-                }
-                if (activeCounts.length > 0) {
-                    filteredData = filteredData.filter(d => activeCounts.includes(d.squareCount));
+                // 1. 개수 필터
+                if (activeFilters.size > 0) {
+                    filteredData = filteredData.filter(d => activeFilters.has(d.squareCount));
                 }
 
                 // 2. 제외수 필터
@@ -791,8 +695,15 @@
                 }
             }
 
+            renderDrawsList(filteredData);
             updateRecentTenFilterFlag();
             highlightRecentTenRows();
+            calculateStats();
+            drawChart();
+
+            if (save) {
+                await saveFilterSettings();
+            }
         }
 
         // [New] 필터 플래그 업데이트
@@ -904,6 +815,12 @@
                 const data = drawsResult.data;
                 const featureData = featuresResult.data || [];
 
+                // [추가] featuresMap 초기화 (Map 객체 생성)
+                const featuresMap = new Map();
+                featureData.forEach(row => {
+                    featuresMap.set(row.round, row);
+                });
+
                 allDrawData = data.map(item => {
                     const numbers = item.numbers || [];
                     let squareCount = numbers.filter(n => isSquare(n)).length;
@@ -938,14 +855,23 @@
                 document.getElementById('preset1203').innerText = "전체";
 
                 initChart();
-                updateStatistics(currentRange);
-                renderDrawsList(allDrawData.slice(0, currentRange));
+                applyFilter(false); // 초기 로딩 시에는 저장을 생략하도록 수정
                 updateSliderBackground(currentRange);
-                initDeepInsight();
+                await initDeepInsight(); // [수정] await 추가
                 applyRecent10Highlight();
 
                 // 🆕 신규 회차 데이터 감지 및 자동 필터 초기화
                 checkAndResetOnNewDraw();
+
+                // ── FilterEngine Lifecycle Integration (Phase 3) ─────────────
+        window.addEventListener('filterLifecycle', function _filterLifecycleHandler(e) {
+            var _detail = e.detail;
+            if (_detail.type === 'NEW_ROUND') {
+                if (typeof checkAndResetOnNewDraw === 'function') checkAndResetOnNewDraw();
+            } else if (_detail.type === 'LOGOUT' || _detail.type === 'RESTORED') {
+                if (typeof loadFilterSettings === 'function') loadFilterSettings();
+            }
+        });
 
                 // [표준] 대시보드 실시간 동기화 (Storage Event)
                 window.addEventListener('storage', async (e) => {
@@ -989,7 +915,6 @@
                         r10Btn.classList.add('from-blue-500', 'to-blue-600');
                     }
                     if (r10BtnText) r10BtnText.textContent = '최근 10회차 필터 적용';
-                    applyFilter();
                 }
 
             } catch (err) {
@@ -1024,32 +949,9 @@
             const recent10 = allDrawData.slice(0, 10);
             const counts = new Set(recent10.map(d => d.squareCount));
 
-            // 2. 필터 값 적용 및 UI 변경 (보라색)
-            for (let i = 0; i <= 6; i++) {
-                const filterBtn = document.getElementById(`filter-btn-${i}`);
-                const card = document.getElementById(`card-${i}`);
-                const valText = document.getElementById(`count_${i}`);
-                const titleText = card ? card.querySelector('.text-xs') : null;
-                const isActive = counts.has(i);
-
-                if (isActive) {
-                    if (filterBtn) filterBtn.classList.add('filter-btn-active');
-                    if (card) {
-                        card.classList.remove('bg-white', 'border-gray-200', 'bg-blue-600', 'border-blue-600');
-                        card.classList.add('bg-purple-600', 'border-purple-600');
-                        if (valText) { valText.classList.remove('text-gray-900'); valText.classList.add('text-white'); }
-                        if (titleText) { titleText.classList.remove('text-gray-500', 'text-blue-100'); titleText.classList.add('text-purple-100'); }
-                    }
-                } else {
-                    if (filterBtn) filterBtn.classList.remove('filter-btn-active');
-                    if (card) {
-                        card.classList.add('bg-white', 'border-gray-200');
-                        card.classList.remove('bg-purple-600', 'border-purple-600', 'bg-blue-600', 'border-blue-600');
-                        if (valText) { valText.classList.add('text-gray-900'); valText.classList.remove('text-white'); }
-                        if (titleText) { titleText.classList.add('text-gray-500'); titleText.classList.remove('text-purple-100', 'text-blue-100'); }
-                    }
-                }
-            }
+            // 2. 필터 값 적용 (버튼 UI만 업데이트)
+            activeFilters = counts;
+            updateUIState();
 
             // 3. 버튼 UI 업데이트
             btn.classList.remove('from-blue-500', 'to-blue-600');
@@ -1062,75 +964,72 @@
             applyFilter();
         }
 
-        function updateRecent10FilterUI() {
-            // 토글 로직이 applyRecent10Filters에 통합됨
+        // [표준화] 통계 분석 및 카드 업데이트 (평균/최소/최대)
+        function calculateStats() {
+            if (!allDrawData || allDrawData.length === 0) return;
+            const data = allDrawData.slice(0, currentRange);
+
+            const counts = data.map(d => d.squareCount);
+            const sum = counts.reduce((a, b) => a + b, 0);
+            const avg = (sum / data.length).toFixed(1);
+            const min = Math.min(...counts);
+            const max = Math.max(...counts);
+
+            // UI 바인딩
+            const avgEl = document.getElementById('val-avg');
+            const minEl = document.getElementById('val-min');
+            const maxEl = document.getElementById('val-max');
+
+            if (avgEl) avgEl.innerText = avg;
+            if (minEl) minEl.innerText = min;
+            if (maxEl) maxEl.innerText = max;
         }
 
-        function updateCardUI(i, isActive) {
-            const card = document.getElementById(`card-${i}`);
-            const valueText = document.getElementById(`count_${i}`);
-            const titleText = card.querySelector('.text-xs');
-            if (isActive) {
-                card.classList.remove('bg-white', 'border-gray-200');
-                card.classList.add('bg-blue-600', 'border-blue-600', 'shadow-md');
-                valueText.classList.remove('text-gray-900'); valueText.classList.add('text-white');
-                titleText.classList.remove('text-gray-500'); titleText.classList.add('text-blue-100');
-            } else {
-                card.classList.remove('bg-blue-600', 'border-blue-600', 'shadow-md');
-                card.classList.add('bg-white', 'border-gray-200');
-                valueText.classList.remove('text-white'); valueText.classList.add('text-gray-900');
-                titleText.classList.remove('text-blue-100'); titleText.classList.add('text-gray-500');
+        /**
+         * [표준화] AI 프리미엄 전략 리포트 초기화
+         * 7개 모델 앙상블 전략을 프로젝트 표준과 동기화합니다.
+         */
+        async function initDeepInsight() {
+            const containerId = 'premiumInsight';
+            
+            if (!allDrawData || allDrawData.length === 0) return;
+
+            // 1. 최근 30회차 실측 데이터 추출 (흐름 진단용)
+            // 제곱수 분석은 전체 당첨번호 중 제곱수(1, 4, 9, 16, 25, 36)의 '개수' 분석임
+            const recentValues = allDrawData.slice(0, 30).map(d => {
+                if (typeof d.squareCount === 'number') return d.squareCount;
+                const set = new Set([1, 4, 9, 16, 25, 36]);
+                return (d.numbers || []).filter(n => set.has(n)).length;
+            });
+
+            // 2. 표준 엔진 호출 (PremiumInsightPanel.js)
+            if (window.PremiumInsightPanel) {
+                // 제곱수 분석은 range_analysis의 "square" 키를 사용
+                // [표준화] 사용자의 요청에 따라 탭 디자인 없이 통합 전략 리포트로 구성
+                await window.PremiumInsightPanel.render(containerId, 'square', '제곱수', {
+                    recentValues: recentValues
+                });
             }
         }
 
         function initFilterDefaults() {
             if (allDrawData.length < 10) return;
             const recent10 = allDrawData.slice(0, 10);
-
             const counts = recent10.map(d => d.squareCount);
             const minSquare = Math.min(...counts);
             const maxSquare = Math.max(...counts);
 
-            for (let i = 0; i <= 6; i++) {
-                document.getElementById(`filter-btn-${i}`).classList.remove('filter-btn-active');
-                const card = document.getElementById(`card-${i}`);
-                card.classList.remove('bg-blue-600', 'border-blue-600', 'shadow-md');
-                card.classList.add('bg-white', 'border-gray-200');
-                document.getElementById(`count_${i}`).classList.remove('text-white');
-                document.getElementById(`count_${i}`).classList.add('text-gray-900');
-                card.querySelector('.text-xs').classList.remove('text-blue-100');
-                card.querySelector('.text-xs').classList.add('text-gray-500');
-            }
-
+            activeFilters.clear();
             for (let i = minSquare; i <= maxSquare; i++) {
-                const btn = document.getElementById(`filter-btn-${i}`);
-                if (btn) {
-                    btn.classList.add('filter-btn-active');
-                    const card = document.getElementById(`card-${i}`);
-                    card.classList.remove('bg-white', 'border-gray-200');
-                    card.classList.add('bg-blue-600', 'border-blue-600', 'shadow-md');
-                    document.getElementById(`count_${i}`).classList.remove('text-gray-900');
-                    document.getElementById(`count_${i}`).classList.add('text-white');
-                    card.querySelector('.text-xs').classList.remove('text-gray-500');
-                    card.querySelector('.text-xs').classList.add('text-blue-100');
-                }
+                activeFilters.add(i);
             }
+            updateUIState();
             applyFilter();
         }
 
+        // [레거시] 구버전 통계 함수 제거 또는 우회
         function updateStatistics(range) {
-            if (!allDrawData.length) return;
-            const data = allDrawData.slice(0, range);
-
-            const countMap = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
-            data.forEach(d => {
-                if (countMap[d.squareCount] !== undefined) countMap[d.squareCount]++;
-            });
-
-            for (let i = 0; i <= 6; i++) {
-                const percent = data.length > 0 ? (countMap[i] / data.length * 100).toFixed(1) : 0;
-                document.getElementById(`count_${i}`).textContent = percent + '%';
-            }
+            calculateStats();
         }
 
         // 🔹 하이라이트 토글 (값 클릭)
@@ -1326,11 +1225,10 @@
                 squareChart.data.datasets = [{
                     label: '횟수',
                     data: data.values,
-                    backgroundColor: 'rgba(59, 130, 246, 0.85)',
-                    borderColor: 'rgba(37, 99, 235, 1)',
-                    borderWidth: 2,
-                    borderRadius: 0,
-                    barThickness: 40
+                    backgroundColor: 'rgba(59, 130, 246, 0.5)',
+                    borderColor: 'rgb(59, 130, 246)',
+                    borderWidth: 1,
+                    borderRadius: 6
                 }];
                 squareChart.options.scales.x.ticks.display = true;
             } else {
@@ -1757,12 +1655,69 @@ ${contextData}
             highlightRecentTenRows();
         }
 
-        // 딥러닝 인사이트 패널 초기화
-        function initDeepInsight() {
-            if (window.DeepInsightPanel) {
-                DeepInsightPanel.render('dlInsightContainer', 'square', '제곱수 개수');
+        function generateDistributionData(range) {
+            const data = allDrawData.slice(0, range);
+            const countDist = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
+            data.forEach(d => {
+                if (countDist[d.squareCount] !== undefined) countDist[d.squareCount]++;
+            });
+
+            const labels = [];
+            const values = [];
+            for (let i = 0; i <= 6; i++) {
+                labels.push(`${i}개`);
+                values.push(countDist[i]);
             }
+            return { labels, values };
         }
+
+        function initChart() {
+            const canvas = document.getElementById('squareChart');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const data = generateDistributionData(currentRange);
+
+            if (squareChart) squareChart.destroy();
+
+            squareChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: data.labels,
+                    datasets: [{
+                        label: '출현 횟수',
+                        data: data.values,
+                        backgroundColor: 'rgba(59, 130, 246, 0.5)',
+                        borderColor: 'rgb(59, 130, 246)',
+                        borderWidth: 1,
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { backgroundColor: 'rgba(0,0,0,0.8)' }
+                    },
+                    scales: {
+                        y: { beginAtZero: true, grid: { display: false } },
+                        x: { grid: { display: false } }
+                    }
+                }
+            });
+        }
+
+        function drawChart() {
+            if (!squareChart) {
+                initChart();
+                return;
+            }
+            const data = generateDistributionData(currentRange);
+            squareChart.data.labels = data.labels;
+            squareChart.data.datasets[0].data = data.values;
+            squareChart.update();
+        }
+
     </script>
     <!-- AI QnA Sidebar -->
     <div id="aiQnaModal"

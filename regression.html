@@ -18,10 +18,12 @@
     <script src="js/config.js"></script>
     <script src="js/theme.js"></script>
     <script src="js/common_v2.js"></script>
-    <script src="js/aiProxy.js"></script>
+    <script src="js/aiProxy.js?v=20260426"></script>
     <script src="js/filter/FilterService.js"></script>
+    <script src="js/filter/FilterLifecycle.js"></script>
+    <script src="js/filter/FilterRuleEngine.js"></script>
     <script src="js/layout.js"></script>
-    <script src="js/deep_insight_panel.js"></script>
+    <script src="js/premium_insight_panel.js?v=20260426"></script>
 
     <!-- 🔹 [New] NLP 모듈 (자연어 처리 및 자동완성) -->
     <script src="js/NLPProcessor.js"></script>
@@ -82,7 +84,7 @@
                         }
                         periodFilters = filters;
                         isMasterEnabled = data.enabled !== false;
-                        
+
                         // [추가] 최근 10회차 필터 상태 복원
                         if (s.recent10FilterActive !== undefined) {
                             isRecentTenFilter = s.recent10FilterActive;
@@ -295,6 +297,16 @@
             applyFilter();
         }
 
+        // ── FilterEngine Lifecycle Integration (Phase 3) ─────────────
+        window.addEventListener('filterLifecycle', function _filterLifecycleHandler(e) {
+            var _detail = e.detail;
+            if (_detail.type === 'NEW_ROUND') {
+                if (typeof checkAndResetOnNewDraw === 'function') checkAndResetOnNewDraw();
+            } else if (_detail.type === 'LOGOUT' || _detail.type === 'RESTORED') {
+                if (typeof loadFilterSettings === 'function') loadFilterSettings();
+            }
+        });
+
         // [표준] 대시보드 실시간 동기화 (Storage Event)
         window.addEventListener('storage', async (e) => {
             if (_regressionSelfSaving) return;
@@ -386,6 +398,14 @@
             border-radius: 1rem;
         }
 
+        /* ── MD 표준 볼 클래스 (lotto_ball_colors.md) ── */
+        .ball { display:inline-flex; align-items:center; justify-content:center; border-radius:50%; font-weight:600; color:#fff; flex-shrink:0; box-shadow:0 2px 4px rgba(0,0,0,0.15); }
+        .ball-y  { background:linear-gradient(135deg,#f59e0b,#d97706); }
+        .ball-b  { background:linear-gradient(135deg,#3b82f6,#2563eb); }
+        .ball-r  { background:linear-gradient(135deg,#ef4444,#dc2626); }
+        .ball-g  { background:linear-gradient(135deg,#6b7280,#4b5563); }
+        .ball-gr { background:linear-gradient(135deg,#10b981,#059669); }
+
         /* 로또 볼 디자인 */
         .lotto-ball {
             width: 32px;
@@ -444,7 +464,8 @@
 
         /* 당첨수 값 하이라이트 (다크그레이 원형) */
         .ball-hit.selected-value {
-            background-color: #374151 !important; /* text-slate-700 다크그레이 */
+            background-color: #374151 !important;
+            /* text-slate-700 다크그레이 */
             color: #ffffff !important;
             box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
             border-radius: 50%;
@@ -709,15 +730,15 @@
                         <h1 class="text-2xl font-bold text-gray-900 mb-1">회귀분석</h1>
                         <p class="text-sm text-gray-500">특정 주기로 반복되는 당첨번호의 회귀 패턴을 분석합니다.</p>
                     </div>
-                        <!-- AI Insight Panel (Standardized) -->
-                        <div id="dlInsightContainer" class="mb-6">
-                            <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
-                                <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
-                                <span class="text-sm">딥러닝 모델 분석 중 (7개 모델)...</span>
-                            </div>
+                    <!-- AI Insight Panel (Standardized) -->
+                    <div id="dlInsightContainer" class="mb-6">
+                        <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
+                            <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
+                            <span class="text-sm">딥러닝 모델 분석 중 (7개 모델)...</span>
                         </div>
+                    </div>
 
-                        <!-- [추가] 통계 대시보드 (3컬럼) -->
+                    <!-- [추가] 통계 대시보드 (3컬럼) -->
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <!-- Card 1: Current Status -->
                         <div
@@ -1167,13 +1188,13 @@
             savePeriodFilters(); // 전체 저장 (NULL + targetRound)
         }
 
-        // [추가] 번호대별 색상 클래스 반환 헬퍼
+        // [MD 표준] 번호대별 색상 클래스 반환 (lotto_ball_colors.md)
         function getBallColorClass(n) {
-            if (n <= 10) return 'n1-10';
-            if (n <= 20) return 'n11-20';
-            if (n <= 30) return 'n21-30';
-            if (n <= 40) return 'n31-40';
-            return 'n41-45';
+            if (n <= 10) return 'ball-y';
+            if (n <= 20) return 'ball-b';
+            if (n <= 30) return 'ball-r';
+            if (n <= 40) return 'ball-g';
+            return 'ball-gr';
         }
 
         // [추가] 회귀 대시보드 데이터 계산 및 렌더링 함수
@@ -1325,7 +1346,7 @@
 
             const btn = document.getElementById('recent10FilterBtn');
             const btnText = document.getElementById('recent10BtnText');
-            
+
             isRecentTenFilter = false;
 
             if (btn && btnText) {
@@ -1342,9 +1363,9 @@
 
             chainHighlightIdx = null;
             historyHighlightIdx = null;
-            
+
             savePeriodFilters(); // 현재 UI 상태 저장
-            
+
             renderChainTable();
             updateHistoryTable();
         }
@@ -1397,7 +1418,7 @@
             isRecentTenFilter = true;
             document.getElementById('filterMin').value = minVal;
             document.getElementById('filterMax').value = maxVal;
-            
+
             const toggle = document.getElementById('filterToggle');
             if (toggle) toggle.checked = true;
 
@@ -2076,94 +2097,131 @@ ${contextData}
                 if (currentStreak >= 2) streakAlerts.push({ step: s, streak: currentStreak });
             }
 
-            const rankedNums = numCongruence
+            const allNums45 = numCongruence
                 .map((count, num) => ({ num, count }))
-                .filter(x => x.num > 0 && x.count > 0)
-                .sort((a, b) => b.count - a.count)
-                .slice(0, 15);
+                .filter(x => x.num > 0)
+                .sort((a, b) => b.count - a.count);
+            const maxCong = allNums45[0]?.count || 1;
 
-            let congHtml = '';
-            rankedNums.forEach((item, idx) => {
+            let congHtml = '<div class="grid grid-cols-9 gap-x-1 gap-y-2.5">';
+            allNums45.forEach(item => {
                 const color = getBallColorClass(item.num);
-                const percent = Math.round((item.count / totalRegressionsScanned) * 400);
-                congHtml += `
-                    <div class="flex items-center gap-4 bg-white p-3 rounded-xl shadow-sm border border-slate-200 hover:border-blue-300 transition-colors">
-                        <span class="text-sm font-black text-slate-400 w-5">${idx + 1}</span>
-                        <span class="lotto-ball ${color} scale-90 shadow-sm">${item.num}</span>
-                        <div class="flex-1 h-3 bg-slate-100 rounded-full overflow-hidden">
-                            <div class="h-full bg-blue-600 rounded-full" style="width: ${Math.min(100, percent)}%"></div>
-                        </div>
-                        <span class="text-sm font-black text-blue-700 w-12 text-right">${item.count}회</span>
-                    </div>
-                `;
+                const hi = item.count >= maxCong * 0.7;
+                const mid = item.count >= maxCong * 0.35;
+                const countColor = hi ? 'text-indigo-600 font-bold' : mid ? 'text-gray-600 font-semibold' : 'text-gray-400';
+                congHtml += `<div class="flex flex-col items-center gap-0.5">
+                        <span class="ball ${color}" style="width:24px;height:24px;font-size:9px;">${item.num}</span>
+                        <span class="text-[10px] leading-none ${countColor}">${item.count}</span>
+                    </div>`;
             });
+            congHtml += '</div>';
             document.getElementById('deepCongruenceList').innerHTML = congHtml;
 
             gapAlerts.sort((a, b) => b.gap - a.gap);
             let gapHtml = '';
-            gapAlerts.slice(0, 8).forEach(alert => {
-                gapHtml += `
-                    <div class="flex items-center justify-between p-2.5 bg-rose-50 rounded-xl border border-rose-100 mb-1.5 cursor-pointer hover:bg-rose-100 transition-colors" onclick="moveToRegression(${alert.step})">
-                        <span class="text-xs font-black text-rose-800">${alert.step}회귀</span>
-                        <span class="text-[10px] px-2 py-0.5 bg-rose-600 text-white rounded-full font-bold shadow-sm">${alert.gap}주기 미출</span>
-                    </div>
-                `;
+            gapHtml = `<table class="text-xs"><tbody>`;
+            gapAlerts.slice(0, 12).forEach(alert => {
+                gapHtml += `<tr class="hover:bg-rose-50 cursor-pointer transition-colors" onclick="moveToRegression(${alert.step})">
+                    <td class="py-1 pr-0.5 text-right tabular-nums font-bold text-gray-700 hover:text-rose-600 whitespace-nowrap">${alert.step}</td>
+                    <td class="py-1 pr-4 font-bold text-gray-700 whitespace-nowrap">회귀</td>
+                    <td class="py-1 pr-0.5 text-right tabular-nums text-rose-400 whitespace-nowrap">${alert.gap}</td>
+                    <td class="py-1 text-rose-400 whitespace-nowrap">주기 미출</td>
+                </tr>`;
             });
-            document.getElementById('deepGapAlerts').innerHTML = gapHtml || '<p class="text-sm text-slate-400 text-center py-6">미출 패턴 없음</p>';
+            gapHtml += `</tbody></table>`;
+            document.getElementById('deepGapAlerts').innerHTML = gapHtml || '<p class="text-xs text-gray-400 py-4">미출 패턴 없음</p>';
 
             streakAlerts.sort((a, b) => b.streak - a.streak);
             let streakHtml = '';
-            streakAlerts.slice(0, 8).forEach(alert => {
-                streakHtml += `
-                    <div class="flex items-center justify-between p-2.5 bg-emerald-50 rounded-xl border border-emerald-100 mb-1.5 cursor-pointer hover:bg-emerald-100 transition-colors" onclick="moveToRegression(${alert.step})">
-                        <span class="text-xs font-black text-emerald-800">${alert.step}회귀</span>
-                        <span class="text-[10px] px-2 py-0.5 bg-emerald-600 text-white rounded-full font-bold shadow-sm">${alert.streak}주기 연속</span>
-                    </div>
-                `;
-            });
-            document.getElementById('deepStreakAlerts').innerHTML = streakHtml || '<p class="text-sm text-slate-400 text-center py-6">연속 당첨 없음</p>';
+            const sArr = streakAlerts.slice(0, 24);
+            streakHtml = `<table class="text-xs w-full"><tbody>`;
+            for (let i = 0; i < sArr.length; i += 2) {
+                const a = sArr[i];
+                const b = sArr[i + 1];
+                streakHtml += `<tr class="hover:bg-emerald-50 transition-colors">
+                    <td class="py-1 pr-0.5 text-right tabular-nums font-bold text-gray-700 whitespace-nowrap cursor-pointer" onclick="moveToRegression(${a.step})">${a.step}</td>
+                    <td class="py-1 pr-5 font-bold text-gray-700 whitespace-nowrap cursor-pointer" onclick="moveToRegression(${a.step})">회귀</td>
+                    <td class="py-1 pr-0.5 text-right tabular-nums text-emerald-500 whitespace-nowrap">${a.streak}</td>
+                    <td class="py-1 pr-8 text-emerald-500 whitespace-nowrap">주기 연속</td>
+                    ${b ? `
+                    <td class="py-1 pr-0.5 text-right tabular-nums font-bold text-gray-700 whitespace-nowrap cursor-pointer" onclick="moveToRegression(${b.step})">${b.step}</td>
+                    <td class="py-1 pr-5 font-bold text-gray-700 whitespace-nowrap cursor-pointer" onclick="moveToRegression(${b.step})">회귀</td>
+                    <td class="py-1 pr-0.5 text-right tabular-nums text-emerald-500 whitespace-nowrap">${b.streak}</td>
+                    <td class="py-1 text-emerald-500 whitespace-nowrap">주기 연속</td>
+                    ` : ''}
+                </tr>`;
+            }
+            streakHtml += `</tbody></table>`;
+            document.getElementById('deepStreakAlerts').innerHTML = streakHtml || '<p class="text-xs text-gray-400 py-4">연속 당첨 없음</p>';
 
-            let numStreaks = Array(46).fill(0).map(() => ({ s2: 0, s3: 0 }));
+            let numStreaks = Array(46).fill(0).map(() => ({ s2:0,s3:0,s4:0,s5:0, s2steps:[],s3steps:[],s4steps:[],s5steps:[] }));
             for (let s = 2; s <= 200; s++) {
                 const dA = dataMap.get(baseRoundVal - s);
                 const dB = dataMap.get(baseRoundVal - 2 * s);
                 const dC = dataMap.get(baseRoundVal - 3 * s);
+                const dD = dataMap.get(baseRoundVal - 4 * s);
+                const dE = dataMap.get(baseRoundVal - 5 * s);
 
                 if (dA && dB) {
                     dA.numbers.forEach(n => {
                         const num = Number(n);
                         if (dB.numbers.includes(n)) {
                             numStreaks[num].s2++;
+                            numStreaks[num].s2steps.push(s);
                             if (dC && dC.numbers.includes(n)) {
                                 numStreaks[num].s3++;
+                                numStreaks[num].s3steps.push(s);
+                                if (dD && dD.numbers.includes(n)) {
+                                    numStreaks[num].s4++;
+                                    numStreaks[num].s4steps.push(s);
+                                    if (dE && dE.numbers.includes(n)) {
+                                        numStreaks[num].s5++;
+                                        numStreaks[num].s5steps.push(s);
+                                    }
+                                }
                             }
                         }
                     });
                 }
             }
 
-            let streakNumHtml = '';
             const sortedStreakNums = numStreaks
                 .map((d, i) => ({ num: i, ...d }))
                 .filter(x => x.num > 0 && x.s2 > 0)
-                .sort((a, b) => (b.s3 * 2 + b.s2) - (a.s3 * 2 + a.s2))
-                .slice(0, 12);
+                .sort((a, b) => (b.s5*8+b.s4*4+b.s3*2+b.s2) - (a.s5*8+a.s4*4+a.s3*2+a.s2));
 
-            sortedStreakNums.forEach(item => {
+            const makeStepTags = (steps) =>
+                steps.slice(0, 5).map(s =>
+                    `<span class="inline-block cursor-pointer bg-gray-100 hover:bg-indigo-100 hover:text-indigo-600 text-gray-600 rounded px-1.5 py-0.5 text-[11px] font-medium leading-tight transition-colors" onclick="moveToRegression(${s})">${s}회귀</span>`
+                ).join(' ')
+                + (steps.length > 5 ? `<span class="text-xs text-gray-400 ml-0.5">+${steps.length-5}</span>` : '');
+
+            let tableHtml = `<table class="w-full border-collapse">
+                <thead>
+                    <tr class="bg-gray-50 sticky top-0 z-10 border-b border-gray-200">
+                        <th class="py-2 px-3 text-left text-xs font-semibold text-gray-500 w-14">번호</th>
+                        <th class="py-2 px-3 text-left text-xs font-semibold text-amber-500">2회</th>
+                        <th class="py-2 px-3 text-left text-xs font-semibold text-orange-500">3회</th>
+                        <th class="py-2 px-3 text-left text-xs font-semibold text-rose-500">4회</th>
+                        <th class="py-2 px-3 text-left text-xs font-semibold text-purple-600">5회+</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+
+            sortedStreakNums.forEach((item, idx) => {
                 const color = getBallColorClass(item.num);
-                streakNumHtml += `
-                    <div class="flex items-center justify-between px-2 py-1.5 hover:bg-slate-100/50 rounded-xl transition-colors group">
-                        <div class="flex items-center">
-                            <span class="lotto-ball ${color} scale-90 shadow-sm">${item.num}</span>
-                        </div>
-                        <div class="flex gap-2">
-                            <span class="text-sm font-black text-amber-600 w-12 text-center">${item.s2}</span>
-                            <span class="text-sm font-black text-rose-600 w-12 text-center">${item.s3}</span>
-                        </div>
-                    </div>
-                `;
+                const dash = '<span class="text-gray-300 text-xs">—</span>';
+                const rowBg = idx % 2 === 0 ? '' : 'bg-gray-50/50';
+                tableHtml += `<tr class="border-b border-gray-50 hover:bg-indigo-50/30 transition-colors ${rowBg}">
+                    <td class="py-2 px-3"><span class="ball ${color}" style="width:24px;height:24px;font-size:9px;">${item.num}</span></td>
+                    <td class="py-2 px-3">${item.s2steps.length ? makeStepTags(item.s2steps) : dash}</td>
+                    <td class="py-2 px-3">${item.s3steps.length ? makeStepTags(item.s3steps) : dash}</td>
+                    <td class="py-2 px-3">${item.s4steps.length ? makeStepTags(item.s4steps) : dash}</td>
+                    <td class="py-2 px-3">${item.s5steps.length ? makeStepTags(item.s5steps) : dash}</td>
+                </tr>`;
             });
-            document.getElementById('deepNumberStreaks').innerHTML = streakNumHtml || '<p class="col-span-3 text-center py-6 text-slate-400">데이터 없음</p>';
+            tableHtml += '</tbody></table>';
+            document.getElementById('deepNumberStreaks').innerHTML = sortedStreakNums.length ? tableHtml : '<p class="text-center py-8 text-slate-400 text-xs">데이터 없음</p>';
             document.getElementById('deepAnalysisModal').classList.remove('hidden');
         }
 
@@ -2174,12 +2232,42 @@ ${contextData}
             updateAll();
         }
 
-        // 딥러닝 인사이트 패널 초기화
+        // ── 딥러닝 인사이트: 회귀 분석 패널 (PremiumInsightPanel 표준) ──────
+        // composite_number.html과 동일한 디자인/로직
+        // 회귀 스텝 선택 → 해당 스텝의 최근 20회 히트수(recentValues) 계산
+        // → PremiumInsightPanel.render()로 표준 AI 리포트 렌더링
+        // → premium_insight_panel.js의 _regressionStepResolver가
+        //    regression_analysis 배열 + matrix_data 모델스코어로 per-model {min,max} 합성
+
         function initDeepInsight() {
-            if (window.DeepInsightPanel) {
-                DeepInsightPanel.renderGroup('dlInsightContainer', 'regression');
+            if (!window.PremiumInsightPanel || !allData?.length) return;
+
+            const step = regressionStep;
+
+            // 현재 스텝의 최근 20회 히트수 계산 (flow/pattern/strategy에 사용)
+            const recentValues = [];
+            let curr = targetRound - step;
+            let count = 0;
+            while (curr > 0 && count < 20) {
+                const currData = allData.find(d => d.round === curr);
+                const prevData = allData.find(d => d.round === curr - step);
+                if (currData && prevData) {
+                    let hits = 0;
+                    prevData.numbers.forEach(n => { if (currData.numbers.includes(n)) hits++; });
+                    recentValues.push(hits);
+                    count++;
+                }
+                curr -= step;
             }
+
+            PremiumInsightPanel.render(
+                'dlInsightContainer',
+                `regression_step_${step}`,
+                `${step}회귀`,
+                { recentValues }
+            );
         }
+
 
         function openAIModal(initialPrompt = '') {
             const modal = document.getElementById('aiQnaModal');
@@ -2211,7 +2299,7 @@ ${contextData}
          */
         async function runAIAnalysis(query) {
             if (!query) return;
-            
+
             // 챗봇 모달 오픈
             if (typeof openAIModal === 'function') {
                 openAIModal(query);
@@ -2291,116 +2379,73 @@ ${contextData}
             </div>
         </div>
     </div>
+    <!-- 회귀 심화 패턴 리포트 모달 -->
     <div id="deepAnalysisModal"
-        class="hidden fixed inset-0 bg-slate-900/90 backdrop-blur-xl z-[110] flex items-center justify-center p-4">
-        <div
-            class="bg-white rounded-[2.5rem] shadow-[0_0_50px_rgba(0,0,0,0.3)] w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden border border-slate-200">
-            <!-- Header: 시인성 유지하며 축소 -->
-            <div class="px-8 py-5 bg-slate-900 flex justify-between items-center shrink-0 border-b-4 border-rose-500">
-                <div class="flex items-center gap-6">
-                    <div
-                        class="w-12 h-12 bg-rose-500 rounded-xl flex items-center justify-center shadow-lg shadow-rose-500/20">
-                        <span class="material-symbols-outlined text-white text-3xl">biotech</span>
-                    </div>
-                    <div>
-                        <h3 class="text-2xl font-black text-white tracking-tighter leading-none mb-1">회귀 심화 패턴 리포트</h3>
-                        <p class="text-slate-400 text-xs font-bold tracking-wide">데이터 전수조사 기반 핵심 분석 리포트</p>
-                    </div>
+        class="hidden fixed inset-0 bg-black/50 z-[110] flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl w-full shadow-2xl flex flex-col border border-gray-100"
+             style="max-width:860px; max-height:86vh;">
+
+            <!-- 헤더 -->
+            <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between shrink-0 bg-gray-50 rounded-t-2xl">
+                <div class="flex items-center gap-2">
+                    <span class="material-symbols-outlined text-indigo-500" style="font-size:18px;">query_stats</span>
+                    <span class="text-sm font-bold text-gray-800">회귀 심화 패턴 리포트</span>
+                    <span class="text-[11px] text-gray-400 bg-white border border-gray-200 px-2 py-0.5 rounded-full ml-1">2 ~ 200회귀 전수조사</span>
                 </div>
                 <button onclick="document.getElementById('deepAnalysisModal').classList.add('hidden')"
-                    class="w-10 h-10 flex items-center justify-center hover:bg-rose-500 rounded-xl transition-all text-white group bg-white/10">
-                    <span
-                        class="material-symbols-outlined text-2xl group-hover:scale-110 transition-transform">close</span>
+                    class="w-7 h-7 flex items-center justify-center hover:bg-gray-200 rounded-lg transition-colors text-gray-400">
+                    <span class="material-symbols-outlined" style="font-size:16px;">close</span>
                 </button>
             </div>
 
-            <!-- Content Area: 패딩 및 간격 축소 -->
-            <div class="flex-1 overflow-y-auto custom-scrollbar p-6 grid grid-cols-12 gap-6 bg-slate-50">
+            <!-- 섹션 1: 번호 중첩 현황 -->
+            <div class="shrink-0 px-5 pt-4 pb-3 border-b border-gray-100">
+                <div class="flex items-center gap-1.5 mb-3">
+                    <span class="w-2 h-2 rounded-full bg-indigo-400"></span>
+                    <span class="text-xs font-bold text-gray-600">번호 중첩 현황</span>
+                    <span class="text-xs text-gray-400 ml-1">— 출현 빈도 순 정렬</span>
+                </div>
+                <div id="deepCongruenceList">
+                </div>
+            </div>
 
-                <!-- Left: Congruence Ranking -->
-                <div class="col-span-12 xl:col-span-5 flex flex-col gap-6">
-                    <div class="flex items-center justify-between border-b-2 border-slate-200 pb-4">
-                        <h4 class="text-2xl font-black text-slate-900 flex items-center gap-3">
-                            <span class="material-symbols-outlined text-blue-600 text-3xl">military_tech</span>
-                            번호별 중첩 상위
-                        </h4>
-                        <span class="bg-blue-600 text-white text-xs font-black px-4 py-1.5 rounded-full shadow-lg">HOT
-                            NUMBERS</span>
+            <!-- 섹션 2: 미출 패턴 + 연속 당첨 -->
+            <div class="shrink-0 grid grid-cols-2 divide-x divide-gray-100" style="overflow:hidden;">
+                <!-- 미출 패턴 -->
+                <div class="px-5 py-3">
+                    <div class="flex items-center gap-1.5 mb-2">
+                        <span class="w-2 h-2 rounded-full bg-rose-400"></span>
+                        <span class="text-xs font-bold text-gray-600">미출 패턴</span>
                     </div>
-                    <div id="deepCongruenceList" class="grid grid-cols-1 gap-3 flex-1 pr-2">
-                        <!-- JS Dynamic Content -->
+                    <div id="deepGapAlerts" class="overflow-y-auto" style="max-height:200px;">
                     </div>
                 </div>
-
-                <!-- Right: Analysis Sections -->
-                <div class="col-span-12 xl:col-span-7 flex flex-col gap-8">
-
-                    <!-- Top: Gap & Streak Patterns -->
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                        <!-- Gap Alerts (Continuous Non-Appearance) -->
-                        <div
-                            class="bg-white rounded-[2rem] p-8 shadow-xl shadow-slate-200/50 border border-slate-100 flex flex-col">
-                            <h4 class="text-xl font-black text-slate-900 mb-6 flex items-center gap-4">
-                                <span class="material-symbols-outlined text-rose-500 text-3xl">domain_disabled</span>
-                                최근 미출 패턴
-                            </h4>
-                            <div id="deepGapAlerts" class="flex-1 flex flex-col gap-2">
-                                <!-- JS Dynamic Content -->
-                            </div>
-                        </div>
-
-                        <!-- Streak Alerts (Continuous Winning) -->
-                        <div
-                            class="bg-white rounded-[2rem] p-8 shadow-xl shadow-slate-200/50 border border-slate-100 flex flex-col">
-                            <h4 class="text-xl font-black text-slate-900 mb-6 flex items-center gap-4">
-                                <span class="material-symbols-outlined text-emerald-500 text-3xl">verified</span>
-                                연속 당첨 패턴
-                            </h4>
-                            <div id="deepStreakAlerts" class="flex-1 flex flex-col gap-2">
-                                <!-- JS Dynamic Content -->
-                            </div>
-                        </div>
+                <!-- 연속 당첨 -->
+                <div class="px-5 py-3">
+                    <div class="flex items-center gap-1.5 mb-2">
+                        <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                        <span class="text-xs font-bold text-gray-600">연속 당첨</span>
                     </div>
-
-                    <!-- Middle: Multi-Streak Numbers -->
-                    <div class="bg-white rounded-[2rem] p-8 shadow-xl shadow-slate-200/50 border border-slate-100">
-                        <div class="flex items-center justify-between mb-4 pb-4 border-b border-slate-100">
-                            <h4 class="text-xl font-black text-slate-900 flex items-center gap-4">
-                                <span
-                                    class="material-symbols-outlined text-amber-500 text-3xl">local_fire_department</span>
-                                회귀별 연속 출현수
-                            </h4>
-                            <div class="flex gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                                <span class="w-12 text-center">2S</span>
-                                <span class="w-12 text-center">3S+</span>
-                            </div>
-                        </div>
-                        <div id="deepNumberStreaks"
-                            class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-1">
-                            <!-- JS Dynamic Content -->
-                        </div>
-                    </div>
-
-                    <!-- Bottom: Prediction Card -->
-                    <div
-                        class="bg-blue-700 rounded-2xl p-6 shadow-xl shadow-blue-200 text-white flex flex-col justify-center relative overflow-hidden shrink-0">
-                        <div class="relative z-10">
-                            <p class="text-[9px] font-black text-blue-300 uppercase tracking-widest mb-2">Strategic
-                                Intelligence</p>
-                            <h5 class="text-xl font-black leading-tight">중첩 번호 출현율 <span
-                                    class="text-amber-400">4.2배</span> 더 높은 확률</h5>
-                            <div class="mt-3 pt-3 border-t border-blue-500/50">
-                                <p class="text-xs font-bold text-blue-50 uppercase tracking-tight">
-                                    "상위 중복수 중 최소 1개 출현 확률 72% 이상"
-                                </p>
-                            </div>
-                        </div>
+                    <div id="deepStreakAlerts" class="overflow-y-auto" style="max-height:200px;">
                     </div>
                 </div>
+            </div>
 
-                <!-- Spacer removed for compactness -->
+            <!-- 구분선 -->
+            <div class="border-t border-gray-100 shrink-0"></div>
+
+            <!-- 섹션 3: 번호별 연속 출현수 -->
+            <div class="flex flex-col flex-1 min-h-0 px-5 py-3 overflow-hidden">
+                <div class="flex items-center gap-1.5 mb-2.5 shrink-0">
+                    <span class="w-2 h-2 rounded-full bg-violet-400"></span>
+                    <span class="text-xs font-bold text-gray-600">번호별 연속 출현수</span>
+                    <span class="text-xs text-gray-400 ml-1">— 회귀 태그 클릭 시 이동</span>
+                </div>
+                <div id="deepNumberStreaks" class="overflow-y-auto flex-1 min-h-0">
+                </div>
             </div>
         </div>
+    </div>
 </body>
 
 </html>

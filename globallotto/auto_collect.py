@@ -7,7 +7,9 @@ Usage: python -X utf8 auto_collect.py
 그 이후 신규 추첨 결과만 수집하여 upsert.
 """
 
-import os, re, csv, io, time, random, requests
+import sys, io
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+import os, re, csv, time, random, requests
 from datetime import date, timedelta
 from bs4 import BeautifulSoup
 from supabase import create_client
@@ -158,12 +160,14 @@ def collect_austria(lottery_id: str, last_date: date | None) -> int:
 
 # ─────────────── 수집 함수: Belgium ───────────────
 
-def collect_belgium(lottery_id: str, last_date: date | None) -> int:
+def collect_belgium(lottery_id: str, last_date: date | None, filter_weekday: int | None = None) -> int:
     # Wed=2, Sat=5
     dates = generate_draw_dates(last_date, [2, 5])
     print(f"  Belgium: {len(dates)}개 날짜 수집 예정")
     draws = []
     for i, d in enumerate(dates):
+        if filter_weekday is not None and d.weekday() != filter_weekday:
+            continue
         row = fetch_lotteryextreme_date("belgium", d)
         if row:
             draws.append(row)
@@ -265,7 +269,7 @@ def collect_australia(lottery_id: str, last_date: date | None,
 
 # ─────────────── 수집 함수: Hungary ───────────────
 
-def collect_hungary(lottery_id: str, last_date: date | None) -> int:
+def collect_hungary(lottery_id: str, last_date: date | None, filter_weekday: int | None = None) -> int:
     r = requests.get("https://bet.szerencsejatek.hu/cmsfiles/hatos.csv",
                      headers=HEADERS, timeout=30)
     r.raise_for_status()
@@ -283,6 +287,8 @@ def collect_hungary(lottery_id: str, last_date: date | None) -> int:
         try:
             draw_date = date(int(parts[0]), int(parts[1]), int(parts[2]))
         except ValueError:
+            continue
+        if filter_weekday is not None and draw_date.weekday() != filter_weekday:
             continue
         if last_date and draw_date <= last_date:
             continue
@@ -476,7 +482,7 @@ def collect_netherlands_xl(lottery_id: str, last_date: date | None) -> int:
 
 # ─────────────── 수집 함수: Croatia ───────────────
 
-def collect_croatia(lottery_id: str, last_date: date | None) -> int:
+def collect_croatia(lottery_id: str, last_date: date | None, filter_weekday: int | None = None) -> int:
     draws = []
     for page in range(1, 4):  # 최신 2~3 페이지만
         url = (f"https://lotteryguru.com/croatia-lottery-results"
@@ -506,6 +512,8 @@ def collect_croatia(lottery_id: str, last_date: date | None) -> int:
             if last_date and draw_date <= last_date:
                 stop_page = True
                 break
+            if filter_weekday is not None and draw_date.weekday() != filter_weekday:
+                continue
 
             lis = block.select("li.lg-number")
             main_nums, bonus = [], None
@@ -532,6 +540,57 @@ def collect_croatia(lottery_id: str, last_date: date | None) -> int:
 
     print(f"  Croatia: {len(draws)}건 신규")
     return upsert_draws(lottery_id, draws)
+# ─────────────── 수집 함수: Philippines ───────────────
+
+def collect_philippines(lottery_id: str, last_date: date | None, filter_weekday: int | None = None) -> int:
+    draws = []
+    for page in range(1, 4):
+        url = f"https://lotteryguru.com/philippines-lottery-results/ph-mega-lotto-6-45/ph-mega-lotto-6-45-results-history?page={page}"
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=15)
+        except Exception:
+            break
+        if r.status_code != 200:
+            break
+
+        soup = BeautifulSoup(r.text, "lxml")
+        page_new = 0
+        stop_page = False
+        for block in soup.select("div.lg-line"):
+            date_div = block.select_one("div.lg-date.has-text-right")
+            if not date_div:
+                continue
+            try:
+                txt = date_div.get_text(separator=" ", strip=True).split()
+                draw_date = date(int(txt[2]), MONTH_MAP[txt[1].lower()[:3]], int(txt[0]))
+            except:
+                continue
+            if last_date and draw_date <= last_date:
+                stop_page = True
+                break
+            if filter_weekday is not None and draw_date.weekday() != filter_weekday:
+                continue
+
+            lis = block.select("li.lg-number")
+            main_nums = []
+            for li in lis:
+                n_txt = li.get_text(strip=True)
+                if n_txt.isdigit():
+                    main_nums.append(int(n_txt))
+            if len(main_nums) < 6:
+                continue
+            draws.append({"draw_date": draw_date.isoformat(),
+                          "n1":main_nums[0],"n2":main_nums[1],"n3":main_nums[2],
+                          "n4":main_nums[3],"n5":main_nums[4],"n6":main_nums[5]})
+            page_new += 1
+
+        if stop_page or page_new == 0:
+            break
+        time.sleep(random.uniform(0.8, 1.3))
+
+    print(f"  Philippines: {len(draws)}건 신규")
+    return upsert_draws(lottery_id, draws)
+
 
 # ─────────────── 메인 ───────────────
 
@@ -556,8 +615,10 @@ def main():
     total += run_collector("Austria Lotto 6/45",
         lambda lid, ld: collect_austria(lid, ld))
 
-    total += run_collector("Belgium Lotto",
-        lambda lid, ld: collect_belgium(lid, ld))
+    total += run_collector("Belgium Lotto (수)",
+        lambda lid, ld: collect_belgium(lid, ld, filter_weekday=2))
+    total += run_collector("Belgium Lotto (토)",
+        lambda lid, ld: collect_belgium(lid, ld, filter_weekday=5))
 
     total += run_collector("Saturday Lotto",
         lambda lid, ld: collect_australia(lid, ld, "saturday-lotto", filter_weekday=5))
@@ -568,8 +629,10 @@ def main():
     total += run_collector("Wednesday Lotto",
         lambda lid, ld: collect_australia(lid, ld, "weekday-windfall", filter_weekday=2))
 
-    total += run_collector("Hatoslottó",
-        lambda lid, ld: collect_hungary(lid, ld))
+    total += run_collector("Hatoslottó (목)",
+        lambda lid, ld: collect_hungary(lid, ld, filter_weekday=3))
+    total += run_collector("Hatoslottó (일)",
+        lambda lid, ld: collect_hungary(lid, ld, filter_weekday=6))
 
     total += run_collector("Netherlands Lotto",
         lambda lid, ld: collect_netherlands(lid, ld))
@@ -577,8 +640,17 @@ def main():
     total += run_collector("Netherlands Lotto XL",
         lambda lid, ld: collect_netherlands_xl(lid, ld))
 
-    total += run_collector("Loto 6/45",
-        lambda lid, ld: collect_croatia(lid, ld))
+    total += run_collector("Loto 6/45 (목)",
+        lambda lid, ld: collect_croatia(lid, ld, filter_weekday=3))
+    total += run_collector("Loto 6/45 (일)",
+        lambda lid, ld: collect_croatia(lid, ld, filter_weekday=6))
+
+    total += run_collector("Mega 645 (월)",
+        lambda lid, ld: collect_philippines(lid, ld, filter_weekday=0))
+    total += run_collector("Mega 645 (수)",
+        lambda lid, ld: collect_philippines(lid, ld, filter_weekday=2))
+    total += run_collector("Mega 645 (금)",
+        lambda lid, ld: collect_philippines(lid, ld, filter_weekday=4))
 
     print(f"\n{'='*40}")
     print(f"=== 완료: 총 {total}건 업데이트 ({TODAY}) ===")

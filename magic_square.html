@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html class="light" lang="ko">
 
 <head>
@@ -23,8 +23,11 @@
     <script src="js/theme.js"></script>
     <script src="js/common_v2.js"></script>
     <script src="js/filter/FilterService.js"></script>
+    <script src="js/filter/FilterLifecycle.js"></script>
+    <script src="js/filter/FilterRuleEngine.js"></script>
     <script src="js/layout.js"></script>
-    <script src="js/deep_insight_panel.js"></script>
+    <script src="js/aiProxy.js?v=20260426"></script>
+    <script src="js/premium_insight_panel.js?v=20260426"></script>
 
     <!-- NLP Modules -->
     <script src="js/NLPProcessor.js"></script>
@@ -426,13 +429,11 @@
                         <div class="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-9 gap-3 mb-6" id="statCards">
                         </div>
 
-                        <div class="ai-section p-8 pb-10 mb-6 font-sans">
-                            <h3 class="text-lg font-bold text-gray-900 mb-4">딥러닝 Insight</h3>
-                            <div id="dlInsightContainer">
-                                <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
-                                    <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
-                                    <span class="text-sm">딥러닝 모델 분석 중 (7개 모델)...</span>
-                                </div>
+                        <!-- [표준화] AI Premium Insight 패널 (PremiumInsightPanel.js 표준 연동) -->
+                        <div id="premiumInsight" class="mb-6">
+                            <div class="flex items-center justify-center py-14 text-gray-400 bg-white rounded-2xl border border-gray-200">
+                                <span class="material-symbols-outlined animate-spin text-2xl mr-3">progress_activity</span>
+                                <span class="text-sm">AI 프리미엄 전략 엔진 로딩 중...</span>
                             </div>
                         </div>
 
@@ -619,6 +620,16 @@
                     renderDrawsList(displayData);
                 }
 
+                // ── FilterEngine Lifecycle Integration (Phase 3) ─────────────
+                window.addEventListener('filterLifecycle', function _filterLifecycleHandler(e) {
+                    var _detail = e.detail;
+                    if (_detail.type === 'NEW_ROUND') {
+                        if (typeof checkAndResetOnNewDraw === 'function') checkAndResetOnNewDraw();
+                    } else if (_detail.type === 'LOGOUT' || _detail.type === 'RESTORED') {
+                        if (typeof loadFilterSettings === 'function') loadFilterSettings();
+                    }
+                });
+
                 // [추가] 실시간 동기화: 다른 탭(대시보드 등)에서 필터 변경 시 즉시 반영
                 window.addEventListener('storage', async (e) => {
                     if (_gungSelfSaving) return; // 자체 저장 이벤트 무시
@@ -648,6 +659,7 @@
                 });
 
                 updateRange(currentRange);
+                initDeepInsight(); // [추가] 초기 로드 시 AI 리포트 실행
 
             } catch (err) {
                 console.error('데이터 로드 실패:', err);
@@ -871,38 +883,10 @@
             const container = document.getElementById('drawsList');
             container.innerHTML = '';
 
-            // [수정] 필터링 후 실제 표시 건수 계산을 위해 변수 선언
             let displayedCount = 0;
 
-            const isFilterActive = document.getElementById('applyFilterCheck').checked;
-            const filterSettings = {};
-            if (isFilterActive) {
-                Object.keys(gungDefinitions).forEach(type => {
-                    const min = parseInt(document.getElementById(`min_${type}`).value);
-                    const max = parseInt(document.getElementById(`max_${type}`).value);
-                    filterSettings[type] = { min, max };
-                });
-            }
-
             draws.forEach((draw, index) => {
-                // [추가] 실시간 필터링 적용
-                let isMatch = true;
-                if (isFilterActive) {
-                    for (const type of Object.keys(filterSettings)) {
-                        const count = draw.counts[type];
-                        const { min, max } = filterSettings[type];
-                        if (count < min || count > max) {
-                            isMatch = false;
-                            break;
-                        }
-                    }
-                }
-
-                if (isMatch) {
-                    displayedCount++;
-                } else {
-                    return; // 필터 불일치 시 스킵
-                }
+                displayedCount++;
 
                 const tr = document.createElement('tr');
                 tr.setAttribute('data-round', draw.round);
@@ -1309,10 +1293,37 @@
             qnaContent.scrollTop = qnaContent.scrollHeight;
         }
 
-        // 딥러닝 인사이트 패널 초기화
-        function initDeepInsight() {
-            if (window.DeepInsightPanel) {
-                DeepInsightPanel.renderGroup('dlInsightContainer', 'magic_square');
+        /**
+         * [표준화] AI 프리미엄 전략 리포트 초기화
+         * 디자인 로직과 7개 모델 앙상블 전략을 프로젝트 표준과 100% 동기화합니다.
+         */
+        async function initDeepInsight() {
+            const gungType = selectedGraphType || '1궁';
+            const containerId = 'premiumInsight';
+            
+            // 1. 최근 30회차 실측 데이터 추출 (흐름 진단용)
+            if (!allDrawData || allDrawData.length === 0) return;
+            const recentValues = allDrawData.slice(0, 30).map(d => d.counts[gungType]);
+
+            // 2. 상단 탭 정의 (1궁~9궁)
+            const tabItems = Object.keys(gungDefinitions).map(type => ({
+                key: type,
+                label: type
+            }));
+
+            // 3. 표준 엔진 호출 (PremiumInsightPanel.js)
+            if (window.PremiumInsightPanel) {
+                await window.PremiumInsightPanel.render(containerId, gungType, gungType, {
+                    recentValues: recentValues,
+                    skipMenuFetch: true,
+                    tabs: {
+                        items: tabItems,
+                        activeKey: gungType,
+                        onSelect: (key) => {
+                            toggleStatCard(key); // 탭 클릭 시 스탯 카드 및 그래프와 동기화
+                        }
+                    }
+                });
             }
         }
 

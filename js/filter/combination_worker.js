@@ -39,14 +39,20 @@ for (let n = 1; n <= 45; n++) {
     SERO_LUT[n] = ((n - 1) % 7) + 1;     // 세로 열: 1~7
 }
 
-// 배수 LUT: 각 번호가 3/4/5의 배수인지
+// 배수 LUT: 각 번호가 3/4/5/7/8의 배수인지
 const M3_LUT = new Uint8Array(46);
 const M4_LUT = new Uint8Array(46);
 const M5_LUT = new Uint8Array(46);
+const M7_LUT = new Uint8Array(46);
+const M8_LUT = new Uint8Array(46);
+const MUL7_SET = new Set([7, 14, 21, 28, 35, 42]);
+const MUL8_SET = new Set([8, 16, 24, 32, 40]);
 for (let n = 1; n <= 45; n++) {
     if (n % 3 === 0) M3_LUT[n] = 1;
     if (n % 4 === 0) M4_LUT[n] = 1;
     if (n % 5 === 0) M5_LUT[n] = 1;
+    if (MUL7_SET.has(n)) M7_LUT[n] = 1;
+    if (MUL8_SET.has(n)) M8_LUT[n] = 1;
 }
 
 // ──────────────────────────────────────────────────
@@ -493,20 +499,27 @@ function checkFilters(a, b, c, d, e, f, F) {
         const m3a = M3_LUT[a], m3b = M3_LUT[b], m3c = M3_LUT[c], m3d = M3_LUT[d], m3e = M3_LUT[e], m3f = M3_LUT[f];
         const m4a = M4_LUT[a], m4b = M4_LUT[b], m4c = M4_LUT[c], m4d = M4_LUT[d], m4e = M4_LUT[e], m4f = M4_LUT[f];
         const m5a = M5_LUT[a], m5b = M5_LUT[b], m5c = M5_LUT[c], m5d = M5_LUT[d], m5e = M5_LUT[e], m5f = M5_LUT[f];
+        const m7a = M7_LUT[a], m7b = M7_LUT[b], m7c = M7_LUT[c], m7d = M7_LUT[d], m7e = M7_LUT[e], m7f = M7_LUT[f];
+        const m8a = M8_LUT[a], m8b = M8_LUT[b], m8c = M8_LUT[c], m8d = M8_LUT[d], m8e = M8_LUT[e], m8f = M8_LUT[f];
         const cnt3 = m3a + m3b + m3c + m3d + m3e + m3f;
         const cnt4 = m4a + m4b + m4c + m4d + m4e + m4f;
         const cnt5 = m5a + m5b + m5c + m5d + m5e + m5f;
+        const cnt7 = m7a + m7b + m7c + m7d + m7e + m7f;
+        const cnt8 = m8a + m8b + m8c + m8d + m8e + m8f;
         const r3 = mr['3배수']; if (r3 && r3.min !== undefined) { if (cnt3 < r3.min || cnt3 > r3.max) return false; }
         const r4 = mr['4배수']; if (r4 && r4.min !== undefined) { if (cnt4 < r4.min || cnt4 > r4.max) return false; }
         const r5 = mr['5배수']; if (r5 && r5.min !== undefined) { if (cnt5 < r5.min || cnt5 > r5.max) return false; }
+        const r7 = mr['7배수']; if (r7 && r7.min !== undefined) { if (cnt7 < r7.min || cnt7 > r7.max) return false; }
+        const r8 = mr['8배수']; if (r8 && r8.min !== undefined) { if (cnt8 < r8.min || cnt8 > r8.max) return false; }
         const cnt34 = (m3a && m4a ? 1 : 0) + (m3b && m4b ? 1 : 0) + (m3c && m4c ? 1 : 0) + (m3d && m4d ? 1 : 0) + (m3e && m4e ? 1 : 0) + (m3f && m4f ? 1 : 0);
         const r34 = mr['3·4배수']; if (r34 && r34.min !== undefined) { if (cnt34 < r34.min || cnt34 > r34.max) return false; }
         const cnt35 = (m3a && m5a ? 1 : 0) + (m3b && m5b ? 1 : 0) + (m3c && m5c ? 1 : 0) + (m3d && m5d ? 1 : 0) + (m3e && m5e ? 1 : 0) + (m3f && m5f ? 1 : 0);
         const r35 = mr['3·5배수']; if (r35 && r35.min !== undefined) { if (cnt35 < r35.min || cnt35 > r35.max) return false; }
         const cnt45 = (m4a && m5a ? 1 : 0) + (m4b && m5b ? 1 : 0) + (m4c && m5c ? 1 : 0) + (m4d && m5d ? 1 : 0) + (m4e && m5e ? 1 : 0) + (m4f && m5f ? 1 : 0);
         const r45b = mr['4·5배수']; if (r45b && r45b.min !== undefined) { if (cnt45 < r45b.min || cnt45 > r45b.max) return false; }
-        const cntOther = (!m3a && !m4a && !m5a ? 1 : 0) + (!m3b && !m4b && !m5b ? 1 : 0) + (!m3c && !m4c && !m5c ? 1 : 0) +
-            (!m3d && !m4d && !m5d ? 1 : 0) + (!m3e && !m4e && !m5e ? 1 : 0) + (!m3f && !m4f && !m5f ? 1 : 0);
+        const cntOther = (!m3a && !m4a && !m5a && !m7a && !m8a ? 1 : 0) + (!m3b && !m4b && !m5b && !m7b && !m8b ? 1 : 0) +
+            (!m3c && !m4c && !m5c && !m7c && !m8c ? 1 : 0) + (!m3d && !m4d && !m5d && !m7d && !m8d ? 1 : 0) +
+            (!m3e && !m4e && !m5e && !m7e && !m8e ? 1 : 0) + (!m3f && !m4f && !m5f && !m7f && !m8f ? 1 : 0);
         const rOther = mr['배수외']; if (rOther && rOther.min !== undefined) { if (cntOther < rOther.min || cntOther > rOther.max) return false; }
     }
 
@@ -834,13 +847,17 @@ function checkFiltersGetStage(a, b, c, d, e, f, F) {
         const m3a = M3_LUT[a], m3b = M3_LUT[b], m3c = M3_LUT[c], m3d = M3_LUT[d], m3e = M3_LUT[e], m3f = M3_LUT[f];
         const m4a = M4_LUT[a], m4b = M4_LUT[b], m4c = M4_LUT[c], m4d = M4_LUT[d], m4e = M4_LUT[e], m4f = M4_LUT[f];
         const m5a = M5_LUT[a], m5b = M5_LUT[b], m5c = M5_LUT[c], m5d = M5_LUT[d], m5e = M5_LUT[e], m5f = M5_LUT[f];
+        const m7a = M7_LUT[a], m7b = M7_LUT[b], m7c = M7_LUT[c], m7d = M7_LUT[d], m7e = M7_LUT[e], m7f = M7_LUT[f];
+        const m8a = M8_LUT[a], m8b = M8_LUT[b], m8c = M8_LUT[c], m8d = M8_LUT[d], m8e = M8_LUT[e], m8f = M8_LUT[f];
         const cnt3 = m3a + m3b + m3c + m3d + m3e + m3f; const r3 = mr['3배수']; if (r3 && r3.min !== undefined && (cnt3 < r3.min || cnt3 > r3.max)) return '3배수';
         const cnt4 = m4a + m4b + m4c + m4d + m4e + m4f; const r4 = mr['4배수']; if (r4 && r4.min !== undefined && (cnt4 < r4.min || cnt4 > r4.max)) return '4배수';
         const cnt5 = m5a + m5b + m5c + m5d + m5e + m5f; const r5 = mr['5배수']; if (r5 && r5.min !== undefined && (cnt5 < r5.min || cnt5 > r5.max)) return '5배수';
+        const cnt7 = m7a + m7b + m7c + m7d + m7e + m7f; const r7 = mr['7배수']; if (r7 && r7.min !== undefined && (cnt7 < r7.min || cnt7 > r7.max)) return '7배수';
+        const cnt8 = m8a + m8b + m8c + m8d + m8e + m8f; const r8 = mr['8배수']; if (r8 && r8.min !== undefined && (cnt8 < r8.min || cnt8 > r8.max)) return '8배수';
         const cnt34 = (m3a && m4a ? 1 : 0) + (m3b && m4b ? 1 : 0) + (m3c && m4c ? 1 : 0) + (m3d && m4d ? 1 : 0) + (m3e && m4e ? 1 : 0) + (m3f && m4f ? 1 : 0); const r34 = mr['3·4배수']; if (r34 && r34.min !== undefined && (cnt34 < r34.min || cnt34 > r34.max)) return '3·4배수';
         const cnt35 = (m3a && m5a ? 1 : 0) + (m3b && m5b ? 1 : 0) + (m3c && m5c ? 1 : 0) + (m3d && m5d ? 1 : 0) + (m3e && m5e ? 1 : 0) + (m3f && m5f ? 1 : 0); const r35 = mr['3·5배수']; if (r35 && r35.min !== undefined && (cnt35 < r35.min || cnt35 > r35.max)) return '3·5배수';
         const cnt45 = (m4a && m5a ? 1 : 0) + (m4b && m5b ? 1 : 0) + (m4c && m5c ? 1 : 0) + (m4d && m5d ? 1 : 0) + (m4e && m5e ? 1 : 0) + (m4f && m5f ? 1 : 0); const r45b = mr['4·5배수']; if (r45b && r45b.min !== undefined && (cnt45 < r45b.min || cnt45 > r45b.max)) return '4·5배수';
-        const cntO = (!m3a && !m4a && !m5a ? 1 : 0) + (!m3b && !m4b && !m5b ? 1 : 0) + (!m3c && !m4c && !m5c ? 1 : 0) + (!m3d && !m4d && !m5d ? 1 : 0) + (!m3e && !m4e && !m5e ? 1 : 0) + (!m3f && !m4f && !m5f ? 1 : 0); const rO = mr['배수외']; if (rO && rO.min !== undefined && (cntO < rO.min || cntO > rO.max)) return '배수외';
+        const cntO = (!m3a && !m4a && !m5a && !m7a && !m8a ? 1 : 0) + (!m3b && !m4b && !m5b && !m7b && !m8b ? 1 : 0) + (!m3c && !m4c && !m5c && !m7c && !m8c ? 1 : 0) + (!m3d && !m4d && !m5d && !m7d && !m8d ? 1 : 0) + (!m3e && !m4e && !m5e && !m7e && !m8e ? 1 : 0) + (!m3f && !m4f && !m5f && !m7f && !m8f ? 1 : 0); const rO = mr['배수외']; if (rO && rO.min !== undefined && (cntO < rO.min || cntO > rO.max)) return '배수외';
     }
     if (F.carryoverCounts && F.carryoverLUT) {
         const lut = F.carryoverLUT; const cnt = (lut[a] || 0) + (lut[b] || 0) + (lut[c] || 0) + (lut[d] || 0) + (lut[e] || 0) + (lut[f] || 0);
@@ -954,6 +971,8 @@ function diagnoseFilters(rawFilters) {
         if (F.multipleRanges['3배수']) failMap['3배수'] = 0;
         if (F.multipleRanges['4배수']) failMap['4배수'] = 0;
         if (F.multipleRanges['5배수']) failMap['5배수'] = 0;
+        if (F.multipleRanges['7배수']) failMap['7배수'] = 0;
+        if (F.multipleRanges['8배수']) failMap['8배수'] = 0;
         if (F.multipleRanges['3·4배수']) failMap['3·4배수'] = 0;
         if (F.multipleRanges['3·5배수']) failMap['3·5배수'] = 0;
         if (F.multipleRanges['4·5배수']) failMap['4·5배수'] = 0;
@@ -1265,20 +1284,27 @@ function buildStages(F) {
                 const m3a = M3_LUT[a], m3b = M3_LUT[b], m3c = M3_LUT[c], m3d = M3_LUT[d], m3e = M3_LUT[e], m3f = M3_LUT[f];
                 const m4a = M4_LUT[a], m4b = M4_LUT[b], m4c = M4_LUT[c], m4d = M4_LUT[d], m4e = M4_LUT[e], m4f = M4_LUT[f];
                 const m5a = M5_LUT[a], m5b = M5_LUT[b], m5c = M5_LUT[c], m5d = M5_LUT[d], m5e = M5_LUT[e], m5f = M5_LUT[f];
+                const m7a = M7_LUT[a], m7b = M7_LUT[b], m7c = M7_LUT[c], m7d = M7_LUT[d], m7e = M7_LUT[e], m7f = M7_LUT[f];
+                const m8a = M8_LUT[a], m8b = M8_LUT[b], m8c = M8_LUT[c], m8d = M8_LUT[d], m8e = M8_LUT[e], m8f = M8_LUT[f];
                 const m3 = m3a + m3b + m3c + m3d + m3e + m3f;
                 const m4 = m4a + m4b + m4c + m4d + m4e + m4f;
                 const m5 = m5a + m5b + m5c + m5d + m5e + m5f;
+                const m7 = m7a + m7b + m7c + m7d + m7e + m7f;
+                const m8 = m8a + m8b + m8c + m8d + m8e + m8f;
                 const r3 = mr['3배수']; if (r3 && r3.min !== undefined && (m3 < r3.min || m3 > r3.max)) return false;
                 const r4 = mr['4배수']; if (r4 && r4.min !== undefined && (m4 < r4.min || m4 > r4.max)) return false;
                 const r5 = mr['5배수']; if (r5 && r5.min !== undefined && (m5 < r5.min || m5 > r5.max)) return false;
+                const r7 = mr['7배수']; if (r7 && r7.min !== undefined && (m7 < r7.min || m7 > r7.max)) return false;
+                const r8 = mr['8배수']; if (r8 && r8.min !== undefined && (m8 < r8.min || m8 > r8.max)) return false;
                 const cnt34 = (m3a && m4a ? 1 : 0) + (m3b && m4b ? 1 : 0) + (m3c && m4c ? 1 : 0) + (m3d && m4d ? 1 : 0) + (m3e && m4e ? 1 : 0) + (m3f && m4f ? 1 : 0);
                 const r34 = mr['3·4배수']; if (r34 && r34.min !== undefined && (cnt34 < r34.min || cnt34 > r34.max)) return false;
                 const cnt35 = (m3a && m5a ? 1 : 0) + (m3b && m5b ? 1 : 0) + (m3c && m5c ? 1 : 0) + (m3d && m5d ? 1 : 0) + (m3e && m5e ? 1 : 0) + (m3f && m5f ? 1 : 0);
                 const r35 = mr['3·5배수']; if (r35 && r35.min !== undefined && (cnt35 < r35.min || cnt35 > r35.max)) return false;
                 const cnt45 = (m4a && m5a ? 1 : 0) + (m4b && m5b ? 1 : 0) + (m4c && m5c ? 1 : 0) + (m4d && m5d ? 1 : 0) + (m4e && m5e ? 1 : 0) + (m4f && m5f ? 1 : 0);
                 const r45b = mr['4·5배수']; if (r45b && r45b.min !== undefined && (cnt45 < r45b.min || cnt45 > r45b.max)) return false;
-                const cntO = (!m3a && !m4a && !m5a ? 1 : 0) + (!m3b && !m4b && !m5b ? 1 : 0) + (!m3c && !m4c && !m5c ? 1 : 0) +
-                    (!m3d && !m4d && !m5d ? 1 : 0) + (!m3e && !m4e && !m5e ? 1 : 0) + (!m3f && !m4f && !m5f ? 1 : 0);
+                const cntO = (!m3a && !m4a && !m5a && !m7a && !m8a ? 1 : 0) + (!m3b && !m4b && !m5b && !m7b && !m8b ? 1 : 0) +
+                    (!m3c && !m4c && !m5c && !m7c && !m8c ? 1 : 0) + (!m3d && !m4d && !m5d && !m7d && !m8d ? 1 : 0) +
+                    (!m3e && !m4e && !m5e && !m7e && !m8e ? 1 : 0) + (!m3f && !m4f && !m5f && !m7f && !m8f ? 1 : 0);
                 const rO = mr['배수외']; if (rO && rO.min !== undefined && (cntO < rO.min || cntO > rO.max)) return false;
                 return true;
             }
@@ -1762,16 +1788,21 @@ function countIndependent(rawFilters) {
             const m3a=M3_LUT[a],m3b=M3_LUT[b],m3c=M3_LUT[c],m3d=M3_LUT[d],m3e=M3_LUT[e],m3f=M3_LUT[f];
             const m4a=M4_LUT[a],m4b=M4_LUT[b],m4c=M4_LUT[c],m4d=M4_LUT[d],m4e=M4_LUT[e],m4f=M4_LUT[f];
             const m5a=M5_LUT[a],m5b=M5_LUT[b],m5c=M5_LUT[c],m5d=M5_LUT[d],m5e=M5_LUT[e],m5f=M5_LUT[f];
+            const m7a=M7_LUT[a],m7b=M7_LUT[b],m7c=M7_LUT[c],m7d=M7_LUT[d],m7e=M7_LUT[e],m7f=M7_LUT[f];
+            const m8a=M8_LUT[a],m8b=M8_LUT[b],m8c=M8_LUT[c],m8d=M8_LUT[d],m8e=M8_LUT[e],m8f=M8_LUT[f];
             const cnt3=m3a+m3b+m3c+m3d+m3e+m3f, cnt4=m4a+m4b+m4c+m4d+m4e+m4f, cnt5=m5a+m5b+m5c+m5d+m5e+m5f;
+            const cnt7=m7a+m7b+m7c+m7d+m7e+m7f, cnt8=m8a+m8b+m8c+m8d+m8e+m8f;
             const mr=F.multipleRanges;
             let pass=true;
             const r3=mr['3배수']; if(r3&&r3.min!==undefined&&(cnt3<r3.min||cnt3>r3.max)) pass=false;
             if(pass){const r4=mr['4배수']; if(r4&&r4.min!==undefined&&(cnt4<r4.min||cnt4>r4.max)) pass=false;}
             if(pass){const r5=mr['5배수']; if(r5&&r5.min!==undefined&&(cnt5<r5.min||cnt5>r5.max)) pass=false;}
+            if(pass){const r7=mr['7배수']; if(r7&&r7.min!==undefined&&(cnt7<r7.min||cnt7>r7.max)) pass=false;}
+            if(pass){const r8=mr['8배수']; if(r8&&r8.min!==undefined&&(cnt8<r8.min||cnt8>r8.max)) pass=false;}
             if(pass){const cnt34=(m3a&&m4a?1:0)+(m3b&&m4b?1:0)+(m3c&&m4c?1:0)+(m3d&&m4d?1:0)+(m3e&&m4e?1:0)+(m3f&&m4f?1:0); const r34=mr['3·4배수']; if(r34&&r34.min!==undefined&&(cnt34<r34.min||cnt34>r34.max)) pass=false;}
             if(pass){const cnt35=(m3a&&m5a?1:0)+(m3b&&m5b?1:0)+(m3c&&m5c?1:0)+(m3d&&m5d?1:0)+(m3e&&m5e?1:0)+(m3f&&m5f?1:0); const r35=mr['3·5배수']; if(r35&&r35.min!==undefined&&(cnt35<r35.min||cnt35>r35.max)) pass=false;}
             if(pass){const cnt45=(m4a&&m5a?1:0)+(m4b&&m5b?1:0)+(m4c&&m5c?1:0)+(m4d&&m5d?1:0)+(m4e&&m5e?1:0)+(m4f&&m5f?1:0); const r45b=mr['4·5배수']; if(r45b&&r45b.min!==undefined&&(cnt45<r45b.min||cnt45>r45b.max)) pass=false;}
-            if(pass){const cntO=(!m3a&&!m4a&&!m5a?1:0)+(!m3b&&!m4b&&!m5b?1:0)+(!m3c&&!m4c&&!m5c?1:0)+(!m3d&&!m4d&&!m5d?1:0)+(!m3e&&!m4e&&!m5e?1:0)+(!m3f&&!m4f&&!m5f?1:0); const rO=mr['배수외']; if(rO&&rO.min!==undefined&&(cntO<rO.min||cntO>rO.max)) pass=false;}
+            if(pass){const cntO=(!m3a&&!m4a&&!m5a&&!m7a&&!m8a?1:0)+(!m3b&&!m4b&&!m5b&&!m7b&&!m8b?1:0)+(!m3c&&!m4c&&!m5c&&!m7c&&!m8c?1:0)+(!m3d&&!m4d&&!m5d&&!m7d&&!m8d?1:0)+(!m3e&&!m4e&&!m5e&&!m7e&&!m8e?1:0)+(!m3f&&!m4f&&!m5f&&!m7f&&!m8f?1:0); const rO=mr['배수외']; if(rO&&rO.min!==undefined&&(cntO<rO.min||cntO>rO.max)) pass=false;}
             if(pass) counts.multipleFilter++;
         }
 

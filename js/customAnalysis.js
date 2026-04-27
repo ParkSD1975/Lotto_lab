@@ -5,6 +5,39 @@ let historyViewLimit = 200; // [수정] 딥러닝 백필 데이터(1211회~) 노
 
 const aiCache = new Map(); // [New] AI 예측 데이터 캐시
 
+// [성능] sessionStorage에서 aiCache 복원 (페이지 재방문 시 재요청 방지)
+(function _restoreAiCache() {
+    try {
+        const raw = sessionStorage.getItem('_aiCacheV1');
+        if (raw) {
+            const obj = JSON.parse(raw);
+            Object.entries(obj).forEach(([k, v]) => aiCache.set(parseInt(k), v));
+            console.log(`♻️ [aiCache] sessionStorage에서 ${aiCache.size}개 회차 복원`);
+        }
+    } catch (_) {}
+})();
+
+// [성능] aiCache → sessionStorage 저장 헬퍼
+function _persistAiCache() {
+    try {
+        const obj = {};
+        aiCache.forEach((v, k) => { obj[k] = v; });
+        sessionStorage.setItem('_aiCacheV1', JSON.stringify(obj));
+    } catch (_) {}
+}
+
+// [표준] 로또 번호대별 공 색상 — lotto_ball_colors.md 스펙 (그라데이션)
+//   1-10: yellow / 11-20: blue / 21-30: red / 31-40: gray / 41-45: green
+function getStandardBallGradient(num) {
+    const n = parseInt(num);
+    if (n <= 10) return 'linear-gradient(135deg,#f59e0b,#d97706)';
+    if (n <= 20) return 'linear-gradient(135deg,#3b82f6,#2563eb)';
+    if (n <= 30) return 'linear-gradient(135deg,#ef4444,#dc2626)';
+    if (n <= 40) return 'linear-gradient(135deg,#6b7280,#4b5563)';
+    return 'linear-gradient(135deg,#10b981,#059669)';
+}
+window.getStandardBallGradient = getStandardBallGradient;
+
 // [성능] calculateStats 결과 캐시 → refreshAIAnalysis에서 중복 연산 방지
 let _lastStats = null;
 let _lastStatsId = null;
@@ -75,23 +108,168 @@ window.onHistoryLimitChange = function (val) {
 window.initAnalysis = initAnalysis;
 
 /**
- * [New] 필터 바로가기: filter.html의 해당 커스텀 필터로 이동
+ * [New] 분석 항목의 성격(AI 여부, 제외수 여부 등)을 판단하는 통합 헬퍼
  */
-window.goToFilterPage = function () {
-    if (!currentAnalysis?.id) return;
-    const tab = 'custom';
-    window.location.href = `filter.html?tab=${tab}&id=${currentAnalysis.id}`;
-};
+function getAnalysisContext(analysis) {
+    if (!analysis) return { type: 'static', isAiType: false, isExclusion: false };
+    const type = analysis.type || 'static';
+    const title = (analysis.title || '').toUpperCase();
+    // [수정] "앙상블", "추천조합", "XGB" 등 누락된 키워드 추가
+    const isAiModelTitle = !!title.match(/(LSTM|GNN|CNN|TRANSFORMER|MARKOV|AUTOENCODER|XGBOOST|XGB|ENSEMBLE|앙상블|추천조합|TF|ATC|AI|딥러닝|추천|제외)/i);
+    const isExclusion = title.includes('제외') || title.includes('EXCLUDE') || type.includes('excluded');
+    const aiSource = analysis.config?.aiSource;
+    const isAiType = type.startsWith('ai_') || !!aiSource || isAiModelTitle;
+    return { type, title, isAiModelTitle, isExclusion, isAiType, aiSource };
+}
+
+/**
+ * [New] AI 캐시 데이터에서 분석 설정에 맞는 타겟 번호를 추출하는 통합 헬퍼
+ * 이력 데이터 매핑과 차기 회차(Upcoming) 매핑 로직을 하나로 합쳐 코드 중복을 제거하고 정합성을 유지함.
+ */
+function extractTargetsFromAIData(aiData, context, analysis) {
+    if (!aiData) return [];
+    const { type, aiSource, isAiModelTitle, title } = context;
+    const isTarget20 = title.includes('20');
+    // [추가] 제목에서 숫자 추출 (예: 추천조합 10 -> count=10)
+    const titleMatch = title.match(/(\d+)/);
+    const titleCount = titleMatch ? parseInt(titleMatch[0]) : null;
+
+    let targets = [];
+
+    // [New] 추천조합N: combinations(AI 추천 10게임)에서 조합 범위별 번호 추출 (중복 제거)
+    // 추천조합5 = 1~5번 조합, 추천조합10 = 6~10번 조합, 추천조합1-10 = 1~10번 조합
+    if (title.includes('추천조합') && aiData.combinations?.length > 0) {
+        const combos = aiData.combinations;
+        let startRank, endRank;
+
+        // 제목에서 범위 파싱: "1-10", "5", "10" 등
+        const rangeMatch = title.match(/추천조합\s*(\d+)\s*[-~]\s*(\d+)/);
+        const singleMatch = title.match(/추천조합\s*(\d+)/);
+
+        if (rangeMatch) {
+            // "추천조합1-10" → 1번~10번
+            startRank = parseInt(rangeMatch[1]);
+            endRank = parseInt(rangeMatch[2]);
+        } else if (singleMatch) {
+            const num = parseInt(singleMatch[1]);
+            if (num <= 5) {
+                // "추천조합5" → 1번~5번
+                startRank = 1;
+                endRank = num;
+            } else {
+                // "추천조합10" → 6번~10번
+                startRank = 6;
+                endRank = num;
+            }
+        } else {
+            startRank = 1;
+            endRank = combos.length;
+        }
+
+        const selected = combos.filter(c => c.rank >= startRank && c.rank <= endRank);
+        const allNums = selected.flatMap(c => c.numbers || []);
+        targets = [...new Set(allNums)].sort((a, b) => a - b);
+        return targets.map(Number);
+    }
+
+    // [수정] 추천조합 등 개수가 명시된 항목은 matrix_data 기반 추출을 우선하거나 fixed 목록을 슬라이싱함
+    if (aiSource === 'dl_recommended') {
+        targets = (aiData.recommended_numbers?.length > 0 ? aiData.recommended_numbers :
+            (aiData.recommended?.length > 0 ? aiData.recommended : (aiData.top_5 || [])));
+
+        // 만약 가져온 갯수가 요청된 개수보다 적고 matrix_data가 있다면 폴백
+        const count = parseInt(analysis.rules?.count || titleCount || targets.length);
+        if (targets.length < count && aiData.matrix_data?.length > 0) {
+            const sorted = [...aiData.matrix_data].sort((a, b) => (b.total || 0) - (a.total || 0));
+            targets = sorted.slice(0, count).map(item => Number(item.num));
+        } else if (targets.length > count) {
+            targets = targets.slice(0, count);
+        }
+    } else if (aiSource === 'dl_excluded') {
+        targets = (aiData.excluded_numbers?.length > 0 ? aiData.excluded_numbers :
+            (aiData.excluded?.length > 0 ? aiData.excluded : (aiData.exclude_10 || [])));
+    } else if (type === 'ai_ensemble_fixed') {
+        targets = (aiData.top_5?.length > 0 ? aiData.top_5 : aiData.recommended || []).slice(0, 6);
+    } else if (type === 'ai_ensemble_excluded') {
+        targets = aiData.exclude_10 || aiData.excluded || [];
+    } else if (type === 'ai_model_top' || type === 'ai_model_bottom' || isAiModelTitle) {
+        let model = (analysis.rules?.model || 'ensemble').toLowerCase();
+        if (isAiModelTitle && (!analysis.rules?.model || model === 'ensemble')) {
+            const matched = title.match(/(LSTM|GNN|CNN|TRANSFORMER|MARKOV|AUTOENCODER|XGBOOST|XGB|TF|ATC|앙상블)/i);
+            if (matched) {
+                model = matched[0].toLowerCase();
+                if (model === 'tf') model = 'transformer';
+                if (model === 'atc') model = 'autoencoder';
+                if (model === 'xgb') model = 'xgboost';
+                if (model === '앙상블') model = 'ensemble';
+            }
+        }
+        let count = parseInt(analysis.rules?.count || titleCount || (isTarget20 ? 20 : 10));
+        const isTop = (type !== 'ai_model_bottom');
+        const matrixData = aiData.matrix_data || [];
+        if (matrixData.length > 0) {
+            const sorted = [...matrixData].sort((a, b) => {
+                let scoreA, scoreB;
+                if (model === 'ensemble' || model === 'total' || model === '앙상블') {
+                    scoreA = a.total || 0;
+                    scoreB = b.total || 0;
+                } else {
+                    scoreA = (a.models && a.models[model]) ? (a.models[model].score || 0) : 0;
+                    scoreB = (b.models && b.models[model]) ? (b.models[model].score || 0) : 0;
+                }
+                return isTop ? (scoreB - scoreA) : (scoreA - scoreB);
+            });
+            targets = sorted.slice(0, count).map(item => Number(item.num));
+        }
+    }
+    return (targets || []).map(Number);
+}
 
 document.addEventListener('DOMContentLoaded', async () => {
     const params = new URLSearchParams(window.location.search);
     let analysisId = params.get('id');
 
     if (!analysisId) {
-        // Redirect to the most recent analysis if no ID provided
-        const { data } = await window.supabaseClient.from('ai_custom_analyses').select('id').order('created_at', { ascending: false }).limit(1).single();
-        if (data?.id) return window.location.replace(`custom_analysis.html?id=${data.id}`);
-        // No analysis found at all
+        // [수정] LNB 메뉴와 동일한 정렬: created_at ASC + 사용자 드래그 순서 우선 → 맨 위(피보나치수열 등) 항목으로 랜딩
+        try {
+            const userId = window.filterService?.userId
+                || (await window.supabaseClient.auth.getUser()).data?.user?.id
+                || localStorage.getItem('_lastLoginUserId')
+                || null;
+
+            let q = window.supabaseClient
+                .from('ai_custom_analyses')
+                .select('id')
+                .is('target_round', null)
+                .order('created_at', { ascending: true });
+            if (userId) q = q.or(`user_id.eq.${userId},user_id.is.null`);
+            else q = q.is('user_id', null);
+
+            const { data: list } = await q;
+            if (!list || list.length === 0) return;
+
+            // LNB 드래그 순서 반영
+            const storageKey = userId ? `lnbOrder_custom_${userId}` : 'lnbOrder_custom_guest';
+            let ordered = list;
+            try {
+                const saved = JSON.parse(localStorage.getItem(storageKey) || 'null');
+                if (saved && saved.length > 0) {
+                    ordered = [...list].sort((a, b) => {
+                        const ia = saved.indexOf(`custom_analysis.html?id=${a.id}`);
+                        const ib = saved.indexOf(`custom_analysis.html?id=${b.id}`);
+                        if (ia !== -1 && ib !== -1) return ia - ib;
+                        if (ia !== -1) return -1;
+                        if (ib !== -1) return 1;
+                        return 0;
+                    });
+                }
+            } catch (e) { /* noop */ }
+
+            const firstId = ordered[0]?.id;
+            if (firstId) return window.location.replace(`custom_analysis.html?id=${firstId}`);
+        } catch (e) {
+            console.warn('[Custom Landing] 맨 위 분석 조회 실패:', e);
+        }
         return;
     }
 
@@ -123,9 +301,19 @@ async function initAnalysis(analysisId) {
         allDrawData = cachedDraws;
 
         // [자동보정] 회차 업데이트 후 첫 방문 시 전체 필터 일괄 재설정 (1회만 실행)
+        // [핵심] await로 동기 실행 → 초기 렌더 전에 현재 분석의 min/max가 최근 10회차 값으로 반영되도록 보장
         if (!_hasRunAutoCalibrate) {
             _hasRunAutoCalibrate = true;
-            batchCalibrateAllFilters(); // await 없이 백그라운드 실행 (UI 블로킹 없음)
+            try { await batchCalibrateAllFilters(); }
+            catch (e) { console.warn('[AutoCalibrate] 실패:', e); }
+            // 보정 후 최신 filter_config 재조회 (다른 탭/서비스 변경분 반영)
+            try {
+                const { data: refreshed } = await window.supabaseClient
+                    .from('ai_custom_analyses')
+                    .select('filter_config')
+                    .eq('id', analysisId).single();
+                if (refreshed?.filter_config) currentAnalysis.filter_config = refreshed.filter_config;
+            } catch (e) { /* noop */ }
         }
 
         // 데이터 보정 (안전 장치)
@@ -175,6 +363,10 @@ async function initAnalysis(analysisId) {
         // 4. 유형별 전용 컨트롤 로드
         renderTypeSpecificControls();
 
+        // 5. [New] AI 프리미엄 전략 리포트 — 커스텀 분석의 target_numbers에 대해 각 모델 예측값 동적 계산
+        renderCustomAnalysisInsight('dlInsightContainer', currentAnalysis)
+            .catch(e => console.warn('[CustomInsight] 실패:', e));
+
     } catch (err) {
         console.error("초기화 중 오류:", err);
         document.getElementById('analysisTitle').textContent = "로드 실패";
@@ -188,36 +380,134 @@ async function ensureAIHistoryLoaded(rounds) {
     const toFetch = rounds.filter(r => !aiCache.has(r));
     if (toFetch.length === 0) return;
 
-    console.log(`📡 [AI History] ${toFetch.length}개 회차의 AI 데이터 로딩 중... (Rounds: ${toFetch.join(', ')})`);
+    console.log(`📡 [AI History] ${toFetch.length}개 회차 로딩 중...`);
 
-    // API 부하 방지 및 속도 향상을 위해 Promise.all로 병렬 처리
-    await Promise.all(toFetch.map(async (round) => {
-        try {
-            const data = await window.AIProxy.getPredictions(round);
-            if (data) {
-                // [FIX] 만약 데이터가 { success: true, data: { ... } } 형태로 래핑되어 있다면 언래핑
-                const aiResult = (data.success && data.data) ? data.data : data;
-                aiCache.set(round, aiResult);
-                console.log(`✅ [AI History] ${round}회차 로드 완료:`, aiResult);
-            } else {
-                console.warn(`⚠️ [AI History] ${round}회차 데이터 없음`);
-                aiCache.set(round, null); // 중복 요청 방지를 위해 null이라도 캐시
-            }
-        } catch (e) {
-            console.error(`${round}회차 AI 데이터 로드 실패:`, e);
+    // ── 1단계: Supabase 일괄 조회 (1 HTTP 요청) ─────────────────────────
+    const dbFoundRounds = new Set();
+    try {
+        const { data: dbHistory } = await window.supabaseClient
+            .from('deep_analysis_history')
+            .select('target_round, recommended_numbers, excluded_numbers, analysis_data')
+            .in('target_round', toFetch);
+
+        if (dbHistory) {
+            dbHistory.forEach(item => {
+                const round = item.target_round;
+                const analysisData = (typeof item.analysis_data === 'string')
+                    ? JSON.parse(item.analysis_data)
+                    : item.analysis_data || {};
+                const nestedAnalysis = analysisData.analysis || {};
+                const matrixData = nestedAnalysis.matrix_data || analysisData.matrix_data || [];
+
+                aiCache.set(round, {
+                    ...analysisData,
+                    matrix_data: matrixData,
+                    recommended_numbers: item.recommended_numbers || [],
+                    excluded_numbers: item.excluded_numbers || [],
+                    top_5: analysisData.top_5 || analysisData.recommended || item.recommended_numbers || [],
+                    exclude_10: analysisData.exclude_10 || analysisData.excluded || item.excluded_numbers || []
+                });
+                dbFoundRounds.add(round);
+            });
         }
-    }));
+    } catch (dbErr) {
+        console.warn("⚠️ [AI History] DB 로드 실패:", dbErr);
+    }
+
+    // ── 2단계: DB에 없거나, DB에 있어도 matrix_data가 비어있는 회차는 Python API 재호출 ──
+    // matrix_data 없으면 모델별(LSTM/XGB/CNN 등) 점수 계산 불가 → 빈 데이터로 캐시된 회차도 재시도
+    const noMatrixRounds = [...dbFoundRounds].filter(r => {
+        const cached = aiCache.get(r);
+        return cached && (!cached.matrix_data || cached.matrix_data.length === 0);
+    });
+    const needApi = [
+        ...toFetch.filter(r => !dbFoundRounds.has(r)),
+        ...noMatrixRounds
+    ];
+
+    if (needApi.length > 0) {
+        console.log(`📡 [AI History] Python API 필요 회차: ${needApi.length}개`);
+
+        // 동시 요청 수 제한 (최대 5개) — Python 서버 과부하 방지
+        const CONCURRENCY = 5;
+        for (let i = 0; i < needApi.length; i += CONCURRENCY) {
+            const batch = needApi.slice(i, i + CONCURRENCY);
+            await Promise.all(batch.map(async (round) => {
+                try {
+                    const data = await window.AIProxy.getPredictions(round);
+                    if (data) {
+                        const aiResult = (data.success && data.data) ? data.data : data;
+                        const existing = aiCache.get(round) || {};
+                        const merged = { ...existing, ...aiResult };
+                        // matrix_data 위치 정규화 (analysis.matrix_data → 최상위로)
+                        if (!merged.matrix_data || merged.matrix_data.length === 0) {
+                            merged.matrix_data = aiResult.analysis?.matrix_data || aiResult.matrix_data || [];
+                        }
+                        aiCache.set(round, merged);
+                        // matrix_data 확보 성공 시 DB 갱신 — analysis_data 전체 교체 금지!
+                        // analysis_data JSONB 내 matrix_data 키만 패치: 기존 strategy/summary/combinations 보존
+                        if (merged.matrix_data?.length > 0 && window.supabaseClient) {
+                            // 1) 현재 DB의 analysis_data를 먼저 읽어서
+                            window.supabaseClient
+                                .from('deep_analysis_history')
+                                .select('analysis_data')
+                                .eq('target_round', round)
+                                .maybeSingle()
+                                .then(({ data: row, error: selErr }) => {
+                                    if (selErr || !row) return;
+                                    // 2) 기존 JSONB에 matrix_data만 병합
+                                    let existing_ad = row.analysis_data;
+                                    if (typeof existing_ad === 'string') {
+                                        try { existing_ad = JSON.parse(existing_ad); } catch { existing_ad = {}; }
+                                    }
+                                    if (typeof existing_ad !== 'object' || existing_ad === null) existing_ad = {};
+
+                                    // analysis.matrix_data 경로로 저장 (기존 analysis 키 보존)
+                                    const patched = {
+                                        ...existing_ad,
+                                        analysis: {
+                                            ...(existing_ad.analysis || {}),
+                                            matrix_data: merged.matrix_data
+                                        }
+                                    };
+                                    // 최상위 top_5/exclude_10도 없으면 채워줌 (하위호환)
+                                    if (!patched.top_5 && merged.top_5?.length) patched.top_5 = merged.top_5;
+                                    if (!patched.exclude_10 && merged.exclude_10?.length) patched.exclude_10 = merged.exclude_10;
+
+                                    // 3) 패치된 전체 구조로 저장
+                                    window.supabaseClient
+                                        .from('deep_analysis_history')
+                                        .update({ analysis_data: patched })
+                                        .eq('target_round', round)
+                                        .then(({ error }) => {
+                                            if (error) console.warn(`[AI] ${round}회차 matrix_data DB 저장 실패:`, error);
+                                            else console.log(`✅ [AI] ${round}회차 matrix_data 패치 완료 (strategy 보존)`);
+                                        });
+                                });
+                        }
+                    } else if (!aiCache.has(round)) {
+                        aiCache.set(round, null);
+                    }
+                } catch (e) {
+                    console.error(`${round}회차 AI 데이터 로드 실패:`, e);
+                    if (!aiCache.has(round)) aiCache.set(round, null);
+                }
+            }));
+        }
+    }
+
+    // ── 3단계: sessionStorage에 캐시 저장 (다음 방문 시 재요청 방지) ─────
+    _persistAiCache();
+
+    console.log(`✅ [AI History] 로드 완료 — DB: ${dbFoundRounds.size}개, API: ${needApi.length}개`);
 }
 
 function calculateStats(analysis, draws) {
     if (!analysis || !draws.length) return null;
 
-    const type = analysis.type || 'static';
-    const title = analysis.title || '';
+    const ctx = getAnalysisContext(analysis);
+    const { type, isAiType, isExclusion, title: titleStr } = ctx;
     const globalTargets = analysis.target_numbers || [];
-
-    // AI 관련 타입 여부 확인
-    const isAiType = type.startsWith('ai_');
 
     // [New] 회귀 중첩수 기반 동적 그룹 생성 (Regression Overlap)
     if (type === 'regression_overlap' && analysis.config) {
@@ -295,7 +585,7 @@ function calculateStats(analysis, draws) {
     // createdAt 필터를 적용하면 과거 데이터가 통째로 막혀버림
     const hasHistoryData = (analysis.history_data || []).length > 0;
     const createdAt = analysis.created_at ? new Date(analysis.created_at) : null;
-    
+
     // [수정] filteredAscDraws를 기본값(전체 ascDraws)으로 먼저 선언 → 조건과 무관하게 항상 정의됨
     let filteredAscDraws = ascDraws;
     if (!hasHistoryData && !isAiType && createdAt && (type === 'manual' || type === 'direct')) {
@@ -311,43 +601,20 @@ function calculateStats(analysis, draws) {
         // [유형별 타겟 결정]
         if (type === 'manual' || type === 'direct' || isAiType) {
             const hist = (analysis.history_data || []).find(h => h.target_round === draw.round);
-            // [수정] 수파베이스에 저장된 이력 데이터를 최우선으로 사용하여 과거 데이터와 순위를 보존
+            // [수정] 수파베이스에 저장된 이력 데이터를 최우선으로 사용
             targets = (hist?.target_numbers || []).map(Number);
-            
-            // 만약 수파베이스에 데이터가 없고 AI 타입인 경우 실시간 캐시 시도
+
+            // AI 타입: aiCache에서 모델별 점수 기반 대상번호 추출
             if (targets.length === 0 && isAiType) {
                 const aiData = aiCache.get(draw.round);
                 if (aiData) {
-                    if (type === 'ai_ensemble_fixed') {
-                        targets = (aiData.top_5 || aiData.recommended || []).slice(0, 6).map(Number);
-                    } else if (type === 'ai_ensemble_excluded') {
-                        targets = (aiData.exclude_10 || aiData.excluded || []).map(Number);
-                    } else if (type === 'ai_model_top' || type === 'ai_model_bottom') {
-                        const model = (analysis.rules?.model || 'ensemble').toLowerCase();
-                        const count = parseInt(analysis.rules?.count || 10);
-                        const isTop = (type === 'ai_model_top');
-
-                        const matrixData = aiData.matrix_data || [];
-                        if (matrixData.length > 0) {
-                            const sorted = [...matrixData].sort((a, b) => {
-                                let scoreA, scoreB;
-                                if (model === 'ensemble' || model === 'total') {
-                                    scoreA = a.total || 0;
-                                    scoreB = b.total || 0;
-                                } else {
-                                    scoreA = (a.models && a.models[model]) ? (a.models[model].score || 0) : 0;
-                                    scoreB = (b.models && b.models[model]) ? (b.models[model].score || 0) : 0;
-                                }
-                                return isTop ? (scoreB - scoreA) : (scoreA - scoreB);
-                            });
-                            targets = sorted.slice(0, count).map(item => Number(item.num));
-                        }
-                    }
+                    targets = extractTargetsFromAIData(aiData, ctx, analysis);
                 }
+                // matrix_data 없으면 globalTargets로 대체하지 않음 → 빈 배열 유지 (테이블에 "−" 표시)
             }
-            
-            // [Fallback] 여전히 데이터가 전혀 없을 경우에만 전역 타겟(현재 타겟) 사용
-            if (targets.length === 0 && globalTargets.length > 0) {
+
+            // [Fallback] AI 타입이 아닌 경우(manual/direct)만 전역 타겟 사용
+            if (targets.length === 0 && !isAiType && globalTargets.length > 0) {
                 targets = globalTargets.map(Number);
             }
         } else if (type === 'static') {
@@ -380,10 +647,8 @@ function calculateStats(analysis, draws) {
         const hitCount = matched.length;
 
         // [Standardized] 적중 여부 판단
-        // matched와 hitCount는 위에서 이미 선언됨
-
-        // 기본 hit 여부: 1개 이상이면 Hit (필터 미적용 시 기본값)
-        let isHit = hitCount > 0;
+        // 기본 hit 여부: 제외수인 경우 0개 적중이 성공, 추천수인 경우 1개 이상 적중이 성공
+        let isHit = isExclusion ? (hitCount === 0) : (hitCount > 0);
 
         // [New] 'group' 유형일 경우 위 조건과 그룹별 조건을 병합
         if (type === 'group') {
@@ -450,8 +715,22 @@ function calculateStats(analysis, draws) {
     // ---------------------------------------------------------
     let nextTargets = [];
     if (type === 'manual' || type === 'direct') {
-        // [수정] 정렬을 제거하여 모델별 예측 순위 그대로 노출
-        nextTargets = [...globalTargets];
+        // [추가] manual 타입이더라도 aiSource가 설정되어 있다면 차기 회차용 AI 캐시 데이터 우선 적용
+        const aiSource = analysis.config?.aiSource;
+        const aiData = aiCache.get(nextRound);
+        if (aiSource && aiData) {
+            if (aiSource === 'dl_recommended') {
+                // [수정] 5개 요약(top_5)보다 전체 목록(recommended_numbers)을 우선하도록 순서 교정
+                nextTargets = (aiData.recommended_numbers || aiData.recommended || aiData.top_5 || []).map(Number);
+            } else if (aiSource === 'dl_excluded') {
+                nextTargets = (aiData.excluded_numbers || aiData.excluded || aiData.exclude_10 || []).map(Number);
+            }
+        }
+
+        // 데이터가 없거나 aiSource가 없는 경우에만 전역 고정 타겟 사용
+        if (nextTargets.length === 0) {
+            nextTargets = [...globalTargets];
+        }
     } else if (type === 'static') {
         nextTargets = globalTargets;
     } else if (isDynamic) {
@@ -482,33 +761,10 @@ function calculateStats(analysis, draws) {
         // [수정] 정렬 제거
         nextTargets = [...new Set(groups.flatMap(g => g.numbers))];
     } else if (isAiType) {
-        // [New] 다음 회차 AI 예측 데이터 로드 (캐싱된게 있으면 사용, 없으면 빈 배열)
+        // [New] 다음 회차 AI 예측 데이터 로드 (통합 헬퍼 사용으로 1220회차 이슈 해결)
         const aiData = aiCache.get(nextRound);
         if (aiData) {
-            if (type === 'ai_ensemble_fixed') {
-                nextTargets = (aiData.top_5 || aiData.recommended || []).slice(0, 6);
-            } else if (type === 'ai_ensemble_excluded') {
-                nextTargets = aiData.exclude_10 || aiData.excluded || [];
-            } else if (type === 'ai_model_top' || type === 'ai_model_bottom') {
-                const model = (analysis.rules?.model || 'ensemble').toLowerCase();
-                const count = parseInt(analysis.rules?.count || 10);
-                const isTop = (type === 'ai_model_top');
-                const matrixData = aiData.matrix_data || [];
-                if (matrixData.length > 0) {
-                    const sorted = [...matrixData].sort((a, b) => {
-                        let scoreA, scoreB;
-                        if (model === 'ensemble' || model === 'total') {
-                            scoreA = a.total || 0;
-                            scoreB = b.total || 0;
-                        } else {
-                            scoreA = (a.models && a.models[model]) ? (a.models[model].score || 0) : 0;
-                            scoreB = (b.models && b.models[model]) ? (b.models[model].score || 0) : 0;
-                        }
-                        return isTop ? (scoreB - scoreA) : (scoreA - scoreB);
-                    });
-                    nextTargets = sorted.slice(0, count).map(item => item.num);
-                }
-            }
+            nextTargets = extractTargetsFromAIData(aiData, ctx, analysis);
         }
     }
 
@@ -524,35 +780,75 @@ function calculateStats(analysis, draws) {
     };
 
     // 최신 순 정렬 (DESC): 다음 회차가 맨 위, 그 다음 최근 당첨 회차들
-    const sortedHistory = [...history].reverse(); // history가 ASC이므로 뒤집어서 DESC로 만듦
-    const combinedRows = [nextRow, ...sortedHistory];
+    const sortedHistory = [...history].reverse();
 
-    // [수정] AI 분석 유형인 경우 historyViewLimit 무시하고 1211회차까지 모두 포함 (최소 200회 보장)
-    const finalRows = (isAiType || currentAnalysis.config?.aiSource) ? combinedRows : combinedRows.slice(0, historyViewLimit);
+    // 타입별 노출 범위 결정:
+    // - direct(직접입력형): 분석 생성 시점 이후 회차만 표시
+    // - AI 모델 타입(딥러닝 제외수, 추천수, 모델별, 추천조합 등): 1212회차 이후만
+    // - 그 외(정적, 그룹 등): 전체 회차 노출
+    let filteredHistory;
+    if (type === 'direct') {
+        const createdAt = analysis.created_at ? new Date(analysis.created_at) : null;
+        if (createdAt) {
+            // draws(desc)에서 생성 시점 이후 회차의 최소(첫 번째) 회차 번호 산출
+            const afterCreation = draws.filter(d => new Date(d.date) >= createdAt);
+            const firstRound = afterCreation.length > 0 ? afterCreation[afterCreation.length - 1].round : 0;
+            filteredHistory = firstRound > 0 ? sortedHistory.filter(r => r.round >= firstRound) : sortedHistory;
+        } else {
+            filteredHistory = sortedHistory;
+        }
+    } else if (isAiType) {
+        // AI 모델 타입: 1212회차 이후만 (백필 데이터 범위)
+        filteredHistory = sortedHistory.filter(r => r.round >= 1212);
+    } else {
+        filteredHistory = sortedHistory;
+    }
+    const combinedRows = [nextRow, ...filteredHistory];
+
+    // [수정] 차기 회차 타겟을 메모리(헤더 Ball)에만 동기화 — DB 쓰기 side effect 제거
+    // calculateStats()는 순수 계산 함수여야 하므로 DB 갱신은 명시적 저장 액션(saveManual 등)에서만 수행
+    if (nextTargets && nextTargets.length > 0) {
+        currentAnalysis.target_numbers = [...nextTargets];
+        renderBaseInfo();
+    }
+
+    // AI 타입은 슬라이더(historyViewLimit) 없이 전체 로드; 일반 타입은 전체 회차 노출
+    const finalRows = combinedRows;
 
     return {
-        rows: finalRows, 
+        rows: finalRows,
         currentGap: history[history.length - 1]?.gap || 0,
         currentStraight: history[history.length - 1]?.straight || 0,
         maxGap, maxStraight, maxHits,
-        hitRate: (hitRounds / history.length) * 100,
-        avgHits: totalHitCount / history.length
+        hitRate: (hitRounds > 0 && history.length > 0 ? (hitRounds / history.length) * 100 : 0),
+        avgHits: (history.length > 0 ? totalHitCount / history.length : 0)
     };
 }
 
 // [Mod] skipAI 파라미터 추가 - 리스트 클릭 시 자동 분석 방지
 async function updateAnalysisDisplay(skipAI = false) {
-    const type = currentAnalysis?.type || 'static';
+    const ctx = getAnalysisContext(currentAnalysis);
+    const { type, isAiType } = ctx;
 
     // [New] AI 분석 유형일 경우 과거 데이터 로딩
-    if (type.startsWith('ai_')) {
-        // AI 분석은 과거 데이터가 많을수록 로딩이 매우 느려지므로 초기 로딩은 20회차로 제한
-        const aiHistoryLimit = 20;
-        const roundsToLoad = allDrawData.slice(0, Math.min(historyViewLimit, aiHistoryLimit)).map(d => d.round);
+    if (isAiType || type.startsWith('ai_')) {
         const latestRound = allDrawData[0]?.round || 0;
-        roundsToLoad.push(latestRound + 1); // 다음 회차 포함
+        const eligible = allDrawData.filter(d => d.round >= 1212).map(d => d.round);
 
-        await ensureAIHistoryLoaded(roundsToLoad);
+        // [성능] 1단계: 최근 20회차만 먼저 로드 → 화면 즉시 표시
+        const firstBatch = eligible.slice(0, 20);
+        firstBatch.push(latestRound + 1); // 차기 회차 포함
+        await ensureAIHistoryLoaded(firstBatch);
+
+        // [성능] 2단계: 나머지 회차는 화면 렌더링 후 백그라운드 로드
+        const remaining = eligible.slice(20);
+        if (remaining.length > 0) {
+            setTimeout(() => ensureAIHistoryLoaded(remaining).then(() => {
+                // 백그라운드 로드 완료 후 테이블만 조용히 갱신
+                const stats = calculateStats(currentAnalysis, allDrawData);
+                if (stats) renderHistoryTable(stats);
+            }), 0);
+        }
     }
 
     const stats = calculateStats(currentAnalysis, allDrawData);
@@ -596,8 +892,8 @@ function renderHeaderBalls(stats) {
     const html = (!targets || targets.length === 0) ?
         '<span class="text-sm text-gray-400">선택된 번호가 없습니다.</span>' :
         targets.map(num => {
-            const color = window.Utils?.getBallColor(num) || '#6B7280';
-            return `<div class="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm" style="background-color: ${color}">${num}</div>`;
+            const bg = getStandardBallGradient(num);
+            return `<div class="w-8 h-8 rounded-full flex items-center justify-center text-white font-medium text-[13px]" style="background:${bg}; box-shadow:0 2px 4px rgba(0,0,0,0.12)">${num}</div>`;
         }).join('');
 
     if (container) container.innerHTML = html;
@@ -767,13 +1063,12 @@ function updateManualGridUI() {
         if (!btn) continue;
 
         const active = targets.includes(i);
-        const color = window.Utils?.getBallColor(i) || '#64748b';
+        const bg = getStandardBallGradient(i);
 
-        // 클래스 및 스타일만 조절
-        // [수정] 버튼 크기 미세 조정 (w-9 -> w-[34px]) 및 텍스트 크기 최적화
         btn.className = `w-[34px] h-[34px] rounded-full flex items-center justify-center text-[11px] font-bold border transition-all ${active ? 'text-white border-transparent scale-105 shadow-md' : 'bg-white border-slate-100 text-slate-300 hover:border-indigo-100 hover:text-indigo-400'
             }`;
-        btn.style.backgroundColor = active ? color : 'white';
+        btn.style.background = active ? bg : 'white';
+        btn.style.boxShadow = active ? '0 2px 4px rgba(0,0,0,0.12)' : '';
         btn.innerText = i;
     }
 }
@@ -792,16 +1087,16 @@ function renderFilterUI() {
 }
 
 // [New] 필터 범위 직접 업데이트 함수 (Pill 디자인 대응)
-window.updateCustomRange = async function(type, val) {
+window.updateCustomRange = async function (type, val) {
     if (!currentAnalysis) return;
     const value = parseInt(val) || 0;
-    
+
     if (type === 'min') currentAnalysis.filter_config.min = value;
     else if (type === 'max') currentAnalysis.filter_config.max = value;
 
     // values 배열 초기화 (min-max 모드로 전환)
     delete currentAnalysis.filter_config.values;
-    
+
     await saveFilterConfig();
     updateAnalysisDisplay(true); // UI만 갱신
 };
@@ -821,8 +1116,10 @@ window.saveCustomFilter = async function () {
 async function saveFilterConfig() {
     if (!currentAnalysis) return;
 
-    // UI 업데이트 (낙관적)
-    // renderFilterUI(); // 저장 후 리렌더링 하되, DB 요청은 비동기로
+    // [추가] 수동 설정 플래그 및 현재 회차 정보 기록 (회차 업데이트 시 자동 보정 트리거용)
+    const latestRound = (allDrawData && allDrawData.length > 0) ? allDrawData[0].round : 0;
+    currentAnalysis.filter_config.is_manual = true;
+    currentAnalysis.filter_config.last_calibrated_round = latestRound;
 
     try {
         const { error } = await window.supabaseClient.from('ai_custom_analyses')
@@ -830,6 +1127,7 @@ async function saveFilterConfig() {
             .eq('id', currentAnalysis.id);
 
         if (error) throw error;
+
 
         // [수정] localStorage에도 동시 저장하여 대시보드 및 타 탭과 동기화
         if (window.Utils && window.Utils.saveFilter) {
@@ -873,13 +1171,17 @@ async function batchCalibrateAllFilters() {
         const { data: allAnalyses, error } = await query;
         if (error || !allAnalyses || allAnalyses.length === 0) return;
 
-        // 보정이 필요한 분석만 선별 (last_calibrated_round < latestRound)
+        // 보정이 필요한 분석만 선별:
+        // 1) last_calibrated_round < latestRound (새 회차 업데이트)
+        // 2) min=0 AND max=0 (이전 보정이 잘못된 경우 강제 재보정)
         const toUpdate = allAnalyses.filter(a => {
             try {
                 const fc = typeof a.filter_config === 'string'
                     ? JSON.parse(a.filter_config)
                     : (a.filter_config || {});
-                return (fc.last_calibrated_round || 0) < latestRound;
+                const needsRound = (fc.last_calibrated_round || 0) < latestRound;
+                const isBroken = (fc.min === 0 && fc.max === 0);
+                return needsRound || isBroken;
             } catch (e) { return true; }
         });
 
@@ -890,11 +1192,29 @@ async function batchCalibrateAllFilters() {
 
         console.log(`[AutoCalibrate] ${toUpdate.length}개 분석 필터 자동 보정 시작 (기준 회차: ${latestRound}회)`);
 
+        // [사전 준비] AI 타입 분석의 calculateStats에 필요한 aiCache 확보 (최근 20회차만)
+        const recentRounds = allDrawData.filter(d => d.round >= 1212).slice(0, 20).map(d => d.round);
+        recentRounds.push(latestRound + 1);
+        await ensureAIHistoryLoaded(recentRounds);
+
         for (const analysis of toUpdate) {
             try {
                 const fc = typeof analysis.filter_config === 'string'
                     ? JSON.parse(analysis.filter_config)
                     : (analysis.filter_config || { min: 1, max: 3, enabled: false });
+
+                // [수정] AI/수동 타입 분석은 history_data와 config가 필요
+                if (!analysis.history_data) {
+                    const { data: histData } = await window.supabaseClient
+                        .from('analysis_history')
+                        .select('*')
+                        .eq('analysis_id', analysis.id);
+                    analysis.history_data = histData || [];
+                }
+                // config 하이드레이션 (rules.config → config)
+                if (!analysis.config && analysis.rules?.config) {
+                    analysis.config = analysis.rules.config;
+                }
 
                 // calculateStats로 최근 10회차 적중 분포 계산
                 const tempStats = calculateStats(analysis, allDrawData);
@@ -920,12 +1240,16 @@ async function batchCalibrateAllFilters() {
 
                 if (updateErr) { console.warn(`[AutoCalibrate] ${analysis.id} 저장 실패:`, updateErr.message); continue; }
 
-                // 현재 열린 분석이면 메모리·UI·대시보드 동기화
+                // 현재 열린 분석이면 메모리·UI·대시보드·히스토리 전체 재렌더
                 if (currentAnalysis && currentAnalysis.id === analysis.id) {
                     currentAnalysis.filter_config = newFc;
                     renderFilterUI();
                     if (window.Utils && window.Utils.saveFilter) {
                         window.Utils.saveFilter(`custom_filter_${analysis.id}`, newFc);
+                    }
+                    // [핵심] 리스트/대시보드까지 새 min/max로 재계산되도록 전체 갱신
+                    if (typeof updateAnalysisDisplay === 'function') {
+                        try { await updateAnalysisDisplay(true); } catch (e) { /* noop */ }
                     }
                 }
 
@@ -951,7 +1275,8 @@ function renderHistoryTable(stats) {
         return;
     }
 
-    const type = currentAnalysis.type || 'static';
+    const ctx = getAnalysisContext(currentAnalysis);
+    const { type, isAiType } = ctx;
     const isStatic = (type === 'static');
 
     // [New] 고정형(Static)일 경우 통계 보기 버튼 표시
@@ -1079,29 +1404,47 @@ function renderHistoryTable(stats) {
 
         const targetVisualDefault = `<div class="flex flex-nowrap ${alignClassDefault}" style="max-width: 100%; overflow-x: auto;">${row.targets.map(n => {
             const isMatched = row.matched.includes(n);
-            const color = window.Utils?.getBallColor(n) || '#64748b';
-
-            // 미당첨 시 스타일
+            const bg = getStandardBallGradient(n);
             const ballClass = isMatched
-                ? 'text-white shadow-md'
+                ? 'text-white'
                 : 'text-slate-700 border border-slate-400 bg-white font-bold';
-
-            const ballStyle = isMatched ? `background: ${color};` : '';
-
+            const ballStyle = isMatched ? `background: ${bg}; box-shadow:0 2px 4px rgba(0,0,0,0.12);` : '';
             return `<span class="${globalBallSize} rounded-full flex items-center justify-center font-bold transition-all shrink-0 ${ballClass}" style="${ballStyle}">${n}</span>`;
         }).join('')}</div>`;
 
+        // [수정] AI 타입 전용: CSS Grid repeat(20, 1fr) — 열 너비에 꽉 차도록 20개씩 자동 분배
+        // 볼 크기가 열 너비를 20등분한 크기로 자동 계산되어 항상 딱 맞게 표시됨
+        const targetVisualAI = row.targets.length === 0
+            ? `<div class="flex items-center justify-center w-full">
+                   <span class="text-[11px] text-slate-300 italic px-2">모델 점수 데이터 없음</span>
+               </div>`
+            : `<div style="display:grid; grid-template-columns:repeat(20, 1fr); gap:2px; width:100%; padding:2px 6px; box-sizing:border-box;">${row.targets.map(n => {
+                const isMatched = row.matched.includes(n);
+                const bg = getStandardBallGradient(n);
+                const baseStyle = `aspect-ratio:1/1; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:9px; min-width:0;`;
+                const colorStyle = isMatched
+                    ? `background:${bg}; color:#fff; box-shadow:0 1px 3px rgba(0,0,0,0.15);`
+                    : `background:#fff; color:#64748b; border:1px solid #cbd5e1;`;
+                return `<span style="${baseStyle}${colorStyle}">${n}</span>`;
+            }).join('')}</div>`;
+
         let targetContent = '';
         if (isRankType) {
-            const isManualEntry = (type === 'manual' || type === 'direct');
-            if (isManualEntry && editingRound === row.round) {
-                // 편집 모드: 인풋박스 노출 (코드 유지)
+            const isManualEntry = (type === 'manual' || type === 'direct') && !isAiType;
+
+            if (isAiType) {
+                // ── AI 분석 타입 (딥러닝 제외수/추천수/추천조합, 앙상블, LSTM, XGB 등):
+                // 원형 공(circle) 스타일 — 미적중: 테두리 원, 적중: 그라데이션 채움
+                targetContent = targetVisualAI;
+
+            } else if (isManualEntry && editingRound === row.round) {
+                // ── 편집 모드 (manual/direct 전용): 인풋박스 ──
                 targetContent = `
                     <div class="flex flex-col items-center gap-2 w-full px-4" onclick="event.stopPropagation()">
-                        <input type="text" 
+                        <input type="text"
                                id="edit-input-${row.round}"
-                               value="${row.targets.join(', ')}" 
-                               placeholder="번호 입력 (예: 1 2 3)" 
+                               value="${row.targets.join(', ')}"
+                               placeholder="번호 입력 (예: 1 2 3)"
                                onkeydown="if(event.key==='Enter') window.saveHistoryTarget(${row.round}, this.value)"
                                onblur="window.saveHistoryTarget(${row.round}, this.value, true)"
                                class="w-full text-center text-xs py-1.5 border-2 border-indigo-400 rounded-lg focus:ring-2 focus:ring-indigo-300 transition-all bg-white shadow-lg font-medium outline-none">
@@ -1112,12 +1455,12 @@ function renderHistoryTable(stats) {
                     const el = document.getElementById(`edit-input-${row.round}`);
                     if (el) { el.focus(); el.select(); }
                 }, 10);
-            } else {
-                // [수정] 보기 모드: 딥러닝 타입은 좌측정렬로 강제 고정
-                targetContent = `
-                    <div class="cursor-pointer group/edit relative w-full h-full min-h-[50px] flex items-center ${isRankType ? 'justify-start pl-2' : 'justify-center'} rounded-xl hover:bg-slate-100/50 transition-colors" 
-                         ${isManualEntry ? `onclick="event.stopPropagation(); window.enterEditMode(${row.round})"` : ''}>
 
+            } else {
+                // ── 보기 모드 (manual/direct): 클릭-투-에디트 텍스트 ──
+                targetContent = `
+                    <div class="cursor-pointer group/edit relative w-full h-full min-h-[50px] flex items-center justify-start pl-2 rounded-xl transition-colors ${isManualEntry ? 'hover:bg-slate-100/50' : ''}"
+                         ${isManualEntry ? `onclick="event.stopPropagation(); window.enterEditMode(${row.round})"` : ''}>
                         ${targetVisualManual}
                         ${isManualEntry ? `
                         <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover/edit:opacity-100 transition-opacity pointer-events-none">
@@ -1127,7 +1470,7 @@ function renderHistoryTable(stats) {
                 `;
             }
         } else {
-            // 다른 유형(고정형 등)은 원래 디자인 유지
+            // 고정형(static), 그룹형, 동적(dynamic) 등: 원래 원형 공 스타일 유지
             targetContent = targetVisualDefault;
         }
 
@@ -1163,8 +1506,8 @@ function renderHistoryTable(stats) {
                 <td class="py-4 px-4 text-center">
                     <div class="flex gap-2 justify-center w-[300px] mx-auto">
                         ${row.winNumbers.every(n => n === 0) ? '<span class="text-slate-300 text-xs italic">추첨 대기 중...</span>' : row.winNumbers.map((num, i) => {
-            const bg = window.Utils?.getBallColor(num) || '#64748b';
-            const orbStyle = `background: ${bg}; color: white; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);`;
+            const bg = getStandardBallGradient(num);
+            const orbStyle = `background: ${bg}; color: white; box-shadow: 0 2px 4px rgba(0,0,0,0.12);`;
             return `
                                 ${i === 6 ? '<span class="text-slate-300 self-center font-bold px-1">+</span>' : ''}
                                 <div class="w-9 h-9 rounded-full flex items-center justify-center text-sm font-medium transition-transform hover:scale-110" style="${orbStyle}">${num}</div>
@@ -1441,7 +1784,7 @@ window.saveHistoryTarget = async function (round, value, isBlur = false) {
             analysis_id: currentAnalysis.id,
             target_round: round,
             target_numbers: sortedNums,
-            analysis_type: 'custom'
+            analysis_type: 'manual' // [수정] 수동 편집 표시 → autoSync에서 보호됨
         }, {
             onConflict: 'analysis_id,target_round' // 중복 발생 시 해당 키를 기준으로 업데이트
         });
@@ -1449,10 +1792,14 @@ window.saveHistoryTarget = async function (round, value, isBlur = false) {
 
         if (error) throw error;
 
-        // 로컬 데이터 갱신
+        // 로컬 데이터 갱신 (analysis_type: 'manual' 표시로 autoSync 보호)
         const idx = currentAnalysis.history_data.findIndex(h => h.target_round === round);
-        if (idx >= 0) currentAnalysis.history_data[idx].target_numbers = sortedNums;
-        else currentAnalysis.history_data.push({ target_round: round, target_numbers: sortedNums, analysis_id: currentAnalysis.id });
+        if (idx >= 0) {
+            currentAnalysis.history_data[idx].target_numbers = sortedNums;
+            currentAnalysis.history_data[idx].analysis_type = 'manual';
+        } else {
+            currentAnalysis.history_data.push({ target_round: round, target_numbers: sortedNums, analysis_id: currentAnalysis.id, analysis_type: 'manual' });
+        }
 
         showToast(`${round}회차 데이터가 저장되었습니다.`);
     } catch (err) {
@@ -1544,157 +1891,10 @@ function showAIFeedback(message) {
     // setTimeout(() => container.classList.add('opacity-0'), 4000);
 }
 
-// [Refactored] AI 분석 리포트 갱신 - ac_value.html과 동일한 AIAnalysis.executeAnalysis 패턴
+// [Refactored] AI 분석 리포트 갱신 → 커스텀 분석 전용 동적 리포트로 통합
 window.refreshAIAnalysis = async function () {
-    const section = document.getElementById('aiAnalysisSection');
-    const content = document.getElementById('aiAnalysisContent');
-    if (!section || !content) return;
-
-    // [추가] 딥러닝 인사이트 패널 렌더링
-    if (window.DeepInsightPanel) {
-        // [성능] stats 결과 캐시 → refreshAIAnalysis에서 중복 연산 방지
-        const stats = (_lastStatsId === (currentAnalysis?.id || 'default') && _lastStats) ? _lastStats : calculateStats(currentAnalysis, allDrawData);
-        const nextRow = stats?.rows?.[0]; // isUpcoming = true
-        const payload = { target_numbers: nextRow?.targets || [] };
-        
-        DeepInsightPanel.renderGroup('dlInsightContainer', 'custom_analysis', false, payload);
-    }
-
-    section.classList.remove('hidden');
-
-    const subjectRound = allDrawData[0]?.round || 0;
-    const targetRound = subjectRound + 1;
-    const analysisId = currentAnalysis?.id || 'default';
-
-    // ── [성능] 캐시 체크: localStorage(TTL 72h) 우선, sessionStorage 폴백 ──
-    const cacheKey = `custom_insight_${targetRound}_${analysisId}`;
-    const cached = _getAICache(cacheKey) || sessionStorage.getItem(cacheKey);
-    if (cached) {
-        content.innerHTML = cached;
-        return;
-    }
-
-    try {
-        // [성능] 중복 calculateStats 방지: updateAnalysisDisplay에서 계산된 캐시 재사용
-        const stats = (_lastStatsId === analysisId && _lastStats) ? _lastStats : calculateStats(currentAnalysis, allDrawData);
-        if (!stats || !stats.rows) throw new Error("통계 데이터 없음");
-
-        // ── 1. 다음 회차 타겟 번호 추출 ──
-        const nextRow = stats.rows[0]; // isUpcoming = true
-        const targetNumbers = nextRow?.targets || [];
-
-        // ── 2. 최근 20회차 실제 당첨번호 ──
-        const recent20 = allDrawData.slice(0, 20).map(d =>
-            `${d.round}회: [${(d.numbers || []).join(',')}]`
-        ).join('\n');
-
-        // ── 3. 히스토리 테이블에서 최근 30회차 적중 데이터 추출 ──
-        const historyRows = stats.rows.filter(r => !r.isUpcoming).slice(0, 30);
-        const hitHistory = historyRows.map(r =>
-            `${r.round}회: 타겟[${r.targets.join(',')}] → 당첨[${r.winNumbers.join(',')}] → 적중${r.hitCount}개(${r.matched.join(',') || '없음'}) GAP=${r.gap} STR=${r.straight}`
-        ).join('\n');
-
-        // ── 4. 적중 패턴 통계 요약 ──
-        const hitCounts = historyRows.map(r => r.hitCount);
-        const hitDistribution = {};
-        hitCounts.forEach(c => { hitDistribution[c] = (hitDistribution[c] || 0) + 1; });
-        const hitDistText = Object.entries(hitDistribution)
-            .sort((a, b) => Number(b[0]) - Number(a[0]))
-            .map(([k, v]) => `${k}개적중: ${v}회(${((v / historyRows.length) * 100).toFixed(1)}%)`)
-            .join(', ');
-
-        // ── 5. GAP 패턴 분석 (연속 미출현 구간) ──
-        let gapStreaks = [];
-        let currentStreakStart = null;
-        historyRows.forEach((r, i) => {
-            if (r.gap > 0 && !r.isHit) {
-                if (currentStreakStart === null) currentStreakStart = r.round;
-            } else {
-                if (currentStreakStart !== null) {
-                    gapStreaks.push({ from: currentStreakStart, to: historyRows[i - 1]?.round, length: r.gap });
-                    currentStreakStart = null;
-                }
-            }
-        });
-        const gapText = gapStreaks.length > 0
-            ? gapStreaks.slice(0, 5).map(g => `${g.from}~${g.to}회(${g.length}회연속미출현)`).join(', ')
-            : '최근 30회 내 장기 미출현 구간 없음';
-
-        // ── 6. 분석 유형별 컨텍스트 ──
-        let typeContext = "";
-        if (currentAnalysis.type === 'group') {
-            const groups = currentAnalysis.config?.groups || [];
-            typeContext = groups.map(g => `그룹[${g.name}]: 번호${g.numbers.slice(0, 10).join(',')}${g.numbers.length > 10 ? '...' : ''} (조건: ${g.condition?.min}~${g.condition?.max}개)`).join('\n');
-        } else if (currentAnalysis.type === 'dynamic') {
-            const rules = currentAnalysis.rules || {};
-            const step = rules.regression_step || 1;
-            const formulaMap = {
-                prev_plus_n: `${step}전회차+N`,
-                carryover: `${step}전회차이월`,
-                draw_date_end: '추첨일끝수',
-                round_end_digit: rules.value ? `회차끝수(오프셋:${rules.value})` : '회차끝수',
-                draw_date_math: '날짜사칙연산',
-                math_expression: `수식(${rules.expression})`
-            };
-            typeContext = `동적분석 규칙: ${formulaMap[rules.formula] || rules.formula} (회귀간격: ${step})`;
-        } else if (currentAnalysis.type === 'static') {
-            typeContext = `고정번호 분석: [${targetNumbers.join(', ')}]`;
-        }
-
-        // ── 7. contextData 조립 (ac_value 방식) ──
-        const contextData = `## 분석 대상
-제목: ${currentAnalysis.title || '커스텀 분석'}
-유형: ${currentAnalysis.type}
-${typeContext}
-다음회차 타겟번호: [${targetNumbers.join(', ')}] (총 ${targetNumbers.length}개)
-
-## 핵심 통계
-현재Gap: ${stats.currentGap}회 | 현재Straight: ${stats.currentStraight}회
-최장Gap: ${stats.maxGap}회 | 최장Straight: ${stats.maxStraight}회
-최다적중: ${stats.maxHits}개 | 적중률: ${stats.hitRate.toFixed(1)}% (${historyRows.filter(r => r.isHit).length}/${historyRows.length}회)
-평균적중: ${stats.avgHits.toFixed(2)}개
-
-## 적중 분포
-${hitDistText}
-
-## GAP 패턴
-${gapText}
-
-## 최근 30회차 히스토리
-${hitHistory}
-
-## 최근 20회 실제 당첨번호
-${recent20}`;
-
-        const analysisConfig = {
-            containerId: 'aiAnalysisContent',
-            subjectRound: subjectRound,
-            targetRound: targetRound,
-            userPrompt: "커스텀 분석 패턴 평가 및 다음 회차 전략 요약",
-            contextData: contextData,
-            analysisType: 'custom',
-            topic: currentAnalysis.title || '커스텀 분석'
-        };
-
-        if (window.AIAnalysis && window.AIAnalysis.executeAnalysis) {
-            await window.AIAnalysis.executeAnalysis(analysisConfig);
-        } else {
-            content.innerHTML = `<div class="p-4 bg-yellow-50 rounded-xl border border-yellow-100"><p class="text-yellow-700 text-sm">AI 분석 모듈을 불러오는 중입니다. 잠시 후 다시 시도해주세요.</p></div>`;
-            return;
-        }
-
-        // [성능] AI 실행 후 결과를 localStorage(TTL 72h) + sessionStorage 이중 캐싱
-        if (content && content.innerHTML && !content.innerHTML.includes('animate-spin')) {
-            _setAICache(cacheKey, content.innerHTML);
-            try { sessionStorage.setItem(cacheKey, content.innerHTML); } catch (e) { }
-        }
-    } catch (err) {
-        console.error("AI 분석 실패:", err);
-        content.innerHTML = `
-            <div class="p-4 bg-red-50 rounded-xl border border-red-100">
-                <p class="text-red-600 font-bold text-sm mb-1">AI 분석 연결 실패</p>
-                <p class="text-red-400 text-xs">${err.message || '알 수 없는 오류'}</p>
-            </div>`;
+    if (typeof renderCustomAnalysisInsight === 'function') {
+        await renderCustomAnalysisInsight('dlInsightContainer', currentAnalysis);
     }
 }
 
@@ -1755,8 +1955,8 @@ async function runRegressionScan(limit = 200) {
     tbody.innerHTML = results.map(res => {
         const numbersHtml = res.targetNumbers.map(n => {
             const isHit = res.matched.includes(n);
-            const color = window.Utils?.getBallColor(n) || '#64748b';
-            return `<span class="w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold ${isHit ? 'text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-400'}" style="${isHit ? `background: ${color}` : ''}">${n}</span>`;
+            const bg = getStandardBallGradient(n);
+            return `<span class="w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold ${isHit ? 'text-white' : 'bg-white border border-slate-200 text-slate-400'}" style="${isHit ? `background:${bg}; box-shadow:0 2px 4px rgba(0,0,0,0.12)` : ''}">${n}</span>`;
         }).join('');
 
         return `
@@ -1900,3 +2100,248 @@ window.addEventListener('storage', (e) => {
         }
     }
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// [New] 커스텀 분석용 AI 프리미엄 전략 리포트 (동적 · 분석별 고유)
+//   - target_numbers 대해 각 모델(LSTM/XGB/CNN/TF/Markov/ATC/GNN)의
+//     다음 회차 "예상 적중 개수 범위"를 matrix_data.models[*].score 기반으로 계산
+//   - 최근 10회차 실제 적중으로 Min/Max 범위 보정
+// ═══════════════════════════════════════════════════════════════════════════
+const CUSTOM_INSIGHT_MODELS = [
+    { key: 'lstm',        label: 'LSTM' },
+    { key: 'xgboost',     label: 'XGBOOST' },
+    { key: 'cnn',         label: 'CNN' },
+    { key: 'transformer', label: 'TRANSFORMER' },
+    { key: 'markov',      label: 'MARKOV' },
+    { key: 'autoencoder', label: 'AUTOENCODER' },
+    { key: 'gnn',         label: 'GNN' }
+];
+
+function _ciModelRange(matrixData, modelKey, targets) {
+    // 모델 score 기준 내림차순 정렬 → target_numbers 가 상위 K에 몇 개 들어있는지
+    if (!matrixData || !matrixData.length || !targets.length) return null;
+    const tSet = new Set(targets.map(Number));
+    const sorted = [...matrixData]
+        .map(m => ({
+            num: Number(m.num),
+            score: (modelKey === 'ensemble' || modelKey === 'total')
+                ? (m.total || 0)
+                : ((m.models && m.models[modelKey]) ? (m.models[modelKey].score || 0) : 0)
+        }))
+        .sort((a, b) => b.score - a.score);
+
+    // 다음 회차 추첨 번호 6개를 모델이 상위 6으로 예측한다고 가정
+    const top6 = sorted.slice(0, 6).map(x => x.num);
+    const expectedHit = top6.filter(n => tSet.has(n)).length;
+
+    // target 들의 평균 랭크로 신뢰도 산정 (랭크 상위일수록 기대 적중↑)
+    const rankMap = new Map(sorted.map((x, i) => [x.num, i + 1]));
+    const ranks = targets.map(n => rankMap.get(Number(n))).filter(Boolean);
+    const avgRank = ranks.length ? (ranks.reduce((a, b) => a + b, 0) / ranks.length) : 45;
+
+    // Min/Max: expectedHit 중심 ±1 (0~6 클램핑). 평균 랭크가 좋을수록(낮을수록) Max+1
+    let min = Math.max(0, expectedHit - 1);
+    let max = Math.min(6, expectedHit + 1);
+    if (avgRank <= 15) max = Math.min(6, max + 1);
+    if (avgRank >= 35) min = Math.max(0, min - 1);
+
+    return { min, max, expectedHit, avgRank: Math.round(avgRank) };
+}
+
+function _ciEnsembleFromModels(modelRanges) {
+    const mins = [], maxs = [];
+    Object.values(modelRanges).forEach(r => { if (r) { mins.push(r.min); maxs.push(r.max); } });
+    if (!mins.length) return { cMin: 0, cMax: 0, agreement: 0 };
+    const cMin = Math.round(mins.reduce((a, b) => a + b, 0) / mins.length);
+    const cMax = Math.round(maxs.reduce((a, b) => a + b, 0) / maxs.length);
+    // 합의도: 모델 간 min/max 분산이 작을수록 높음
+    const spread = (Math.max(...maxs) - Math.min(...mins));
+    const agreement = Math.max(0, Math.min(100, 100 - spread * 15));
+    return { cMin, cMax, agreement: Math.round(agreement) };
+}
+
+function _ciRecentHitStats(analysis, allDrawData) {
+    try {
+        const stats = calculateStats(analysis, allDrawData);
+        if (!stats || !stats.rows) return null;
+        const rows = stats.rows.filter(r => !r.isUpcoming).slice(0, 10);
+        if (!rows.length) return null;
+        const hits = rows.map(r => r.hitCount || 0);
+        const avg = (hits.reduce((a, b) => a + b, 0) / hits.length);
+        return { avg: avg.toFixed(1), min: Math.min(...hits), max: Math.max(...hits), n: rows.length, recentHits: hits };
+    } catch (e) { return null; }
+}
+
+function _ciBuildHTML(analysis, targetRound, modelRanges, ensemble, recentStats) {
+    const title = analysis.title || '커스텀 분석';
+    const cardsHTML = CUSTOM_INSIGHT_MODELS.map(m => {
+        const r = modelRanges[m.key];
+        const val = r ? `${r.min}~${r.max}` : '-';
+        return `
+        <div style="background:white; border:1px solid #e2e8f0; border-radius:12px; padding:14px 10px; text-align:center; transition:all .2s;">
+            <div style="font-size:0.7rem; color:#64748b; font-weight:800; letter-spacing:0.5px; margin-bottom:6px;">${m.label}</div>
+            <div style="font-size:1.1rem; color:#1e293b; font-weight:500; letter-spacing:-0.3px;">${val}</div>
+        </div>`;
+    }).join('');
+
+    const avgRecent = recentStats ? recentStats.avg : '-';
+    const recentMin = recentStats ? recentStats.min : '-';
+    const recentMax = recentStats ? recentStats.max : '-';
+
+    // 흐름 진단
+    const flowText = recentStats
+        ? `최근 ${recentStats.n}회차 "${title}" 대상 평균 적중은 <strong style="color:#2563eb">${avgRecent}개</strong>이며, 현재 AI 앙상블 예측 범위 <strong style="color:#2563eb">${ensemble.cMin}~${ensemble.cMax}개</strong>로 나타나 최근 실측(${recentMin}~${recentMax})과 ${Math.abs(parseFloat(avgRecent) - (ensemble.cMin + ensemble.cMax)/2) < 1 ? '<strong style="color:#16a34a">정합</strong>' : '<strong style="color:#ea580c">편차</strong>'} 흐름을 보입니다.`
+        : 'AI 모델 예측과 최근 적중 데이터를 종합하여 흐름을 진단 중입니다.';
+
+    // 패턴 분석
+    const maxModel = Object.entries(modelRanges).sort((a, b) => ((b[1]?.max || 0) - (a[1]?.max || 0)))[0];
+    const minModel = Object.entries(modelRanges).sort((a, b) => ((a[1]?.min || 9) - (b[1]?.min || 9)))[0];
+    const maxLabel = maxModel ? (CUSTOM_INSIGHT_MODELS.find(m => m.key === maxModel[0])?.label || maxModel[0]) : '-';
+    const minLabel = minModel ? (CUSTOM_INSIGHT_MODELS.find(m => m.key === minModel[0])?.label || minModel[0]) : '-';
+    const patternText = `모델 합의도 <strong style="color:#2563eb">${ensemble.agreement}%</strong>. 최고 낙관 모델은 <strong>${maxLabel}</strong>(최대 ${maxModel?.[1]?.max ?? '-'}개), 최저 비관 모델은 <strong>${minLabel}</strong>(최소 ${minModel?.[1]?.min ?? '-'}개)로 나타나 ${ensemble.agreement >= 70 ? '모델 간 견해가 <strong style="color:#16a34a">수렴</strong>' : '모델 간 견해가 <strong style="color:#ea580c">발산</strong>'}하고 있습니다.`;
+
+    // 필승 공략
+    const strategyText = `${targetRound}회차 "${title}" 공략: AI 앙상블 예측 <strong style="color:#38bdf8">${ensemble.cMin}~${ensemble.cMax}개</strong>를 기준으로 <strong style="color:#38bdf8">Min=${ensemble.cMin}, Max=${ensemble.cMax}</strong>의 조합 필터 적용을 권장합니다. 최근 10회 평균 ${avgRecent}개를 고려하여 ${recentMax}개 이상의 초과 적중 조합은 제외 전략을 병행하십시오.`;
+
+    return `
+    <div style="background:white; border-radius:24px; border:1px solid #e2e8f0; overflow:hidden; box-shadow:0 4px 16px rgba(15,23,42,0.04);">
+        <!-- Header -->
+        <div style="background:#0f172a; padding:1.25rem 2rem; display:flex; align-items:center; gap:14px;">
+            <div style="width:40px; height:40px; background:#1e293b; border-radius:12px; display:flex; align-items:center; justify-content:center;">
+                <span class="material-symbols-outlined" style="font-size:22px; color:#38bdf8;">insights</span>
+            </div>
+            <div>
+                <div style="font-size:1.05rem; font-weight:900; color:white; letter-spacing:-0.3px;">AI 프리미엄 전략 리포트</div>
+                <div style="font-size:0.68rem; color:#94a3b8; font-weight:700; letter-spacing:2px; text-transform:uppercase; margin-top:2px;">INTELLIGENT ANALYSIS — ${title}</div>
+            </div>
+        </div>
+
+        <!-- Ensemble Summary -->
+        <div style="background:#f8fafc; border-bottom:1px solid #f1f5f9; padding:1.5rem 2rem;">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:2rem; flex-wrap:wrap;">
+                <div>
+                    <span style="font-size:0.7rem; color:#64748b; font-weight:800; letter-spacing:1px; text-transform:uppercase; margin-bottom:6px; display:block;">AI 종합 예상 적중 범위</span>
+                    <div style="display:flex; align-items:baseline; gap:12px;">
+                        <span style="font-size:2.2rem; font-weight:900; color:#2563eb; letter-spacing:-1px;">${ensemble.cMin} ~ ${ensemble.cMax}</span>
+                        <span style="font-size:0.85rem; color:#2563eb; font-weight:800; background:#dbeafe; padding:4px 10px; border-radius:8px; border:1px solid #bfdbfe;">평균 ${((ensemble.cMin + ensemble.cMax) / 2).toFixed(1)}개</span>
+                    </div>
+                </div>
+                <div style="width:240px; background:white; padding:12px; border-radius:16px; border:1px solid #e2e8f0;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                        <span style="font-size:0.68rem; color:#64748b; font-weight:800;">모델 합의도</span>
+                        <span style="font-size:0.85rem; color:#1e293b; font-weight:900;">${ensemble.agreement}%</span>
+                    </div>
+                    <div style="height:10px; background:#f1f5f9; border-radius:5px; overflow:hidden;">
+                        <div style="width:${ensemble.agreement}%; height:100%; background:linear-gradient(90deg,#38bdf8,#2563eb);"></div>
+                    </div>
+                    <div style="font-size:0.62rem; color:#94a3b8; font-weight:700; text-align:right; margin-top:6px;">7개 딥러닝 모델 교차 검증</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Model Cards -->
+        <div style="display:grid; grid-template-columns:repeat(7, 1fr); gap:10px; padding:1.25rem 2rem; background:#f8fafc;">
+            ${cardsHTML}
+        </div>
+
+        <!-- Body -->
+        <div style="padding:1.75rem 2rem;">
+            <div style="margin-bottom:1.5rem;">
+                <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+                    <span style="width:4px; height:16px; background:#2563eb; border-radius:2px;"></span>
+                    <span style="font-size:0.95rem; font-weight:900; color:#0f172a; letter-spacing:-0.3px;">흐름 진단</span>
+                </div>
+                <div style="font-size:0.92rem; line-height:1.8; color:#334155; word-break:keep-all;">${flowText}</div>
+            </div>
+            <div style="border-top:1px solid #f1f5f9; padding-top:1.5rem;">
+                <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+                    <span style="width:4px; height:16px; background:#8b5cf6; border-radius:2px;"></span>
+                    <span style="font-size:0.95rem; font-weight:900; color:#0f172a; letter-spacing:-0.3px;">패턴 분석</span>
+                </div>
+                <div style="font-size:0.92rem; line-height:1.8; color:#334155; word-break:keep-all;">${patternText}</div>
+            </div>
+        </div>
+
+        <!-- Winning Strategy -->
+        <div style="background:#0f172a; padding:1.75rem 2rem; color:white;">
+            <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px;">
+                <span class="material-symbols-outlined" style="font-size:20px; color:#38bdf8;">verified</span>
+                <span style="font-size:1rem; font-weight:900; color:#38bdf8; letter-spacing:-0.3px;">${targetRound}회차 필승 공략</span>
+            </div>
+            <div style="font-size:0.93rem; line-height:1.85; color:rgba(255,255,255,0.9); font-weight:400; word-break:keep-all;">${strategyText}</div>
+        </div>
+    </div>`;
+}
+
+function _ciSkeleton() {
+    return `<div style="background:white; border-radius:24px; border:1px solid #e2e8f0; padding:3rem; text-align:center; color:#94a3b8;">
+        <div style="display:inline-flex; align-items:center; gap:12px;">
+            <div style="width:18px; height:18px; border:3px solid #2563eb; border-top-color:transparent; border-radius:50%; animation:ciSpin 1s linear infinite;"></div>
+            <span style="font-size:0.9rem; font-weight:700; color:#475569;">AI 프리미엄 전략 리포트 생성 중...</span>
+        </div>
+        <style>@keyframes ciSpin{to{transform:rotate(360deg)}}</style>
+    </div>`;
+}
+
+async function renderCustomAnalysisInsight(containerId, analysis) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+
+    // [중요] 예전 디자인(DeepInsightPanel 등)이 남아있지 않도록 먼저 완전 초기화
+    el.innerHTML = _ciSkeleton();
+
+    if (!analysis || !allDrawData || !allDrawData.length) {
+        el.innerHTML = '';
+        return;
+    }
+
+    const targets = (analysis.target_numbers || []).map(Number).filter(n => n >= 1 && n <= 45);
+    if (targets.length === 0) {
+        el.innerHTML = `<div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:16px; padding:2rem; text-align:center; color:#64748b; font-size:0.9rem;">대상 번호가 없어 AI 프리미엄 전략 리포트를 생성할 수 없습니다.</div>`;
+        return;
+    }
+
+    const latestRound = allDrawData[0].round;
+    const targetRound = latestRound + 1;
+
+    // matrix_data 로드 (이미 ensureAIHistoryLoaded 에서 캐시됨)
+    try {
+        if (typeof ensureAIHistoryLoaded === 'function') {
+            await ensureAIHistoryLoaded([targetRound]);
+        }
+    } catch (e) { /* noop */ }
+
+    const aiData = (typeof aiCache !== 'undefined' && aiCache.get) ? aiCache.get(targetRound) : null;
+    const matrixData = aiData?.matrix_data || [];
+
+    if (!matrixData.length) {
+        el.innerHTML = `<div style="background:#fef2f2; border:1px solid #fecaca; border-radius:16px; padding:2rem; text-align:center; color:#991b1b; font-size:0.9rem; font-weight:700;">
+            ${targetRound}회차 딥러닝 예측 데이터(matrix_data)가 아직 준비되지 않았습니다.
+            <div style="font-size:0.8rem; color:#7f1d1d; font-weight:500; margin-top:8px;">회차 업데이트 후 자동 생성됩니다.</div>
+        </div>`;
+        return;
+    }
+
+    // 모델별 예측 범위 계산
+    const modelRanges = {};
+    CUSTOM_INSIGHT_MODELS.forEach(m => {
+        modelRanges[m.key] = _ciModelRange(matrixData, m.key, targets);
+    });
+    const ensemble = _ciEnsembleFromModels(modelRanges);
+    const recentStats = _ciRecentHitStats(analysis, allDrawData);
+
+    el.innerHTML = _ciBuildHTML(analysis, targetRound, modelRanges, ensemble, recentStats);
+}
+
+window.renderCustomAnalysisInsight = renderCustomAnalysisInsight;
+
+
+// [추가] 커스텀 분석 페이지에서 조합 필터 페이지의 해당 항목으로 이동하는 함수
+window.goToFilterPage = function () {
+    if (!currentAnalysis || !currentAnalysis.id) {
+        window.location.href = 'filter.html?tab=custom';
+        return;
+    }
+    // 딥링크 파라미터 (id)를 포함하여 이동 → filter_dashboard.js의 handleDeepLink에서 하이라이트 처리됨
+    window.location.href = `filter.html?tab=custom&id=${currentAnalysis.id}`;
+};

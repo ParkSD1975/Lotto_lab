@@ -32,10 +32,18 @@
     // ──────────────────────────────────────────────────
     const BADGE_FILTER_KEYS = [
         'total_sum', 'last_digit_sum', 'ac_value', 'odd_even_pattern', 'high_low_pattern',
-        'tail_digit_patterns', 'prime_number_patterns', 'square_number_patterns',
+        // 끝수: 개별 키
+        'end_digit_0_count','end_digit_1_count','end_digit_2_count','end_digit_3_count',
+        'end_digit_4_count','end_digit_5_count','end_digit_6_count','end_digit_7_count',
+        'end_digit_8_count','end_digit_9_count',
+        'prime_number_patterns', 'square_number_patterns',
         'triangular_number_patterns', 'twin_number_patterns', 'composite_count',
         'consecutive_count', 'number_range_patterns', 'magic_square_pattern',
-        'lotto_paper_pattern', 'multiple_3_count', 'carryover_count',
+        'lotto_paper_pattern',
+        // 배수: 개별 키
+        'multiple_3_count', 'multiple_4_count', 'multiple_5_count',
+        'multiple_3_4_count', 'multiple_3_5_count', 'multiple_4_5_count', 'no_multiple_count',
+        'carryover_count',
         'neighbor_number_patterns', 'hot_cold_5', 'hot_cold_10', 'hot_cold_15', 'hot_cold_20',
         'missing_period', 'missing_custom_filter'
     ];
@@ -190,12 +198,15 @@
 
                 // [추가/수정] 필터 스냅샷 캡처 (UI 복원용)
                 const state = window.FilterDashboard?.state || {};
+                // foundationFilters: UUID→filter_key 맵 복원에 필요 (combination_generator.html에 FilterDashboard 없음)
+                const _ff = (state.foundationFilters || []).map(d => ({ id: d.id, filter_key: d.filter_key }));
                 const filter_snapshot = {
                     userSettings: state.userSettings || {},
                     basket: state.basket || { fixed: [], excluded: [] },
                     customFilters: state.customFilters || [],
                     regressionSettings: state.regressionSettings || {},
-                    manualFilters: state.manualFilters || []
+                    manualFilters: state.manualFilters || [],
+                    foundationFilters: _ff   // UUID→filter_key 변환 테이블
                 };
 
                 localStorage.setItem('generated_filter_combos', JSON.stringify({
@@ -372,10 +383,25 @@
             }
         }
 
-        // ── 끝수 패턴 ─────────────────────────────────────
-        const tailDigitSet = getSetting('tail_digit_patterns');
-        if (tailDigitSet && tailDigitSet.filters) {
-            filters.tailDigitRanges = tailDigitSet.filters; // {'0':{min,max}, '1':{min,max}, ...}
+        // ── 끝수 패턴 (end_digit_0_count ~ end_digit_9_count 개별 키) ──────
+        {
+            const tailDigitRanges = {};
+            for (let _d = 0; _d <= 9; _d++) {
+                const _ds = getSetting(`end_digit_${_d}_count`);
+                if (!_ds) continue;
+                if (_ds.min !== undefined && _ds.max !== undefined) {
+                    tailDigitRanges[_d] = { min: _ds.min, max: _ds.max };
+                } else if (_ds.selectedValues && _ds.selectedValues.length > 0) {
+                    // discrete_select 전용 설정: selectedValues → min/max 변환
+                    tailDigitRanges[_d] = {
+                        min: Math.min(..._ds.selectedValues),
+                        max: Math.max(..._ds.selectedValues)
+                    };
+                }
+            }
+            if (Object.keys(tailDigitRanges).length > 0) {
+                filters.tailDigitRanges = tailDigitRanges;
+            }
         }
 
         // ── 소수 ──────────────────────────────────────────
@@ -454,10 +480,34 @@
             filters.lottoPaperFilter = { groups: paperSet.groups };
         }
 
-        // ── 배수 패턴 ─────────────────────────────────────
-        const multipleSet = getSetting('multiple_3_count');
-        if (multipleSet && multipleSet.filters) {
-            filters.multipleFilter = { filters: multipleSet.filters };
+        // ── 배수 패턴 (multiple_3_count 등 개별 키) ─────────────────────────
+        {
+            const _multipleKeyMap = [
+                ['3배수',  'multiple_3_count'],
+                ['4배수',  'multiple_4_count'],
+                ['5배수',  'multiple_5_count'],
+                ['3·4배수','multiple_3_4_count'],
+                ['3·5배수','multiple_3_5_count'],
+                ['4·5배수','multiple_4_5_count'],
+                ['배수외', 'no_multiple_count']
+            ];
+            const _multipleRanges = {};
+            for (const [type, key] of _multipleKeyMap) {
+                const _ms = getSetting(key);
+                if (!_ms) continue;
+                if (_ms.min !== undefined && _ms.max !== undefined) {
+                    _multipleRanges[type] = { min: _ms.min, max: _ms.max };
+                } else if (_ms.selectedValues && _ms.selectedValues.length > 0) {
+                    // discrete_select 전용 설정: selectedValues → min/max 변환
+                    _multipleRanges[type] = {
+                        min: Math.min(..._ms.selectedValues),
+                        max: Math.max(..._ms.selectedValues)
+                    };
+                }
+            }
+            if (Object.keys(_multipleRanges).length > 0) {
+                filters.multipleFilter = { filters: _multipleRanges };
+            }
         }
 
         // ── 이월수 ────────────────────────────────────────
@@ -722,7 +772,7 @@
             '연번',
             '이웃수',
             '이월수',
-            '소수', '합성수', '삼각수', '제곱수', '쌍수',
+            '소수', '합성수', '삼각수', '제곱수', '동형수',
             '끝수',
             '배수',
             '번호대', '엔트로피', '9궁', '로또용지',

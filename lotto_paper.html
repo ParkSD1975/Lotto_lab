@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html class="light" lang="ko">
 
 <head>
@@ -24,12 +24,15 @@
     <script src="js/theme.js"></script>
     <script src="js/common_v2.js"></script>
     <script src="js/filter/FilterService.js"></script>
+    <script src="js/filter/FilterLifecycle.js"></script>
+    <script src="js/filter/FilterRuleEngine.js"></script>
     <script src="js/layout.js"></script>
-    <script src="js/deep_insight_panel.js"></script>
+    <script src="js/deep_insight_panel.js?v=20260426"></script>
     <script src="js/NLPProcessor.js"></script>
     <script src="js/NLPInputComponent.js"></script>
     <script src="js/BasicAnalysisNLP.js"></script>
-    <script src="js/aiProxy.js"></script>
+    <script src="js/aiProxy.js?v=20260426"></script>
+    <script src="js/premium_insight_panel.js?v=20260426"></script>
 
     <script>
         // 전역 변수 설정
@@ -68,12 +71,12 @@
             '세로7': [7, 14, 21, 28, 35, 42]
         };
 
-        // 색상 정의 (Rose & Royal Blue)
+        // 색상 정의 (Slate & Indigo Premium)
         const paperColors = {
-            '가로1': '#E11D48', '가로2': '#E11D48', '가로3': '#BE123C', '가로4': '#BE123C',
-            '가로5': '#9F1239', '가로6': '#9F1239', '가로7': '#881337', // Rose 계열
-            '세로1': '#2563EB', '세로2': '#2563EB', '세로3': '#1D4ED8', '세로4': '#1D4ED8',
-            '세로5': '#1E40AF', '세로6': '#1E40AF', '세로7': '#1E3A8A'  // Blue 계열
+            '가로1': '#1E293B', '가로2': '#1E293B', '가로3': '#1E293B', '가로4': '#1E293B',
+            '가로5': '#1E293B', '가로6': '#1E293B', '가로7': '#1E293B', // Slate-800
+            '세로1': '#4F46E5', '세로2': '#4F46E5', '세로3': '#4F46E5', '세로4': '#4F46E5',
+            '세로5': '#4F46E5', '세로6': '#4F46E5', '세로7': '#4F46E5'  // Indigo-600
         };
 
         // 약어 매핑
@@ -97,7 +100,7 @@
                     btn.classList.add('from-blue-500', 'to-blue-600');
                 }
                 if (btnText) btnText.textContent = '최근 10회차 필터 적용';
-                
+
                 localStorage.setItem('lotto_paper_filter_isManual', 'true');
                 saveFilterSettings();
             }
@@ -287,16 +290,65 @@
             box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
         }
 
-        /* 입력창 스피너 제거 및 표준 속성 추가 */
-        input[type=number]::-webkit-inner-spin-button,
-        input[type=number]::-webkit-outer-spin-button {
-            -webkit-appearance: none;
-            margin: 0;
+        /* 🔹 AI 섹션 스타일 (Premium v7) */
+        .ai-section {
+            background-color: #FFFFFF;
+            border: none;
+            border-radius: 1rem;
+            padding: 2rem 2rem 2.5rem 2rem;
+            margin-bottom: 1.5rem;
         }
 
-        input[type=number] {
-            -moz-appearance: textfield;
-            appearance: textfield;
+        /* 🔹 미니멀 언더바 입력창 스타일 (사용자 지정: 호버 시 화살표 노출) */
+        .range-input {
+            width: 52px;
+            height: 32px;
+            text-align: center;
+            font-weight: 900;
+            font-size: 1.1rem;
+            color: #1e293b;
+            background: transparent;
+            border: none;
+            border-bottom: 2px solid #e2e8f0;
+            outline: none;
+            border-radius: 0;
+            transition: all 0.2s;
+            appearance: auto;
+        }
+
+        /* 크롬/사파리 스피너 평소엔 투명화 */
+        .range-input::-webkit-inner-spin-button,
+        .range-input::-webkit-outer-spin-button {
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        /* 마우스 올리거나 포커스 시 화살표(▲▼) 노출 */
+        .range-input:hover::-webkit-inner-spin-button,
+        .range-input:hover::-webkit-outer-spin-button,
+        .range-input:focus::-webkit-inner-spin-button,
+        .range-input:focus::-webkit-outer-spin-button {
+            opacity: 1;
+            cursor: pointer;
+        }
+
+        .range-input:focus {
+            border-bottom-color: #3b82f6;
+            color: #3b82f6;
+        }
+
+        /* 숫자 입력 스피너: 호버 시에만 노출 */
+        .range-input::-webkit-inner-spin-button,
+        .range-input::-webkit-outer-spin-button {
+            opacity: 0;
+            transition: opacity 0.15s;
+        }
+
+        .range-input:hover::-webkit-inner-spin-button,
+        .range-input:hover::-webkit-outer-spin-button,
+        .range-input:focus::-webkit-inner-spin-button,
+        .range-input:focus::-webkit-outer-spin-button {
+            opacity: 1;
         }
 
         /* [New] Slider Styling (Blue Track) */
@@ -377,16 +429,127 @@
         .custom-scrollbar::-webkit-scrollbar-thumb:hover {
             background: #a8a8a8;
         }
-        /* [수정] 숫자 입력 스피너 숨김 (회귀분석 UI 스타일) */
-        input[type=number]::-webkit-inner-spin-button,
-        input[type=number]::-webkit-outer-spin-button {
-            -webkit-appearance: none;
-            appearance: none;
-            margin: 0;
+
+        /* 💎 [V3] High-End Fintech Design Styles */
+        .filter-row {
+            display: grid;
+            grid-template-columns: 80px 1fr 140px;
+            align-items: center;
+            gap: 1rem;
+            padding: 0.85rem 1.5rem;
+            background: white;
+            border-bottom: 1px solid #F1F5F9;
+            transition: all 0.2s ease;
         }
-        input[type=number] {
-            -moz-appearance: textfield;
-            appearance: textfield;
+
+        .filter-row:hover {
+            background: #F8FAFC;
+        }
+
+        .filter-row:last-child {
+            border-bottom: none;
+        }
+
+        .minimal-label {
+            font-size: 0.8rem;
+            font-weight: 900;
+            color: #334155;
+            padding: 0 0.2rem 2px 0.2rem;
+            border-bottom: 3px solid var(--accent-color);
+            text-align: center;
+            letter-spacing: -0.02em;
+            display: inline-block;
+        }
+
+        .ball-pool-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.35rem;
+            align-items: center;
+        }
+
+        /* [복구] 번호 공 스타일 */
+        .premium-ball-sm {
+            width: 24px;
+            height: 24px;
+            border-radius: 6px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: 800;
+            transition: all 0.2s;
+        }
+
+        /* [수정] 입력창 감싸는 영역 - 박스 배경/테두리 제거 (언더바 스타일 유지) */
+        .range-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+            background: transparent;
+            padding: 0;
+            border: none;
+        }
+
+        .range-divider {
+            font-size: 0.875rem;
+            font-weight: 900;
+            color: #94A3B8;
+            margin: 0 4px;
+        }
+
+        .premium-ball-sm {
+            width: 24px;
+            height: 24px;
+            font-size: 0.65rem;
+            font-weight: 800;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #F1F5F9;
+            color: #64748B;
+            border: 1px solid #E2E8F0;
+            transition: all 0.2s;
+        }
+
+        .premium-ball-sm:hover {
+            border-color: #6366F1;
+            color: #6366F1;
+            background: white;
+            transform: scale(1.1);
+        }
+
+        .range-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: transparent;
+            padding: 0;
+        }
+
+        /* [삭제] 중복 정의 구문 제거 및 minimalism 강화 */
+
+        .range-divider {
+            color: #CBD5E1;
+            font-weight: 900;
+            font-size: 0.8rem;
+        }
+
+        /* [V3] AI 패널 영역 스타일 최적화 */
+        #premiumInsight {
+            margin-bottom: 2rem;
+            animation: fadeIn 0.5s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* 탭 색상 통일 (Indigo) */
+        [data-pi-tab] {
+            border-color: #6366F1 !important;
         }
     </style>
 </head>
@@ -413,13 +576,11 @@
                         <div class="grid grid-cols-7 gap-2 mb-6" id="statCards">
                         </div>
 
-                        <div class="ai-section p-8 pb-10 mb-6 font-sans">
-                            <h3 class="text-lg font-bold text-gray-900 mb-4">딥러닝 Insight</h3>
-                            <div id="dlInsightContainer">
-                                <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
-                                    <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
-                                    <span class="text-sm">딥러닝 모델 분석 중 (7개 모델)...</span>
-                                </div>
+                        <!-- [표준화] AI Premium Insight 패널 (PremiumInsightPanel.js 표준 연동) -->
+                        <div id="premiumInsight" class="mb-6">
+                            <div class="flex items-center justify-center py-14 text-gray-400 bg-white rounded-2xl border border-gray-200">
+                                <span class="material-symbols-outlined animate-spin text-2xl mr-3">progress_activity</span>
+                                <span class="text-sm">AI 프리미엄 전략 엔진 로딩 중...</span>
                             </div>
                         </div>
 
@@ -496,8 +657,8 @@
                             </a>
                         </div>
 
-                        <div class="divide-y divide-slate-100" id="filterContainer">
-                            <!-- JS 렌더링 (회귀분석 스타일 그리드 레이아웃) -->
+                        <div id="filterContainer" class="flex flex-col lg:flex-row gap-6">
+                            <!-- JS 렌더링: 좌측(가로), 우측(세로) 분할 구조 -->
                         </div>
 
                         <div class="flex flex-col sm:flex-row items-center justify-between mt-8 gap-4 px-2">
@@ -590,6 +751,7 @@
                 await loadFilterSettings();
                 initStatCards();
                 updateRange(currentRange);
+                initDeepInsight(); // [추가] AI 패널 초기화
 
                 // [추가] 새 회차 감지 시 자동 필터 적용
                 checkAndResetOnNewDraw();
@@ -597,6 +759,16 @@
             } catch (err) {
                 console.error('데이터 로드 실패:', err);
                 document.getElementById('drawsList').innerHTML = `<tr><td colspan="16" class="p-10 text-center text-red-500">데이터 로드 실패<br>${err.message}</td></tr>`;
+            }
+        });
+
+        // ── FilterEngine Lifecycle Integration (Phase 3) ─────────────
+        window.addEventListener('filterLifecycle', function _filterLifecycleHandler(e) {
+            var _detail = e.detail;
+            if (_detail.type === 'NEW_ROUND') {
+                if (typeof checkAndResetOnNewDraw === 'function') checkAndResetOnNewDraw();
+            } else if (_detail.type === 'LOGOUT' || _detail.type === 'RESTORED') {
+                if (typeof loadFilterSettings === 'function') loadFilterSettings();
             }
         });
 
@@ -613,7 +785,7 @@
                         resetPaperFilterUI();
                         return;
                     }
-                } catch (_) {}
+                } catch (_) { }
                 console.log('🔄 대시보드 필터 변경 감지: 로또용지 패턴 동기화');
                 const reloaded = await loadFilterSettings();
                 if (reloaded && allDrawData.length > 0) {
@@ -636,7 +808,7 @@
             const chk = document.getElementById('applyFilterCheck');
             if (chk) chk.checked = false;
             highlightStartRound = null;
-            isRecentTenFilter = false; // [추가] 상태 초기화
+            isRecentTenFilter = false;
             const btn = document.getElementById('recent10FilterBtn');
             const btnText = document.getElementById('recent10BtnText');
             if (btn) {
@@ -648,7 +820,6 @@
             console.log('🔒 로그아웃: 용지 필터 0-0 리셋 완료');
         }
 
-        // 새 회차 감지 시 최근 10회차 필터값 자동 재설정
         function checkAndResetOnNewDraw() {
             if (!allDrawData || allDrawData.length === 0) return;
             const latestRound = allDrawData[0].round;
@@ -657,12 +828,11 @@
 
             if (lastCalibrated < latestRound) {
                 console.log(`✨ 신규 회차 감지: ${latestRound}회 - 최근 10회차 필터값 자동 재설정`);
-                _applyRecent10Values(); // 값만 재설정 (체크박스·하이라이트 상태 유지)
+                _applyRecent10Values();
                 localStorage.setItem(lsKey, latestRound.toString());
             }
         }
 
-        // min/max 값만 최근 10회차 기반으로 재설정 (UI 토글 상태 변경 없음)
         function _applyRecent10Values() {
             if (!allDrawData || allDrawData.length < 10) return;
             const recent10 = allDrawData.slice(0, 10);
@@ -676,7 +846,6 @@
             saveFilterSettings();
             renderDrawsList(allDrawData.slice(0, currentRange));
         }
-
 
         function calculatePaperCounts(numbers) {
             const counts = {};
@@ -717,64 +886,62 @@
             const recent10 = allDrawData.slice(0, 10);
             const container = document.getElementById('filterContainer');
             if (!container) return;
-            container.innerHTML = '';
 
-            Object.keys(paperDefinitions).forEach(type => {
-                const counts = recent10.map(d => d.counts[type]);
-                const minVal = Math.min(...counts);
-                const maxVal = Math.max(...counts);
+            const renderFilterRow = (type) => {
+                const recentCounts = recent10.map(d => d.counts[type]);
+                const minVal = Math.min(...recentCounts);
+                const maxVal = Math.max(...recentCounts);
                 const maxLimit = paperDefinitions[type].length;
+                const accentColor = type.startsWith('가로') ? '#475569' : '#4F46E5';
+                
+                // [복구] 원래 있던 번호 공 리스트들을 다시 추가합니다.
+                const ballsHtml = paperDefinitions[type].map(n => `
+                    <div class="premium-ball-sm shadow-sm hover:scale-110" style="background: white; color: ${accentColor}; border: 1px solid ${accentColor}30;">${n}</div>
+                `).join('');
 
-                const numbersHtml = paperDefinitions[type].map(n =>
-                    `<span class="lotto-ball-mini" style="background-color: ${paperColors[type]};">${String(n)}</span>`
-                ).join('');
-
-                const div = document.createElement('div');
-                // [수정] 회귀분석 필터와 동일한 3컬럼 그리드 레이아웃 적용
-                div.className = 'px-6 py-4 grid grid-cols-1 md:grid-cols-3 items-center gap-4 hover:bg-slate-50 border-b border-slate-100 transition-colors';
-
-                div.innerHTML = `
-                    <!-- Col 1: Label -->
-                    <div class="flex items-center gap-2 justify-start">
-                        <span class="text-sm font-black text-slate-800 whitespace-nowrap">${type}</span>
-                        <span class="text-[11px] font-bold text-slate-400">(${maxLimit}개)</span>
-                    </div>
-                    <!-- Col 2: Balls (Center) -->
-                    <div class="flex items-center justify-center gap-1">
-                        ${numbersHtml}
-                    </div>
-                    <!-- Col 3: Filter Range Box (Right) -->
-                    <div class="flex items-center justify-end gap-3">
-                        <div class="flex items-center gap-1 bg-white border border-slate-200 rounded-xl px-2 py-1.5 shadow-sm focus-within:ring-2 focus-within:ring-emerald-500">
-                            <!-- [수정] 아이콘을 +/- 에서 화살표(Up/Down)로 변경 -->
-                            <button onclick="changeValue('min_${type}', -1, 0, ${maxLimit})" class="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors group">
-                                <span class="material-symbols-outlined text-[18px]">expand_more</span>
-                            </button>
-                            <input type="number" id="min_${type}" oninput="applyFilterManual()" min="0" max="${maxLimit}" value="${minVal}"
-                                class="w-10 text-center font-black bg-transparent border-none p-0 focus:ring-0 text-base text-emerald-600">
-                            <button onclick="changeValue('min_${type}', 1, 0, ${maxLimit})" class="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors group">
-                                <span class="material-symbols-outlined text-[18px]">expand_less</span>
-                            </button>
-
-                            <span class="text-slate-300 font-bold px-1">~</span>
-                            
-                            <button onclick="changeValue('max_${type}', -1, 0, ${maxLimit})" class="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors group">
-                                <span class="material-symbols-outlined text-[18px]">expand_more</span>
-                            </button>
-                            <input type="number" id="max_${type}" oninput="applyFilterManual()" min="0" max="${maxLimit}" value="${maxVal}"
-                                class="w-10 text-center font-black bg-transparent border-none p-0 focus:ring-0 text-base text-emerald-600">
-                            <button onclick="changeValue('max_${type}', 1, 0, ${maxLimit})" class="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors group">
-                                <span class="material-symbols-outlined text-[18px]">expand_less</span>
-                            </button>
+                return `
+                    <div class="filter-row bg-white hover:bg-slate-50 transition-colors py-4 px-6 border-b border-slate-50">
+                        <div class="flex items-center justify-start h-full">
+                            <div class="minimal-label" style="--accent-color: ${accentColor}">${type}</div>
+                        </div>
+                        <div class="ball-pool-container pl-4">
+                            ${ballsHtml}
+                        </div>
+                        <div class="flex justify-end items-center px-2">
+                            <div class="range-wrapper">
+                                <input type="number" id="min_${type}" oninput="applyFilterManual()" min="0" max="${maxLimit}" value="${minVal}" class="range-input">
+                                <span class="range-divider">~</span>
+                                <input type="number" id="max_${type}" oninput="applyFilterManual()" min="0" max="${maxLimit}" value="${maxVal}" class="range-input">
+                            </div>
                         </div>
                     </div>
                 `;
-                container.appendChild(div);
-            });
+            };
+
+            const htmlRows = Object.keys(paperDefinitions).filter(k => k.startsWith('가로')).map(renderFilterRow).join('');
+            const htmlCols = Object.keys(paperDefinitions).filter(k => k.startsWith('세로')).map(renderFilterRow).join('');
+
+            container.innerHTML = `
+                <div class="flex-1 bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm flex flex-col">
+                    <div class="bg-slate-50 border-b border-slate-200 px-6 py-4 flex items-center gap-2">
+                        <span class="material-symbols-outlined text-slate-400 text-lg">horizontal_rule</span>
+                        <span class="text-xs font-black text-slate-600 uppercase tracking-widest">가로 라인 조합</span>
+                    </div>
+                    <div class="flex-1 bg-white">${htmlRows}</div>
+                </div>
+                <div class="flex-1 bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm flex flex-col">
+                    <div class="bg-slate-50 border-b border-slate-200 px-6 py-4 flex items-center gap-2">
+                        <span class="material-symbols-outlined text-slate-400 text-lg">view_column</span>
+                        <span class="text-xs font-black text-slate-600 uppercase tracking-widest">세로 라인 조합</span>
+                    </div>
+                    <div class="flex-1 bg-white">${htmlCols}</div>
+                </div>
+            `;
         }
 
         function initStatCards() {
             const container = document.getElementById('statCards');
+            if (!container) return;
             container.innerHTML = '';
 
             Object.keys(paperDefinitions).forEach(type => {
@@ -902,18 +1069,20 @@
             const thead = document.getElementById('drawsListHeader');
             const cols = Object.keys(paperDefinitions).map(type => {
                 const isActive = (selectedPaperType === type);
-                let activeClass = 'bg-[#1e293b] text-white border-b border-[#334155]';
+                // [tail_digit.html 동기화] 테마 색상 #1e293b 적용
+                let baseClass = 'py-4 px-1 text-center text-[11px] w-8 cursor-pointer transition-colors bg-[#1e293b] text-white border-b border-[#334155]';
+                
                 if (isActive) {
-                    if (type.startsWith('가로')) activeClass = 'th-active';
-                    else activeClass = 'th-active-col';
+                    const color = type.startsWith('가로') ? '#FACC15' : '#818CF8';
+                    return `<th onclick="toggleStatCard('${type}')" class="${baseClass} !bg-slate-900 border-b-4 font-black" style="border-bottom-color: ${color} !important;">${paperLabels[type]}</th>`;
                 }
-                return `<th onclick="toggleStatCard('${type}')" class="py-4 px-1 text-center text-xs w-8 cursor-pointer transition-colors ${activeClass}">${paperLabels[type]}</th>`;
+                return `<th onclick="toggleStatCard('${type}')" class="${baseClass}">${paperLabels[type]}</th>`;
             }).join('');
 
             thead.innerHTML = `
                 <tr>
-                    <th class="py-4 px-2 text-center w-14 sticky left-0 bg-[#1e293b] z-40 text-white text-sm">회차</th>
-                    <th class="py-4 px-2 text-center w-[200px] text-white text-sm">당첨번호</th>
+                    <th class="py-4 px-2 text-center w-16 sticky left-0 bg-[#1e293b] z-40 text-white text-[11px] font-black border-b border-[#334155]">회차</th>
+                    <th class="py-4 px-2 text-center w-[220px] bg-[#1e293b] text-white text-[11px] font-black border-b border-[#334155]">당첨번호</th>
                     ${cols}
                 </tr>
             `;
@@ -945,12 +1114,10 @@
                     }
 
                     if (type) {
-                        // Highlighted Ball (Original Logic)
                         const color = paperColors[type];
-                        return `<span class="w-7 h-7 flex items-center justify-center rounded-full text-[11px] mx-0.5 font-bold shadow-sm" style="background-color: ${color}; color: white;">${String(num).padStart(2, '0')}</span>`;
+                        return `<span class="w-7 h-7 flex items-center justify-center rounded-full text-[11px] mx-0.5 font-bold shadow-sm ring-1 ring-white/20" style="background: ${color}; color: white;">${String(num).padStart(2, '0')}</span>`;
                     } else {
-                        // Standard White Ball (ball-normal)
-                        return `<span class="ball-normal w-7 h-7 text-[11px] mx-0.5 font-bold shadow-sm">${String(num).padStart(2, '0')}</span>`;
+                        return `<span class="w-7 h-7 flex items-center justify-center rounded-full text-[11px] mx-0.5 font-bold shadow-sm bg-white border border-slate-200 text-slate-500">${String(num).padStart(2, '0')}</span>`;
                     }
                 }).join('');
 
@@ -1165,7 +1332,7 @@
             if (val < min) val = min;
             if (val > max) val = max;
             el.value = val;
-            
+
             // 논리적 오류 방지 (min > max 되지 않도록)
             const isMin = id.startsWith('min_');
             const type = id.replace(isMin ? 'min_' : 'max_', '');
@@ -1270,10 +1437,40 @@
             inputEl.value = '';
         }
 
-        // 딥러닝 인사이트 패널 초기화
-        function initDeepInsight() {
-            if (window.DeepInsightPanel) {
-                DeepInsightPanel.renderGroup('dlInsightContainer', 'lotto_paper');
+        /**
+         * [표준화] AI Premium Insight 패널 초기화 (PremiumInsightPanel.js 표준 엔진 연동)
+         * 디자인 로직과 7개 모델 앙상블 전략을 tail_digit.html 및 프로젝트 표준과 100% 동기화합니다.
+         */
+        async function initDeepInsight() {
+            const paperType = selectedPaperType || '가로1';
+            const containerId = 'premiumInsight';
+            
+            // 1. 최근 30회차 실측 데이터 추출 (흐름 진단용)
+            // paperDefinitions[paperType]에 해당하는 번호들의 출현 개수 시계열
+            const recentValues = allDrawData.slice(0, 30).map(d => d.counts[paperType]);
+
+            // 2. 상단 탭 정의 (가1~가7, 세1~세7)
+            const tabItems = Object.keys(paperDefinitions).map(type => ({
+                key: type,
+                label: type.startsWith('가로') ? `가${type.replace('가로','')}` : `세${type.replace('세로','')}`
+            }));
+
+            // 3. 표준 엔진 호출 (PremiumInsightPanel.js)
+            // skipMenuFetch: true를 추가하여 404 콘솔 에러를 방지하고 실시간 분석을 우선합니다.
+            if (window.PremiumInsightPanel) {
+                await window.PremiumInsightPanel.render(containerId, paperType, paperType, {
+                    recentValues: recentValues,
+                    skipMenuFetch: true,
+                    tabs: {
+                        items: tabItems,
+                        activeKey: paperType,
+                        onSelect: (key) => {
+                            toggleStatCard(key); // 탭 클릭 시 스탯 카드 및 그래프와 동기화
+                        }
+                    }
+                });
+            } else {
+                console.error('[AI] PremiumInsightPanel 모듈을 찾을 수 없습니다.');
             }
         }
 
@@ -1281,7 +1478,7 @@
         function applyRecent10Filters(isUserClick = true) {
             const btn = document.getElementById('recent10FilterBtn');
             const btnText = document.getElementById('recent10BtnText');
-            const chk = document.getElementById('applyFilterCheck'); 
+            const chk = document.getElementById('applyFilterCheck');
 
             // 토글: 이미 켜져있으면 끄기
             if (isUserClick && isRecentTenFilter) {

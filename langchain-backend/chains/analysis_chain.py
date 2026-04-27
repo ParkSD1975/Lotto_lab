@@ -1,10 +1,10 @@
 import json
 import asyncio
 import re
-from langchain.prompts import PromptTemplate
-from langchain.schema.runnable import RunnablePassthrough
+from langchain_core.prompts import PromptTemplate
+from langchain_core.runnables import RunnablePassthrough
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.schema.output_parser import StrOutputParser
+from langchain_core.output_parsers import StrOutputParser
 
 import config
 from models.ensemble import LottoEnsemble
@@ -68,11 +68,10 @@ UNIVERSAL_PROMPT_TEMPLATE = """당신은 감정과 조언이 제거된 '로또 �
 
 def create_chain():
     """LangChain 파이프라인 생성 (범용 템플릿)"""
-    llm = ChatGoogleGenerativeAI(
-        model="gemini-2.0-flash",
-        temperature=0.1, # 창의성 최소화 (사실 기반)
-        google_api_key=config.GOOGLE_API_KEY
-    )
+    llm_kwargs = {"model": config.LLM_MODEL, "temperature": 0.1}
+    if config.GOOGLE_API_KEY:
+        llm_kwargs["google_api_key"] = config.GOOGLE_API_KEY
+    llm = ChatGoogleGenerativeAI(**llm_kwargs)
 
     # * 핵심: topic 변수 추가
     prompt = PromptTemplate(

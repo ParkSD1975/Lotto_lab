@@ -1,6 +1,6 @@
-from langchain.prompts import PromptTemplate
+from langchain_core.prompts import PromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.schema.output_parser import StrOutputParser
+from langchain_core.output_parsers import StrOutputParser
 
 import config
 from models.ensemble import LottoEnsemble
@@ -40,17 +40,20 @@ EXPLAIN_PROMPT = """
 """
 
 def create_explain_chain():
-    llm = ChatGoogleGenerativeAI(
-        model="gemini-2.0-flash",
-        temperature=0.5,
-        google_api_key=config.GOOGLE_API_KEY
-    )
-    
+    llm_kwargs = {
+        "model": config.LLM_MODEL,
+        "temperature": 0.5,
+    }
+    if config.GOOGLE_API_KEY:
+        llm_kwargs["google_api_key"] = config.GOOGLE_API_KEY
+
+    llm = ChatGoogleGenerativeAI(**llm_kwargs)
+
     prompt = PromptTemplate(
         template=EXPLAIN_PROMPT,
         input_variables=["target_number", "total_prob", "rank", "lstm_prob", "xgb_prob", "markov_prob", "xai_reasoning", "user_query"]
     )
-    
+
     return prompt | llm | StrOutputParser()
 
 async def explain_number(number: int, user_query: str, target_round: int = None, draws_data: list = None):
@@ -136,23 +139,22 @@ async def explain_number(number: int, user_query: str, target_round: int = None,
         xgb_p = safe_get(model_contribs, 'xgboost', number) * 100
         markov_p = safe_get(model_contribs, 'markov', number) * 100
         total_p = probs_float.get(number, 0) * 100
-            
+
+        # 2. 설명 생성 (try/except 안에서)
+        chain = create_explain_chain()
+        response = await chain.ainvoke({
+            "target_number": number,
+            "total_prob": total_p,
+            "rank": rank,
+            "lstm_prob": lstm_p,
+            "xgb_prob": xgb_p,
+            "markov_prob": markov_p,
+            "xai_reasoning": xai_text,
+            "user_query": user_query
+        })
+        return response
+
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return f"죄송합니다. 해당 번호({number})에 대한 정밀 분석 데이터를 가져오는 중 오류가 발생했습니다: {e}"
-
-    # 2. 설명 생성
-    chain = create_explain_chain()
-    response = await chain.ainvoke({
-        "target_number": number,
-        "total_prob": total_p,
-        "rank": rank,
-        "lstm_prob": lstm_p,
-        "xgb_prob": xgb_p,
-        "markov_prob": markov_p,
-        "xai_reasoning": xai_text,
-        "user_query": user_query
-    })
-    
-    return response
+        return f"죄송합니다. 해당 번호({number})에 대한 분석 중 오류가 발생했습니다: {e}"

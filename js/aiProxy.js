@@ -123,6 +123,29 @@
             return false;
         },
 
+        // ★ 메뉴별 분석 이력 조회 (menu_analysis_history)
+        async getMenuAnalysis(menuType, roundNum) {
+            try {
+                const params = new URLSearchParams();
+                if (menuType) params.set('menu_type', menuType);
+                if (roundNum) params.set('round_num', roundNum);
+                const url = `${CURRENT_BASE_URL}/api/deep-analysis/v3/menu-analysis?${params}`;
+                console.log(`📡 [AIProxy] 메뉴별 분석 조회: ${url}`);
+                const res = await fetch(url, { method: 'GET', headers: { 'Content-Type': 'application/json' } });
+
+                // [수정] 404는 데이터가 아직 생성되지 않은 것일 뿐, 시스템 오류가 아니므로 조용히 처리
+                if (res.status === 404) return null;
+                if (!res.ok) throw new Error('menu-analysis API 오류');
+
+                const json = await res.json();
+                if (json.success && json.data && json.data.length > 0) return json.data[0];
+                return null;
+            } catch (e) {
+                console.log(`ℹ️ [AIProxy] ${menuType} 분석 이력 없음 (실시간 분석으로 전환)`);
+                return null;
+            }
+        },
+
         // ★ [핵심] V3 딥러닝 백엔드(메모 적용) 호출 함수
         async getDeepAnalysis(roundNum) {
             try {
@@ -247,6 +270,59 @@
             } catch (e) {
                 console.error("설명 요청 실패:", e);
                 return { error: "설명을 가져올 수 없습니다." };
+            }
+        },
+
+        /**
+         * V4 주간 파이프라인 예측 조회 (즉시 응답 — 실시간 추론 없음)
+         * @param {number} roundNum - 회차 (0 = 최신)
+         */
+        async getV4Predictions(roundNum = 0) {
+            try {
+                const res = await fetch(`${CURRENT_BASE_URL}/api/v4/predictions/${roundNum}`, {
+                    signal: AbortSignal.timeout(5000)
+                });
+                if (!res.ok) return null;
+                return await res.json();
+            } catch (e) {
+                console.log('[AIProxy] V4 predictions 조회 실패 (무시):', e.message);
+                return null;
+            }
+        },
+
+        /**
+         * V4 주간 XAI 기여도 조회 (즉시 응답)
+         * @param {number} roundNum - 회차 (0 = 최신)
+         */
+        async getV4XAI(roundNum = 0) {
+            try {
+                const res = await fetch(`${CURRENT_BASE_URL}/api/v4/xai/${roundNum}`, {
+                    signal: AbortSignal.timeout(5000)
+                });
+                if (!res.ok) return null;
+                const json = await res.json();
+                return json.success ? json.xai : null;
+            } catch (e) {
+                console.log('[AIProxy] V4 XAI 조회 실패 (무시):', e.message);
+                return null;
+            }
+        },
+
+        /**
+         * V4 주간 필터 범위 예측 조회 (즉시 응답, P8 CI 포함)
+         * @param {number} roundNum - 회차 (0 = 최신)
+         */
+        async getV4Filters(roundNum = 0) {
+            try {
+                const res = await fetch(`${CURRENT_BASE_URL}/api/v4/filters/${roundNum}`, {
+                    signal: AbortSignal.timeout(5000)
+                });
+                if (!res.ok) return null;
+                const json = await res.json();
+                return json.success ? json.filters : null;
+            } catch (e) {
+                console.log('[AIProxy] V4 filters 조회 실패 (무시):', e.message);
+                return null;
             }
         },
 

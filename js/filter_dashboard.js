@@ -33,6 +33,8 @@ window.FilterDashboard = {
         console.log("🚀 Real Filter Dashboard Booting...");
         await this.loadDataFromDB();
         this.renderUI();
+        // [Phase 4.4] AI 범위 캐시 비동기 로드 (렌더링 차단하지 않음)
+        this.loadAIRangesCache();
 
         // [수정] 실시간 동기화: 다른 탭에서 필터 변경 시 즉시 반영
         window.addEventListener('storage', (e) => {
@@ -44,7 +46,8 @@ window.FilterDashboard = {
                 'total_sum', 'last_digit_sum', 'ac_value', 'odd_even_pattern', 'high_low_pattern',
                 'prime_number_patterns', 'composite_count', 'square_number_patterns',
                 'triangular_number_patterns', 'twin_number_patterns', 'neighbor_number_patterns',
-                'carryover_count', 'consecutive_count', 'multiple_3_count', 'number_range_patterns',
+                'carryover_count', 'consecutive_count', 'multiple_3_count',
+                'multiple_7_count', 'multiple_8_count', 'number_range_patterns',
                 'magic_square_pattern', 'lotto_paper_pattern', 'hot_cold_5', 'hot_cold_10',
                 'hot_cold_15', 'hot_cold_20', 'missing_period', 'missing_custom_filter',
                 'regression_analysis', 'lotto_basket', 'tail_digit_patterns'
@@ -214,9 +217,18 @@ window.FilterDashboard = {
                 const stepEl = document.getElementById(`regression-row-${stepParam}`);
                 if (stepEl) {
                     stepEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    stepEl.style.outline = '2px solid #6366f1';
-                    stepEl.style.boxShadow = '0 0 0 4px rgba(99,102,241,0.2)';
-                    setTimeout(() => { stepEl.style.outline = ''; stepEl.style.boxShadow = ''; }, 2000);
+                    stepEl.style.borderTop = '2px solid #22c55e';
+                    stepEl.style.borderBottom = '2px solid #22c55e';
+                    stepEl.style.borderLeft = '2px solid #22c55e';
+                    stepEl.style.borderRight = '2px solid #22c55e';
+                    stepEl.style.boxShadow = '0 0 12px rgba(34,197,94,0.35)';
+                    setTimeout(() => {
+                        stepEl.style.borderTop = '';
+                        stepEl.style.borderBottom = '';
+                        stepEl.style.borderLeft = '';
+                        stepEl.style.borderRight = '';
+                        stepEl.style.boxShadow = '';
+                    }, 2000);
                 }
             }, 800);
         }
@@ -281,6 +293,22 @@ window.FilterDashboard = {
         this.updateRegressionRange(idx, key, val);
     },
 
+    async loadAIRangesCache() {
+        // [Phase 4.4] AI 추천 범위를 state에 캐싱 (1회만 로드)
+        if (this.state._aiRangesLoaded) return;
+        this.state._aiRangesLoaded = true;
+        try {
+            if (window.filterService && window.filterService.loadAIRanges) {
+                this.state.aiRanges = await window.filterService.loadAIRanges();
+                if (this.state.aiRanges) {
+                    console.log('[FilterDashboard] AI 범위 로드 완료:', this.state.aiRanges);
+                }
+            }
+        } catch (e) {
+            console.warn('[FilterDashboard] AI 범위 로드 실패:', e);
+        }
+    },
+
     renderUI() {
         this.state.totalActiveCount = 0;
         this.renderBasket();
@@ -298,16 +326,28 @@ window.FilterDashboard = {
     },
 
     handleDeepLink(focusId) {
-        setTimeout(() => {
+        // [수정] 렌더링 완료 시간을 고려하여 조금 더 긴 지연시간 부여 및 재시도 로직 추가
+        const tryScroll = (retryCount = 0) => {
             const element = document.getElementById(`filter-${focusId}`) || document.getElementById(`filter-card-${focusId}`);
             if (element) {
                 element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                element.classList.add('transition-all', 'duration-500', 'ring-4', 'ring-blue-500');
+                // [수정] 하이라이트 효과 강화 (시각적 피드백 명확화)
+                element.style.outline = '4px solid #6366f1';
+                element.style.boxShadow = '0 0 20px rgba(99, 102, 241, 0.4)';
+                element.style.zIndex = '10';
+
                 setTimeout(() => {
-                    element.classList.remove('ring-4', 'ring-blue-500');
-                }, 2000);
+                    element.style.outline = '';
+                    element.style.boxShadow = '';
+                    element.style.zIndex = '';
+                }, 3000);
+            } else if (retryCount < 3) {
+                // 아직 렌더링되지 않았을 경우 500ms 간격으로 최대 3번 더 시도
+                setTimeout(() => tryScroll(retryCount + 1), 500);
             }
-        }, 300);
+        };
+
+        setTimeout(() => tryScroll(0), 500);
     },
 
     switchTab(tabId) {
@@ -331,8 +371,9 @@ window.FilterDashboard = {
             }
             await window.filterService.initialize();
 
-            const { data: draws } = await window.supabaseClient.from('lotto_draws').select('*').order('round', { ascending: false }).limit(250);
+            const { data: draws } = await window.supabaseClient.from('lotto_draws').select('*').order('round', { ascending: false }).limit(500);
             this.state.allDraws = draws || [];
+            this._regStatCache = null; // allDraws 갱신 시 GAP/STR 캐시 리셋
 
             if (this.state.allDraws.length > 0) {
                 // [추가] 차기 회차 계산 (regression.html과 동일한 로직)
@@ -399,6 +440,11 @@ window.FilterDashboard = {
                         const raw2 = localStorage.getItem('tail_digit_filter') || localStorage.getItem('lottoDigitFilters');
                         if (raw2) rawLocalData = JSON.parse(raw2);
                     }
+                    // [composite 호환] 구버전 composite_number.html이 'composite_number_filter'로 저장했던 레거시 데이터 대응
+                    if (!rawLocalData && def.filter_key === 'composite_count') {
+                        const raw2 = localStorage.getItem('composite_number_filter');
+                        if (raw2) rawLocalData = JSON.parse(raw2);
+                    }
                 } catch (e) { }
 
                 // [수정] 데이터베이스(allSettings)에서 데이터 조회 시 매핑된 키도 함께 확인
@@ -409,6 +455,10 @@ window.FilterDashboard = {
                     'composite_count': 'composite_filter',
                     'prime_number_patterns': 'prime_filter',
                     'neighbor_count': 'neighbor_number_patterns'  // 구 키 하위 호환 로드
+                };
+                // 레거시 키 → localStorage 폴백 맵 (composite_number.html이 구버전에서 'composite_number_filter'로 저장했던 데이터 대응)
+                const legacyLocalKeyMapping = {
+                    'composite_count': 'composite_number_filter'
                 };
                 const altKey = standardKeyMapping[def.filter_key];
                 const dbEntry = allSettings[def.filter_key] || (altKey ? allSettings[altKey] : null);
@@ -434,95 +484,88 @@ window.FilterDashboard = {
                             enabled: dbEntry.enabled,
                             settings: dbEntry.settings || {}
                         };
-                    }
 
-                    // [핵심] DB-primary일 때 Local 캐시로 누락 데이터 보완
-                    if (!localIsNewer && rawLocalData) {
-                        // Utils.saveFilter 표준 구조 대응 (Unboxing)
-                        const localSettings = rawLocalData.settings !== undefined ? rawLocalData.settings : rawLocalData;
-                        const localEnabled = rawLocalData.enabled !== undefined ? rawLocalData.enabled : (rawLocalData.enabled !== false);
+                        // [핵심] DB-primary일 때 Local 캐시로 누락 데이터 보완
+                        if (rawLocalData) {
+                            // Utils.saveFilter 표준 구조 대응 (Unboxing)
+                            const localSettings = (rawLocalData.settings !== undefined) ? rawLocalData.settings : rawLocalData;
+                            // [수정] localStorage에 값이 있다면 (analysis 페이지에서 온 경우) 명시적으로 false가 아닌 한 적용(true)으로 간주
+                            const localEnabled = (rawLocalData.enabled !== undefined) ? rawLocalData.enabled : true;
 
-                        const dbSettings = this.state.userSettings[def.id].settings;
+                            this.state.userSettings[def.id].enabled = this.state.userSettings[def.id].enabled || localEnabled;
+                            const dbSettings = this.state.userSettings[def.id].settings;
 
-                        // 1. 제외 값들 병합 (합계, AC값 등)
-                        const isAc = def.filter_key.includes('ac_value');
-                        const exKeyDB = isAc ? 'excludedAcValues' : 'excludedSums';
-                        const exKeyLocal = localSettings.excludedAcValues || localSettings.excludedSums || localSettings.excluded || [];
+                            // 1. 제외 값들 병합 (합계, AC값 등)
+                            const isAc = def.filter_key.includes('ac_value');
+                            const exKeyDB = isAc ? 'excludedAcValues' : 'excludedSums';
+                            const exKeyLocal = localSettings.excludedAcValues || localSettings.excludedSums || localSettings.excluded || [];
 
-                        if ((!dbSettings[exKeyDB] || dbSettings[exKeyDB].length === 0) && Array.isArray(exKeyLocal) && exKeyLocal.length > 0) {
-                            console.log(`💡 [Merge] ${def.filter_key}: Local ${exKeyDB} recovered to DB state`);
-                            dbSettings[exKeyDB] = exKeyLocal;
-                        }
-
-                        // 2. 범위값 병합: DB ranges 내부 → local 순으로 fallback
-                        if (dbSettings.min === undefined) {
-                            // DB settings에 ranges.min이 있으면 최상위로 추출 (구 포맷 호환)
-                            if (dbSettings.ranges?.min !== undefined) dbSettings.min = dbSettings.ranges.min;
-                            else if (localSettings.min !== undefined) dbSettings.min = localSettings.min;
-                            else if (localSettings.ranges?.min !== undefined) dbSettings.min = localSettings.ranges.min;
-                        }
-                        if (dbSettings.max === undefined) {
-                            if (dbSettings.ranges?.max !== undefined) dbSettings.max = dbSettings.ranges.max;
-                            else if (localSettings.max !== undefined) dbSettings.max = localSettings.max;
-                            else if (localSettings.ranges?.max !== undefined) dbSettings.max = localSettings.ranges.max;
-                        }
-
-                        // 3. recent10FilterActive 플래그 병합
-                        if (!dbSettings.recent10FilterActive && localSettings.recent10FilterActive) {
-                            dbSettings.recent10FilterActive = localSettings.recent10FilterActive;
-                        }
-
-                        // 4. 복원된 자동 제외값 병합
-                        const resKeyDB = isAc ? 'restoredAutoAcValues' : 'restoredAutoSums';
-                        const resKeyLocal = localSettings.restoredAutoAcValues || localSettings.restoredAutoSums || [];
-                        if ((!dbSettings[resKeyDB] || dbSettings[resKeyDB].length === 0) && resKeyLocal.length > 0) {
-                            dbSettings[resKeyDB] = resKeyLocal;
-                        }
-
-                        // 5. 계수형 필터(소수, 합성수 등) 데이터 지능형 병합
-                        const discreteKeys = ['prime_number_patterns', 'composite_count', 'odd_even_pattern', 'high_low_pattern'];
-                        if (discreteKeys.includes(def.filter_key)) {
-                            let targetArrName = 'selectedCounts'; // 기본값 (소수, 합성수)
-                            if (def.filter_key === 'odd_even_pattern' || def.filter_key === 'high_low_pattern') {
-                                targetArrName = 'selectedRatios'; // [수정] 홀짝/저고는 selectedRatios 사용
+                            if ((!dbSettings[exKeyDB] || dbSettings[exKeyDB].length === 0) && Array.isArray(exKeyLocal) && exKeyLocal.length > 0) {
+                                console.log(`💡 [Merge] ${def.filter_key}: Local ${exKeyDB} recovered to DB state`);
+                                dbSettings[exKeyDB] = exKeyLocal;
                             }
 
-                            if ((!dbSettings[targetArrName] || dbSettings[targetArrName].length === 0) && localSettings[targetArrName]) {
-                                dbSettings[targetArrName] = localSettings[targetArrName];
+                            // 2. 범위값 병합: DB ranges 내부 → local 순으로 fallback
+                            if (dbSettings.min === undefined) {
+                                if (dbSettings.ranges?.min !== undefined) dbSettings.min = dbSettings.ranges.min;
+                                else if (localSettings.min !== undefined) dbSettings.min = localSettings.min;
+                                else if (localSettings.ranges?.min !== undefined) dbSettings.min = localSettings.ranges.min;
                             }
-                        }
+                            if (dbSettings.max === undefined) {
+                                if (dbSettings.ranges?.max !== undefined) dbSettings.max = dbSettings.ranges.max;
+                                else if (localSettings.max !== undefined) dbSettings.max = localSettings.max;
+                                else if (localSettings.ranges?.max !== undefined) dbSettings.max = localSettings.ranges.max;
+                            }
 
-                        // 6. [tail_digit 전용] filters 복구
-                        if (def.filter_key === 'tail_digit_patterns' && localSettings.filters) {
-                            dbSettings.filters = localSettings.filters;
-                        }
+                            // 3. recent10FilterActive 플래그 병합
+                            if (!dbSettings.recent10FilterActive && localSettings.recent10FilterActive) {
+                                dbSettings.recent10FilterActive = localSettings.recent10FilterActive;
+                            }
 
-                        // 7. [missing_custom_filter] filters 복구: DB가 빈 배열이면 localStorage의 그룹 데이터 사용
-                        if (def.filter_key === 'missing_custom_filter' && Array.isArray(localSettings.filters) && localSettings.filters.length > 0) {
-                            if (!Array.isArray(dbSettings.filters) || dbSettings.filters.length === 0) {
-                                // localStorage 회차와 현재 회차 일치 시에만 복원
-                                const lsTargetRound = localSettings.targetRound;
-                                const curExpected = this.state.allDraws.length > 0 ? this.state.allDraws[0].round + 1 : null;
-                                if (!lsTargetRound || !curExpected || lsTargetRound === curExpected) {
-                                    console.log(`💡 [Merge] missing_custom_filter: localStorage에서 ${localSettings.filters.length}개 그룹 복원`);
-                                    dbSettings.filters = localSettings.filters;
-                                    if (localSettings.counter) dbSettings.counter = localSettings.counter;
-                                    if (localSettings.targetRound) dbSettings.targetRound = localSettings.targetRound;
+                            // 4. 복원된 자동 제외값 병합
+                            const resKeyDB = isAc ? 'restoredAutoAcValues' : 'restoredAutoSums';
+                            const resKeyLocal = localSettings.restoredAutoAcValues || localSettings.restoredAutoSums || [];
+                            if ((!dbSettings[resKeyDB] || dbSettings[resKeyDB].length === 0) && resKeyLocal.length > 0) {
+                                dbSettings[resKeyDB] = resKeyLocal;
+                            }
+
+                            // 5. 계수형 필터(소수, 합성수 등) 데이터 지능형 병합
+                            const discreteKeys = ['prime_number_patterns', 'composite_count', 'odd_even_pattern', 'high_low_pattern'];
+                            if (discreteKeys.includes(def.filter_key)) {
+                                let targetArrName = 'selectedCounts';
+                                if (def.filter_key === 'odd_even_pattern' || def.filter_key === 'high_low_pattern') {
+                                    targetArrName = 'selectedRatios';
+                                }
+                                if ((!dbSettings[targetArrName] || dbSettings[targetArrName].length === 0) && localSettings[targetArrName]) {
+                                    dbSettings[targetArrName] = localSettings[targetArrName];
+                                }
+                            }
+
+                            // 6. [tail_digit 전용] filters 복구
+                            if (def.filter_key === 'tail_digit_patterns' && localSettings.filters) {
+                                dbSettings.filters = localSettings.filters;
+                            }
+
+                            // 7. [missing_custom_filter] filters 복구
+                            if (def.filter_key === 'missing_custom_filter' && Array.isArray(localSettings.filters) && localSettings.filters.length > 0) {
+                                if (!Array.isArray(dbSettings.filters) || dbSettings.filters.length === 0) {
+                                    const lsTargetRound = localSettings.targetRound;
+                                    const curExpected = this.state.allDraws.length > 0 ? this.state.allDraws[0].round + 1 : null;
+                                    if (!lsTargetRound || !curExpected || lsTargetRound === curExpected) {
+                                        dbSettings.filters = localSettings.filters;
+                                        if (localSettings.counter) dbSettings.counter = localSettings.counter;
+                                    }
+                                }
+                            }
+
+                            // 8. [missing_period] ranges 복구
+                            if (def.filter_key === 'missing_period' && localSettings.ranges) {
+                                if (!dbSettings.ranges || Object.keys(dbSettings.ranges).length === 0) {
+                                    dbSettings.ranges = localSettings.ranges;
                                 }
                             }
                         }
-
-                        // 8. [missing_period] ranges 복구 (r1Min~r4Max)
-                        if (def.filter_key === 'missing_period' && localSettings.ranges) {
-                            if (!dbSettings.ranges || Object.keys(dbSettings.ranges).length === 0) {
-                                console.log(`💡 [Merge] missing_period: localStorage에서 ranges 복원`);
-                                dbSettings.ranges = localSettings.ranges;
-                            }
-                        }
-
-                        // [Fix] DB가 더 최신인 경우 DB의 enabled 값을 신뢰 (localStorage로 덮어쓰지 않음)
-                        // enabled는 DB → filterService.saveSetting()으로 즉시 동기화되므로 DB가 항상 정확함
-                    } // end !localIsNewer merge
+                    }
                 } else if (rawLocalData) {
                     const localSettings = rawLocalData.settings !== undefined ? rawLocalData.settings : rawLocalData;
                     const localEnabled = rawLocalData.enabled !== undefined ? rawLocalData.enabled : (rawLocalData.enabled !== false);
@@ -550,6 +593,7 @@ window.FilterDashboard = {
                     const us = this.state.userSettings[def.id];
                     if (!us || def.filter_key === 'missing_custom_filter') continue;
                     us.settings.recent10FilterActive = true;
+                    us.enabled = true; // 신규 회차 시 필터를 자동으로 활성화 (대시보드 "적용" 상태 표시)
                     if (!flagOnlyKeys.includes(def.filter_key) && def.filter_key !== 'tail_digit_patterns') {
                         this._calcAndApplyRecent10(def.filter_key, us, recent10);
                     } else if (def.filter_key === 'tail_digit_patterns') {
@@ -664,12 +708,23 @@ window.FilterDashboard = {
                     });
                 }
 
-                // [추가] AI 실시간 예측 데이터 로드 (AIProxy)
+                // [추가] AI 실시간 예측 데이터 로드 (AIProxy) - 최신 회차 데이터가 없으면 이전 회차 시도
                 if (window.AIProxy && typeof window.AIProxy.getPredictions === 'function') {
-                    const aiResult = await window.AIProxy.getPredictions(this.state.targetRound);
-                    if (aiResult && aiResult.success) {
-                        this.state.aiUpcomingData = aiResult.data;
-                        console.log(`[FilterDashboard] AI Predictions loaded for round ${this.state.targetRound}`);
+                    const fetchWithFallback = async (round, attempts = 10) => {
+                        const aiResult = await window.AIProxy.getPredictions(round);
+                        if (aiResult) {
+                            const data = (aiResult.success && aiResult.data) ? aiResult.data : aiResult;
+                            const hasData = data.matrix_data || (data.analysis && data.analysis.matrix_data) || data.top_5;
+                            if (hasData) return data;
+                        }
+                        if (attempts > 1 && round > 1) return await fetchWithFallback(round - 1, attempts - 1);
+                        return null;
+                    };
+
+                    const finalAiData = await fetchWithFallback(this.state.targetRound);
+                    if (finalAiData) {
+                        this.state.aiUpcomingData = finalAiData;
+                        console.log(`📡 [FilterDashboard] AI 예측 데이터 로드 완료 (${this.state.targetRound}회 또는 이전)`);
                     }
                 }
             } catch (e) {
@@ -717,35 +772,43 @@ window.FilterDashboard = {
         } catch (error) { console.error("DB Load Error:", error); }
     },
 
-    renderBalls(numbers, excludedList = [], fixedList = []) {
-        if (!numbers || numbers.length === 0) return '<span class="text-xs text-slate-400">대상수 없음</span>';
+    renderBalls(numbers, excludedList = [], fixedList = [], ballPx = null) {
+        if (!numbers || numbers.length === 0) return '<span class="text-xs text-slate-400 font-black italic">분석 결과 없음</span>';
         const finalFixed = fixedList.length > 0 ? fixedList : this.state.basket.fixed;
         const finalExcluded = excludedList.length > 0 ? excludedList : this.state.basket.excluded;
 
-        // [수정] 수동필터와 동일한 색상 체계 (Hex) 적용
         const getBallStyle = (n) => {
-            if (n <= 10) return { bg: '#F7C948', border: '#eab308' };
-            if (n <= 20) return { bg: '#4a90d9', border: '#2563eb' };
-            if (n <= 30) return { bg: '#E04A4A', border: '#dc2626' };
-            if (n <= 40) return { bg: '#6B7280', border: '#4b5563' };
-            return { bg: '#48B05A', border: '#16a34a' };
+            if (n <= 10) return { bg: '#f59e0b', border: '#d97706' };
+            if (n <= 20) return { bg: '#3b82f6', border: '#2563eb' };
+            if (n <= 30) return { bg: '#ef4444', border: '#dc2626' };
+            if (n <= 40) return { bg: '#6b7280', border: '#4b5563' };
+            return { bg: '#10b981', border: '#059669' };
         };
+
+        const sizeStyle = ballPx
+            ? `width:${ballPx}px !important; height:${ballPx}px !important; min-width:${ballPx}px !important; min-height:${ballPx}px !important; font-size:${Math.round(ballPx * 0.38)}px !important; margin:2px !important; flex-shrink:0 !important; border-radius:50% !important;`
+            : '';
+        const baseClass = ballPx
+            ? `flex items-center justify-center rounded-full font-black shadow-sm border `
+            : `w-8 h-8 flex items-center justify-center rounded-full text-[12px] font-black shadow-sm border transition-all `;
 
         return numbers.map(n => {
             const isEx = finalExcluded.includes(n);
             const isFi = finalFixed.includes(n);
-            const style = getBallStyle(n);
-            let ballClass = "w-7 h-7 flex items-center justify-center rounded-full text-[11px] font-black text-white shadow-sm border ";
-            let inlineStyle = "";
+            const s = getBallStyle(n);
+
+            let ballClass = baseClass;
+            let inlineStyle = sizeStyle;
 
             if (isFi) {
-                ballClass += "ball-fixed";
-                inlineStyle = "background-color: #2563eb; border-color: #3b82f6;";
+                ballClass += "ball-fixed text-white";
+                inlineStyle += "background-color: #2563eb; border-color: #3b82f6; border-width: 2px; box-shadow: 0 0 8px rgba(37, 99, 235, 0.4);";
             } else if (isEx) {
-                ballClass += "ball-excluded";
-                inlineStyle = "background-color: #94a3b8; border-color: #64748b;";
+                ballClass += "ball-excluded text-white/90";
+                inlineStyle += `background-color: #94a3b8; border-color: #64748b; border-width: 1px; text-decoration: line-through; opacity: 0.6;`;
             } else {
-                inlineStyle = `background-color: ${style.bg}; border-color: ${style.border};`;
+                ballClass += "text-white";
+                inlineStyle += `background-color: ${s.bg}; border-color: ${s.border};`;
             }
             return `<span class="${ballClass}" style="${inlineStyle}">${String(n).padStart(2, '0')}</span>`;
         }).join('');
@@ -766,6 +829,8 @@ window.FilterDashboard = {
             'missing_custom_filter': 'missing.html',
             'long_term_miss': 'missing.html',
             'multiple_3_count': 'multiple.html',
+            'multiple_7_count': 'multiple.html',
+            'multiple_8_count': 'multiple.html',
             'number_range_patterns': 'number_range.html', 'lotto_paper_pattern': 'lotto_paper.html',
             'magic_square_pattern': 'magic_square.html'
         };
@@ -774,32 +839,56 @@ window.FilterDashboard = {
 
     calculateCustomTargets(custom) {
         // [추가] AI 모델 타입에 대한 실시간/이력 대상 번호 매핑
-        const isAiType = custom.type && custom.type.startsWith('ai_');
+        const title = (custom.title || '').toUpperCase();
+        const isAiModelTitle = !!title.match(/(LSTM|GNN|CNN|TRANSFORMER|MARKOV|AUTOENCODER|XGBOOST|XGB|ENSEMBLE|앙상블|추천조합|TF|ATC|AI|딥러닝|추천|제외)/i);
+        const isAiType = (custom.type && custom.type.startsWith('ai_')) || isAiModelTitle;
 
         if (isAiType && this.state.aiUpcomingData) {
             const aiData = this.state.aiUpcomingData;
+            const titleMatch = title.match(/(\d+)/);
+            const titleCount = titleMatch ? parseInt(titleMatch[0]) : null;
+
             // 1. 앙상블 고정/제외 타입
-            if (custom.type === 'ai_ensemble_fixed') {
+            if (custom.type === 'ai_ensemble_fixed' || (isAiModelTitle && title.includes('추천') && !title.includes('제외'))) {
                 return (aiData.top_5 || aiData.recommended || []).slice(0, 6).map(Number);
-            } else if (custom.type === 'ai_ensemble_excluded') {
+            } else if (custom.type === 'ai_ensemble_excluded' || (isAiModelTitle && title.includes('제외'))) {
                 return (aiData.exclude_10 || aiData.excluded || []).map(Number);
             }
-            // 2. 모델별 TOP/BOTTOM 타입
-            else if (custom.type === 'ai_model_top' || custom.type === 'ai_model_bottom') {
-                const model = (custom.rules?.model || 'ensemble').toLowerCase();
-                const count = parseInt(custom.rules?.count || 10);
-                const isTop = (custom.type === 'ai_model_top');
-                const matrixData = aiData.matrix_data || [];
+            // 2. 모델별 TOP/BOTTOM 타입 또는 타이틀 기반 모델 자동 인식
+            else if (custom.type === 'ai_model_top' || custom.type === 'ai_model_bottom' || isAiModelTitle) {
+                let model = (custom.rules?.model || 'ensemble').toLowerCase();
+
+                // [추가] 타이틀 기반 모델 자동 인식 (LSTM 20, XGB 20 등)
+                if (isAiModelTitle && (!custom.rules?.model || model === 'ensemble')) {
+                    const matched = title.match(/(LSTM|GNN|CNN|TRANSFORMER|MARKOV|AUTOENCODER|XGBOOST|XGB|TF|ATC|앙상블)/i);
+                    if (matched) {
+                        model = matched[0].toLowerCase();
+                        if (model === 'tf') model = 'transformer';
+                        if (model === 'atc') model = 'autoencoder';
+                        if (model === 'xgb') model = 'xgboost';
+                        if (model === '앙상블') model = 'ensemble';
+                    }
+                }
+
+                const isTarget20 = title.includes('20');
+                const count = parseInt(custom.rules?.count || titleCount || (isTarget20 ? 20 : 10));
+                const isTop = (custom.type !== 'ai_model_bottom');
+
+                // [수정] AI 데이터 중첩 구조 지원 (matrix_data가 analysis 내부에 있는 경우 대응)
+                const matrixData = aiData.matrix_data || (aiData.analysis && aiData.analysis.matrix_data) || [];
 
                 if (matrixData.length > 0) {
                     const sorted = [...matrixData].sort((a, b) => {
                         let scoreA, scoreB;
-                        if (model === 'ensemble' || model === 'total') {
-                            scoreA = a.total || 0;
-                            scoreB = b.total || 0;
+                        if (model === 'ensemble' || model === 'total' || model === '앙상블') {
+                            scoreA = a.total !== undefined ? a.total : 0;
+                            scoreB = b.total !== undefined ? b.total : 0;
                         } else {
-                            scoreA = (a.models && a.models[model]) ? (a.models[model].score || 0) : 0;
-                            scoreB = (b.models && b.models[model]) ? (b.models[model].score || 0) : 0;
+                            // [수정] 모델 점수 추출 유연성 강화 (객체 내 score 필드 또는 직접 값 대응)
+                            const scoresA = a.models || a;
+                            const scoresB = b.models || b;
+                            scoreA = scoresA[model]?.score !== undefined ? scoresA[model].score : (scoresA[model] || 0);
+                            scoreB = scoresB[model]?.score !== undefined ? scoresB[model].score : (scoresB[model] || 0);
                         }
                         return isTop ? (scoreB - scoreA) : (scoreA - scoreB);
                     });
@@ -825,6 +914,17 @@ window.FilterDashboard = {
         const targetNums = this.state.staticTargets[key] || this.state.dynamicTargets[key];
         const excludedNums = vals.excludedNumbers || vals.excludedPrimes || vals.excludedComposites || vals.excludedSquares || vals.excludedTriangulars || [];
 
+        const SMALL_BALL = "w-6 h-6 flex items-center justify-center rounded-full text-[10px] font-black shadow-sm border transaction-all ";
+        const NORMAL_BALL = "w-8 h-8 flex items-center justify-center rounded-full text-[12px] font-black shadow-sm border transaction-all ";
+        const LARGE_BALL = "w-10 h-10 flex items-center justify-center rounded-full text-[14px] font-black shadow-sm border transaction-all ";
+
+        let dynamicSizeClass = NORMAL_BALL;
+        if (['neighbor_count', 'neighbor_number_patterns', 'carryover_count', 'prime_number_patterns', 'composite_count', 'triangular_number_patterns', 'square_number_patterns', 'twin_number_patterns'].includes(key)) {
+            dynamicSizeClass = SMALL_BALL;
+        } else if (['number_range_patterns', 'color_range_pattern', 'magic_square_pattern', 'lotto_paper_pattern', 'hot_cold_5', 'hot_cold_10', 'hot_cold_15', 'hot_cold_20', 'missing_period', 'missing_custom_filter', 'long_term_miss'].includes(key)) {
+            dynamicSizeClass = LARGE_BALL;
+        }
+
         // 이월수 필터는 대상번호 박스를 개별 섹션 내부에 그리므로 여기선 스킵
         if (targetNums && key !== 'carryover_count') {
             html += `
@@ -834,7 +934,7 @@ window.FilterDashboard = {
                     <span class="text-[11px] font-black text-blue-600">${targetNums.length}개</span>
                 </div>
                 <div class="flex flex-wrap gap-1.5">
-                    ${this.renderBalls(targetNums, excludedNums)}
+                    ${this.renderBalls(targetNums, excludedNums, [], dynamicSizeClass)}
                 </div>
             </div>`;
         }
@@ -857,14 +957,48 @@ window.FilterDashboard = {
             const ringColor = 'focus-within:ring-blue-500';
             const textColor = 'text-blue-600';
 
+            // [Phase 4] AI 추천 범위 뱃지 (deep_analysis_history.range_analysis 기반)
+            const AI_KEY_MAP = {
+                'total_sum':                  ['sum_min',        'sum_max'],
+                'ac_value':                   ['ac_value_min',   'ac_value_max'],
+                'last_digit_sum':             ['tail_sum_min',   'tail_sum_max'],
+                'odd_even_pattern':           ['odd_count_min',  'odd_count_max'],
+                'high_low_pattern':           ['high_count_min', 'high_count_max'],
+                'consecutive_count':          ['consecutive_min','consecutive_max'],
+                'prime_number_patterns':      ['prime_min',      'prime_max'],
+                'composite_count':            ['composite_min',  'composite_max'],
+                'square_number_patterns':     ['square_min',     'square_max'],
+                'triangular_number_patterns': ['triangular_min', 'triangular_max'],
+                'twin_number_patterns':       ['twin_min',       'twin_max'],
+                'multiple_3_count':           ['mul3_min',       'mul3_max'],
+                'multiple_7_count':           ['mul7_min',       'mul7_max'],
+                'multiple_8_count':           ['mul8_min',       'mul8_max'],
+                'missing_period':             ['missing_min',    'missing_max'],
+                'neighbor_number_patterns':   ['neighbor_min',   'neighbor_max'],
+            };
+            let aiRangeBadge = '';
+            const aiCols = AI_KEY_MAP[key];
+            const aiRanges = this.state.aiRanges;
+            if (aiRanges && aiCols) {
+                const aMin = aiRanges[aiCols[0]]; const aMax = aiRanges[aiCols[1]];
+                if (aMin != null && aMax != null) {
+                    aiRangeBadge = `<span class="text-[10px] font-black bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full ring-1 ring-indigo-200 cursor-pointer hover:bg-indigo-100 transition"
+                        title="AI 추천값 클릭 시 적용"
+                        onclick="document.getElementById('input-${def.id}-min').value=${aMin}; document.getElementById('input-${def.id}-max').value=${aMax}; FilterDashboard.updateFilterValue('${def.id}','min',${aMin}); FilterDashboard.updateFilterValue('${def.id}','max',${aMax});">
+                        AI ${aMin}~${aMax}
+                    </span>`;
+                }
+            }
+
             html += `
-            <div class="flex items-center justify-end">
+            <div class="flex items-center justify-end gap-2">
+                ${aiRangeBadge}
                 <div class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-1.5 shadow-sm focus-within:ring-2 ${ringColor}">
-                    <input type="number" id="input-${def.id}-min" min="0" max="${defaultMax}" value="${min}" 
+                    <input type="number" id="input-${def.id}-min" min="0" max="${defaultMax}" value="${min}"
                         onchange="FilterDashboard.updateFilterValue('${def.id}', 'min', this.value)"
                         class="w-12 text-center font-black ${textColor} bg-transparent border-none p-0 focus:ring-0 text-base">
                     <span class="text-slate-300 font-bold">~</span>
-                    <input type="number" id="input-${def.id}-max" min="0" max="${defaultMax}" value="${max}" 
+                    <input type="number" id="input-${def.id}-max" min="0" max="${defaultMax}" value="${max}"
                         onchange="FilterDashboard.updateFilterValue('${def.id}', 'max', this.value)"
                         class="w-12 text-center font-black ${textColor} bg-transparent border-none p-0 focus:ring-0 text-base">
                 </div>
@@ -973,25 +1107,24 @@ window.FilterDashboard = {
                 for (let n = startNum; n <= endNum; n++) {
                     const isEx = this.state.basket.excluded.includes(n);
                     const isFi = this.state.basket.fixed.includes(n);
-                    let ballClass = "w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-black text-white shadow-sm border ";
-                    // [수정] renderBalls() 기준 색상으로 통일
-                    let color = '#fbcfe8'; let border = '#f9a8d4';
-                    if (n <= 10) { color = '#F7C948'; border = '#eab308'; }
-                    else if (n <= 20) { color = '#4a90d9'; border = '#2563eb'; }
-                    else if (n <= 30) { color = '#E04A4A'; border = '#dc2626'; }
-                    else if (n <= 40) { color = '#6B7280'; border = '#4b5563'; }
-                    else { color = '#48B05A'; border = '#16a34a'; }
-                    let style = `background-color: ${color}; border-color: ${border};`;
+                    let ballClass = "ball flex-shrink-0 flex items-center justify-center rounded-full font-black text-white shadow-sm ";
+                    let color = '#F97316';
+                    if (n <= 10) { color = '#F97316'; }
+                    else if (n <= 20) { color = '#38BDF8'; }
+                    else if (n <= 30) { color = '#EF4444'; }
+                    else if (n <= 40) { color = '#6B7280'; }
+                    else { color = '#84CC16'; }
+                    let inlineStyle = `width:30px !important;height:30px !important;font-size:11px !important;background-color:${color} !important;`;
 
                     if (isFi) {
                         ballClass += "ball-fixed";
-                        style = "background-color: #2563eb; border-color: #3b82f6;";
+                        inlineStyle = "width:30px !important;height:30px !important;font-size:11px !important;background-color:#2563eb !important;border:2px solid #3b82f6 !important;";
                     } else if (isEx) {
                         ballClass += "ball-excluded";
-                        style = "background-color: #94a3b8; border-color: #64748b;";
+                        inlineStyle = "width:30px !important;height:30px !important;font-size:11px !important;background-color:#94a3b8 !important;border:1px solid #64748b !important;";
                     }
 
-                    numbersHtml += `<span class="${ballClass}" style="${style}">${String(n).padStart(2, '0')}</span>`;
+                    numbersHtml += `<span class="${ballClass}" style="${inlineStyle}">${String(n).padStart(2, '0')}</span>`;
                 }
 
                 html += `
@@ -1206,45 +1339,71 @@ window.FilterDashboard = {
                     </div>
                 </div>`;
         } else if (key === 'multiple_3_count') {
-            // 배수 패턴: 조합 필터 상세 UI
-            const filters = vals.filters || {};
+            // 배수 패턴: 각 배수 타입은 개별 filter_key에 flat {min,max} 형식으로 저장됨
+            // multiple.html 저장 구조: Utils.saveFilter('multiple_7_count', {min,max,...})
+            const MULTIPLE_TYPE_KEYS = {
+                '3배수': 'multiple_3_count', '4배수': 'multiple_4_count', '5배수': 'multiple_5_count',
+                '7배수': 'multiple_7_count', '8배수': 'multiple_8_count',
+                '3·4배수': 'multiple_3_4_count', '3·5배수': 'multiple_3_5_count',
+                '4·5배수': 'multiple_4_5_count', '배수외': 'no_multiple_count'
+            };
+            const MULTIPLE_MAX = { '8배수': 5, '3·4배수': 3, '3·5배수': 3, '4·5배수': 2 };
+            const filters = {};
+            for (const [typeName, typeKey] of Object.entries(MULTIPLE_TYPE_KEYS)) {
+                const typeDef = this.state.foundationFilters.find(f => f.filter_key === typeKey);
+                const s = typeDef ? (this.state.userSettings[typeDef.id]?.settings || {}) : {};
+                const defaultMax = MULTIPLE_MAX[typeName] ?? 6;
+                // flat 형식 우선, 없으면 번들 폴백, 없으면 기본값
+                if (s.min !== undefined && s.max !== undefined) {
+                    filters[typeName] = { min: s.min, max: s.max };
+                } else if (vals.filters?.[typeName]) {
+                    filters[typeName] = vals.filters[typeName];
+                } else {
+                    filters[typeName] = { min: 0, max: defaultMax };
+                }
+            }
             const multipleDefinitions = {
                 '3배수': [3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45],
                 '4배수': [4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44],
                 '5배수': [5, 10, 15, 20, 25, 30, 35, 40, 45],
+                '7배수': [7, 14, 21, 28, 35, 42],
+                '8배수': [8, 16, 24, 32, 40],
                 '3·4배수': [12, 24, 36],
                 '3·5배수': [15, 30, 45],
                 '4·5배수': [20, 40],
-                '배수외': [1, 2, 7, 11, 13, 14, 17, 19, 22, 23, 26, 29, 31, 34, 37, 38, 41, 43]
+                '배수외': [1, 2, 11, 13, 17, 19, 22, 23, 26, 29, 31, 34, 37, 38, 41, 43]
             };
+            // multiple.html과 동일한 색상
             const multipleColors = {
-                '3배수': '#3B82F6', '4배수': '#10B981', '5배수': '#EC4899',
+                '3배수': '#4F6AFF', '4배수': '#10B981', '5배수': '#EC4899',
+                '7배수': '#F97316', '8배수': '#06B6D4',
                 '3·4배수': '#8B5CF6', '3·5배수': '#F59E0B', '4·5배수': '#14B8A6',
                 '배수외': '#6B7280'
             };
 
-            html += `<div class="space-y-4 w-full">`;
+            html += `<div class="space-y-3 w-full">`;
 
             Object.keys(multipleDefinitions).forEach(type => {
                 const f = filters[type] || { min: 0, max: 6 };
+                const color = multipleColors[type];
                 const numbersHtml = multipleDefinitions[type].map(n => {
                     const isEx = this.state.basket.excluded.includes(n);
                     const isFi = this.state.basket.fixed.includes(n);
-                    let ballClass = "w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-black text-white shadow-sm border ";
-                    let style = `background-color: ${multipleColors[type]}; border-color: transparent;`;
+                    let ballClass = "flex-shrink-0 flex items-center justify-center rounded-full font-black text-white shadow-sm ";
+                    let style = `width:30px;height:30px;font-size:11px;background-color:${color};border:1px solid transparent;`;
 
                     if (isFi) {
                         ballClass += "ball-fixed";
-                        style = "background-color: #2563eb; border-color: #3b82f6;";
+                        style = "width:30px;height:30px;font-size:11px;background-color:#2563eb;border:2px solid #3b82f6;";
                     } else if (isEx) {
                         ballClass += "ball-excluded";
-                        style = "background-color: #94a3b8; border-color: #64748b;";
+                        style = "width:30px;height:30px;font-size:11px;background-color:#94a3b8;border:1px solid #64748b;";
                     }
 
                     return `<span class="${ballClass}" style="${style}">${String(n).padStart(2, '0')}</span>`;
                 }).join('');
 
-                const gapClass = type === '배수외' ? 'gap-1' : 'gap-1.5';
+                const gapClass = 'gap-1.5';
 
                 html += `
                     <div class="flex items-center justify-between border-b border-slate-100 pb-3 last:border-0 w-full mb-2">
@@ -1297,18 +1456,18 @@ window.FilterDashboard = {
                 const numbersHtml = gungDefinitions[type].map(n => {
                     const isEx = this.state.basket.excluded.includes(n);
                     const isFi = this.state.basket.fixed.includes(n);
-                    let ballClass = "w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-black text-white shadow-sm border ";
-                    let style = `background-color: ${gungColors[type]}; border-color: transparent;`;
+                    let ballClass = "ball flex-shrink-0 flex items-center justify-center rounded-full font-black text-white shadow-sm ";
+                    let inlineStyle = `width:30px !important;height:30px !important;font-size:11px !important;background-color:${gungColors[type]} !important;`;
 
                     if (isFi) {
                         ballClass += "ball-fixed";
-                        style = "background-color: #2563eb; border-color: #3b82f6;";
+                        inlineStyle = "width:30px !important;height:30px !important;font-size:11px !important;background-color:#2563eb !important;border:2px solid #3b82f6 !important;";
                     } else if (isEx) {
                         ballClass += "ball-excluded";
-                        style = "background-color: #94a3b8; border-color: #64748b;";
+                        inlineStyle = "width:30px !important;height:30px !important;font-size:11px !important;background-color:#94a3b8 !important;border:1px solid #64748b !important;";
                     }
 
-                    return `<span class="${ballClass}" style="${style}">${String(n).padStart(2, '0')}</span>`;
+                    return `<span class="${ballClass}" style="${inlineStyle}">${String(n).padStart(2, '0')}</span>`;
                 }).join('');
 
                 html += `
@@ -1358,12 +1517,12 @@ window.FilterDashboard = {
                 const numbersHtml = nums.map(n => {
                     const isEx = this.state.basket.excluded.includes(n);
                     const isFi = this.state.basket.fixed.includes(n);
-                    let ballClass = "w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-black text-white shadow-sm border ";
+                    let ballClass = "ball flex-shrink-0 flex items-center justify-center rounded-full font-black text-white shadow-sm ";
                     const color = paperColors[type] || '#94a3b8';
-                    let style = `background-color: ${color}; border-color: transparent;`;
-                    if (isFi) { ballClass += "ball-fixed"; style = "background-color: #2563eb; border-color: #3b82f6;"; }
-                    else if (isEx) { ballClass += "ball-excluded"; style = "background-color: #94a3b8; border-color: #64748b;"; }
-                    return `<span class="${ballClass}" style="${style}">${String(n).padStart(2, '0')}</span>`;
+                    let inlineStyle = `width:30px !important;height:30px !important;font-size:11px !important;background-color:${color} !important;`;
+                    if (isFi) { ballClass += "ball-fixed"; inlineStyle = "width:30px !important;height:30px !important;font-size:11px !important;background-color:#2563eb !important;border:2px solid #3b82f6 !important;"; }
+                    else if (isEx) { ballClass += "ball-excluded"; inlineStyle = "width:30px !important;height:30px !important;font-size:11px !important;background-color:#94a3b8 !important;border:1px solid #64748b !important;"; }
+                    return `<span class="${ballClass}" style="${inlineStyle}">${String(n).padStart(2, '0')}</span>`;
                 }).join('');
                 return `
                     <div class="flex items-center justify-between p-2.5 bg-slate-50 border border-slate-100 rounded-xl">
@@ -1438,22 +1597,21 @@ window.FilterDashboard = {
                 else coldNums.push(n);
             }
 
-            // 공 렌더 헬퍼
-            // [수정] renderBalls() 기준 색상으로 통일
+            // 공 렌더 헬퍼 (번호대별 색상)
             const ballColor = n => {
-                if (n <= 10) return '#F7C948';
-                if (n <= 20) return '#4a90d9';
-                if (n <= 30) return '#E04A4A';
+                if (n <= 10) return '#F97316';
+                if (n <= 20) return '#38BDF8';
+                if (n <= 30) return '#EF4444';
                 if (n <= 40) return '#6B7280';
-                return '#48B05A';
+                return '#84CC16';
             };
-            const renderBallsList = (nums, borderColor) => nums.map(n => {
+            const renderBallsList = (nums) => nums.map(n => {
                 const isEx = this.state.basket.excluded.includes(n);
                 const isFi = this.state.basket.fixed.includes(n);
-                let ballClass = "w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-black text-white shadow-sm";
-                let style = `background-color:${ballColor(n)}; border:1px solid transparent;`;
-                if (isFi) { ballClass += " ball-fixed"; style = 'background-color:#2563eb; border:1px solid #3b82f6;'; }
-                else if (isEx) { ballClass += " ball-excluded"; style = 'background-color:#94a3b8; border:1px solid #64748b;'; }
+                let ballClass = "ball flex-shrink-0 flex items-center justify-center rounded-full font-black text-white shadow-sm";
+                let style = `width:30px !important;height:30px !important;font-size:11px !important;background-color:${ballColor(n)} !important;`;
+                if (isFi) { ballClass += " ball-fixed"; style = 'width:30px !important;height:30px !important;font-size:11px !important;background-color:#2563eb !important;border:2px solid #3b82f6 !important;'; }
+                else if (isEx) { ballClass += " ball-excluded"; style = 'width:30px !important;height:30px !important;font-size:11px !important;background-color:#94a3b8 !important;border:1px solid #64748b !important;'; }
                 return `<span class="${ballClass}" style="${style}">${String(n).padStart(2, '0')}</span>`;
             }).join('');
 
@@ -1517,21 +1675,21 @@ window.FilterDashboard = {
                 else groupNums[4].push(n);
             }
 
-            // [수정] renderBalls() 기준 색상으로 통일
+            // 번호대별 색상
             const ballColor = n => {
-                if (n <= 10) return '#F7C948';
-                if (n <= 20) return '#4a90d9';
-                if (n <= 30) return '#E04A4A';
+                if (n <= 10) return '#F97316';
+                if (n <= 20) return '#38BDF8';
+                if (n <= 30) return '#EF4444';
                 if (n <= 40) return '#6B7280';
-                return '#48B05A';
+                return '#84CC16';
             };
             const renderMissBalls = nums => nums.map(n => {
                 const isEx = this.state.basket?.excluded?.includes(n);
                 const isFi = this.state.basket?.fixed?.includes(n);
-                let ballClass = "w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-black text-white shadow-sm";
-                let style = `background-color:${ballColor(n)}; border:1px solid transparent;`;
-                if (isFi) { ballClass += " ball-fixed"; style = 'background-color:#2563eb; border:1px solid #3b82f6;'; }
-                else if (isEx) { ballClass += " ball-excluded"; style = 'background-color:#94a3b8; border:1px solid #64748b;'; }
+                let ballClass = "ball flex-shrink-0 flex items-center justify-center rounded-full font-black text-white shadow-sm";
+                let style = `width:30px !important;height:30px !important;font-size:11px !important;background-color:${ballColor(n)} !important;`;
+                if (isFi) { ballClass += " ball-fixed"; style = 'width:30px !important;height:30px !important;font-size:11px !important;background-color:#2563eb !important;border:2px solid #3b82f6 !important;'; }
+                else if (isEx) { ballClass += " ball-excluded"; style = 'width:30px !important;height:30px !important;font-size:11px !important;background-color:#94a3b8 !important;border:1px solid #64748b !important;'; }
                 return `<span class="${ballClass}" style="${style}">${String(n).padStart(2, '0')}</span>`;
             }).join('');
 
@@ -1634,52 +1792,50 @@ window.FilterDashboard = {
                 const tailTargets = [];
                 for (let n = 1; n <= 45; n++) if (n % 10 === i) tailTargets.push(n);
 
-                // 컴팩트한 공 렌더링 (w-6 h-6)
+                // MD 표준 색상 + 30px
+                const getBallColorClass = n => {
+                    if (n <= 10) return 'ball-y';
+                    if (n <= 20) return 'ball-b';
+                    if (n <= 30) return 'ball-r';
+                    if (n <= 40) return 'ball-g';
+                    return 'ball-gr';
+                };
                 const ballHtml = tailTargets.map(n => {
                     const isEx = this.state.basket.excluded.includes(n);
                     const isFi = this.state.basket.fixed.includes(n);
-                    let ballClass = "w-7 h-7 flex-shrink-0 flex items-center justify-center rounded-full text-[11px] font-black text-white shadow-sm border ";
-                    let inlineStyle = "";
-
-                    // [수정] 수동필터와 동일한 HEX 색상 체계로 통일
-                    const style = this.renderBalls && typeof this.getBallStyle === 'function' ? this.getBallStyle(n) : (() => {
-                        if (n <= 10) return { bg: '#F7C948', border: '#eab308' };
-                        if (n <= 20) return { bg: '#4a90d9', border: '#2563eb' };
-                        if (n <= 30) return { bg: '#E04A4A', border: '#dc2626' };
-                        if (n <= 40) return { bg: '#6B7280', border: '#4b5563' };
-                        return { bg: '#48B05A', border: '#16a34a' };
-                    })(n);
+                    let ballClass = "ball flex-shrink-0 flex items-center justify-center rounded-full font-black text-white shadow-sm ";
+                    let inlineStyle = "width:30px !important;height:30px !important;font-size:11px !important;";
 
                     if (isFi) {
                         ballClass += "ball-fixed";
-                        inlineStyle = "background-color: #2563eb; border-color: #3b82f6;";
+                        inlineStyle += "background-color:#2563eb !important;border:2px solid #3b82f6 !important;";
                     } else if (isEx) {
                         ballClass += "ball-excluded";
-                        inlineStyle = "background-color: #94a3b8; border-color: #64748b;";
+                        inlineStyle += "background-color:#94a3b8 !important;border:1px solid #64748b !important;";
                     } else {
-                        inlineStyle = `background-color: ${style.bg}; border-color: ${style.border};`;
+                        ballClass += getBallColorClass(n);
                     }
                     return `<span class="${ballClass}" style="${inlineStyle}">${String(n).padStart(2, '0')}</span>`;
                 }).join('');
 
                 html += `
-                    <div class="flex flex-col p-2 bg-slate-50 border border-slate-100 rounded-xl">
-                        <div class="flex items-center justify-between gap-2 overflow-hidden">
-                            <div class="flex items-center gap-1.5 flex-1 min-w-0">
-                                <span class="w-7 h-7 flex-shrink-0 flex items-center justify-center rounded-full bg-slate-600 text-white text-[9px] font-black">${i}끝</span>
-                                <span class="text-[11px] font-black text-blue-600 flex-shrink-0">(${tailTargets.length}개)</span>
-                                <div class="flex items-center gap-0.5 ml-4 overflow-x-auto no-scrollbar py-1">
+                    <div class="flex flex-col p-3 bg-slate-50 border border-slate-100 rounded-xl">
+                        <div class="flex items-center justify-between gap-3">
+                            <div class="flex items-center gap-2 flex-1 min-w-0">
+                                <span class="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full bg-slate-600 text-white text-[10px] font-black">${i}끝</span>
+                                <span class="text-xs font-black text-blue-600 flex-shrink-0">${tailTargets.length}개</span>
+                                <div class="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
                                     ${ballHtml}
                                 </div>
                             </div>
-                            <div class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-2 py-1 shadow-sm focus-within:ring-2 focus-within:ring-blue-500 shrink-0 ml-auto">
-                                <input type="number" min="0" max="6" value="${f.min}" 
+                            <div class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-1.5 shadow-sm focus-within:ring-2 focus-within:ring-blue-500 shrink-0">
+                                <input type="number" min="0" max="6" value="${f.min}"
                                     onchange="FilterDashboard.updateTailDigitFilter('${def.id}', ${i}, 'min', this.value)"
-                                    class="w-10 text-center text-[12px] font-black text-blue-600 bg-transparent border-none p-0 focus:ring-0">
+                                    class="w-10 text-center text-sm font-black text-blue-600 bg-transparent border-none p-0 focus:ring-0">
                                 <span class="text-slate-300 font-bold text-xs">~</span>
-                                <input type="number" min="0" max="6" value="${f.max}" 
+                                <input type="number" min="0" max="6" value="${f.max}"
                                     onchange="FilterDashboard.updateTailDigitFilter('${def.id}', ${i}, 'max', this.value)"
-                                    class="w-10 text-center text-[12px] font-black text-blue-600 bg-transparent border-none p-0 focus:ring-0">
+                                    class="w-10 text-center text-sm font-black text-blue-600 bg-transparent border-none p-0 focus:ring-0">
                             </div>
                         </div>
                     </div>`;
@@ -1844,7 +2000,7 @@ window.FilterDashboard = {
             const editIconColor = isActive ? 'group-hover:text-indigo-600 text-slate-400' : 'group-hover:text-slate-600 text-slate-300';
 
             // [수정] 끝수부터 미출현 커스텀 필터까지 동일한 크기로 맞추기 위한 로직
-            const complexKeys = ['tail_digit_patterns', 'multiple_3_count', 'number_range_patterns', 'magic_square_pattern', 'lotto_paper_pattern', 'hot_cold_5', 'hot_cold_10', 'hot_cold_15', 'hot_cold_20', 'missing_period', 'missing_custom_filter'];
+            const complexKeys = ['number_range_patterns', 'magic_square_pattern', 'lotto_paper_pattern', 'hot_cold_5', 'hot_cold_10', 'hot_cold_15', 'hot_cold_20', 'missing_period', 'missing_custom_filter'];
             const isComplex = complexKeys.includes(def.filter_key);
             const ctrlContainerClass = isComplex ? 'h-[360px] overflow-y-auto custom-scrollbar pr-2' : '';
 
@@ -1989,30 +2145,137 @@ window.FilterDashboard = {
         let html = '';
         let activeCount = 0;
 
+        // ── GAP / STR / 특이사항 사전 계산 (캐시) ──
+        const draws = this.state.allDraws || [];
+        const drawsLen = draws.length;
+        // allDraws[idx]?.numbers 빠른 접근용 (idx 기반 회귀 주기 계산)
+        const _nums = (idx) => (idx >= 0 && idx < drawsLen) ? draws[idx].numbers : null;
+
+        // 캐시 무효화: allDraws 길이가 바뀌었을 때만 재계산
+        if (!this._regStatCache || this._regStatCache.len !== drawsLen) {
+            const cache = {};
+            for (let s = 2; s <= 200; s++) {
+                // ── GAP: 최근 주기부터 연속 미출 카운트 ──
+                let gap = 0;
+                for (let k = 0; k < 30; k++) {
+                    const cA = _nums(s - 1 + k * s); // (base - s) → (base - 2s) → ...
+                    const cB = _nums(2 * s - 1 + k * s);
+                    if (!cA || !cB) break;
+                    if (cB.some(n => cA.includes(n))) break; // 출현 → gap 끝
+                    gap++;
+                }
+
+                // ── STR: 최근 주기부터 연속 출현 카운트 ──
+                let str = 0;
+                for (let k = 0; k < 30; k++) {
+                    const cA = _nums(s - 1 + k * s);
+                    const cB = _nums(2 * s - 1 + k * s);
+                    if (!cA || !cB) break;
+                    if (cB.some(n => cA.includes(n))) str++;
+                    else break;
+                }
+
+                // ── 특이사항: 대상번호 중 3회 이상 연속 출현 번호 ──
+                const targetNums = _nums(s - 1) || [];
+                const notable = [];
+                for (const n of targetNums) {
+                    const d2 = _nums(2 * s - 1);
+                    if (!d2 || !d2.includes(n)) continue;
+                    let consec = 2;
+                    const d3 = _nums(3 * s - 1);
+                    if (d3 && d3.includes(n)) {
+                        consec = 3;
+                        const d4 = _nums(4 * s - 1);
+                        if (d4 && d4.includes(n)) {
+                            consec = 4;
+                            const d5 = _nums(5 * s - 1);
+                            if (d5 && d5.includes(n)) consec = 5;
+                        }
+                    }
+                    if (consec >= 3) notable.push({ num: n, count: consec });
+                }
+
+                cache[s] = { gap, str, notable };
+            }
+            this._regStatCache = { len: drawsLen, data: cache };
+        }
+        const regStats = this._regStatCache.data;
+
         for (let i = 2; i <= 200; i++) {
             const masterOn = this.state.regressionEnabled !== false;
-            // [수정] 기본 범위를 0~3으로 상향 조정
             const rData = this.state.regressionSettings[i] || { enabled: false, min: 0, max: 3 };
             const isActuallyEnabled = masterOn && rData.enabled;
             if (isActuallyEnabled) activeCount++;
 
-            const targetNums = this.state.allDraws[i - 1] ? this.state.allDraws[i - 1].numbers : [];
+            const targetNums = draws[i - 1] ? draws[i - 1].numbers : [];
+            const st = regStats[i] || { gap: 0, str: 0, notable: [] };
+
+            // ── GAP/STR 합칙 열 (GAP 우선, 없으면 STR) ──
+            let gapStrHtml = '';
+            if (st.gap > 0) {
+                const gCls = st.gap >= 4
+                    ? 'text-rose-600 bg-rose-50 ring-1 ring-rose-200'
+                    : 'text-amber-600 bg-amber-50 ring-1 ring-amber-200';
+                gapStrHtml = `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black ${gCls}">GAP ${st.gap}미출</span>`;
+            } else if (st.str > 0) {
+                const sCls = st.str >= 5
+                    ? 'text-emerald-700 bg-emerald-100 ring-1 ring-emerald-300'
+                    : 'text-emerald-600 bg-emerald-50 ring-1 ring-emerald-200';
+                gapStrHtml = `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black ${sCls}">STR ${st.str}연속</span>`;
+            }
+
+            // ── 특이사항 열 ──
+            let notableHtml = '';
+            if (st.notable.length > 0) {
+                const parts = st.notable
+                    .sort((a, b) => b.count - a.count)
+                    .map(x => `<b>${x.num}번</b> ${x.count}회`)
+                    .join(' · ');
+                notableHtml = `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black text-violet-600 bg-violet-50 ring-1 ring-violet-200"><span class="opacity-70">특이</span> ${parts}</span>`;
+            }
 
             html += `
-            <div id="regression-row-${i}" class="px-6 py-4 grid grid-cols-1 md:grid-cols-3 items-center gap-4 hover:bg-slate-50 border-b border-slate-100 ${isActuallyEnabled ? 'bg-emerald-50/30' : 'opacity-60 grayscale'}">
-                <div class="flex items-center gap-6 justify-start">
-                    <label class="relative inline-flex items-center cursor-pointer scale-110">
+            <div id="regression-row-${i}" class="hover:bg-slate-50 ${isActuallyEnabled ? 'bg-emerald-50/30' : 'opacity-60 grayscale'}"
+                 style="display:grid; grid-template-columns:120px 280px 120px 160px 1fr auto; align-items:center; column-gap:24px; padding:10px 16px; border-bottom:1px solid #f1f5f9;">
+                <!-- ① 토글 + N회귀 -->
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <label style="position:relative; display:inline-flex; align-items:center; cursor:pointer;">
                         <input type="checkbox" class="sr-only peer" ${isActuallyEnabled ? 'checked' : ''} onchange="FilterDashboard.toggleRegression(${i})">
                         <div class="w-10 h-5 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 transition-all peer-checked:bg-emerald-500"></div>
                     </label>
-                    <a href="regression.html?step=${i}" class="text-sm font-black text-slate-800 whitespace-nowrap hover:text-emerald-600">${i}회귀</a>
+                    <a href="regression.html?step=${i}" class="text-sm font-black text-slate-800 hover:text-emerald-600" style="white-space:nowrap;">${i}회귀</a>
                 </div>
-                <!-- 번호 중앙 정렬 처리 -->
-                <div class="flex items-center justify-center gap-1">
-                    ${this.renderBalls(targetNums)}
+                <!-- ② 대상번호 (280px 고정, 한 줄) -->
+                <div style="display:flex; align-items:center; gap:2px; flex-wrap:nowrap;">
+                    ${this.renderBalls(targetNums, [], [], 30)}
                 </div>
-                <div class="flex items-center justify-end gap-3">
-                    <span id="indep-count-regression_${i}" class="hidden text-[10px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full whitespace-nowrap"></span>
+                <!-- ③ GAP/STR (120px 고정) -->
+                <div style="display:flex; justify-content:center;">${gapStrHtml}</div>
+                <!-- ④ 특이사항 (160px 고정) -->
+                <div style="display:flex; flex-wrap:wrap; gap:4px;">${notableHtml}</div>
+                <!-- ⑤ AI 배지 (1fr 빈 공간) -->
+                <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
+                    ${(() => {
+                        const ar = this.state.aiRanges;
+                        if (!ar) return '';
+                        const badges = [];
+                        const odd = [ar.odd_count_min, ar.odd_count_max];
+                        if (odd[0] != null && odd[1] != null)
+                            badges.push(`<span class="text-[10px] font-black bg-indigo-50 text-indigo-500 px-1.5 py-0.5 rounded-full ring-1 ring-indigo-200" style="white-space:nowrap;" title="AI 추천 홀수 범위">홀 ${odd[0]}~${odd[1]}</span>`);
+                        const sum = [ar.sum_min, ar.sum_max];
+                        if (sum[0] != null && sum[1] != null)
+                            badges.push(`<span class="text-[10px] font-black bg-blue-50 text-blue-500 px-1.5 py-0.5 rounded-full ring-1 ring-blue-200" style="white-space:nowrap;" title="AI 추천 합계 범위">합 ${sum[0]}~${sum[1]}</span>`);
+                        const ac = [ar.ac_value_min, ar.ac_value_max];
+                        if (ac[0] != null && ac[1] != null)
+                            badges.push(`<span class="text-[10px] font-black bg-violet-50 text-violet-500 px-1.5 py-0.5 rounded-full ring-1 ring-violet-200" style="white-space:nowrap;" title="AI 추천 AC값 범위">AC ${ac[0]}~${ac[1]}</span>`);
+                        if (ar._round)
+                            badges.push(`<span class="text-[10px] text-slate-400" style="white-space:nowrap;">${ar._round}회 기준</span>`);
+                        return badges.join('');
+                    })()}
+                </div>
+                <!-- ⑥ 조합카운팅 + min~max (우측 고정) -->
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <span id="indep-count-regression_${i}" class="hidden text-[10px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full" style="white-space:nowrap;"></span>
                     <div class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-1.5 shadow-sm focus-within:ring-2 focus-within:ring-emerald-500">
                         <input type="number" id="reg-${i}-min" min="0" max="6" value="${Math.max(0, Math.min(6, rData.min))}"
                             oninput="FilterDashboard.updateRegressionRange(${i}, 'min', this.value)"
@@ -2071,14 +2334,16 @@ window.FilterDashboard = {
                     console.warn(`[Dashboard] Target calculation failed for: ${custom.title}`, e);
                 }
 
-                if (config.enabled) activeCount++;
+                // 번호가 있어야 실제 "적용" 상태로 인정 (빈 필터는 enabled여도 미적용 처리)
+                const isEffectivelyActive = config.enabled && targetNums.length > 0;
+                if (isEffectivelyActive) activeCount++;
 
                 let targetHtml = targetNums.length > 0
                     ? `<div class="mb-2 flex justify-between items-center"><span class="text-xs font-bold text-slate-500">대상번호</span><span class="text-[11px] font-black text-pink-600">${targetNums.length}개</span></div><div class="flex flex-wrap gap-1">${this.renderBalls(targetNums)}</div>`
                     : `<div class="text-[11px] font-bold text-slate-400 flex items-center justify-center py-2 bg-slate-100 rounded">타겟 생성 중/없음</div>`;
 
                 html += `
-                <div id="filter-card-${custom.id}" class="bg-white rounded-2xl border ${config.enabled ? 'border-pink-500 shadow-md ring-1 ring-pink-100' : 'border-slate-200 opacity-70'} p-5 transition-all">
+                <div id="filter-card-${custom.id}" class="bg-white rounded-2xl border ${isEffectivelyActive ? 'border-pink-500 shadow-md ring-1 ring-pink-100' : 'border-slate-200 opacity-70'} p-5 transition-all">
                     <div class="flex items-center justify-between mb-3">
                         <div class="flex items-center gap-2">
                             <span class="px-2 py-0.5 rounded text-[10px] font-black bg-slate-100 text-slate-500 uppercase">${custom.type || '분석'}</span>
@@ -2276,21 +2541,34 @@ window.FilterDashboard = {
     },
 
     async updateMultipleFilter(id, typeName, boundType, value) {
-        const userSet = this.state.userSettings[id];
-        if (!userSet) return;
-        if (!userSet.settings.filters) userSet.settings.filters = {};
-        if (!userSet.settings.filters[typeName]) userSet.settings.filters[typeName] = { min: 0, max: 6 };
+        // 모든 배수 타입은 각자의 filter_key에 flat {min,max} 형식으로 저장 (multiple.html 호환)
+        const MULTIPLE_TYPE_KEYS = {
+            '3배수': 'multiple_3_count', '4배수': 'multiple_4_count', '5배수': 'multiple_5_count',
+            '7배수': 'multiple_7_count', '8배수': 'multiple_8_count',
+            '3·4배수': 'multiple_3_4_count', '3·5배수': 'multiple_3_5_count',
+            '4·5배수': 'multiple_4_5_count', '배수외': 'no_multiple_count'
+        };
+        const MULTIPLE_MAX = { '8배수': 5, '3·4배수': 3, '3·5배수': 3, '4·5배수': 2 };
+        const maxVal = MULTIPLE_MAX[typeName] ?? 6;
 
-        // [수정] 0~6 범위 제한
-        userSet.settings.filters[typeName][boundType] = Math.max(0, Math.min(6, parseInt(value) || 0));
-        userSet.settings.recent10FilterActive = false;
+        const targetKey = MULTIPLE_TYPE_KEYS[typeName];
+        if (!targetKey) return;
+        const targetDef = this.state.foundationFilters.find(f => f.filter_key === targetKey);
+        if (!targetDef) return;
 
-        const def = this.state.foundationFilters.find(f => f.id === id);
-        if (def) {
-            // [Fix] filterService?.initialized 가드 제거 → 항상 Utils.saveFilter 호출
-            // Utils.saveFilter는 localStorage 저장 + StorageEvent 브로드캐스트 포함
-            await this._saveDashboardFilter(def.filter_key, userSet.settings, userSet.enabled);
+        if (!this.state.userSettings[targetDef.id]) {
+            this.state.userSettings[targetDef.id] = { enabled: false, settings: {} };
         }
+        const targetUserSet = this.state.userSettings[targetDef.id];
+        // flat 형식 저장
+        targetUserSet.settings[boundType] = Math.max(0, Math.min(maxVal, parseInt(value) || 0));
+        const newMin = targetUserSet.settings.min ?? 0;
+        const newMax = targetUserSet.settings.max ?? maxVal;
+        targetUserSet.settings.selectedValues = Array.from({ length: Math.max(0, newMax - newMin + 1) }, (_, i) => newMin + i);
+        targetUserSet.settings.recent10FilterActive = false;
+
+        // ON/OFF 공유: 배수 카드 전체 enabled는 multiple_3_count 기준, 개별 key는 항상 enabled=true
+        await this._saveDashboardFilter(targetKey, targetUserSet.settings, true);
         this.renderFoundationFilters();
         this.updateNeonCounter();
     },
@@ -2433,6 +2711,9 @@ window.FilterDashboard = {
 
         const def = this.state.foundationFilters.find(f => f.id === id);
         if (def) {
+            // [수정] 최근 10회차를 켤 때만 필터를 자동으로 켜줌 (해제할 때는 기존 상태 유지)
+            if (isActivating) userSet.enabled = true;
+
             if (window.Utils && window.Utils.saveFilter) {
                 await window.Utils.saveFilter(def.filter_key, userSet.settings, userSet.enabled);
             } else if (window.filterService?.initialized) {
@@ -2474,12 +2755,16 @@ window.FilterDashboard = {
         }
 
         // [성능] 해당 카드만 즉시 업데이트
-        this._renderOneCardCtrl(defId);
+        this._renderOneCard(defId); // [수정] _renderOneCardCtrl 대신 _renderOneCard를 호출하여 헤더 토글 상태까지 갱신
         this.updateNeonCounter();
 
         if (window.Utils && window.Utils.saveFilter) {
+            // [수정] 최근 10회차를 켤 때만 필터를 자동으로 켜줌 (해제할 때는 기존 상태 유지)
+            if (isActivating) userSet.enabled = true;
+
             await window.Utils.saveFilter(key, userSet.settings, userSet.enabled, this.state.targetRound);
         } else if (window.filterService?.initialized) {
+            if (isActivating) userSet.enabled = true;
             await window.filterService.saveSetting(key, userSet.settings, userSet.enabled, this.state.targetRound);
         }
     },
@@ -2532,16 +2817,33 @@ window.FilterDashboard = {
 
         // ── 배수 ────────────────────────────────────────────────────────────────
         if (key === 'multiple_3_count') {
-            const multiDefs = {
-                '3배수': [3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45],
-                '4배수': [4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44],
-                '5배수': [5, 10, 15, 20, 25, 30, 35, 40, 45]
+            // 각 배수 타입을 개별 filter_key에 flat {min,max} 형식으로 저장 (multiple.html 호환)
+            const MULTI_DEFS = {
+                '3배수': { nums: [3,6,9,12,15,18,21,24,27,30,33,36,39,42,45], key: 'multiple_3_count' },
+                '4배수': { nums: [4,8,12,16,20,24,28,32,36,40,44],            key: 'multiple_4_count' },
+                '5배수': { nums: [5,10,15,20,25,30,35,40,45],                 key: 'multiple_5_count' },
+                '7배수': { nums: [7,14,21,28,35,42],                          key: 'multiple_7_count' },
+                '8배수': { nums: [8,16,24,32,40],                             key: 'multiple_8_count' },
             };
             if (!vals.filters) vals.filters = {};
-            Object.entries(multiDefs).forEach(([typeName, mNums]) => {
-                const mSet = new Set(mNums);
+            Object.entries(MULTI_DEFS).forEach(([typeName, { nums, key: typeKey }]) => {
+                const mSet = new Set(nums);
                 const counts = recent10.map(d => (d.numbers || []).filter(n => mSet.has(n)).length);
-                vals.filters[typeName] = { min: Math.min(...counts), max: Math.max(...counts) };
+                const minC = Math.min(...counts), maxC = Math.max(...counts);
+                // vals.filters에도 기록 (번들 폴백용)
+                vals.filters[typeName] = { min: minC, max: maxC };
+                // 각 개별 key의 userSettings를 flat 형식으로 업데이트
+                const typeDef = this.state.foundationFilters.find(f => f.filter_key === typeKey);
+                if (!typeDef) return;
+                if (!this.state.userSettings[typeDef.id]) this.state.userSettings[typeDef.id] = { enabled: false, settings: {} };
+                const typeUserSet = this.state.userSettings[typeDef.id];
+                typeUserSet.settings.min = minC;
+                typeUserSet.settings.max = maxC;
+                typeUserSet.settings.selectedValues = Array.from({ length: maxC - minC + 1 }, (_, i) => minC + i);
+                // multiple_3_count는 caller(toggleRecent10Filter)가 저장, 나머지는 fire-and-forget
+                if (typeKey !== 'multiple_3_count') {
+                    this._saveDashboardFilter(typeKey, typeUserSet.settings, true);
+                }
             });
             return;
         }
@@ -2597,13 +2899,24 @@ window.FilterDashboard = {
         // ── 핫/콜드 ─────────────────────────────────────────────────────────────
         if (key.startsWith('hot_cold_')) {
             const period = parseInt(key.split('_')[2]);
+            const CRITERIA = {
+                5:  { hot: 2, neutralMin: 1 },
+                10: { hot: 3, neutralMin: 1 },
+                15: { hot: 4, neutralMin: 2 },
+                20: { hot: 5, neutralMin: 2 }
+            };
+            const crit = CRITERIA[period] || CRITERIA[10];
             const refDraws = this.state.allDraws.slice(0, period);
-            const numFreq = {};
-            refDraws.forEach(d => (d.numbers || []).forEach(n => { numFreq[n] = (numFreq[n] || 0) + 1; }));
-            const sortedFreq = Object.entries(numFreq).sort(([, a], [, b]) => b - a);
-            const hotCount = Math.max(1, Math.round(sortedFreq.length * 0.4));
-            const hotSet = new Set(sortedFreq.slice(0, hotCount).map(([n]) => parseInt(n)));
-            const hotCounts = recent10.map(d => (d.numbers || []).filter(n => hotSet.has(n)).length);
+            const countMap = {};
+            for (let n = 1; n <= 45; n++) countMap[n] = 0;
+            refDraws.forEach(d => (d.numbers || []).forEach(n => { if (n >= 1 && n <= 45) countMap[n]++; }));
+            const hotSet  = new Set(Object.keys(countMap).map(Number).filter(n => countMap[n] >= crit.hot));
+            const warmSet = new Set(Object.keys(countMap).map(Number).filter(n => countMap[n] >= crit.neutralMin && countMap[n] < crit.hot));
+            const coldSet = new Set(Object.keys(countMap).map(Number).filter(n => countMap[n] < crit.neutralMin));
+            const hotCounts  = recent10.map(d => (d.numbers || []).filter(n => hotSet.has(n)).length);
+            const warmCounts = recent10.map(d => (d.numbers || []).filter(n => warmSet.has(n)).length);
+            const coldCounts = recent10.map(d => (d.numbers || []).filter(n => coldSet.has(n)).length);
+            // hotRange 기준으로 min/max 설정
             vals.min = Math.min(...hotCounts);
             vals.max = Math.max(...hotCounts);
             return;
@@ -2687,10 +3000,11 @@ window.FilterDashboard = {
             if (window.supabaseClient) {
                 await window.supabaseClient.from('ai_custom_analyses').update({ filter_config: conf, updated_at: new Date().toISOString() }).eq('id', id);
             }
-            // [수정] 실시간 동기화를 위한 Utils.saveFilter 사용 (enabled 명시 전달)
-            if (window.Utils && window.Utils.saveFilter) {
-                await window.Utils.saveFilter(`custom_filter_${id}`, conf, conf.enabled);
-            }
+            // [수정] FilterService의 구조상 custom_filter_*는 정의되지 않은 필터이므로 Utils.saveFilter 호출 시 콘솔 에러 발생.
+            // 다른 탭과의 동기화를 위해 localStorage와 이벤트만 별도로 발생시킴.
+            localStorage.setItem(`custom_filter_${id}`, JSON.stringify({ settings: conf, enabled: conf.enabled, target_round: this.state.targetRound }));
+            window.dispatchEvent(new Event('storage'));
+
             this.renderCustomFilters();
             this.updateNeonCounter();
         }
@@ -2716,16 +3030,15 @@ window.FilterDashboard = {
             await window.supabaseClient.from('ai_custom_analyses').update({ filter_config: conf }).eq('id', id);
         }
 
-        // localStorage 저장 (실시간 동기화용, enabled 명시 전달)
-        // [Fix] _dashSelfSaving=true로 자체 StorageEvent 재진입 방지 후 renderCustomFilters 직접 호출
-        // → storage 핸들러 경유 시 conf.enabled가 undefined인 경우 토글이 꺼지는 버그 방지
-        if (window.Utils && window.Utils.saveFilter) {
-            this._dashSelfSaving = true;
-            try {
-                await window.Utils.saveFilter(`custom_filter_${id}`, conf, conf.enabled);
-            } finally {
-                this._dashSelfSaving = false;
-            }
+        // localStorage 저장 (실시간 동기화용)
+        // [수정] custom_filter_*는 자체 DB 테이블(ai_custom_analyses)을 사용하므로 
+        // FilterService 쪽 에러(정의 없음)를 피하기 위해 스토리지 이벤트만 수동 발생
+        this._dashSelfSaving = true;
+        try {
+            localStorage.setItem(`custom_filter_${id}`, JSON.stringify({ settings: conf, enabled: conf.enabled, target_round: this.state.targetRound }));
+            window.dispatchEvent(new Event('storage'));
+        } finally {
+            this._dashSelfSaving = false;
         }
 
         this.renderCustomFilters();
@@ -2999,6 +3312,62 @@ window.FilterDashboard = {
                 await this._saveDashboardFilter(def.filter_key, userSet.settings, userSet.enabled !== false);
             }
         }, 500);
+    },
+
+    // [New] 🔥 전체 필터 설정 초기화 (DB + LocalStorage)
+    async resetDashboard() {
+        if (!confirm('모든 필터 설정을 초기화하시겠습니까?\n(분석 페이지의 설정도 모두 삭제됩니다)')) return;
+
+        const btn = document.getElementById('btnGlobalReset');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<span class="animate-spin material-symbols-outlined">sync</span>';
+        }
+
+        try {
+            // 1. Supabase DB 초기화 (현재 프리셋 내의 모든 설정 삭제)
+            if (window.filterService?.initialized) {
+                const { error } = await window.supabaseClient
+                    .from('filter_settings')
+                    .delete()
+                    .eq('preset_id', window.filterService.currentPresetId);
+
+                if (error) throw error;
+            }
+
+            // 2. LocalStorage 관련 모든 키 삭제
+            const keysToRemove = [
+                'total_sum', 'last_digit_sum', 'ac_value', 'odd_even_pattern', 'high_low_pattern',
+                'prime_number_patterns', 'composite_count', 'square_number_patterns',
+                'triangular_number_patterns', 'twin_number_patterns', 'neighbor_number_patterns',
+                'carryover_count', 'consecutive_count', 'multiple_3_count',
+                'multiple_7_count', 'multiple_8_count', 'number_range_patterns',
+                'magic_square_pattern', 'lotto_paper_pattern', 'hot_cold_5', 'hot_cold_10',
+                'hot_cold_15', 'hot_cold_20', 'missing_period', 'missing_custom_filter',
+                'regression_analysis', 'lotto_basket', 'tail_digit_patterns'
+            ];
+            keysToRemove.forEach(k => {
+                localStorage.removeItem(k);
+                localStorage.removeItem(k + '_filter');
+            });
+
+            // 3. 상태 초기화
+            this.state.userSettings = {};
+            this.state.regressionSettings = {};
+            this.state.regressionEnabled = false;
+            this.state.basket = { fixed: [], excluded: [] };
+
+            // 4. 리로드
+            alert('초기화가 완료되었습니다.');
+            window.location.reload();
+        } catch (e) {
+            console.error('[Dashboard] Reset Error:', e);
+            alert('초기화 중 오류가 발생했습니다: ' + e.message);
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<span class="material-symbols-outlined">history</span>';
+            }
+        }
     }
 };
-

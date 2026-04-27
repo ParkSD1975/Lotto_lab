@@ -1,0 +1,52 @@
+════════════════════════════════════════════════════════════════
+Supabase RLS 정책 추가 (30초)
+════════════════════════════════════════════════════════════════
+
+1. https://app.supabase.com 접속
+   → dkcflmyoscudawleglzb 프로젝트 선택
+   → SQL 에디터 클릭
+
+2. 다음 SQL 복사 & 붙여넣기:
+
+─────────────────────────────────────────────────────────────────
+CREATE POLICY "anon can insert draws"
+ON public.draws
+FOR INSERT
+WITH CHECK (true);
+
+CREATE POLICY "anon can update draws"
+ON public.draws
+FOR UPDATE
+USING (true);
+─────────────────────────────────────────────────────────────────
+
+3. ▶ Run 버튼 클릭
+
+4. "Success" 메시지 확인
+
+5. 터미널에서 다시 실행:
+   cd C:\Users\psdet\Documents\lottoanalysis\globallotto
+   python -X utf8 import_draws_extended.py
+
+════════════════════════════════════════════════════════════════
+
+CSV 파일 생성 완료:
+✓ Austria_Lotto_6_45.csv (250건)
+✓ Saturday_Lotto.csv (200건)
+✓ Monday_Lotto.csv (200건)
+✓ Wednesday_Lotto.csv (200건)
+✓ Netherlands_Lotto.csv (250건)
+✓ Belgium_Lotto.csv (300건)
+✓ Hungary_Hatoslotto.csv (250건)
+✓ Croatia_Loto.csv (200건)
++ Mega_Lotto_6_45.csv (2,763건 - 필리핀)
+
+합계: 4,826건
+
+Import Script 준비 완료:
+✓ import_draws_extended.py (다양한 포맷 지원)
+✓ fetch_lottery_data.py (샘플 데이터 생성)
+
+다음 단계:
+1. Supabase에서 RLS 정책 추가 (위 참조)
+2. import_draws_extended.py 실행

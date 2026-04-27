@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html class="light" lang="ko">
 
 <head>
@@ -21,6 +21,8 @@
     <script src="js/common_v2.js?v=6"></script>
     <script src="js/layout.js"></script>
     <script src="js/filter/FilterService.js?v=2"></script>
+    <script src="js/filter/FilterLifecycle.js"></script>
+    <script src="js/filter/FilterRuleEngine.js"></script>
 
     <style>
         .material-symbols-outlined {
@@ -56,10 +58,81 @@
             }
         }
 
+        /* 🔵 로또 공 표준 스타일 (Total Sum 표준 준수) */
+        .ball {
+            display: inline-flex !important;
+            width: 46px !important;
+            /* [수정] 42px -> 46px */
+            height: 46px !important;
+            align-items: center !important;
+            justify-content: center !important;
+            border-radius: 50% !important;
+            color: white !important;
+            font-weight: 900 !important;
+            /* [수정] 700 -> 900 */
+            font-size: 19px !important;
+            /* [수정] 17px -> 19px */
+            box-shadow: inset 0 -3px 6px rgba(0, 0, 0, 0.2) !important;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2) !important;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+            margin: 4px !important;
+            /* [수정] 간격 증가 */
+            background-color: transparent;
+            /* 클래스 그라데이션이 우선하도록 설정 */
+            border: none !important;
+        }
+
+        .ball-y {
+            background: linear-gradient(135deg, #f59e0b, #d97706) !important;
+        }
+
+        .ball-b {
+            background: linear-gradient(135deg, #3b82f6, #2563eb) !important;
+        }
+
+        .ball-r {
+            background: linear-gradient(135deg, #ef4444, #dc2626) !important;
+        }
+
+        .ball-g {
+            background: linear-gradient(135deg, #6b7280, #4b5563) !important;
+        }
+
+        .ball-gr {
+            background: linear-gradient(135deg, #10b981, #059669) !important;
+        }
+
+        /* 필터 내부의 작은 볼들을 위한 오버라이드 삭제 (수동필터를 위해 제거) */
+        /* .tab-content .ball {
+            width: 28px !important;
+            height: 28px !important;
+            font-size: 11px !important;
+        } */
+
+        .ball-y {
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+        }
+
+        .ball-b {
+            background: linear-gradient(135deg, #3b82f6, #2563eb);
+        }
+
+        .ball-r {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+        }
+
+        .ball-g {
+            background: linear-gradient(135deg, #6b7280, #4b5563);
+        }
+
+        .ball-gr {
+            background: linear-gradient(135deg, #10b981, #059669);
+        }
+
         /* 🔵 고정수: 글로우 효과 (Neon Blue Glow) */
         .ball-fixed {
             box-shadow: 0 0 12px rgba(59, 130, 246, 0.8), inset 0 0 5px rgba(255, 255, 255, 0.5);
-            border: 2px solid #3b82f6 !important;
+            border: 2px solid white !important;
             animation: pulse-blue 2s infinite;
         }
 
@@ -77,14 +150,32 @@
             }
         }
 
-        /* ❌ 제외수: 빨간색 대각선 (Red Slash Overlay) */
+        /* ❌ 제외수: 보이지 않던 미선택 숫자를 명확하게 (회색 배경 + 흰색 글씨 요청 반영) */
         .ball-excluded {
             position: relative;
-            filter: grayscale(0.2);
-            opacity: 0.9;
-            /* 텍스트(숫자) 뒤에 사선이 그려지도록 배경 이미지 사용 */
-            background-image: linear-gradient(to bottom right, transparent calc(50% - 2px), #ef4444 calc(50% - 1.5px), #ef4444 calc(50% + 1.5px), transparent calc(50% + 2px)) !important;
-            border: 1px solid #ef4444 !important;
+            filter: none;
+            /* [수정] 흐릿한 필터 제거 */
+            opacity: 1.0;
+            background: #94a3b8 !important;
+            /* [수정] 요청: 회색 바탕 */
+            color: rgba(255, 255, 255, 0.9) !important;
+            /* [수정] 요청: 흰색 글씨 */
+            border: 1px solid #64748b !important;
+            text-decoration: line-through;
+            text-decoration-thickness: 1.5px;
+            box-shadow: inset 0 -2px 4px rgba(0, 0, 0, 0.1) !important;
+        }
+
+        .ball-excluded::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 130%;
+            height: 1.5px;
+            background-color: #ef4444;
+            transform: translate(-50%, -50%) rotate(-45deg);
+            opacity: 0.6;
         }
 
         /* 💡 Responsive Pill Tabs */
@@ -213,6 +304,13 @@
                     </div>
 
                     <div class="flex items-center gap-2">
+                        <!-- Global Reset Button -->
+                        <button id="btnGlobalReset" onclick="FilterDashboard.resetDashboard()"
+                            class="w-10 h-10 flex items-center justify-center rounded-xl text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all active:scale-95"
+                            title="전체 초기화">
+                            <span class="material-symbols-outlined" style="font-size:22px;">history</span>
+                        </button>
+
                         <!-- Refresh Button -->
                         <button onclick="window.location.reload()"
                             class="w-10 h-10 flex items-center justify-center rounded-xl text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition-all active:scale-95"
@@ -319,9 +417,8 @@
                             OFF</button>
                     </div>
                 </div>
-                <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                    <!-- Removed separate internal scrollbar as it's now in a tab -->
-                    <div id="regressionFilterGrid" class="divide-y divide-slate-100">
+                <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-x-auto">
+                    <div id="regressionFilterGrid" class="divide-y divide-slate-100" style="min-width:760px">
                     </div>
                 </div>
             </div>
@@ -367,7 +464,8 @@
 
                         <div class="flex items-center gap-2 shrink-0">
                             <!-- [표준화] 커스텀 분석 설정창 스타일로 통합 (핑크 테마 펠릿 디자인) -->
-                            <div class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 h-11 shadow-sm focus-within:ring-2 focus-within:ring-blue-500">
+                            <div
+                                class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 h-11 shadow-sm focus-within:ring-2 focus-within:ring-blue-500">
                                 <input id="mf-min" type="number" min="0" max="6" value="1"
                                     class="w-12 text-center font-black text-blue-600 bg-transparent border-none p-0 focus:ring-0 text-base" />
                                 <span class="text-slate-300 font-bold">~</span>
@@ -404,12 +502,25 @@
                         class="flex flex-wrap gap-1.5 min-h-[44px] p-3 bg-slate-50 rounded-xl border border-slate-100 items-center">
                         <span class="text-xs text-slate-400">선택된 번호가 여기 표시됩니다</span>
                     </div>
+
+                    <!-- 보존 옵션 -->
+                    <label class="flex items-center gap-3 mt-4 cursor-pointer group select-none w-fit">
+                        <div class="relative">
+                            <input type="checkbox" id="mf-preserve" class="sr-only peer" />
+                            <div class="w-10 h-5 bg-slate-200 peer-checked:bg-emerald-500 rounded-full transition-colors duration-200"></div>
+                            <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform duration-200 peer-checked:translate-x-5"></div>
+                        </div>
+                        <div>
+                            <span class="text-sm font-bold text-slate-700 group-hover:text-slate-900 transition-colors">보존 필터</span>
+                            <span class="ml-2 text-[11px] text-slate-400">회차 업데이트 후에도 유지</span>
+                        </div>
+                    </label>
                 </div>
 
                 <!-- [B] 저장된 필터 목록 -->
                 <div class="flex items-center justify-between mb-3">
                     <h3 class="text-sm font-black text-slate-700 uppercase tracking-wide">저장된 수동필터</h3>
-                    <button onclick="ManualFilter.loadFilters()"
+                    <button onclick="localStorage.removeItem('manual_filters_state');ManualFilter.loadFilters(true);"
                         class="text-xs text-slate-400 hover:text-blue-600 flex items-center gap-1 transition-colors">
                         <span class="material-symbols-outlined text-[14px]">refresh</span>새로고침
                     </button>
@@ -438,12 +549,13 @@
             let _dragMode = null; // 'add' | 'remove'
 
             // 볼 색상
-            function _ballColor(n) {
-                if (n <= 10) return '#F7C948';
-                if (n <= 20) return '#4a90d9';
-                if (n <= 30) return '#E04A4A';
-                if (n <= 40) return '#6B7280';
-                return '#48B05A';
+            // 표준 볼 색상 클래스 반환
+            function getBallColor(n) {
+                if (n <= 10) return 'ball-y';
+                if (n <= 20) return 'ball-b';
+                if (n <= 30) return 'ball-r';
+                if (n <= 40) return 'ball-g';
+                return 'ball-gr';
             }
 
             // 현재 회차 (최신 당첨 + 1)
@@ -455,6 +567,15 @@
                 return data ? data.round + 1 : 0;
             }
 
+            // 번호대별 그라데이션 반환
+            function getBallGradient(n) {
+                if (n <= 10) return 'linear-gradient(135deg,#f59e0b,#d97706)';
+                if (n <= 20) return 'linear-gradient(135deg,#3b82f6,#2563eb)';
+                if (n <= 30) return 'linear-gradient(135deg,#ef4444,#dc2626)';
+                if (n <= 40) return 'linear-gradient(135deg,#6b7280,#4b5563)';
+                return 'linear-gradient(135deg,#10b981,#059669)';
+            }
+
             // 번호 선택판 렌더
             function _renderGrid() {
                 const grid = document.getElementById('mf-number-grid');
@@ -464,16 +585,13 @@
                     const sel = _selectedNums.has(n);
                     const btn = document.createElement('div');
                     btn.dataset.num = n;
-                    btn.className = 'mf-ball flex items-center justify-center rounded-full text-xs font-black cursor-pointer transition-all select-none';
-                    btn.style.cssText = `
-                        width:34px; height:34px; font-size:11px;
-                        background:${sel ? _ballColor(n) : '#f1f5f9'};
-                        color:${sel ? '#fff' : '#64748b'};
-                        border:2px solid ${sel ? _ballColor(n) : '#e2e8f0'};
-                        box-shadow:${sel ? `0 2px 8px ${_ballColor(n)}66` : 'none'};
-                        transform:${sel ? 'scale(1.1)' : 'scale(1)'};
-                    `;
-                    btn.textContent = n;
+                    btn.className = 'cursor-pointer select-none flex items-center justify-center rounded-full font-bold transition-all';
+                    if (sel) {
+                        btn.style.cssText = `width:32px; height:32px; font-size:12px; background:${getBallGradient(n)}; color:white; border:none; box-shadow:inset 0 -2px 3px rgba(0,0,0,0.2);`;
+                    } else {
+                        btn.style.cssText = 'width:32px; height:32px; font-size:12px; background:#f8fafc; border:1.5px solid #cbd5e1; color:#94a3b8;';
+                    }
+                    btn.textContent = String(n).padStart(2, '0');
 
                     btn.addEventListener('mousedown', (e) => {
                         e.preventDefault();
@@ -507,10 +625,9 @@
                     preview.innerHTML = '<span class="text-xs text-slate-400 self-center">선택된 번호가 여기 표시됩니다</span>';
                     return;
                 }
-                preview.innerHTML = nums.map(n => `
-                    <div class="flex items-center justify-center rounded-full text-white text-[11px] font-black"
-                        style="width:28px;height:28px;background:${_ballColor(n)};flex-shrink:0">${n}</div>
-                `).join('');
+                preview.innerHTML = nums.map(n =>
+                    `<div class="flex-shrink-0 flex items-center justify-center rounded-full font-bold" style="width:32px;height:32px;font-size:12px;background:${getBallGradient(n)};color:white;box-shadow:inset 0 -2px 3px rgba(0,0,0,0.2);">${String(n).padStart(2,'0')}</div>`
+                ).join('');
             }
 
             // 저장된 필터 목록 렌더
@@ -531,50 +648,81 @@
                         .replace(/"/g, "&quot;").replace(/'/g, "&#039;");
                 };
 
-                    // [수정] 현재 앱의 목표 회차 확인
-                    const sysTR = (window.FilterDashboard && window.FilterDashboard.state) ? window.FilterDashboard.state.targetRound : 0;
+                // [수정] 현재 앱의 목표 회차 확인
+                const sysTR = (window.FilterDashboard && window.FilterDashboard.state) ? window.FilterDashboard.state.targetRound : 0;
 
-                    el.innerHTML = filters.map(f => {
-                        const balls = (f.selected_numbers || []).sort((a, b) => a - b).map(n =>
-                            `<div class="flex items-center justify-center rounded-full text-white font-black flex-shrink-0"
-                                style="width:28px;height:28px;font-size:11px;background:${_ballColor(n)}">${n}</div>`
-                        ).join('');
+                // 현재 회차 / 이전 회차 분리
+                const currentFilters = sysTR > 0 ? filters.filter(f => f.target_round >= sysTR) : filters;
+                const staleFilters   = sysTR > 0 ? filters.filter(f => f.target_round < sysTR)  : [];
 
-                        return `
-                        <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all">
-                            <!-- 상단: 제목 + 회차 + 삭제 -->
+                const buildCard = (f, isStale) => {
+                    const balls = (f.selected_numbers || []).sort((a, b) => a - b).map(n =>
+                        `<span class="ball ${getBallColor(n)} flex-shrink-0" style="width:32px !important;height:32px !important;font-size:12px !important;margin:2px !important;">${String(n).padStart(2,'0')}</span>`
+                    ).join('');
+                    const roundBadge = isStale
+                        ? `<span class="px-2.5 py-0.5 bg-slate-100 text-slate-400 text-[11px] font-bold rounded-full flex-shrink-0 line-through">${f.target_round}회차</span>`
+                        : `<span class="px-2.5 py-0.5 bg-blue-50 text-blue-600 text-[11px] font-bold rounded-full flex-shrink-0">${f.target_round}회차</span>`;
+                    const wrapCls = isStale
+                        ? 'bg-slate-50 border border-slate-200 rounded-2xl p-5 opacity-60 hover:opacity-80 transition-all'
+                        : 'bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all';
+                    // 보존 토글 버튼
+                    const preserveBtn = f.preserve
+                        ? `<button onclick="ManualFilter.togglePreserve('${f.id}', true)" title="보존 해제" class="flex items-center gap-1 px-2.5 py-1 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-lg text-[11px] font-bold transition-all shrink-0 border border-emerald-200"><span class="material-symbols-outlined" style="font-size:14px;">lock</span>보존</button>`
+                        : `<button onclick="ManualFilter.togglePreserve('${f.id}', false)" title="보존 설정" class="flex items-center gap-1 px-2.5 py-1 bg-slate-50 text-slate-400 hover:bg-slate-100 rounded-lg text-[11px] font-bold transition-all shrink-0 border border-slate-200"><span class="material-symbols-outlined" style="font-size:14px;">lock_open</span>보존</button>`;
+                    return `
+                        <div class="${wrapCls}">
                             <div class="flex items-center justify-between gap-3 mb-4">
                                 <div class="flex items-center gap-2 flex-1 min-w-0">
-                                    <span class="text-sm font-black text-slate-900 truncate">${escapeHtml(f.title)}</span>
-                                    <span class="px-2.5 py-0.5 bg-blue-50 text-blue-600 text-[11px] font-bold rounded-full flex-shrink-0">${f.target_round}회차</span>
+                                    <span class="text-sm font-black ${isStale ? 'text-slate-400' : 'text-slate-900'} truncate">${escapeHtml(f.title)}</span>
+                                    ${roundBadge}
+                                    ${preserveBtn}
                                 </div>
                                 <button onclick="ManualFilter.deleteFilter('${f.id}')"
                                     class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-all shrink-0">
                                     <span class="material-symbols-outlined" style="font-size:18px;">delete</span>
                                 </button>
                             </div>
-                            
-                            <!-- 하단: 대상 번호 볼 + 우측 필터 설정 -->
                             <div class="flex items-start justify-between gap-4">
-                                <!-- 번호 볼 -->
                                 <div class="flex flex-wrap gap-1.5 flex-1">${balls}</div>
-                                
-                                <!-- 조합 카운팅 + 일치 범위 -->
                                 <div class="flex items-center gap-2 shrink-0">
                                     <span id="indep-count-manual_${f.id}" class="hidden text-[10px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full whitespace-nowrap"></span>
                                     <div class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 h-10 shadow-sm focus-within:ring-2 focus-within:ring-blue-500">
-                                    <input type="number" value="${f.min_match}" min="0" max="6"
-                                        onchange="ManualFilter.updateMatch(event, '${f.id}', 'min_match', this.value)"
-                                        class="w-12 text-center font-black text-blue-600 bg-transparent border-none p-0 focus:ring-0 text-base">
-                                    <span class="text-slate-300 font-bold">~</span>
-                                    <input type="number" value="${f.max_match}" min="0" max="6"
-                                        onchange="ManualFilter.updateMatch(event, '${f.id}', 'max_match', this.value)"
-                                        class="w-12 text-center font-black text-blue-600 bg-transparent border-none p-0 focus:ring-0 text-base">
+                                        <input type="number" value="${f.min_match}" min="0" max="6"
+                                            onchange="ManualFilter.updateMatch(event, '${f.id}', 'min_match', this.value)"
+                                            class="w-12 text-center font-black text-blue-600 bg-transparent border-none p-0 focus:ring-0 text-base">
+                                        <span class="text-slate-300 font-bold">~</span>
+                                        <input type="number" value="${f.max_match}" min="0" max="6"
+                                            onchange="ManualFilter.updateMatch(event, '${f.id}', 'max_match', this.value)"
+                                            class="w-12 text-center font-black text-blue-600 bg-transparent border-none p-0 focus:ring-0 text-base">
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    </div>`;
-                }).join('');
+                        </div>`;
+                };
+
+                let html = '';
+                // 현재 회차 필터
+                if (currentFilters.length > 0) {
+                    html += currentFilters.map(f => buildCard(f, false)).join('');
+                } else if (staleFilters.length === 0) {
+                    html = '<div class="text-center py-10 text-slate-400 text-sm">저장된 필터가 없습니다.</div>';
+                }
+                // 이전 회차 필터 (접힌 섹션)
+                if (staleFilters.length > 0) {
+                    html += `
+                        <details class="mt-4 group" ${currentFilters.length === 0 ? 'open' : ''}>
+                            <summary class="flex items-center gap-2 cursor-pointer text-[12px] font-bold text-slate-400 hover:text-slate-500 select-none list-none py-2 border-t border-slate-100">
+                                <span class="material-symbols-outlined text-slate-300 group-open:rotate-90 transition-transform" style="font-size:16px;">chevron_right</span>
+                                이전 회차 필터 (${staleFilters.length}개)
+                                <button onclick="event.preventDefault();event.stopPropagation();if(confirm('이전 회차 필터 ${staleFilters.length}개를 모두 삭제할까요?')){${staleFilters.map(f => `ManualFilter.deleteFilter('${f.id}')`).join(';')}}" class="ml-auto px-2 py-0.5 bg-slate-100 hover:bg-red-50 hover:text-red-500 text-slate-400 rounded text-[11px] font-bold transition-colors">전체 삭제</button>
+                            </summary>
+                            <div class="mt-3 space-y-3">
+                                ${staleFilters.map(f => buildCard(f, true)).join('')}
+                            </div>
+                        </details>`;
+                }
+
+                el.innerHTML = html;
                 // 렌더 직후 이미 계산된 뱃지 복원 + CUMUL_BADGES 재실행 (수동필터 뱃지 갱신)
                 requestAnimationFrame(() => {
                     if (window.applyIndepCountBadges) window.applyIndepCountBadges();
@@ -589,8 +737,8 @@
                     // 드래그 종료
                     document.addEventListener('mouseup', () => { _isDragging = false; _dragMode = null; });
                     _renderGrid();
-                    // [추가] 초기화 시 최신 AI 데이터가 있으면 그리드에 자동 로드
-                    this.loadAI(true); 
+                    // [수정] 페이지 로드 시 원치 않는 자동 AI 로드 제거
+                    // this.loadAI(true); 
                     this.loadFilters();
                 },
 
@@ -599,24 +747,74 @@
                     document.getElementById('mf-title').value = '';
                     document.getElementById('mf-min').value = 1;
                     document.getElementById('mf-max').value = 6;
+                    const preserveEl = document.getElementById('mf-preserve');
+                    if (preserveEl) preserveEl.checked = false;
                     _renderGrid();
                 },
 
-                async loadFilters() {
+                async loadFilters(forceDB = false) {
+                    // ── 스냅샷 복원 모드: localStorage에 manual_filters_state 있으면 DB 대신 사용 ──
+                    const snapRaw = !forceDB && localStorage.getItem('manual_filters_state');
+                    if (snapRaw) {
+                        try {
+                            const snapFilters = JSON.parse(snapRaw);
+                            if (Array.isArray(snapFilters) && snapFilters.length > 0) {
+                                console.log('[ManualFilter] 스냅샷 모드 복원:', snapFilters.length, '개');
+                                // 스냅샷 배너 표시
+                                const listWrap = document.getElementById('mf-list')?.parentElement;
+                                if (listWrap) {
+                                    const existing = document.getElementById('mf-snap-banner');
+                                    if (!existing) {
+                                        const banner = document.createElement('div');
+                                        banner.id = 'mf-snap-banner';
+                                        banner.className = 'flex items-center justify-between gap-2 mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-xl text-[12px] text-amber-700';
+                                        banner.innerHTML = `
+                                            <span class="flex items-center gap-1.5">
+                                                <span class="material-symbols-outlined" style="font-size:15px;">history</span>
+                                                스냅샷 복원됨 — 조합 생성 당시 수동 필터
+                                            </span>
+                                            <button onclick="localStorage.removeItem('manual_filters_state');document.getElementById('mf-snap-banner')?.remove();ManualFilter.loadFilters(true);"
+                                                class="px-2 py-0.5 bg-amber-100 hover:bg-amber-200 rounded-lg font-bold transition-colors whitespace-nowrap">
+                                                현재 필터로 전환
+                                            </button>`;
+                                        listWrap.insertBefore(banner, listWrap.firstChild);
+                                    }
+                                }
+                                if (window.FilterDashboard?.state) {
+                                    window.FilterDashboard.state.manualFilters = snapFilters;
+                                }
+                                _renderList(snapFilters);
+                                return;
+                            }
+                        } catch (e) { console.warn('[ManualFilter] 스냅샷 파싱 오류, DB 로드로 전환:', e); }
+                    }
+
+                    // 스냅샷 배너 제거 (DB 모드 전환 시)
+                    document.getElementById('mf-snap-banner')?.remove();
+
                     let { data, error } = await window.supabaseClient
                         .from('manual_filters')
                         .select('*')
                         .order('created_at', { ascending: false });
                     if (error) { console.error('[ManualFilter] 로드 실패:', error); return; }
 
-                    // [추가] AI 관련 필터 자동 업데이트 로직 (stale check)
                     const sysTR = (window.FilterDashboard && window.FilterDashboard.state) ? window.FilterDashboard.state.targetRound : 0;
+
                     if (sysTR > 0) {
+                        // ── 비보존 구형 필터 자동 삭제 ──
+                        const toDelete = (data || []).filter(f => f.target_round < sysTR && !f.preserve);
+                        if (toDelete.length > 0) {
+                            console.log(`[ManualFilter] 비보존 이전 회차 필터 ${toDelete.length}개 자동 삭제`);
+                            for (const f of toDelete) {
+                                await window.supabaseClient.from('manual_filters').delete().eq('id', f.id);
+                            }
+                            data = (data || []).filter(f => !(f.target_round < sysTR && !f.preserve));
+                        }
+
+                        // ── AI 관련 보존 필터 자동 회차 갱신 ──
                         const staleAIs = (data || []).filter(f => (f.title || '').includes('AI') && f.target_round < sysTR);
                         if (staleAIs.length > 0) {
                             console.log(`[ManualFilter] ${staleAIs.length}개의 AI 필터가 만료됨. 자동 갱신 시도...`);
-                            
-                            // 최신 AI 추천번호 가져오기
                             const { data: aiData } = await window.supabaseClient
                                 .from('deep_analysis_history')
                                 .select('recommended_numbers')
@@ -637,7 +835,6 @@
                                         })
                                         .eq('id', f.id);
                                 }
-                                // 업데이트 후 다시 불러오기
                                 const { data: newData } = await window.supabaseClient.from('manual_filters').select('*').order('created_at', { ascending: false });
                                 data = newData;
                             }
@@ -654,10 +851,10 @@
 
                 async save() {
                     const title = document.getElementById('mf-title')?.value?.trim();
-                    // [수정] 0~6 범위 제한 추가
                     const minMatch = Math.max(0, Math.min(6, parseInt(document.getElementById('mf-min')?.value ?? 1)));
                     const maxMatch = Math.max(0, Math.min(6, parseInt(document.getElementById('mf-max')?.value ?? 6)));
                     const nums = [..._selectedNums].sort((a, b) => a - b);
+                    const preserve = document.getElementById('mf-preserve')?.checked ?? false;
 
                     if (!title) { alert('필터 제목을 입력해주세요.'); return; }
                     if (nums.length === 0) { alert('번호를 1개 이상 선택해주세요.'); return; }
@@ -674,7 +871,8 @@
                             selected_numbers: nums,
                             min_match: minMatch,
                             max_match: maxMatch,
-                            enabled: true
+                            enabled: true,
+                            preserve
                         });
                         if (error) throw error;
                         this.reset();
@@ -688,6 +886,15 @@
                             btn.innerHTML = '<span class="material-symbols-outlined" style="font-size:20px;">save</span>';
                         }
                     }
+                },
+
+                async togglePreserve(id, currentValue) {
+                    const { error } = await window.supabaseClient
+                        .from('manual_filters')
+                        .update({ preserve: !currentValue, updated_at: new Date().toISOString() })
+                        .eq('id', id);
+                    if (error) { console.error('[ManualFilter] togglePreserve 실패:', error); return; }
+                    await this.loadFilters();
                 },
 
                 async deleteFilter(id) {
@@ -749,7 +956,7 @@
                         if (_selectedNums.size === 0) {
                             _selectedNums.clear();
                             (data.recommended_numbers || []).forEach(n => _selectedNums.add(n));
-                            
+
                             const titleInput = document.getElementById('mf-title');
                             if (titleInput && !titleInput.value.trim()) {
                                 titleInput.value = `AI추천조합_${targetRound}회차`;
@@ -764,7 +971,58 @@
         window.ManualFilter = ManualFilter;
 
         document.addEventListener('DOMContentLoaded', () => {
-            if (window.FilterDashboard) window.FilterDashboard.init();
+            // [수정] filter.html 내에서 FilterDashboard의 렌더링 로직을 total_sum.html 표준으로 강제 오버라이드
+            if (window.FilterDashboard) {
+                const getBallColor = (n) => {
+                    if (n <= 10) return 'ball-y';
+                    if (n <= 20) return 'ball-b';
+                    if (n <= 30) return 'ball-r';
+                    if (n <= 40) return 'ball-g';
+                    return 'ball-gr';
+                };
+
+                // 대시보드 내 공통 렌더링 함수 오버라이드 (가독성 개선 디자인 적용)
+                FilterDashboard.renderBalls = function (numbers, excludedList = [], fixedList = [], ballPx = null) {
+                    if (!numbers || numbers.length === 0) return '<span class="text-xs text-slate-400 font-bold">대상수 없음</span>';
+                    const finalFixed = fixedList.length > 0 ? fixedList : this.state.basket.fixed;
+                    const finalExcluded = excludedList.length > 0 ? excludedList : this.state.basket.excluded;
+
+                    const getBallClass = (n) => {
+                        if (n <= 10) return 'ball-y';
+                        if (n <= 20) return 'ball-b';
+                        if (n <= 30) return 'ball-r';
+                        if (n <= 40) return 'ball-g';
+                        return 'ball-gr';
+                    };
+
+                    const px = (typeof ballPx === 'number') ? ballPx : 30;
+                    const fs = Math.round(px * 0.39);
+
+                    return numbers.map(n => {
+                        const isEx = finalExcluded.includes(n);
+                        const isFi = finalFixed.includes(n);
+
+                        let ballClass = "ball flex items-center justify-center rounded-full font-black shadow-sm ";
+                        let inlineStyle = `width:${px}px !important; height:${px}px !important; font-size:${fs}px !important;`;
+
+                        if (isFi) {
+                            ballClass += "ball-fixed text-white";
+                            inlineStyle += "background-color: #2563eb !important; border: 2px solid #3b82f6 !important; box-shadow: 0 0 8px rgba(37, 99, 235, 0.4);";
+                        } else if (isEx) {
+                            ballClass += "ball-excluded text-red-500";
+                            inlineStyle += "background-color: #f8fafc !important; border: 1px solid #fee2e2 !important; text-decoration: line-through !important; color: #ef4444 !important;";
+                        } else {
+                            ballClass += getBallClass(n) + " text-white";
+                        }
+                        return `<span class="${ballClass}" style="${inlineStyle}">${String(n).padStart(2, '0')}</span>`;
+                    }).join('');
+                };
+
+                // 번호대별 분포(number_range_patterns)의 개별 렌더링 로직도 오버라이드된 renderBalls를 쓰도록 유도하거나 
+                // 해당 함수를 직접 수정하기 어려우므로, CSS !important 정책을 통해 강제 적용되도록 설계함
+
+                window.FilterDashboard.init();
+            }
 
             // 수동필터 탭 초기화
             ManualFilter.init();

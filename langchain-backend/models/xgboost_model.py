@@ -38,9 +38,10 @@ class LottoXGBoost:
             "avg_sum_5",
             "sum_std_5",
             "carryover_status",
-            "freq_diff",
-            "gap_position",
-            "momentum_dup",
+            # Phase 0.3 — 실제 계산 피처 (이전에는 모두 0.0 더미였음)
+            "freq_delta",        # 최근 5회 빈도 vs 이전 5회 빈도 차이 (변화 시그널)
+            "gap_acceleration",  # 현재 GAP - 이전 GAP (GAP 증가 속도)
+            "hot_streak",        # 연속 출현 회차 수 (STR 패턴)
         ]
 
     def build_features_for_number(self, number: int, draws: list, target_idx: int):
@@ -95,7 +96,7 @@ class LottoXGBoost:
         last_sum = sum(last_nums)
         last_odd = sum(1 for n in last_nums if n % 2 == 1)
         last_low = sum(1 for n in last_nums if n <= 22)
-        
+
         # AC값 계산
         diffs = set()
         for i in range(len(last_nums)):
@@ -115,6 +116,25 @@ class LottoXGBoost:
         is_odd = 1 if number % 2 == 1 else 0
         is_low = 1 if number <= 22 else 0
 
+        # 6. Phase 0.3 — 실제 변화 시그널 피처
+        # freq_delta: 최근 5회 출현 빈도 vs 직전 5회 출현 빈도 차이
+        recent_5 = sum(1 for d in past_draws[:5] if number in d["numbers"])
+        prev_5 = sum(1 for d in past_draws[5:10] if number in d["numbers"])
+        freq_delta = float(recent_5 - prev_5)  # 양수 = 가속, 음수 = 냉각
+
+        # gap_acceleration: 현재 GAP과 과거 평균 GAP 차이 (GAP 가속도)
+        # gaps 리스트는 이미 위에서 계산됨
+        last_gap = gaps[-1] if gaps else 0  # 직전 GAP
+        gap_acceleration = float(current_gap - last_gap)  # 양수 = GAP 증가 중
+
+        # hot_streak: 직전 연속 출현 회차 수 (STR 패턴)
+        hot_streak = 0
+        for d in past_draws:
+            if number in d["numbers"]:
+                hot_streak += 1
+            else:
+                break
+
         return np.array(
             [
                 total_count,
@@ -126,7 +146,7 @@ class LottoXGBoost:
                 std_gap,
                 gap_percentile,
                 momentum,
-                0.0,  # trend_slope (간소화)
+                0.0,  # trend_slope (간소화 유지)
                 is_prime,
                 is_odd,
                 is_low,
@@ -136,12 +156,12 @@ class LottoXGBoost:
                 last_ac,
                 last_consec,
                 last_tail_sum,
-                0.0,  # avg_sum_5
-                0.0,  # sum_std_5
+                0.0,  # avg_sum_5 (간소화 유지)
+                0.0,  # sum_std_5 (간소화 유지)
                 1 if number in last_nums else 0,  # carryover
-                0.0,  # freq_diff
-                0.0,  # gap_position
-                0.0,  # momentum_dup
+                freq_delta,       # Phase 0.3: 빈도 변화 시그널
+                gap_acceleration, # Phase 0.3: GAP 가속도
+                float(hot_streak),# Phase 0.3: STR 연속 출현 수
             ]
         )
 

@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html class="light" lang="ko">
 
 <head>
@@ -40,24 +40,24 @@
         }
 
         /* 기본 색상 */
-        .ball-yellow {
-            background: #fbbf24;
+        .ball-y {
+            background: linear-gradient(135deg, #f59e0b, #d97706);
         }
 
-        .ball-blue {
-            background: #60a5fa;
+        .ball-b {
+            background: linear-gradient(135deg, #3b82f6, #2563eb);
         }
 
-        .ball-red {
-            background: #f87171;
+        .ball-r {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
         }
 
-        .ball-gray {
-            background: #9ca3af;
+        .ball-g {
+            background: linear-gradient(135deg, #6b7280, #4b5563);
         }
 
-        .ball-green {
-            background: #4ade80;
+        .ball-gr {
+            background: linear-gradient(135deg, #10b981, #059669);
         }
 
         /* 분석 모드용 색상 */
@@ -344,6 +344,171 @@
             align-items: center;
             justify-content: center;
         }
+
+        /* =====================================================
+           패턴 탐정 모드 전용 CSS
+           ===================================================== */
+        .btn-detective-active {
+            background: linear-gradient(135deg, #7c3aed, #6d28d9);
+            color: white;
+            box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.25);
+            border-color: transparent;
+        }
+        .btn-detective-active:hover {
+            background: linear-gradient(135deg, #6d28d9, #5b21b6);
+            transform: translateY(-1px);
+        }
+
+        #detective-panel {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.35s ease, opacity 0.25s ease;
+            opacity: 0;
+        }
+        #detective-panel.panel-open {
+            max-height: 960px;
+            opacity: 1;
+        }
+
+        .num-picker-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(36px, 1fr));
+            gap: 4px;
+        }
+        .num-picker-btn {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border: 2px solid #e2e8f0;
+            background: #f8fafc;
+            font-weight: 700;
+            font-size: 12px;
+            color: #475569;
+            cursor: pointer;
+            transition: all 0.15s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .num-picker-btn:hover {
+            border-color: #7c3aed;
+            color: #7c3aed;
+            background: #f5f3ff;
+        }
+        .num-picker-btn.picked {
+            background: linear-gradient(135deg, #7c3aed, #6d28d9);
+            border-color: #5b21b6;
+            color: white;
+            box-shadow: 0 2px 6px rgba(124, 58, 237, 0.4);
+        }
+
+        .dt-row-match td {
+            background: #fefce8 !important;
+        }
+        .dt-row-match td.sticky-col {
+            background: #fef9c3 !important;
+        }
+        .round-badge-match {
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
+            color: #92400e;
+            font-weight: 800;
+        }
+        .round-badge-match::before {
+            content: "★";
+            color: #f59e0b;
+            font-size: 12px;
+        }
+
+        .dt-row-before td {
+            background: #f0f9ff !important;
+            opacity: 0.88;
+        }
+        .dt-row-before td.sticky-col { background: #e0f2fe !important; }
+
+        .dt-row-after td {
+            background: #f0fdf4 !important;
+            opacity: 0.88;
+        }
+        .dt-row-after td.sticky-col { background: #dcfce7 !important; }
+
+        .dt-group-separator td {
+            height: 6px;
+            background: #cbd5e1 !important;
+            padding: 0;
+            border: none;
+        }
+
+        #detective-match-badge {
+            display: none;
+            align-items: center;
+            gap: 6px;
+            background: #7c3aed;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        #detective-stats { display: none; }
+        #detective-stats.stats-visible { display: block; }
+
+        .freq-bar-wrap {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 0;
+        }
+        .freq-bar-num {
+            width: 24px;
+            font-size: 11px;
+            font-weight: 700;
+            color: #475569;
+            text-align: right;
+            flex-shrink: 0;
+        }
+        .freq-bar-track {
+            flex: 1;
+            height: 11px;
+            background: #f1f5f9;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        .freq-bar-fill {
+            height: 100%;
+            border-radius: 6px;
+            transition: width 0.4s ease;
+        }
+        .freq-fill-match { background: linear-gradient(90deg, #7c3aed, #a78bfa); }
+        .freq-fill-next  { background: linear-gradient(90deg, #059669, #34d399); }
+
+        .freq-bar-pct {
+            width: 32px;
+            font-size: 10px;
+            color: #94a3b8;
+            text-align: right;
+            flex-shrink: 0;
+        }
+
+        .sample-chip-warn  { background: #fef3c7; color: #92400e; }
+        .sample-chip-ok    { background: #dcfce7; color: #14532d; }
+        .sample-chip-great { background: #dbeafe; color: #1e3a8a; }
+
+        /* 탐정 모드 볼: 선택된 번호 = 다크그레이/흰글씨, 나머지 = 흰색/다크그레이 */
+        .ball-dt-picked {
+            background: #374151;
+            color: #ffffff;
+            box-shadow: inset 0 -2px 4px rgba(0,0,0,0.2);
+        }
+        .ball-dt-other {
+            background: #ffffff;
+            color: #374151;
+            border: 1.5px solid #d1d5db;
+            box-shadow: none;
+        }
     </style>
 </head>
 
@@ -387,6 +552,12 @@
                         <button onclick="resetSearch()" class="btn-base btn-white btn-icon-only" title="초기화">
                             <span class="material-symbols-outlined text-lg">refresh</span>
                         </button>
+                        <button onclick="toggleDetectiveMode()" id="btnDetective"
+                            class="btn-base btn-white gap-2" title="패턴 탐정 모드">
+                            <span class="material-symbols-outlined text-lg">manage_search</span>
+                            <span class="hidden md:inline">패턴 탐정</span>
+                        </button>
+                        <span id="detective-match-badge" class="flex">총 0건 발견</span>
                         <div class="w-px h-6 bg-slate-200 mx-1"></div>
                         <button onclick="exportToExcel()" class="btn-base btn-green gap-2">
                             <span class="material-symbols-outlined text-lg">download</span>
@@ -405,6 +576,122 @@
                     </div>
                 </div>
             </div>
+
+            <!-- ====== 패턴 탐정 조건 패널 ====== -->
+            <div id="detective-panel" class="flex-shrink-0 mb-3 bg-violet-50 border border-violet-200 rounded-xl">
+                <div class="px-4 py-3 border-b border-violet-100 flex items-center justify-between">
+                    <span class="font-bold text-violet-800 flex items-center gap-2">
+                        <span class="material-symbols-outlined text-[18px]">manage_search</span>
+                        패턴 탐정 — 조건 설정
+                    </span>
+                    <button onclick="toggleDetectiveMode()" class="text-violet-400 hover:text-violet-700 transition">
+                        <span class="material-symbols-outlined text-xl">close</span>
+                    </button>
+                </div>
+                <div class="p-4 space-y-4">
+                    <!-- 번호 선택 -->
+                    <div>
+                        <div class="flex items-center justify-between mb-2">
+                            <label class="text-xs font-bold text-slate-600 uppercase tracking-wide">포함 번호 선택</label>
+                            <div class="flex items-center gap-2">
+                                <span class="text-xs text-slate-500">조건:</span>
+                                <button id="btnAndOr" onclick="toggleAndOr()"
+                                    class="px-3 py-1 rounded-full text-xs font-bold bg-violet-600 text-white transition hover:bg-violet-700">AND</button>
+                                <button onclick="clearPickedNums()"
+                                    class="px-2 py-1 rounded text-xs text-slate-400 hover:text-rose-500 transition">초기화</button>
+                            </div>
+                        </div>
+                        <div class="num-picker-grid" id="numPickerGrid"></div>
+                    </div>
+                    <!-- 회차 범위 -->
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1">회차 범위</label>
+                            <select id="dtRangeMode" onchange="onRangeModeChange()" class="input-base text-sm">
+                                <option value="all">전체</option>
+                                <option value="recent">최근 N회</option>
+                                <option value="range">직접 지정</option>
+                            </select>
+                        </div>
+                        <div id="dtRecentWrap" class="hidden">
+                            <label class="block text-xs font-bold text-slate-500 mb-1">최근 N회</label>
+                            <input type="number" id="dtRecentN" class="input-base text-sm" value="100" min="10" max="2000">
+                        </div>
+                        <div id="dtRangeWrap" class="hidden col-span-2 grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">시작 회차</label>
+                                <input type="number" id="dtRangeFrom" class="input-base text-sm" placeholder="예: 1">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">종료 회차</label>
+                                <input type="number" id="dtRangeTo" class="input-base text-sm" placeholder="예: 1000">
+                            </div>
+                        </div>
+                    </div>
+                    <!-- 추가 조건 -->
+                    <details class="rounded-lg border border-violet-100 bg-white">
+                        <summary class="px-3 py-2 text-xs font-bold text-slate-600 cursor-pointer select-none">추가 조건 (선택) ▾</summary>
+                        <div class="p-3 grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-3">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-500 mb-1">총합 범위</label>
+                                <div class="flex gap-1 items-center">
+                                    <input type="number" id="dtSumMin" class="input-base text-sm" placeholder="최소">
+                                    <span class="text-slate-400 text-xs flex-shrink-0">~</span>
+                                    <input type="number" id="dtSumMax" class="input-base text-sm" placeholder="최대">
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-500 mb-1">홀수 개수</label>
+                                <div class="flex gap-1 items-center">
+                                    <input type="number" id="dtOddMin" class="input-base text-sm" placeholder="최소" min="0" max="6">
+                                    <span class="text-slate-400 text-xs flex-shrink-0">~</span>
+                                    <input type="number" id="dtOddMax" class="input-base text-sm" placeholder="최대" min="0" max="6">
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-500 mb-1">AC 값</label>
+                                <div class="flex gap-1 items-center">
+                                    <input type="number" id="dtAcMin" class="input-base text-sm" placeholder="최소" min="0" max="10">
+                                    <span class="text-slate-400 text-xs flex-shrink-0">~</span>
+                                    <input type="number" id="dtAcMax" class="input-base text-sm" placeholder="최대" min="0" max="10">
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-500 mb-1">연번 쌍수</label>
+                                <div class="flex gap-1 items-center">
+                                    <input type="number" id="dtConsecMin" class="input-base text-sm" placeholder="최소" min="0">
+                                    <span class="text-slate-400 text-xs flex-shrink-0">~</span>
+                                    <input type="number" id="dtConsecMax" class="input-base text-sm" placeholder="최대">
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-500 mb-1">이월수 개수</label>
+                                <div class="flex gap-1 items-center">
+                                    <input type="number" id="dtCarryMin" class="input-base text-sm" placeholder="최소" min="0">
+                                    <span class="text-slate-400 text-xs flex-shrink-0">~</span>
+                                    <input type="number" id="dtCarryMax" class="input-base text-sm" placeholder="최대">
+                                </div>
+                            </div>
+                        </div>
+                    </details>
+                    <!-- 컨텍스트 창 + 실행 -->
+                    <div class="flex items-center gap-4 flex-wrap">
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <label class="text-xs font-bold text-slate-600">전후 컨텍스트:</label>
+                            <span class="text-xs text-slate-500">이전</span>
+                            <input type="number" id="dtCtxBefore" class="input-base text-sm" style="width:56px" value="2" min="0" max="5">
+                            <span class="text-xs text-slate-500">회 / 이후</span>
+                            <input type="number" id="dtCtxAfter" class="input-base text-sm" style="width:56px" value="1" min="0" max="5">
+                            <span class="text-xs text-slate-500">회</span>
+                        </div>
+                        <button onclick="runDetective()" class="btn-base btn-detective-active gap-2 ml-auto">
+                            <span class="material-symbols-outlined text-lg">search</span>
+                            탐색 실행
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <!-- ====== /패턴 탐정 조건 패널 ====== -->
 
             <div
                 class="flex-1 overflow-hidden border border-slate-200 rounded-xl bg-white shadow-sm flex flex-col mb-6">
@@ -448,6 +735,29 @@
                     </table>
                 </div>
             </div>
+            <!-- ====== 패턴 탐정 통계 패널 ====== -->
+            <div id="detective-stats" class="flex-shrink-0 mb-6 rounded-xl border border-violet-200 bg-white shadow-sm overflow-hidden">
+                <div class="px-4 py-3 border-b border-violet-100 flex items-center justify-between bg-violet-50">
+                    <span class="font-bold text-violet-800 flex items-center gap-2">
+                        <span class="material-symbols-outlined text-[18px]">bar_chart</span>
+                        탐정 통계
+                    </span>
+                    <div id="detective-sample-chip" class="text-xs font-bold px-3 py-1 rounded-full"></div>
+                </div>
+                <div class="p-4 grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div>
+                        <p class="text-xs font-bold text-slate-500 uppercase tracking-wide mb-3">매칭 회차 번호 빈도 (1~45)</p>
+                        <div id="detective-freq-match" class="space-y-0.5 max-h-96 overflow-y-auto custom-scrollbar pr-1"></div>
+                    </div>
+                    <div>
+                        <p class="text-xs font-bold text-slate-500 uppercase tracking-wide mb-3">다음 회차 (+1) 번호 빈도 — 예측 힌트</p>
+                        <div id="detective-freq-next" class="space-y-0.5 max-h-80 overflow-y-auto custom-scrollbar pr-1"></div>
+                        <div id="detective-summary" class="mt-4 p-3 rounded-lg bg-slate-50 text-xs text-slate-600 space-y-1"></div>
+                    </div>
+                </div>
+            </div>
+            <!-- ====== /패턴 탐정 통계 패널 ====== -->
+
         </div>
     </main>
 
@@ -525,23 +835,14 @@
         let activeColIndex = null;
         let selectedHighlight = { col: null, val: null };
 
+        // 패턴 탐정 상태
+        let detectiveMode = false;
+        let dtAndOr = 'AND';
+        let dtPickedNums = new Set();
+
         const PRIMES = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43];
 
         document.addEventListener('DOMContentLoaded', function () {
-            setTimeout(() => {
-                const nav = document.querySelector('#gnb-container nav');
-                if (nav) {
-                    const links = nav.querySelectorAll('a');
-                    links.forEach((link, idx) => {
-                        link.classList.remove('text-gray-900', 'font-bold', 'border-b-2', 'border-gray-900');
-                        link.classList.add('text-gray-500', 'font-medium');
-                        if (idx === 1) {
-                            link.classList.remove('text-gray-500', 'font-medium');
-                            link.classList.add('text-gray-900', 'font-bold', 'border-b-2', 'border-gray-900');
-                        }
-                    });
-                }
-            }, 300);
             initPage();
             document.getElementById('manualRound').addEventListener('input', calculateDateFromRound);
         });
@@ -700,8 +1001,8 @@
 
                 const bonusClass = (viewMode === 'normal' || viewMode === 'prime')
                     ? ((n) => {
-                        if (n <= 10) return 'ball-yellow'; if (n <= 20) return 'ball-blue';
-                        if (n <= 30) return 'ball-red'; if (n <= 40) return 'ball-gray'; return 'ball-green';
+                        if (n <= 10) return 'ball-y'; if (n <= 20) return 'ball-b';
+                        if (n <= 30) return 'ball-r'; if (n <= 40) return 'ball-g'; return 'ball-gr';
                     })(d.bonus)
                     : getSmartBallClass(d.bonus, viewMode, d.stat.prevNumbers);
 
@@ -773,8 +1074,8 @@
 
         function getSmartBallClass(n, mode, prevNumbers) {
             if (mode === 'normal') {
-                if (n <= 10) return 'ball-yellow'; if (n <= 20) return 'ball-blue';
-                if (n <= 30) return 'ball-red'; if (n <= 40) return 'ball-gray'; return 'ball-green';
+                if (n <= 10) return 'ball-y'; if (n <= 20) return 'ball-b';
+                if (n <= 30) return 'ball-r'; if (n <= 40) return 'ball-g'; return 'ball-gr';
             }
             if (mode === 'oe') return (n % 2 !== 0) ? 'ball-odd' : 'ball-even';
             if (mode === 'lh') return (n <= 23) ? 'ball-low' : 'ball-high';
@@ -813,6 +1114,15 @@
         }
 
         function resetSearch() {
+            // 탐정 모드 활성 시 비활성화
+            if (detectiveMode) {
+                detectiveMode = false;
+                document.getElementById('btnDetective').classList.remove('btn-detective-active');
+                document.getElementById('btnDetective').classList.add('btn-white');
+                document.getElementById('detective-panel').classList.remove('panel-open');
+                document.getElementById('detective-stats').classList.remove('stats-visible');
+                document.getElementById('detective-match-badge').style.display = 'none';
+            }
             document.getElementById('numSearchInput').value = '';
             toggleValHighlight(null, null);
             activeColIndex = null;
@@ -920,6 +1230,296 @@
                 else { alert(`⚠️ 동기화 실패`); }
             } catch (err) { alert(`⛔ 오류: ${err.message}`); }
             finally { btn.innerHTML = original; btn.disabled = false; }
+        }
+        // =====================================================
+        // 패턴 탐정 함수
+        // =====================================================
+
+        function toggleDetectiveMode() {
+            detectiveMode = !detectiveMode;
+            const btn   = document.getElementById('btnDetective');
+            const panel = document.getElementById('detective-panel');
+            const stats = document.getElementById('detective-stats');
+            const badge = document.getElementById('detective-match-badge');
+
+            if (detectiveMode) {
+                btn.classList.add('btn-detective-active');
+                btn.classList.remove('btn-white');
+                panel.classList.add('panel-open');
+                buildNumPickerGrid();
+            } else {
+                btn.classList.remove('btn-detective-active');
+                btn.classList.add('btn-white');
+                panel.classList.remove('panel-open');
+                stats.classList.remove('stats-visible');
+                badge.style.display = 'none';
+                // 일반 테이블 복원 (resetSearch 가드 우회용 플래그)
+                detectiveMode = false;
+                document.getElementById('numSearchInput').value = '';
+                selectedHighlight = { col: null, val: null };
+                activeColIndex = null;
+                selectedRound = null;
+                viewMode = 'normal';
+                document.querySelectorAll('.clickable-header').forEach(el => el.classList.remove('active-col-header'));
+                renderTable(allDrawData.slice().reverse());
+                document.getElementById('totalCount').textContent = `총 ${allDrawData.length}회차`;
+            }
+        }
+
+        function buildNumPickerGrid() {
+            const grid = document.getElementById('numPickerGrid');
+            if (grid.dataset.built) return;
+            grid.dataset.built = '1';
+            let html = '';
+            for (let n = 1; n <= 45; n++) {
+                html += `<button onclick="togglePickNum(${n})" id="pick-btn-${n}"
+                    class="num-picker-btn${dtPickedNums.has(n) ? ' picked' : ''}">${n}</button>`;
+            }
+            grid.innerHTML = html;
+        }
+
+        function togglePickNum(n) {
+            const btn = document.getElementById(`pick-btn-${n}`);
+            if (dtPickedNums.has(n)) {
+                dtPickedNums.delete(n);
+                btn.classList.remove('picked');
+            } else {
+                dtPickedNums.add(n);
+                btn.classList.add('picked');
+            }
+        }
+
+        function clearPickedNums() {
+            dtPickedNums.clear();
+            document.querySelectorAll('.num-picker-btn').forEach(b => b.classList.remove('picked'));
+        }
+
+        function toggleAndOr() {
+            dtAndOr = dtAndOr === 'AND' ? 'OR' : 'AND';
+            document.getElementById('btnAndOr').textContent = dtAndOr;
+        }
+
+        function onRangeModeChange() {
+            const mode = document.getElementById('dtRangeMode').value;
+            document.getElementById('dtRecentWrap').classList.toggle('hidden', mode !== 'recent');
+            document.getElementById('dtRangeWrap').classList.toggle('hidden', mode !== 'range');
+        }
+
+        function getDrawPool() {
+            const mode = document.getElementById('dtRangeMode').value;
+            if (mode === 'recent') {
+                const n = parseInt(document.getElementById('dtRecentN').value) || 100;
+                return allDrawData.slice(-n);
+            }
+            if (mode === 'range') {
+                const from = parseInt(document.getElementById('dtRangeFrom').value) || 0;
+                const to   = parseInt(document.getElementById('dtRangeTo').value)   || 999999;
+                return allDrawData.filter(d => d.round >= from && d.round <= to);
+            }
+            return allDrawData;
+        }
+
+        function matchesDetectiveConditions(d) {
+            // 번호 조건
+            if (dtPickedNums.size > 0) {
+                const arr = [...dtPickedNums];
+                const inDraw = n => d.numbers.includes(n);
+                if (dtAndOr === 'AND' ? !arr.every(inDraw) : !arr.some(inDraw)) return false;
+            }
+            // 총합
+            const sumMin = document.getElementById('dtSumMin').value;
+            const sumMax = document.getElementById('dtSumMax').value;
+            if (sumMin !== '' && d.stat.sum < +sumMin) return false;
+            if (sumMax !== '' && d.stat.sum > +sumMax) return false;
+            // 홀수 개수
+            const oddMin = document.getElementById('dtOddMin').value;
+            const oddMax = document.getElementById('dtOddMax').value;
+            if (oddMin !== '' || oddMax !== '') {
+                const oddCount = +d.stat.oe.split(':')[0];
+                if (oddMin !== '' && oddCount < +oddMin) return false;
+                if (oddMax !== '' && oddCount > +oddMax) return false;
+            }
+            // AC값
+            const acMin = document.getElementById('dtAcMin').value;
+            const acMax = document.getElementById('dtAcMax').value;
+            if (acMin !== '' && d.stat.ac < +acMin) return false;
+            if (acMax !== '' && d.stat.ac > +acMax) return false;
+            // 연번
+            const consecMin = document.getElementById('dtConsecMin').value;
+            const consecMax = document.getElementById('dtConsecMax').value;
+            if (consecMin !== '' && d.stat.consecutive < +consecMin) return false;
+            if (consecMax !== '' && d.stat.consecutive > +consecMax) return false;
+            // 이월수
+            const carryMin = document.getElementById('dtCarryMin').value;
+            const carryMax = document.getElementById('dtCarryMax').value;
+            if (carryMin !== '' && d.stat.carryover < +carryMin) return false;
+            if (carryMax !== '' && d.stat.carryover > +carryMax) return false;
+            return true;
+        }
+
+        function runDetective() {
+            const pool = getDrawPool();
+            const ctxBefore = Math.max(0, Math.min(5, parseInt(document.getElementById('dtCtxBefore').value) || 2));
+            const ctxAfter  = Math.max(0, Math.min(5, parseInt(document.getElementById('dtCtxAfter').value)  || 1));
+
+            const matchRounds = new Set();
+            pool.forEach(d => { if (matchesDetectiveConditions(d)) matchRounds.add(d.round); });
+
+            // round → index 맵
+            const roundIndex = new Map();
+            allDrawData.forEach((d, i) => roundIndex.set(d.round, i));
+
+            const groups = [];
+            [...matchRounds].sort((a, b) => a - b).forEach(matchRound => {
+                const mi = roundIndex.get(matchRound);
+                if (mi === undefined) return;
+                const rows = [];
+                for (let offset = -ctxBefore; offset <= ctxAfter; offset++) {
+                    const ti = mi + offset;
+                    if (ti < 0 || ti >= allDrawData.length) continue;
+                    rows.push({
+                        draw: allDrawData[ti],
+                        rowType: offset < 0 ? 'before' : offset > 0 ? 'after' : 'match'
+                    });
+                }
+                groups.push({ matchRound, rows });
+            });
+
+            renderDetectiveTable(groups);
+            renderDetectiveStats(groups, matchRounds);
+
+            const badge = document.getElementById('detective-match-badge');
+            badge.textContent = `총 ${matchRounds.size}건 발견`;
+            badge.style.display = 'flex';
+        }
+
+        function renderDetectiveTable(groups) {
+            const tbody = document.getElementById('drawTableBody');
+            if (groups.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="16" class="py-16 text-center text-slate-400">
+                    <span class="material-symbols-outlined text-4xl mb-2 block">search_off</span>
+                    조건에 맞는 회차가 없습니다.
+                </td></tr>`;
+                return;
+            }
+
+            const reversedGroups = [...groups].reverse();
+            let html = '';
+            reversedGroups.forEach((group, gi) => {
+                [...group.rows].reverse().forEach(({ draw: d, rowType }) => {
+                    const isMatch = rowType === 'match';
+                    const trClass = isMatch ? 'dt-row-match' : rowType === 'before' ? 'dt-row-before' : 'dt-row-after';
+                    const ballsHtml = d.numbers.map(n => {
+                        const cls = dtPickedNums.size > 0
+                            ? (dtPickedNums.has(n) ? 'ball-dt-picked' : 'ball-dt-other')
+                            : getSmartBallClass(n, 'normal', d.stat.prevNumbers);
+                        return `<span class="ball ${cls}">${n}</span>`;
+                    }).join('');
+                    const bonusClass = ((n) => {
+                        if (n <= 10) return 'ball-y'; if (n <= 20) return 'ball-b';
+                        if (n <= 30) return 'ball-r'; if (n <= 40) return 'ball-g'; return 'ball-gr';
+                    })(d.bonus);
+                    const roundLabel = isMatch
+                        ? `<span class="round-badge-match">${d.round}회</span>`
+                        : `<span class="text-slate-400 text-xs font-semibold">${d.round}회
+                            <span class="${rowType === 'before' ? 'text-sky-400' : 'text-emerald-400'} text-[10px]">
+                                ${rowType === 'before' ? '▲' : '▼'}
+                            </span></span>`;
+                    html += `
+                    <tr class="${trClass}">
+                        <td class="sticky-col">${roundLabel}</td>
+                        <td class="text-slate-500 text-xs">${d.date || '-'}</td>
+                        <td><div class="flex items-center justify-center">${ballsHtml}</div></td>
+                        <td><span class="ball ${bonusClass} text-xs scale-90">${d.bonus || '-'}</span></td>
+                        <td class="text-slate-700 font-bold">${d.stat.sum}</td>
+                        <td class="text-slate-600">${d.stat.endSum}</td>
+                        <td class="text-slate-600 font-bold">${d.stat.ac}</td>
+                        <td class="${d.stat.oe === '3:3' ? 'text-emerald-600 font-bold' : 'text-slate-500'}">${d.stat.oe}</td>
+                        <td class="${d.stat.lh === '3:3' ? 'text-blue-600 font-bold' : 'text-slate-500'}">${d.stat.lh}</td>
+                        <td class="${d.stat.pc === '3:3' ? 'text-orange-600 font-bold' : 'text-slate-500'}">${d.stat.pc}</td>
+                        <td class="${d.stat.neighbor > 0 ? 'text-orange-500 font-bold' : 'text-slate-400'}">${d.stat.neighbor}</td>
+                        <td class="${d.stat.carryover > 0 ? 'text-purple-500 font-bold' : 'text-slate-400'}">${d.stat.carryover}</td>
+                        <td class="${d.stat.consecutive > 0 ? 'text-red-500 font-bold' : 'text-slate-400'}">${d.stat.consecutive}</td>
+                        <td class="text-slate-700 font-bold text-xs">${d.stat.hotCold}</td>
+                        <td class="text-slate-600 text-xs">${d.stat.multiples}</td>
+                        <td class="text-slate-600 font-mono tracking-tighter text-xs">${d.stat.section}</td>
+                    </tr>`;
+                });
+                if (gi < reversedGroups.length - 1) {
+                    html += `<tr class="dt-group-separator"><td colspan="16"></td></tr>`;
+                }
+            });
+            tbody.innerHTML = html;
+        }
+
+        function buildFreqBarsHTML(freqArr, maxVal, sampleSize, fillClass) {
+            const sorted = [];
+            for (let n = 1; n <= 45; n++) sorted.push({ n, cnt: freqArr[n] });
+            sorted.sort((a, b) => b.cnt - a.cnt);
+            return sorted.map(({ n, cnt }) => {
+                const pct = maxVal > 0 ? Math.round((cnt / maxVal) * 100) : 0;
+                const pctOfSample = sampleSize > 0 ? Math.round((cnt / sampleSize) * 100) : 0;
+                return `<div class="freq-bar-wrap">
+                    <span class="freq-bar-num">${n}</span>
+                    <div class="freq-bar-track">
+                        <div class="freq-bar-fill ${fillClass}" style="width:${pct}%"></div>
+                    </div>
+                    <span class="freq-bar-pct">${pctOfSample}%</span>
+                </div>`;
+            }).join('');
+        }
+
+        function renderDetectiveStats(groups, matchRounds) {
+            const statsEl = document.getElementById('detective-stats');
+            statsEl.classList.add('stats-visible');
+            const matchCount = matchRounds.size;
+
+            // 표본 수 칩
+            const chip = document.getElementById('detective-sample-chip');
+            let chipClass, chipText;
+            if (matchCount < 10)      { chipClass = 'sample-chip-warn';  chipText = `⚠ 표본 ${matchCount}건 — 주의 (10건 미만)`; }
+            else if (matchCount < 20) { chipClass = 'sample-chip-ok';    chipText = `✓ 표본 ${matchCount}건`; }
+            else                      { chipClass = 'sample-chip-great'; chipText = `✦ 표본 ${matchCount}건 — 충분`; }
+            chip.className = `text-xs font-bold px-3 py-1 rounded-full ${chipClass}`;
+            chip.textContent = chipText;
+
+            // 빈도 계산
+            const freqMatch = new Array(46).fill(0);
+            const freqNext  = new Array(46).fill(0);
+            const roundIndex = new Map();
+            allDrawData.forEach((d, i) => roundIndex.set(d.round, i));
+
+            groups.forEach(({ matchRound, rows }) => {
+                const matchRow = rows.find(r => r.rowType === 'match');
+                if (matchRow) matchRow.draw.numbers.forEach(n => freqMatch[n]++);
+                const mi = roundIndex.get(matchRound);
+                if (mi !== undefined && mi + 1 < allDrawData.length) {
+                    allDrawData[mi + 1].numbers.forEach(n => freqNext[n]++);
+                }
+            });
+
+            const maxMatch = Math.max(...freqMatch.slice(1)) || 1;
+            const maxNext  = Math.max(...freqNext.slice(1))  || 1;
+
+            document.getElementById('detective-freq-match').innerHTML =
+                buildFreqBarsHTML(freqMatch, maxMatch, matchCount, 'freq-fill-match');
+            document.getElementById('detective-freq-next').innerHTML =
+                buildFreqBarsHTML(freqNext, maxNext, matchCount, 'freq-fill-next');
+
+            // 요약
+            const avgSum = groups.length > 0
+                ? Math.round(groups.reduce((acc, g) => {
+                    const mr = g.rows.find(r => r.rowType === 'match');
+                    return acc + (mr ? mr.draw.stat.sum : 0);
+                }, 0) / groups.length)
+                : 0;
+            const top3Next = [...freqNext.entries()].slice(1)
+                .sort((a, b) => b[1] - a[1]).slice(0, 3)
+                .filter(([, cnt]) => cnt > 0)
+                .map(([n, cnt]) => `<strong>${n}</strong>(${Math.round(cnt / matchCount * 100)}%)`);
+            document.getElementById('detective-summary').innerHTML = `
+                <div>매칭 회차 평균 총합: <strong>${avgSum}</strong></div>
+                <div>다음 회차 상위 번호: ${top3Next.join(', ') || '-'}</div>`;
         }
     </script>
 </body>

@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html class="light" lang="ko">
 
 <head>
@@ -16,6 +16,8 @@
     <script src="js/theme.js"></script>
     <script src="js/common_v2.js"></script>
     <script src="js/filter/FilterService.js"></script>
+    <script src="js/filter/FilterLifecycle.js"></script>
+    <script src="js/filter/FilterRuleEngine.js"></script>
     <script src="js/layout.js"></script>
 
     <style>
@@ -588,9 +590,9 @@
                 const sb = getSB();
                 const { data: { user } } = await sb.auth.getUser().catch(() => ({data:{user:null}}));
                 let q = sb.from('saved_combination_groups')
-                    .select('id, round_number, group_name, combo_count, total_pool, created_at')
-                    .order('round_number', { ascending: false, nullsFirst: false }) // [수정] 최신 회차부터
-                    .order('created_at', { ascending: false }) // [수정] 최신 생성순
+                    .select('id, round_number, group_name, combo_count, total_pool, created_at, filter_snapshot')
+                    .order('round_number', { ascending: false, nullsFirst: false })
+                    .order('created_at', { ascending: false })
                     .limit(100);
                 if (user) q = q.eq('user_id', user.id);
                 else       q = q.is('user_id', null);
@@ -753,7 +755,15 @@
                 if (error || !data) throw new Error('not found');
 
                 if (data.filter_snapshot) {
-                    applyFilterSnapshot(data.filter_snapshot);
+                    const snapshot = data.filter_snapshot;
+                    // 스냅샷에 foundationFilters가 없으면(구버전 저장 데이터) Supabase에서 직접 로드
+                    if (!snapshot.foundationFilters || snapshot.foundationFilters.length === 0) {
+                        try {
+                            const { data: defs } = await sb.from('filter_definitions').select('id,filter_key').eq('is_active', true);
+                            if (defs && defs.length > 0) snapshot.foundationFilters = defs;
+                        } catch(_) {}
+                    }
+                    applyFilterSnapshot(snapshot);
                     alert('성공적으로 과거 필터 상태가 복원되었습니다.\n상단 메뉴를 통해 필터 페이지로 이동하여 확인해보세요!');
                 } else {
                     alert('이 조합 그룹에는 저장된 필터 스냅샷이 없습니다.');
@@ -1090,46 +1100,91 @@
                 console.log('🔄 [Restoration] Applying full filter snapshot...', snapshot);
 
                 try {
+                    // 레거시 키 매핑 (개별 분석 페이지 동기화용) — try 블록 최상단으로 호이스트
+                    const legacyMap = {
+                        'total_sum': ['total_sum_filter', 'total_sum'],
+                        'last_digit_sum': ['tail_sum_filter', 'last_digit_sum'],
+                        'ac_value': ['ac_value_filter', 'ac_value'],
+                        'high_low_pattern': ['high_low_pattern_filter', 'high_low_filter', 'low_high_filter'],
+                        'odd_even_pattern': ['odd_even_pattern_filter', 'odd_even_filter'],
+                        'prime_number_patterns': ['prime_number_filter'],
+                        'composite_count': ['composite_number_filter'],
+                        'square_number_patterns': ['square_number_filter'],
+                        'triangular_number_patterns': ['triangular_number_filter'],
+                        'twin_number_patterns': ['twin_number_filter'],
+                        'neighbor_count': ['neighbor_number_filter'],
+                        'neighbor_number_patterns': ['neighbor_number_filter'],
+                        'carryover_count': ['carryover_filter'],
+                        'consecutive_count': ['consecutive_number_filter'],
+                        // 끝수 개별 키: 평키에도 저장(Utils.loadFilter 호환) + tail_digit_filter로 페이지 트리거
+                        'end_digit_0_count': ['end_digit_0_count', 'tail_digit_filter'],
+                        'end_digit_1_count': ['end_digit_1_count', 'tail_digit_filter'],
+                        'end_digit_2_count': ['end_digit_2_count', 'tail_digit_filter'],
+                        'end_digit_3_count': ['end_digit_3_count', 'tail_digit_filter'],
+                        'end_digit_4_count': ['end_digit_4_count', 'tail_digit_filter'],
+                        'end_digit_5_count': ['end_digit_5_count', 'tail_digit_filter'],
+                        'end_digit_6_count': ['end_digit_6_count', 'tail_digit_filter'],
+                        'end_digit_7_count': ['end_digit_7_count', 'tail_digit_filter'],
+                        'end_digit_8_count': ['end_digit_8_count', 'tail_digit_filter'],
+                        'end_digit_9_count': ['end_digit_9_count', 'tail_digit_filter'],
+                        'tail_digit_patterns': ['tail_digit_patterns', 'tail_digit_filter'], // 레거시 호환
+                        'missing_period': ['filter_settings_missing_period', 'missing_period_filter'],
+                        // 배수 개별 키: 평키에도 저장(Utils.loadFilter 호환) + multiple_filter로 페이지 트리거
+                        'multiple_3_count':   ['multiple_3_count',   'multiple_filter'],
+                        'multiple_4_count':   ['multiple_4_count',   'multiple_filter'],
+                        'multiple_5_count':   ['multiple_5_count',   'multiple_filter'],
+                        'multiple_7_count':   ['multiple_7_count',   'multiple_filter'],
+                        'multiple_8_count':   ['multiple_8_count',   'multiple_filter'],
+                        'multiple_3_4_count': ['multiple_3_4_count', 'multiple_filter'],
+                        'multiple_3_5_count': ['multiple_3_5_count', 'multiple_filter'],
+                        'multiple_4_5_count': ['multiple_4_5_count', 'multiple_filter'],
+                        'no_multiple_count':  ['no_multiple_count',  'multiple_filter'],
+                        'number_range_patterns': ['number_range_filter'],
+                        'lotto_paper_pattern': ['lotto_paper_filter'],
+                        'magic_square_pattern': ['magic_square_filter']
+                    };
+
+                    // StorageEvent 발화 키 수집 — try 블록 레벨에 단 하나만 선언
+                    const triggeredKeys = new Set();
+
                     // 1. 기초 분석 필터 (Foundation Filters)
                     if (snapshot.userSettings) {
-                        // 레거시 키 매핑 (개별 분석 페이지 동기화용)
-                        const legacyMap = {
-                            'total_sum': ['total_sum_filter', 'total_sum'],
-                            'last_digit_sum': ['tail_sum_filter', 'last_digit_sum'],
-                            'ac_value': ['ac_value_filter', 'ac_value'],
-                            'high_low_pattern': ['high_low_pattern_filter', 'high_low_filter', 'low_high_filter'],
-                            'odd_even_pattern': ['odd_even_pattern_filter', 'odd_even_filter'],
-                            'prime_number_patterns': ['prime_number_filter'],
-                            'composite_count': ['composite_number_filter'],
-                            'square_number_patterns': ['square_number_filter'],
-                            'triangular_number_patterns': ['triangular_number_filter'],
-                            'twin_number_patterns': ['twin_number_filter'],
-                            'neighbor_count': ['neighbor_number_filter'],
-                            'neighbor_number_patterns': ['neighbor_number_filter'],
-                            'carryover_count': ['carryover_filter'],
-                            'consecutive_count': ['consecutive_number_filter'],
-                            'tail_digit_patterns': ['tail_digit_filter'],
-                            'missing_period': ['filter_settings_missing_period', 'missing_period_filter'],
-                            'multiple_3_count': ['multiple_filter'],
-                            'number_range_patterns': ['number_range_filter'],
-                            'lotto_paper_pattern': ['lotto_paper_filter'],
-                            'magic_square_pattern': ['magic_square_filter']
-                        };
+                        // UUID → filter_key 변환 테이블:
+                        //  ① 스냅샷 내장 foundationFilters (combination_generator에 FilterDashboard 없음)
+                        //  ② 없으면 FilterDashboard.state 폴백
+                        const foundationFilters =
+                            (snapshot.foundationFilters && snapshot.foundationFilters.length > 0)
+                                ? snapshot.foundationFilters
+                                : (window.FilterDashboard?.state?.foundationFilters || []);
+                        const uuidToKey = {};
+                        foundationFilters.forEach(def => { uuidToKey[def.id] = def.filter_key; });
 
                         Object.entries(snapshot.userSettings).forEach(([id, s]) => {
-                            // [추가] 과거 복원 시 '최근 10회차' 자동 적용 모드 강제 해제 (저장된 실제 값 우선 적용)
+                            // 과거 복원 시 '최근 10회차' 자동 적용 모드 강제 해제
                             if (s && s.settings) {
                                 s.settings.recent10FilterActive = false;
                             } else if (s) {
                                 s.recent10FilterActive = false;
                             }
-                            
+
+                            const filterKey = uuidToKey[id] || id; // UUID → filter_key 변환
                             const valStr = JSON.stringify(s);
-                            // 신규 인터페이스 키 저장
+
+                            // ① filter_settings_${uuid}: getSetting()이 읽는 키
                             localStorage.setItem(`filter_settings_${id}`, valStr);
-                            // 레거시 키 저장 (개별 페이지 실시간 동기화 트리거)
-                            if (legacyMap[id]) {
-                                legacyMap[id].forEach(key => localStorage.setItem(key, valStr));
+
+                            // ② 평문 filter_key: Utils.loadFilter()가 읽는 키
+                            if (filterKey && filterKey !== id) {
+                                localStorage.setItem(filterKey, valStr);
+                                triggeredKeys.add(filterKey);
+                            }
+
+                            // ③ 레거시 키: 개별 분석 페이지 StorageEvent 트리거용
+                            if (legacyMap[filterKey]) {
+                                legacyMap[filterKey].forEach(key => {
+                                    localStorage.setItem(key, valStr);
+                                    triggeredKeys.add(key);
+                                });
                             }
                         });
                     }
@@ -1137,7 +1192,6 @@
                     // 2. 바스켓 (고정수/제외수)
                     if (snapshot.basket) {
                         localStorage.setItem('basket_settings', JSON.stringify(snapshot.basket));
-                        // 레거시 UI용 (lotto_basket 형식으로 변환)
                         const basketData = {
                             fixed: snapshot.basket.fixed || [],
                             exclude: snapshot.basket.excluded || []
@@ -1145,11 +1199,9 @@
                         localStorage.setItem('lotto_basket', JSON.stringify(basketData));
                     }
 
-                    // 3. 커스텀 필터 (통합 확장 유지)
+                    // 3. 커스텀 필터
                     if (snapshot.customFilters) {
                         localStorage.setItem('custom_filters', JSON.stringify(snapshot.customFilters));
-                        
-                        // 개별 분석 페이지(custom_analysis.html) 동기화를 위해 개별 ID 키도 업데이트
                         if (Array.isArray(snapshot.customFilters)) {
                             snapshot.customFilters.forEach(cf => {
                                 if (cf.id) {
@@ -1162,7 +1214,6 @@
                     // 4. 회귀 분석
                     if (snapshot.regressionSettings) {
                         localStorage.setItem('regression_settings', JSON.stringify(snapshot.regressionSettings));
-                        // 레거시 호환성
                         localStorage.setItem('regression_analysis', JSON.stringify({
                             settings: snapshot.regressionSettings,
                             enabled: true
@@ -1174,9 +1225,32 @@
                         localStorage.setItem('manual_filters_state', JSON.stringify(snapshot.manualFilters));
                     }
 
-                    // [핵심] 탭 간 실시간 업데이트를 위해 storage 이벤트 수동 트리거
-                    window.dispatchEvent(new Event('storage'));
-                    console.log('✅ [Restoration] Full filter restore success');
+                    // StorageEvent 발화 — triggeredKeys에 수집된 실제 filter_key 기반
+                    triggeredKeys.forEach(function(key) {
+                        const val = localStorage.getItem(key);
+                        if (val) {
+                            window.dispatchEvent(new StorageEvent('storage', {
+                                key: key,
+                                newValue: val,
+                                storageArea: localStorage
+                            }));
+                        }
+                    });
+
+                    // [추가] filterLifecycle RESTORED 이벤트 — 모든 분석 페이지 loadFilterSettings() 재호출
+                    const restoredFilterKeys = Array.from(triggeredKeys);
+                    window.dispatchEvent(new CustomEvent('filterLifecycle', {
+                        detail: { type: 'RESTORED', data: { keys: restoredFilterKeys }, timestamp: Date.now() }
+                    }));
+
+                    // [추가] BroadcastChannel로 다른 탭에도 복원 신호 전송
+                    if (window._lottoBc) {
+                        try {
+                            window._lottoBc.postMessage({ type: 'FILTER_RESTORED', keys: restoredFilterKeys });
+                        } catch (_) {}
+                    }
+
+                    console.log('✅ [Restoration] Full filter restore success — keys:', restoredFilterKeys.length, triggeredKeys);
 
                 } catch (e) {
                     console.error('[Restoration] 필터 복구 중 오류:', e);

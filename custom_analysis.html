@@ -20,14 +20,15 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <script src="js/config.js"></script>
-    <script src="js/aiProxy.js"></script>
+    <script src="js/aiProxy.js?v=20260426"></script>
     <script src="js/theme.js"></script>
     <script src="js/common_v2.js"></script>
     <script src="js/filter/FilterService.js"></script>
+    <script src="js/filter/FilterLifecycle.js"></script>
+    <script src="js/filter/FilterRuleEngine.js"></script>
     <script src="js/layout.js"></script>
 
     <script src="js/customAnalysis.js"></script>
-    <script src="js/deep_insight_panel.js"></script>
 
     <!-- NLP Modules -->
     <script src="js/NLPProcessor.js"></script>
@@ -164,43 +165,9 @@
 
                     </div>
 
-                    <!-- Deep Learning Insight Panel -->
+                    <!-- AI 프리미엄 전략 리포트 (DeepInsightPanel) -->
                     <div id="dlInsightContainer" class="mb-6"></div>
 
-                    <!-- AI Analysis Insight Section -->
-                    <div id="aiAnalysisSection" class="mb-4">
-                        <div
-                            class="bg-white rounded-[2rem] border border-blue-50 shadow-xl shadow-blue-100/20 overflow-hidden">
-                            <div
-                                class="px-8 py-5 bg-gradient-to-r from-blue-600 via-blue-500 to-blue-600 flex items-center justify-between">
-                                <div class="flex items-center gap-3 text-white">
-                                    <div
-                                        class="w-8 h-8 bg-white/20 backdrop-blur-md rounded-lg flex items-center justify-center">
-                                        <span class="material-symbols-outlined text-[20px]">auto_awesome</span>
-                                    </div>
-                                    <div>
-                                        <span class="text-base font-normal tracking-tight">AI 맞춤형 분석 리포트</span>
-                                        <p class="text-[9px] text-white/60 font-normal uppercase tracking-wider">Dynamic
-                                            Strategic Insight</p>
-                                    </div>
-                                </div>
-                                <button onclick="refreshAIAnalysis()"
-                                    class="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all text-white">
-                                    <span class="material-symbols-outlined text-sm">refresh</span>
-                                </button>
-                            </div>
-                            <div id="aiAnalysisContent"
-                                class="p-8 prose prose-indigo max-w-none text-slate-600 leading-relaxed font-normal min-h-[120px]">
-                                <!-- AI 로딩 skeleton -->
-                                <div id="aiSkeletonLoader" class="animate-pulse space-y-3">
-                                    <div class="h-4 bg-slate-100 rounded-full w-3/4"></div>
-                                    <div class="h-4 bg-slate-100 rounded-full w-full"></div>
-                                    <div class="h-4 bg-slate-100 rounded-full w-5/6"></div>
-                                    <div class="h-4 bg-slate-100 rounded-full w-2/3"></div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
 
                     <!-- NLP Input Section (Moved Here) -->
 
@@ -233,7 +200,8 @@
                             <div
                                 class="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 border border-gray-100 rounded-xl">
                                 <div class="flex-1">
-                                    <div class="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-4 py-2 shadow-sm focus-within:ring-2 focus-within:ring-blue-500 w-fit">
+                                    <div
+                                        class="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-4 py-2 shadow-sm focus-within:ring-2 focus-within:ring-blue-500 w-fit">
                                         <input type="number" id="customFilterMin" min="0" max="6" value="1"
                                             oninput="updateCustomRange('min', this.value)"
                                             class="w-14 text-center font-black text-blue-600 bg-transparent border-none p-0 focus:ring-0 text-lg">
@@ -354,9 +322,12 @@
                                 <thead class="bg-gray-50">
                                     <tr>
                                         <th class="px-6 py-4 text-xs font-normal text-gray-500 uppercase">회귀 Step</th>
-                                        <th class="px-6 py-4 text-xs font-normal text-gray-500 uppercase text-center">당첨 번호</th>
-                                        <th class="px-6 py-4 text-xs font-normal text-gray-500 uppercase text-center">적중 수</th>
-                                        <th class="px-6 py-4 text-xs font-normal text-gray-500 uppercase text-right">작업</th>
+                                        <th class="px-6 py-4 text-xs font-normal text-gray-500 uppercase text-center">당첨
+                                            번호</th>
+                                        <th class="px-6 py-4 text-xs font-normal text-gray-500 uppercase text-center">적중
+                                            수</th>
+                                        <th class="px-6 py-4 text-xs font-normal text-gray-500 uppercase text-right">작업
+                                        </th>
                                     </tr>
                                 </thead>
                                 <tbody id="regression-scan-results" class="divide-y divide-gray-100 bg-white">
@@ -365,10 +336,10 @@
                         </div>
                     </div>
                 </div>
-            </div> <!-- End of max-w-7xl -->
+        </div> <!-- End of max-w-7xl -->
         </main>
     </div> <!-- End of flex flex-1 -->
-</div> <!-- End of flex flex-col h-screen -->
+    </div> <!-- End of flex flex-col h-screen -->
 
     <!-- [New] 통계 상세 모달 -->
     <div id="statsModal"
@@ -383,7 +354,8 @@
                     </div>
                     <div>
                         <h2 class="text-xl font-normal text-slate-900">번호대별 상세 통계</h2>
-                        <p class="text-[10px] font-normal text-slate-400 uppercase tracking-widest mt-1">회차별 적중 상세 분석</p>
+                        <p class="text-[10px] font-normal text-slate-400 uppercase tracking-widest mt-1">회차별 적중 상세 분석
+                        </p>
                     </div>
                 </div>
                 <button onclick="closeStatsModal()"
@@ -395,7 +367,8 @@
             <div class="px-8 py-6 bg-slate-50/50 border-b border-slate-100">
                 <div class="flex items-center justify-between mb-4">
                     <span class="text-xs font-normal text-slate-400 uppercase tracking-widest">분석 범위 설정</span>
-                    <div id="statsRangeText" class="text-sm font-normal text-blue-600 bg-blue-50 px-3 py-1 rounded-full">
+                    <div id="statsRangeText"
+                        class="text-sm font-normal text-blue-600 bg-blue-50 px-3 py-1 rounded-full">
                         최근 100회 분석</div>
                 </div>
                 <input type="range" id="statsRangeSlider" min="20" max="1200" value="100" step="10"
@@ -432,8 +405,10 @@
             opacity: 0;
             transform: translateY(20px);
             pointer-events: none;
-            position: relative; /* [수정] absolute에서 relative로 변경 */
-            display: none;    /* [추가] relative 시 겹침 방지를 위해 평소엔 숨김 */
+            position: relative;
+            /* [수정] absolute에서 relative로 변경 */
+            display: none;
+            /* [추가] relative 시 겹침 방지를 위해 평소엔 숨김 */
             width: 100%;
             top: 0;
             left: 0;
@@ -443,7 +418,8 @@
             opacity: 1;
             transform: translateY(0);
             pointer-events: auto;
-            display: block;    /* [추가] 활성화 시 표시 */
+            display: block;
+            /* [추가] 활성화 시 표시 */
             visibility: visible;
         }
 
@@ -514,3 +490,6 @@
 
 </html>
 
+</body>
+
+</html>

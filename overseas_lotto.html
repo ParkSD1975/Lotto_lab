@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html class="light" lang="ko">
+<head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>Lotto Lab - 해외로또</title>
+    <link href="css/tailwind.css" rel="stylesheet" />
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="css/common.css" />
+    <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="js/config.js"></script>
+    <script src="js/theme.js"></script>
+    <script src="js/layout.js"></script>
+
+    <style>
+        /* 볼 */
+        .ball {
+            display: inline-flex;
+            width: 26px; height: 26px;
+            align-items: center; justify-content: center;
+            border-radius: 50%;
+            color: white; font-weight: 700; font-size: 11px;
+            box-shadow: inset 0 -2px 3px rgba(0,0,0,0.15);
+            margin: 0 1px; flex-shrink: 0;
+        }
+        .ball-y  { background: linear-gradient(135deg,#f59e0b,#d97706); }
+        .ball-b  { background: linear-gradient(135deg,#3b82f6,#2563eb); }
+        .ball-r  { background: linear-gradient(135deg,#ef4444,#dc2626); }
+        .ball-g  { background: linear-gradient(135deg,#6b7280,#4b5563); }
+        .ball-gr { background: linear-gradient(135deg,#10b981,#059669); }
+        .ball-bonus {
+            background: linear-gradient(135deg,#8b5cf6,#7c3aed);
+            width: 22px; height: 22px; font-size: 10px;
+        }
+        /* 한국로또 볼 — 일치는 강조, 불일치는 흐리게 */
+        .ball-kr-hit { box-shadow: inset 0 -2px 3px rgba(0,0,0,0.15); }
+        .ball-kr-dim { opacity: 0.28; }
+
+        /* 테이블 */
+        .data-table { width:100%; border-collapse:separate; border-spacing:0; }
+        .data-table thead th {
+            background:#1e293b; color:#f8fafc; font-weight:600; font-size:11px;
+            padding:9px 4px; text-align:center;
+            border-bottom:1px solid #334155; border-right:1px solid #334155;
+            white-space:nowrap; position:sticky; top:0; z-index:30;
+        }
+        .data-table thead th.sticky-col { left:0; z-index:40; background:#1e293b; }
+        .data-table tbody td {
+            padding:7px 4px; text-align:center; font-size:12px; color:#334155;
+            border-bottom:1px solid #f1f5f9; border-right:1px solid #f1f5f9;
+            white-space:nowrap;
+        }
+        .data-table tbody td.sticky-col {
+            position:sticky; left:0; z-index:20;
+            background:#fff; font-weight:600; color:#1e293b;
+            border-right:1px solid #e2e8f0;
+        }
+        .data-table tbody tr:hover td            { background:#f8fafc; }
+        .data-table tbody tr:hover td.sticky-col { background:#f8fafc; }
+
+        /* Hit 색상 */
+        .hit-null { color:#cbd5e1; }
+        .hit-0    { color:#94a3b8; }
+        .hit-1    { color:#64748b; }
+        .hit-2    { color:#475569; font-weight:600; }
+        .hit-3    { color:#f59e0b; font-weight:700; }
+        .hit-4    { color:#f97316; font-weight:700; }
+        .hit-5    { color:#ef4444; font-weight:800; }
+        .hit-6    { color:#dc2626; font-weight:800; background:#fef2f2; border-radius:4px; padding:1px 5px; }
+
+        /* 버튼 */
+        .btn-base {
+            display:inline-flex; align-items:center; justify-content:center;
+            height:36px; padding:0 14px; border-radius:8px;
+            font-weight:600; font-size:13px; transition:all 0.2s; white-space:nowrap; gap:6px;
+        }
+        .btn-dark  { background:#1e293b; color:white; }
+        .btn-dark:hover { background:#334155; }
+        .btn-green { background:#10b981; color:white; }
+        .btn-green:hover { background:#059669; }
+
+        select.lottery-select {
+            height: 36px; border-radius: 8px; border: 1px solid #e2e8f0;
+            padding: 0 10px; font-size: 13px; background: #f8fafc;
+            cursor: pointer; color: #1e293b; font-weight: 600;
+            min-width: 220px;
+        }
+        select.lottery-select:focus { outline: none; border-color: #6366f1; background: white; }
+
+        /* 빈 상태 */
+        .empty-state {
+            display:flex; flex-direction:column; align-items:center; justify-content:center;
+            padding:60px 20px; gap:10px; color:#94a3b8;
+        }
+    </style>
+</head>
+
+<body class="bg-gray-50 font-sans">
+<div class="flex flex-col h-screen">
+
+    <div id="gnb-container"></div>
+
+    <div class="flex flex-1 overflow-hidden">
+
+        <!-- 사이드바 -->
+        <aside class="w-56 bg-white border-r border-gray-200 overflow-y-auto custom-scrollbar flex-shrink-0"
+               id="lnb-container"></aside>
+
+        <!-- 메인 -->
+        <main class="flex-1 overflow-y-auto custom-scrollbar">
+            <div class="max-w-[1800px] mx-auto p-6 space-y-4">
+
+                <!-- 타이틀 -->
+                <div>
+                    <h1 class="text-2xl font-bold text-gray-900">해외 로또</h1>
+                    <p class="text-sm text-gray-500 mt-0.5">6/45 포맷 해외 13개 로또 당첨번호 — 한국 로또 Hit 비교 포함</p>
+                </div>
+
+                <!-- 툴바 -->
+                <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+                    <div class="flex flex-wrap items-center gap-3">
+                        <select id="lotterySelect" class="lottery-select" onchange="onLotteryChange()">
+                            <option value="">— 로또 선택 —</option>
+                        </select>
+
+                        <div id="lotteryMeta" class="text-xs text-slate-500 hidden flex items-center gap-2">
+                            <span class="bg-slate-100 rounded px-2 py-0.5 font-semibold" id="metaFormat"></span>
+                            <span>보너스 <strong id="metaBonus"></strong>개</span>
+                            <span>·</span>
+                            <span>추첨: <strong id="metaDays"></strong></span>
+                        </div>
+
+                        <div class="ml-auto flex items-center gap-2">
+                            <span id="totalCount" class="text-xs font-bold text-blue-600 bg-blue-50 px-3 py-1 rounded-full border border-blue-100">0회차</span>
+                            <button onclick="exportToExcel()" class="btn-base btn-green">
+                                <span class="material-symbols-outlined text-base">download</span>엑셀
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Hit 범례 -->
+                    <div class="mt-3 pt-3 border-t border-gray-100 flex items-center gap-3 flex-wrap text-xs">
+                        <span class="text-gray-400 font-semibold">Hit (한국로또 일치):</span>
+                        <span class="hit-0">0개</span>
+                        <span class="hit-1">1개</span>
+                        <span class="hit-2">2개</span>
+                        <span class="hit-3">3개 ★</span>
+                        <span class="hit-4">4개 ★★</span>
+                        <span class="hit-5">5개 ★★★</span>
+                        <span class="hit-6">6개 ★★★★</span>
+                        <span class="text-gray-300 mx-1">|</span>
+                        <span class="text-gray-400">한국 로또 기준 ±3일 내 같은 주</span>
+                    </div>
+                </div>
+
+                <!-- 테이블 -->
+                <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                    <div class="overflow-x-auto custom-scrollbar" style="max-height: calc(100vh - 280px);">
+                        <table class="data-table" style="min-width: 1200px;">
+                            <thead>
+                                <tr>
+                                    <th class="sticky-col" style="width:36px">요일</th>
+                                    <th style="width:88px">날짜</th>
+                                    <th style="width:190px">당첨번호</th>
+                                    <th style="width:46px">보너스</th>
+                                    <th style="width:42px">총합</th>
+                                    <th style="width:46px">끝수합</th>
+                                    <th style="width:34px">AC</th>
+                                    <th style="width:42px">홀:짝</th>
+                                    <th style="width:42px">저:고</th>
+                                    <th style="width:36px">연번</th>
+                                    <th style="width:40px">이월</th>
+                                    <th style="width:36px">소수</th>
+                                    <th style="width:42px">합성수</th>
+                                    <th style="width:42px">삼각수</th>
+                                    <th style="width:190px">동행로또</th>
+                                    <th style="width:52px">Hit ★</th>
+                                </tr>
+                            </thead>
+                            <tbody id="drawTableBody">
+                                <tr>
+                                    <td colspan="16" class="py-16 text-center text-slate-400 text-sm">
+                                        위 드롭다운에서 로또를 선택하세요.
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+</div>
+
+<!-- 로딩 오버레이 -->
+<div id="loadingOverlay" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(255,255,255,0.92);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+    <div style="width:40px;height:40px;border:4px solid #3b82f6;border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:16px;"></div>
+    <p style="color:#374151;font-weight:700;">데이터 로딩 중...</p>
+    <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+</div>
+
+<script>
+    const SUPABASE_URL = 'https://dkcflmyoscudawleglzb.supabase.co';
+    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRrY2ZsbXlvc2N1ZGF3bGVnbHpiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc1NDQ4OTAsImV4cCI6MjA4MzEyMDg5MH0.haAvbpScvMJv1uqH_tk-0fUlJNCpHnlWBtYzX6YFweo';
+
+    if (!window.supabaseClient && typeof supabase !== 'undefined') {
+        window.supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    }
+
+    const COUNTRY_FLAGS = { NL:'🇳🇱', AU:'🇦🇺', AT:'🇦🇹', HU:'🇭🇺', HR:'🇭🇷', BE:'🇧🇪', PH:'🇵🇭' };
+    const COUNTRY_NAMES = { NL:'네덜란드', AU:'호주', AT:'오스트리아', HU:'헝가리', HR:'크로아티아', BE:'벨기에', PH:'필리핀' };
+
+    let allLotteries = [];
+    let currentDraws  = [];
+    let currentLottery = null;
+    let krDrawMap = new Map(); // 'YYYY-MM-DD' → { numbers[], round }
+
+    const calc = {
+        sum:     n => n.reduce((a,b)=>a+b,0),
+        tailSum: n => n.reduce((a,b)=>a+(b%10),0),
+        ac: n => {
+            const d = new Set();
+            for (let i=0;i<n.length;i++) for(let j=i+1;j<n.length;j++) d.add(Math.abs(n[i]-n[j]));
+            return d.size - 5;
+        },
+        oddEven:     n => { const o=n.filter(x=>x%2!==0).length; return `${o}:${6-o}`; },
+        lowHigh:     n => { const l=n.filter(x=>x<=23).length;   return `${l}:${6-l}`; },
+        consecutive: n => {
+            let c=0, s=[...n].sort((a,b)=>a-b);
+            for(let i=0;i<s.length-1;i++) if(s[i+1]===s[i]+1) c++;
+            return c;
+        },
+        carryover: (curr, prev) => prev ? curr.filter(n=>prev.includes(n)).length : null,
+        prime:    n => { const P=[2,3,5,7,11,13,17,19,23,29,31,37,41,43]; return n.filter(x=>P.includes(x)).length; },
+        composite:n => { const P=[2,3,5,7,11,13,17,19,23,29,31,37,41,43]; return n.filter(x=>x>1&&!P.includes(x)).length; },
+        triangular:n => { const T=[1,3,6,10,15,21,28,36,45]; return n.filter(x=>T.includes(x)).length; }
+    };
+
+    function ballClass(n) {
+        if(n<=10) return 'ball-y'; if(n<=20) return 'ball-b';
+        if(n<=30) return 'ball-r'; if(n<=40) return 'ball-g'; return 'ball-gr';
+    }
+
+    document.addEventListener('DOMContentLoaded', initPage);
+
+    async function initPage() {
+        const client = window.supabaseClient;
+        if (!client) {
+            document.getElementById('loadingOverlay').innerHTML = '<p style="color:red;padding:20px">DB 연결 실패</p>';
+            return;
+        }
+        try {
+            const [lotRes, krRes] = await Promise.all([
+                client.from('lotteries').select('*').eq('is_active', true).order('country').order('name'),
+                client.from('lotto_draws').select('round,date,numbers').order('round', {ascending:true})
+            ]);
+            if (lotRes.error) throw lotRes.error;
+            allLotteries = lotRes.data || [];
+
+            // 한국 로또 날짜 맵
+            (krRes.data || []).forEach(d => {
+                if (d.date) krDrawMap.set(d.date, { numbers: d.numbers || [], round: d.round });
+            });
+
+            buildDropdown();
+        } catch(e) {
+            console.error(e);
+        } finally {
+            document.getElementById('loadingOverlay').style.display = 'none';
+        }
+    }
+
+    function buildDropdown() {
+        const sel = document.getElementById('lotterySelect');
+        const grouped = {};
+        allLotteries.forEach(l => {
+            if (!grouped[l.country]) grouped[l.country] = [];
+            grouped[l.country].push(l);
+        });
+        sel.innerHTML = '<option value="">— 로또 선택 —</option>';
+        Object.entries(grouped).forEach(([country, list]) => {
+            const grp = document.createElement('optgroup');
+            grp.label = `${COUNTRY_FLAGS[country]||''} ${COUNTRY_NAMES[country]||country}`;
+            list.forEach(l => {
+                const o = document.createElement('option');
+                o.value = l.id; o.textContent = l.name;
+                grp.appendChild(o);
+            });
+            sel.appendChild(grp);
+        });
+    }
+
+    async function onLotteryChange() {
+        const id = document.getElementById('lotterySelect').value;
+        if (!id) {
+            currentLottery = null; currentDraws = [];
+            document.getElementById('lotteryMeta').classList.add('hidden');
+            document.getElementById('totalCount').textContent = '0회차';
+            document.getElementById('drawTableBody').innerHTML =
+                `<tr><td colspan="16" class="py-16 text-center text-slate-400 text-sm">위 드롭다운에서 로또를 선택하세요.</td></tr>`;
+            return;
+        }
+        currentLottery = allLotteries.find(l => l.id === id);
+
+        // 메타 표시
+        const meta = document.getElementById('lotteryMeta');
+        document.getElementById('metaFormat').textContent = currentLottery.format;
+        document.getElementById('metaBonus').textContent  = currentLottery.bonus_count;
+        document.getElementById('metaDays').textContent   = (currentLottery.draw_days||[]).join(', ');
+        meta.classList.remove('hidden');
+
+        document.getElementById('drawTableBody').innerHTML =
+            `<tr><td colspan="16" class="py-12 text-center text-slate-400">
+                <span class="material-symbols-outlined animate-spin text-3xl block mb-2">sync</span>로딩 중...
+            </td></tr>`;
+
+        try {
+            const {data, error} = await window.supabaseClient
+                .from('draws').select('*')
+                .eq('lottery_id', id)
+                .order('draw_date', {ascending:false})
+                .range(0, 3000);
+            if (error) throw error;
+            currentDraws = data || [];
+            document.getElementById('totalCount').textContent = `총 ${currentDraws.length}회차`;
+            renderTable(currentDraws);
+        } catch(e) {
+            document.getElementById('drawTableBody').innerHTML =
+                `<tr><td colspan="16" class="py-12 text-center text-red-400 text-sm">로드 실패: ${e.message}</td></tr>`;
+        }
+    }
+
+    function findNearestKr(dateStr) {
+        if (!dateStr) return null;
+        const date = new Date(dateStr + 'T00:00:00');
+        const dow  = date.getDay(); // 0=일, 1=월 ... 6=토
+
+        // 해외 추첨일 이후 가장 가까운 토요일(동행로또)과 매칭
+        // 해외 추첨은 항상 동행로또보다 먼저 추첨되므로 → 추첨일 이후 다음 토요일과 매칭
+        // 일요일(0): +6일, 월(1): +5일, 화(2): +4일, 수(3): +3일,
+        // 목(4): +2일, 금(5): +1일, 토(6): +7일(차주 토요일)
+        const daysToSat = dow === 6 ? 7 : (6 - dow + 7) % 7 || 7;
+        const targetSat = new Date(date);
+        targetSat.setDate(targetSat.getDate() + daysToSat);
+        const refTime = targetSat.getTime();
+
+        const MAX = 4 * 86400000; // ±4일 허용 (한국 로또가 쉬는 주 등 대비)
+        let best = null, bestDiff = Infinity;
+        for (const [d, draw] of krDrawMap) {
+            const diff = Math.abs(new Date(d + 'T00:00:00').getTime() - refTime);
+            if (diff <= MAX && diff < bestDiff) { bestDiff = diff; best = draw; }
+        }
+        return best;
+    }
+
+    function renderTable(list) {
+        const tbody = document.getElementById('drawTableBody');
+        if (!list || list.length === 0) {
+            tbody.innerHTML = `
+                <tr><td colspan="16">
+                    <div style="display:flex;flex-direction:column;align-items:center;padding:60px 20px;gap:10px;color:#94a3b8;">
+                        <span class="material-symbols-outlined" style="font-size:48px;">cloud_download</span>
+                        <p style="font-weight:700;font-size:15px;color:#64748b;">수집 대기 중</p>
+                        <p style="font-size:13px;">Kaggle 또는 lotteryextreme에서 데이터를 import하면 표시됩니다.</p>
+                    </div>
+                </td></tr>`;
+            return;
+        }
+
+        const bonusCount = currentLottery?.bonus_count ?? 1;
+
+        // 이월수 계산을 위해 오름차순으로 정렬한 복사본
+        const asc = [...list].sort((a,b) => a.draw_date < b.draw_date ? -1 : 1);
+        const prevNums = new Map(); // draw_date → prev numbers[]
+        asc.forEach((d, i) => {
+            if (i === 0) { prevNums.set(d.draw_date, null); return; }
+            const prev = asc[i-1];
+            prevNums.set(d.draw_date, [prev.n1,prev.n2,prev.n3,prev.n4,prev.n5,prev.n6].filter(n=>n!=null));
+        });
+
+        tbody.innerHTML = list.map(d => {
+            const nums = [d.n1,d.n2,d.n3,d.n4,d.n5,d.n6].filter(n=>n!=null);
+
+            // Hit + 한국로또 (당첨번호 하이라이트용으로 먼저 계산)
+            const kr = findNearestKr(d.draw_date);
+            const hit = kr ? nums.filter(n => kr.numbers.includes(n)).length : null;
+
+            // 당첨번호 볼 (동행로또 일치 번호 하이라이트)
+            const ballsHtml = nums.map(n => {
+                const dim = kr && !kr.numbers.includes(n) ? ' ball-kr-dim' : '';
+                return `<span class="ball ${ballClass(n)}${dim}">${n}</span>`;
+            }).join('<span style="display:inline-block;width:4px"></span>');
+
+            // 보너스
+            let bonusHtml = '<span class="text-slate-300 text-xs">-</span>';
+            if (bonusCount >= 1 && d.b1) {
+                bonusHtml = `<span class="ball ball-bonus">${d.b1}</span>`;
+                if (bonusCount >= 2 && d.b2) bonusHtml += `<span class="ball ball-bonus">${d.b2}</span>`;
+            }
+
+            // 지표 (DB값 우선, 없으면 클라이언트 계산)
+            const sum     = d.sum      ?? calc.sum(nums);
+            const tailSum = d.tail_sum ?? calc.tailSum(nums);
+            const ac      = d.ac       ?? calc.ac(nums);
+            const oe      = (d.odd_count  != null) ? `${d.odd_count}:${d.even_count}` : calc.oddEven(nums);
+            const lh      = (d.low_count  != null) ? `${d.low_count}:${d.high_count}` : calc.lowHigh(nums);
+            const consec  = d.consecutive_pairs ?? calc.consecutive(nums);
+
+            // 이월수
+            const pn        = prevNums.get(d.draw_date);
+            const carryover = calc.carryover(nums, pn);
+
+            // 소수 / 합성수 / 삼각수
+            const primeCnt = calc.prime(nums);
+            const compCnt  = calc.composite(nums);
+            const triCnt   = calc.triangular(nums);
+
+            // Hit 렌더
+            let hitHtml;
+            if (hit === null) hitHtml = `<span class="hit-null">-</span>`;
+            else {
+                const cls = hit >= 6 ? 'hit-6' : hit >= 5 ? 'hit-5' : hit >= 4 ? 'hit-4'
+                          : hit >= 3 ? 'hit-3' : hit >= 2 ? 'hit-2' : hit >= 1 ? 'hit-1' : 'hit-0';
+                const stars = hit >= 3 ? ' '+'★'.repeat(Math.min(hit-2,4)) : '';
+                hitHtml = `<span class="${cls}">${hit}${stars}</span>`;
+            }
+
+            // 한국로또 볼 (일치 강조, 불일치 흐리게)
+            let krHtml = '<span class="text-slate-300 text-xs">-</span>';
+            if (kr && kr.numbers.length > 0) {
+                krHtml = kr.numbers.map(n => {
+                    const dim = !nums.includes(n) ? ' ball-kr-dim' : ' ball-kr-hit';
+                    return `<span class="ball ${ballClass(n)}${dim}">${n}</span>`;
+                }).join('<span style="display:inline-block;width:4px"></span>');
+                krHtml = `<div style="display:flex;align-items:center;justify-content:center;">${krHtml}</div>`;
+            }
+
+            // 요일 계산
+            const DOW = ['일','월','화','수','목','금','토'];
+            const DOW_COLOR = ['text-red-500','text-slate-700','text-slate-700','text-slate-700','text-slate-700','text-slate-700','text-blue-600'];
+            const dowIdx = d.draw_date ? new Date(d.draw_date + 'T00:00:00').getDay() : -1;
+            const dowLabel = dowIdx >= 0 ? DOW[dowIdx] : '-';
+            const dowCls   = dowIdx >= 0 ? DOW_COLOR[dowIdx] : 'text-slate-400';
+
+            return `
+            <tr class="group">
+                <td class="sticky-col group-hover:!bg-slate-50 font-bold text-xs ${dowCls}">${dowLabel}</td>
+                <td class="text-slate-500 text-xs">${d.draw_date ?? '-'}</td>
+                <td><div style="display:flex;align-items:center;justify-content:center;">${ballsHtml}</div></td>
+                <td>${bonusHtml}</td>
+                <td class="font-bold text-slate-700">${sum}</td>
+                <td class="text-slate-600">${tailSum}</td>
+                <td class="font-bold text-slate-600">${ac}</td>
+                <td class="${oe==='3:3'?'text-emerald-600 font-bold':'text-slate-500'}">${oe}</td>
+                <td class="${lh==='3:3'?'text-blue-600 font-bold':'text-slate-500'}">${lh}</td>
+                <td class="${consec>0?'text-red-500 font-bold':'text-slate-400'}">${consec}</td>
+                <td class="${carryover!=null&&carryover>0?'text-purple-500 font-bold':'text-slate-400'}">${carryover??'-'}</td>
+                <td class="${primeCnt>=3?'text-blue-600 font-bold':'text-slate-400'}">${primeCnt}</td>
+                <td class="${compCnt>=3?'text-orange-500 font-bold':'text-slate-400'}">${compCnt}</td>
+                <td class="${triCnt>=2?'text-teal-600 font-bold':'text-slate-400'}">${triCnt}</td>
+                <td>${krHtml}</td>
+                <td>${hitHtml}</td>
+            </tr>`;
+        }).join('');
+    }
+
+    function exportToExcel() {
+        if (!currentLottery || currentDraws.length === 0) { alert('내보낼 데이터가 없습니다.'); return; }
+        const asc = [...currentDraws].sort((a,b)=>a.draw_date<b.draw_date?-1:1);
+        const prevNums = new Map();
+        asc.forEach((d,i) => {
+            prevNums.set(d.draw_date, i===0 ? null : [asc[i-1].n1,asc[i-1].n2,asc[i-1].n3,asc[i-1].n4,asc[i-1].n5,asc[i-1].n6].filter(n=>n!=null));
+        });
+        const rows = currentDraws.map(d => {
+            const nums = [d.n1,d.n2,d.n3,d.n4,d.n5,d.n6].filter(n=>n!=null);
+            const kr   = findNearestKr(d.draw_date);
+            const hit  = kr ? nums.filter(n=>kr.numbers.includes(n)).length : null;
+            const pn   = prevNums.get(d.draw_date);
+            return {
+                '회차':d.draw_no,'날짜':d.draw_date,
+                '번호1':d.n1,'번호2':d.n2,'번호3':d.n3,'번호4':d.n4,'번호5':d.n5,'번호6':d.n6,
+                '보너스1':d.b1??'','보너스2':d.b2??'',
+                '총합':d.sum??calc.sum(nums),'끝수합':d.tail_sum??calc.tailSum(nums),
+                'AC':d.ac??calc.ac(nums),
+                '이월수':calc.carryover(nums,pn)??'-',
+                'Hit(KR)':hit??'-',
+                '한국로또회차':kr?.round??'-'
+            };
+        });
+        const ws = XLSX.utils.json_to_sheet(rows);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, '해외로또');
+        XLSX.writeFile(wb, `해외로또_${currentLottery.name}_${new Date().toISOString().slice(0,10)}.xlsx`);
+    }
+</script>
+</body>
+</html>
