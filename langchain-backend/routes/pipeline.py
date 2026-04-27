@@ -1,5 +1,9 @@
+"""파이프라인 라우터 (T-1 결정 C 마이그레이션).
+
+v1(WeeklyPipeline) 폐기 → v2(WeeklyPipelineV2)가 single source of truth.
+기존 /run 엔드포인트는 *호환 유지*를 위해 v2로 위임.
+"""
 from fastapi import APIRouter, BackgroundTasks
-from pipeline.weekly_pipeline import WeeklyPipeline
 from pipeline.weekly_pipeline_v2 import WeeklyPipelineV2
 
 router = APIRouter(
@@ -7,14 +11,8 @@ router = APIRouter(
     tags=["Pipeline"]
 )
 
-_pipeline = None
 _pipeline_v2 = None
 
-def get_pipeline():
-    global _pipeline
-    if _pipeline is None:
-        _pipeline = WeeklyPipeline()
-    return _pipeline
 
 def get_pipeline_v2():
     global _pipeline_v2
@@ -22,17 +20,24 @@ def get_pipeline_v2():
         _pipeline_v2 = WeeklyPipelineV2()
     return _pipeline_v2
 
+
 @router.post("/run")
 async def run_pipeline(background_tasks: BackgroundTasks, new_round: int = None):
-    """주간 분석 파이프라인 수동 실행 (백그라운드)."""
-    background_tasks.add_task(get_pipeline().run, new_round)
-    return {"status": "started", "message": "주간 분석 파이프라인이 백그라운드에서 시작되었습니다."}
+    """주간 분석 파이프라인 수동 실행 (백그라운드).
+
+    T-1 결정 C: v1 폐기 후 v2로 위임. new_round 인자는 v2의 target_round로 매핑.
+    """
+    background_tasks.add_task(get_pipeline_v2().run, new_round)
+    return {"status": "started",
+            "message": "주간 분석 파이프라인(V2)이 백그라운드에서 시작되었습니다."}
+
 
 @router.post("/run-v2")
 async def run_pipeline_v2(background_tasks: BackgroundTasks):
-    """주간 파이프라인 V2 수동 실행 (백그라운드)."""
+    """명시적 V2 실행 엔드포인트 (호환 유지)."""
     background_tasks.add_task(get_pipeline_v2().run)
     return {"status": "started", "message": "WeeklyPipelineV2 백그라운드 실행 시작"}
+
 
 @router.post("/train")
 async def train_all_models(background_tasks: BackgroundTasks, force_retrain: bool = False):
@@ -55,7 +60,9 @@ async def train_all_models(background_tasks: BackgroundTasks, force_retrain: boo
             logger.error(f"[Train] 실패: {e}")
 
     background_tasks.add_task(_train)
-    return {"status": "started", "message": f"7개 모델 파인튜닝 시작 (force_retrain={force_retrain}). 완료까지 수분 소요."}
+    return {"status": "started",
+            "message": f"7개 모델 파인튜닝 시작 (force_retrain={force_retrain}). 완료까지 수분 소요."}
+
 
 @router.get("/status")
 async def get_pipeline_status():

@@ -13,7 +13,7 @@ from routes import smart_query, llm_filter
 from routes import predictions_v4           # P: Single Source of Truth API v4
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from pipeline.weekly_pipeline import WeeklyPipeline
+# T-1 결정 C: v1 (WeeklyPipeline) 폐기 — v2가 single source of truth
 from pipeline.weekly_pipeline_v2 import WeeklyPipelineV2
 
 scheduler = AsyncIOScheduler()
