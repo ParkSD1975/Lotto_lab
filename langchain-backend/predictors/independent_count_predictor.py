@@ -101,7 +101,10 @@ def _instantiate_base_model(model_name: str, n_classes: int, feature_dim: int):
         try:
             from models.bayesian_nn_model import LottoBayesianNN
             return LottoBayesianNN(
-                input_dim=feature_dim, num_classes=n_classes, mc_samples=20
+                input_dim=feature_dim,
+                num_classes=n_classes,
+                mc_samples=20,
+                task_type="multiclass",  # ICP는 카테고리별 7-class 분류 — CE 사용
             )
         except ImportError:
             return None
