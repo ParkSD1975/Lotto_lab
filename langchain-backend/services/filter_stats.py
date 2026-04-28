@@ -1,22 +1,44 @@
 """필터별 통계 분석 엔진.
 
-lotto_draws 데이터로부터 18+ 필터 유형의 통계를 계산하고
+lotto_draws 데이터로부터 21+ 필터 유형의 통계를 계산하고
 각 필터별 추천 범위/값 + 근거(evidence)를 생성한다.
 
-사용:
+사용 (기존 — predictor 미주입):
     from services.filter_stats import FilterStatsComputer
     computer = FilterStatsComputer(draws)  # draws: round 내림차순
     result = computer.compute_all()
 
+사용 (Stage 1-4-A — predictor 주입):
+    from predictors.phase1_registry import Phase1Registry
+    from predictors.endings_predictor import EndingsPredictor
+    from predictors.ac_predictor import ACPredictor
+    from predictors.sum_predictor import SumPredictor
+
+    p1 = Phase1Registry(); p1.register_default(); p1.train_all(draws)
+    p2 = EndingsPredictor(); p2.train(draws)
+    p3 = ACPredictor(); p3.train(draws)
+    p4 = SumPredictor(); p4.train(draws)
+
+    computer = FilterStatsComputer(
+        draws,
+        phase1_registry=p1, phase2_endings=p2,
+        phase3_ac=p3, phase4_sum=p4,
+    )
+    result = computer.compute_all()
+
 P2 추가: Poisson-Binomial PMF 기반 필터값 분포 계산
-- count-type 22개 필터: PB PMF (O(n²) DP, 정확)
+- count-type 22개 필터: PB PMF (O(n^2) DP, 정확)
 - range-type 2개 (sum, tail_sum): 전체 45개 사용 개선 MC
 - complex 2개 (ac, consecutive): 기존 방식 유지
+
+Stage 1-4-A: 22 predictor 결과를 ml_recommendation 필드로 통합.
+- predictor 미주입 시: 기존 동작 100% 유지 (ml_recommendation=None, fallback_used=True)
+- predictor 주입 시: ml_recommendation 채워짐 (fallback_used=False)
 """
 
 import math
 from collections import Counter
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
@@ -98,7 +120,7 @@ def build_dynamic_attr_sets(history_draws: list) -> dict:
     """히스토리 기반 동적 집합 계산 (한 번만 계산, 재사용).
 
     Args:
-        history_draws: 역순(최신→과거) 정렬된 당첨 이력
+        history_draws: 역순(최신->과거) 정렬된 당첨 이력
 
     Returns:
         {
@@ -107,7 +129,7 @@ def build_dynamic_attr_sets(history_draws: list) -> dict:
             "cold10_nums": set,
             "missing_nums": set,   # 10회 이상 미출현
             "latest_nums": set,    # 직전 회차 당첨번호 (이월수)
-            "neighbor_nums": set,  # latest_nums의 ±1 번호
+            "neighbor_nums": set,  # latest_nums의 +/-1 번호
         }
     """
     # 최근 10회 출현 빈도 (hot=3회이상 / neutral=1~2회 / cold=0회)
@@ -152,7 +174,7 @@ def build_dynamic_attr_sets(history_draws: list) -> dict:
 
 
 def get_attr_set(filter_name: str, dynamic_sets: dict):
-    """filter_name → 해당 속성 번호 집합 반환.
+    """filter_name -> 해당 속성 번호 집합 반환.
 
     count-type이 아닌 경우 None 반환.
 
@@ -241,14 +263,7 @@ def compute_pb_range(
     if not attr_set:
         return (0, 0)
 
-    # ── 입력 정규화 (BUGFIX) ────────────────────────────────────────────
-    # model_probs의 입력 스케일이 모델마다 다름:
-    #   - LSTM/CNN/Transformer 등 sigmoid 출력: 각 n별 P(n in draw) ≈ 0.13, 합 ≈ 6
-    #   - XGBoost/Markov softmax 출력: 합 ≈ 1.0 (확률분포)
-    # 어느 쪽이든 합=1로 정규화한 뒤 ×draw_size 하면 P(n in draw)가 됨.
-    # 이전 버그: 입력 스케일을 가정하지 않고 무조건 ×draw_size 하여
-    # sigmoid 출력의 경우 attr_probs가 1.0에 saturate되어 PMF가 attr_set
-    # 크기에 근접하는 가짜 결과 발생 (예: composite max=30, twin=4~4).
+    # 입력 정규화 (BUGFIX): 모델별 출력 스케일 통일
     raw = {n: max(0.0, float(model_probs.get(n, 0.0))) for n in range(1, 46)}
     total = sum(raw.values())
     if total <= 0:
@@ -305,14 +320,165 @@ def compute_mc_range_full(
 import config
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Stage 1-4-A: predictor 출력 정규화 helper (모듈 레벨)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _safe_float(v: Any, default: float | None = None) -> float | None:
+    """안전하게 float 변환 (None/NaN/예외 시 default)."""
+    if v is None:
+        return default
+    try:
+        f = float(v)
+        if math.isnan(f) or math.isinf(f):
+            return default
+        return f
+    except Exception:
+        return default
+
+
+def _icp_payload_to_ml_block(payload: dict, pool_size: int | None = None) -> dict:
+    """ICP / categorical / special predictor 출력을 ml_recommendation 표준 블록으로 변환.
+
+    payload 예시 (ICP):
+        {
+            "absolute_dist": [...7개],
+            "expected_count": float,
+            "current_pool_size": int,
+            "top_class": int,
+            "top_class_prob": float,
+            "narrative": str,
+            "model_contributions": {...},
+        }
+    """
+    if not isinstance(payload, dict):
+        return {
+            "min": None,
+            "max": None,
+            "median": None,
+            "narrative": "invalid payload",
+            "model_contributions": {},
+        }
+
+    expected = _safe_float(payload.get("expected_count"))
+    top_class = payload.get("top_class")
+    top_prob = _safe_float(payload.get("top_class_prob"))
+    abs_dist = payload.get("absolute_dist") or []
+    narrative = payload.get("narrative") or ""
+    contributions = payload.get("model_contributions") or {}
+    M = int(pool_size) if pool_size is not None else int(payload.get("current_pool_size") or payload.get("pool_size") or 0)
+
+    # quantile 추출 (CDF on 7-class dist, classes = 0..6)
+    q10 = q50 = q90 = None
+    try:
+        if abs_dist:
+            arr = np.asarray(abs_dist, dtype=np.float64)
+            s = arr.sum()
+            if s > 0:
+                arr = arr / s
+                cdf = np.cumsum(arr)
+                q10 = int(np.searchsorted(cdf, 0.10, side="left"))
+                q50 = int(np.searchsorted(cdf, 0.50, side="left"))
+                q90 = int(np.searchsorted(cdf, 0.90, side="left"))
+                last = len(arr) - 1
+                q10 = min(max(q10, 0), last)
+                q50 = min(max(q50, 0), last)
+                q90 = min(max(q90, 0), last)
+    except Exception:
+        pass
+
+    # quantile 산출 실패 시 expected_count 기반 fallback
+    if q50 is None and expected is not None:
+        q50 = int(round(expected))
+    if q10 is None and q50 is not None:
+        q10 = max(0, q50 - 1)
+    if q90 is None and q50 is not None:
+        q90 = q50 + 1
+
+    block = {
+        "min": q10,
+        "max": q90,
+        "median": q50,
+        "expected_count": expected,
+        "top_class": top_class,
+        "top_class_prob": top_prob,
+        "absolute_dist": list(abs_dist) if abs_dist else None,
+        "pool_size": M if M > 0 else None,
+        "narrative": narrative,
+        "model_contributions": dict(contributions) if isinstance(contributions, dict) else {},
+    }
+    return block
+
+
+def _scalar_predictor_to_ml_block(payload: dict, extra_keys: tuple = ()) -> dict:
+    """endings/ac/sum predictor 출력을 ml_recommendation 표준 블록으로 변환.
+
+    각 predictor는 q10/q50/q90 (scalar 형태) + components 등을 반환.
+    """
+    if not isinstance(payload, dict):
+        return {
+            "min": None,
+            "max": None,
+            "median": None,
+            "narrative": "invalid payload",
+            "model_contributions": {},
+        }
+
+    # endings_predictor의 경우 scalar key 안에 q10/q50/q90 있음
+    scalar = payload.get("scalar")
+    if isinstance(scalar, dict):
+        q10 = _safe_float(scalar.get("q10"))
+        q50 = _safe_float(scalar.get("q50"))
+        q90 = _safe_float(scalar.get("q90"))
+    else:
+        q10 = _safe_float(payload.get("q10"))
+        q50 = _safe_float(payload.get("q50"))
+        q90 = _safe_float(payload.get("q90"))
+
+    components = payload.get("components") or {}
+    contrib = {}
+    if isinstance(components, dict):
+        for k, v in components.items():
+            f = _safe_float(v)
+            if f is not None:
+                contrib[k] = f
+
+    block = {
+        "min": q10,
+        "max": q90,
+        "median": q50,
+        "narrative": payload.get("narrative") or "",
+        "model_contributions": contrib,
+    }
+    # 추가 키 노출 (carrier_quartet, nbeats_decomposition, distribution_10d 등)
+    for k in extra_keys:
+        if k in payload:
+            block[k] = payload[k]
+    return block
+
+
 class FilterStatsComputer:
     """모든 필터 유형에 대한 통계를 계산한다."""
 
-    def __init__(self, draws: list[dict], recent_n: int = 50):
+    def __init__(
+        self,
+        draws: list[dict],
+        recent_n: int = 50,
+        phase1_registry: Any | None = None,
+        phase2_endings: Any | None = None,
+        phase3_ac: Any | None = None,
+        phase4_sum: Any | None = None,
+    ):
         """
         Args:
             draws: lotto_draws 테이블 데이터 (round 내림차순)
             recent_n: '최근' 기준 회차 수
+            phase1_registry: Phase1Registry 인스턴스 (선택, 16~17 predictor)
+            phase2_endings: EndingsPredictor 인스턴스 (선택)
+            phase3_ac: ACPredictor 인스턴스 (선택)
+            phase4_sum: SumPredictor 인스턴스 (선택)
+
+        predictor가 모두 None이면 기존 룰베이스만 동작 (회귀 호환).
         """
         self.draws = draws
         self.recent_n = recent_n
@@ -320,6 +486,127 @@ class FilterStatsComputer:
         self.recent_numbers = self.all_numbers[:recent_n]
         self.total_rounds = len(self.all_numbers)
         self.recent_rounds = len(self.recent_numbers)
+
+        # Stage 1-4-A: predictor 주입
+        self.phase1_registry = phase1_registry
+        self.phase2_endings = phase2_endings
+        self.phase3_ac = phase3_ac
+        self.phase4_sum = phase4_sum
+
+        # Phase1 predict_all 캐시 (한 회차 분석에서 17 메서드가 같은 출력 공유)
+        self._phase1_cache: dict | None = None
+        self._phase2_cache: dict | None = None
+        self._phase3_cache: dict | None = None
+        self._phase4_cache: dict | None = None
+
+    # ─────────────────────────────────────────
+    # Stage 1-4-A: predictor 호출 helper
+    # ─────────────────────────────────────────
+
+    def _try_predictor_call(self, predictor_name: str, fn: Callable) -> Any | None:
+        """predictor 호출 실패 시 None 반환 + ASCII 로그."""
+        try:
+            return fn()
+        except Exception as e:
+            print(f"  [filter_stats] {predictor_name} fail: {type(e).__name__}: {e}")
+            return None
+
+    def _get_phase1_outputs(self) -> dict | None:
+        """Phase1Registry.predict_all 결과 캐시. 없으면 None."""
+        if self.phase1_registry is None:
+            return None
+        if self._phase1_cache is not None:
+            return self._phase1_cache
+        result = self._try_predictor_call(
+            "phase1_registry.predict_all",
+            lambda: self.phase1_registry.predict_all(self.draws),
+        )
+        if result is not None:
+            self._phase1_cache = result
+        return result
+
+    def _get_phase2_endings_output(self, phase1_outputs: dict | None = None) -> dict | None:
+        if self.phase2_endings is None:
+            return None
+        if self._phase2_cache is not None:
+            return self._phase2_cache
+        result = self._try_predictor_call(
+            "phase2_endings.predict",
+            lambda: self.phase2_endings.predict(self.draws, phase1_outputs=phase1_outputs),
+        )
+        if result is not None:
+            self._phase2_cache = result
+        return result
+
+    def _get_phase3_ac_output(
+        self,
+        phase1_outputs: dict | None = None,
+        phase2_endings: dict | None = None,
+    ) -> dict | None:
+        if self.phase3_ac is None:
+            return None
+        if self._phase3_cache is not None:
+            return self._phase3_cache
+        result = self._try_predictor_call(
+            "phase3_ac.predict",
+            lambda: self.phase3_ac.predict(
+                self.draws,
+                phase1_outputs=phase1_outputs,
+                phase2_endings=phase2_endings,
+            ),
+        )
+        if result is not None:
+            self._phase3_cache = result
+        return result
+
+    def _get_phase4_sum_output(
+        self,
+        phase1_outputs: dict | None = None,
+        phase2_endings: dict | None = None,
+        phase3_ac: dict | None = None,
+    ) -> dict | None:
+        if self.phase4_sum is None:
+            return None
+        if self._phase4_cache is not None:
+            return self._phase4_cache
+        result = self._try_predictor_call(
+            "phase4_sum.predict",
+            lambda: self.phase4_sum.predict(
+                self.draws,
+                phase1_outputs=phase1_outputs,
+                phase2_endings=phase2_endings,
+                phase3_ac=phase3_ac,
+            ),
+        )
+        if result is not None:
+            self._phase4_cache = result
+        return result
+
+    def _attach_ml_block(self, base: dict, ml_block: dict | None) -> dict:
+        """결과 dict에 ml_recommendation / fallback_used 필드 부착."""
+        if ml_block is not None:
+            base["ml_recommendation"] = ml_block
+            base["fallback_used"] = False
+        else:
+            base["ml_recommendation"] = None
+            base["fallback_used"] = True
+        return base
+
+    def _phase1_payload(self, key: str) -> dict | None:
+        """Phase1Registry predict_all 출력에서 특정 indicator payload 추출.
+
+        ICP 직접 인스턴스(digit/decade/gung/multiple)는 indicator + per_category dict.
+        그 외(categorical/special/missing/hotcold/lotto_paper)는 predictor별 형식.
+        """
+        outs = self._get_phase1_outputs()
+        if outs is None:
+            return None
+        payload = outs.get(key)
+        if payload is None:
+            return None
+        if isinstance(payload, dict) and "error" in payload:
+            return None
+        return payload
 
     def compute_all(self) -> list[dict]:
         """모든 필터에 대한 통계를 계산하여 리스트로 반환한다."""
@@ -344,16 +631,17 @@ class FilterStatsComputer:
             self._multiple_8(),
             self._zone_pattern(),
             self._decade_distribution(),
+            self._missing_group(),
         ]
         return filters
 
     # ─────────────────────────────────────────
-    # 1. 총합 (Total Sum)
+    # 1. 총합 (Total Sum) — Phase 4 sum_predictor
     # ─────────────────────────────────────────
     def _total_sum(self) -> dict:
         all_vals = [sum(nums) for nums in self.all_numbers]
         recent_vals = [sum(nums) for nums in self.recent_numbers]
-        return self._build_range_filter(
+        base = self._build_range_filter(
             key="total_sum",
             name="총합 (Total Sum)",
             icon="functions",
@@ -362,8 +650,22 @@ class FilterStatsComputer:
             description="6개 번호의 합계. 역대 평균 약 133, 표준편차 약 32.",
         )
 
+        # ML: phase4_sum (q10/q50/q90 + carrier_quartet + nbeats_decomposition)
+        ml_block = None
+        phase1_outs = self._get_phase1_outputs()
+        phase2_out = self._get_phase2_endings_output(phase1_outs)
+        phase3_out = self._get_phase3_ac_output(phase1_outs, phase2_out)
+        phase4_out = self._get_phase4_sum_output(phase1_outs, phase2_out, phase3_out)
+        if phase4_out is not None:
+            ml_block = _scalar_predictor_to_ml_block(
+                phase4_out,
+                extra_keys=("carrier_quartet", "carrier_consistency", "nbeats_decomposition"),
+            )
+
+        return self._attach_ml_block(base, ml_block)
+
     # ─────────────────────────────────────────
-    # 2. 끝수합 (Tail Digit Sum)
+    # 2. 끝수합 (Tail Digit Sum) — Phase 2 endings_predictor
     # ─────────────────────────────────────────
     def _tail_sum(self) -> dict:
         def calc(nums):
@@ -371,7 +673,7 @@ class FilterStatsComputer:
 
         all_vals = [calc(nums) for nums in self.all_numbers]
         recent_vals = [calc(nums) for nums in self.recent_numbers]
-        return self._build_range_filter(
+        base = self._build_range_filter(
             key="tail_sum",
             name="끝수합 (Tail Sum)",
             icon="pin",
@@ -380,8 +682,19 @@ class FilterStatsComputer:
             description="각 번호의 일의 자리 합계.",
         )
 
+        ml_block = None
+        phase1_outs = self._get_phase1_outputs()
+        phase2_out = self._get_phase2_endings_output(phase1_outs)
+        if phase2_out is not None:
+            ml_block = _scalar_predictor_to_ml_block(
+                phase2_out,
+                extra_keys=("distribution_10d", "consistency_check"),
+            )
+
+        return self._attach_ml_block(base, ml_block)
+
     # ─────────────────────────────────────────
-    # 3. AC값 (Arithmetic Complexity)
+    # 3. AC값 (Arithmetic Complexity) — Phase 3 ac_predictor
     # ─────────────────────────────────────────
     def _ac_value(self) -> dict:
         def calc(nums):
@@ -393,7 +706,7 @@ class FilterStatsComputer:
 
         all_vals = [calc(nums) for nums in self.all_numbers]
         recent_vals = [calc(nums) for nums in self.recent_numbers]
-        return self._build_range_filter(
+        base = self._build_range_filter(
             key="ac_value",
             name="AC값 (Arithmetic Complexity)",
             icon="calculate",
@@ -402,8 +715,20 @@ class FilterStatsComputer:
             description="번호 간 차이값의 다양성 지표. 높을수록 고루 분포.",
         )
 
+        ml_block = None
+        phase1_outs = self._get_phase1_outputs()
+        phase2_out = self._get_phase2_endings_output(phase1_outs)
+        phase3_out = self._get_phase3_ac_output(phase1_outs, phase2_out)
+        if phase3_out is not None:
+            ml_block = _scalar_predictor_to_ml_block(
+                phase3_out,
+                extra_keys=("markov_11state_dist",),
+            )
+
+        return self._attach_ml_block(base, ml_block)
+
     # ─────────────────────────────────────────
-    # 4. 홀짝 비율 (Odd/Even)
+    # 4. 홀짝 비율 (Odd/Even) — Phase 1 categorical_odd_even
     # ─────────────────────────────────────────
     def _odd_even(self) -> dict:
         def calc(nums):
@@ -412,7 +737,6 @@ class FilterStatsComputer:
         all_vals = [calc(nums) for nums in self.all_numbers]
         recent_vals = [calc(nums) for nums in self.recent_numbers]
 
-        # 패턴 분포 (예: "3:3", "4:2", ...)
         all_patterns = [f"{v}:{6 - v}" for v in all_vals]
         recent_patterns = [f"{v}:{6 - v}" for v in recent_vals]
 
@@ -425,7 +749,7 @@ class FilterStatsComputer:
             description="6개 번호 중 홀수 개수. 패턴은 홀:짝 형태.",
         )
 
-        # 패턴별 분포 추가
+        # 패턴별 분포
         all_counter = Counter(all_patterns)
         recent_counter = Counter(recent_patterns)
         patterns = []
@@ -438,10 +762,16 @@ class FilterStatsComputer:
                 "recent_pct": round(recent_counter.get(pat, 0) / max(self.recent_rounds, 1) * 100, 1),
             })
         base["patterns"] = patterns
-        return base
+
+        # ML: categorical_odd_even
+        ml_block = None
+        payload = self._phase1_payload("categorical_odd_even")
+        if payload is not None:
+            ml_block = _icp_payload_to_ml_block(payload)
+        return self._attach_ml_block(base, ml_block)
 
     # ─────────────────────────────────────────
-    # 5. 저고 비율 (Low/High)
+    # 5. 저고 비율 (Low/High) — Phase 1 categorical_low_high
     # ─────────────────────────────────────────
     def _low_high(self) -> dict:
         def calc(nums):
@@ -474,10 +804,15 @@ class FilterStatsComputer:
                 "recent_pct": round(recent_counter.get(pat, 0) / max(self.recent_rounds, 1) * 100, 1),
             })
         base["patterns"] = patterns
-        return base
+
+        ml_block = None
+        payload = self._phase1_payload("categorical_low_high")
+        if payload is not None:
+            ml_block = _icp_payload_to_ml_block(payload)
+        return self._attach_ml_block(base, ml_block)
 
     # ─────────────────────────────────────────
-    # 6. 연속번호 (Consecutive Numbers)
+    # 6. 연속번호 (Consecutive Numbers) — Phase 1 categorical_consecutive
     # ─────────────────────────────────────────
     def _consecutive(self) -> dict:
         def calc(nums):
@@ -486,7 +821,7 @@ class FilterStatsComputer:
 
         all_vals = [calc(nums) for nums in self.all_numbers]
         recent_vals = [calc(nums) for nums in self.recent_numbers]
-        return self._build_range_filter(
+        base = self._build_range_filter(
             key="consecutive",
             name="연속번호 (Consecutive)",
             icon="linear_scale",
@@ -495,8 +830,14 @@ class FilterStatsComputer:
             description="인접 연속번호 쌍의 개수.",
         )
 
+        ml_block = None
+        payload = self._phase1_payload("categorical_consecutive")
+        if payload is not None:
+            ml_block = _icp_payload_to_ml_block(payload)
+        return self._attach_ml_block(base, ml_block)
+
     # ─────────────────────────────────────────
-    # 7. 이월수 (Carryover)
+    # 7. 이월수 (Carryover) — Phase 1 categorical_carryover_exact
     # ─────────────────────────────────────────
     def _carryover(self) -> dict:
         all_vals = []
@@ -506,7 +847,7 @@ class FilterStatsComputer:
             all_vals.append(len(curr & prev))
         recent_vals = all_vals[:self.recent_n]
 
-        return self._build_range_filter(
+        base = self._build_range_filter(
             key="carryover",
             name="이월수 (Carryover)",
             icon="replay",
@@ -515,8 +856,14 @@ class FilterStatsComputer:
             description="직전 회차와 동일한 번호 개수.",
         )
 
+        ml_block = None
+        payload = self._phase1_payload("categorical_carryover_exact")
+        if payload is not None:
+            ml_block = _icp_payload_to_ml_block(payload)
+        return self._attach_ml_block(base, ml_block)
+
     # ─────────────────────────────────────────
-    # 8. 소수 개수 (Prime Count)
+    # 8. 소수 개수 (Prime Count) — Phase 1 special_prime
     # ─────────────────────────────────────────
     def _prime_count(self) -> dict:
         def calc(nums):
@@ -524,7 +871,7 @@ class FilterStatsComputer:
 
         all_vals = [calc(nums) for nums in self.all_numbers]
         recent_vals = [calc(nums) for nums in self.recent_numbers]
-        return self._build_range_filter(
+        base = self._build_range_filter(
             key="prime_count",
             name="소수 개수 (Prime)",
             icon="looks_one",
@@ -533,8 +880,14 @@ class FilterStatsComputer:
             description="6개 중 소수(2,3,5,7,11,13,17,19,23,29,31,37,41,43)의 개수.",
         )
 
+        ml_block = None
+        payload = self._phase1_payload("special_prime")
+        if payload is not None:
+            ml_block = _icp_payload_to_ml_block(payload)
+        return self._attach_ml_block(base, ml_block)
+
     # ─────────────────────────────────────────
-    # 9. 합성수 개수 (Composite Count)
+    # 9. 합성수 개수 (Composite Count) — Phase 1 special_composite
     # ─────────────────────────────────────────
     def _composite_count(self) -> dict:
         non_primes = set(range(1, 46)) - config.PRIMES - {1}
@@ -544,7 +897,7 @@ class FilterStatsComputer:
 
         all_vals = [calc(nums) for nums in self.all_numbers]
         recent_vals = [calc(nums) for nums in self.recent_numbers]
-        return self._build_range_filter(
+        base = self._build_range_filter(
             key="composite_count",
             name="합성수 개수 (Composite)",
             icon="looks_two",
@@ -553,8 +906,14 @@ class FilterStatsComputer:
             description="6개 중 합성수(1과 소수를 제외한 자연수)의 개수.",
         )
 
+        ml_block = None
+        payload = self._phase1_payload("special_composite")
+        if payload is not None:
+            ml_block = _icp_payload_to_ml_block(payload)
+        return self._attach_ml_block(base, ml_block)
+
     # ─────────────────────────────────────────
-    # 10. 제곱수 개수 (Square Count)
+    # 10. 제곱수 개수 (Square Count) — Phase 1 special_square
     # ─────────────────────────────────────────
     def _square_count(self) -> dict:
         def calc(nums):
@@ -562,7 +921,7 @@ class FilterStatsComputer:
 
         all_vals = [calc(nums) for nums in self.all_numbers]
         recent_vals = [calc(nums) for nums in self.recent_numbers]
-        return self._build_range_filter(
+        base = self._build_range_filter(
             key="square_count",
             name="제곱수 개수 (Square)",
             icon="crop_square",
@@ -571,8 +930,14 @@ class FilterStatsComputer:
             description="6개 중 제곱수(1,4,9,16,25,36)의 개수.",
         )
 
+        ml_block = None
+        payload = self._phase1_payload("special_square")
+        if payload is not None:
+            ml_block = _icp_payload_to_ml_block(payload)
+        return self._attach_ml_block(base, ml_block)
+
     # ─────────────────────────────────────────
-    # 11. 삼각수 개수 (Triangular Count)
+    # 11. 삼각수 개수 (Triangular Count) — Phase 1 special_triangular
     # ─────────────────────────────────────────
     def _triangular_count(self) -> dict:
         def calc(nums):
@@ -580,7 +945,7 @@ class FilterStatsComputer:
 
         all_vals = [calc(nums) for nums in self.all_numbers]
         recent_vals = [calc(nums) for nums in self.recent_numbers]
-        return self._build_range_filter(
+        base = self._build_range_filter(
             key="triangular_count",
             name="삼각수 개수 (Triangular)",
             icon="change_history",
@@ -589,8 +954,14 @@ class FilterStatsComputer:
             description="6개 중 삼각수(1,3,6,10,15,21,28,36,45)의 개수.",
         )
 
+        ml_block = None
+        payload = self._phase1_payload("special_triangular")
+        if payload is not None:
+            ml_block = _icp_payload_to_ml_block(payload)
+        return self._attach_ml_block(base, ml_block)
+
     # ─────────────────────────────────────────
-    # 12. 쌍수 (Twin Numbers)
+    # 12. 쌍수 (Twin Numbers) — Phase 1 special_twin
     # ─────────────────────────────────────────
     def _twin_count(self) -> dict:
         def calc(nums):
@@ -601,7 +972,7 @@ class FilterStatsComputer:
 
         all_vals = [calc(nums) for nums in self.all_numbers]
         recent_vals = [calc(nums) for nums in self.recent_numbers]
-        return self._build_range_filter(
+        base = self._build_range_filter(
             key="twin_count",
             name="쌍수 (Twin Numbers)",
             icon="group",
@@ -610,8 +981,14 @@ class FilterStatsComputer:
             description="같은 끝자리를 가진 번호 쌍의 수.",
         )
 
+        ml_block = None
+        payload = self._phase1_payload("special_twin")
+        if payload is not None:
+            ml_block = _icp_payload_to_ml_block(payload)
+        return self._attach_ml_block(base, ml_block)
+
     # ─────────────────────────────────────────
-    # 13. 핫/콜드 (최근 출현빈도)
+    # 13. 핫/콜드 (최근 출현빈도) — Phase 1 hotcold
     # ─────────────────────────────────────────
     def _hot_cold(self) -> dict:
         # 최근 10회 출현 빈도
@@ -642,10 +1019,38 @@ class FilterStatsComputer:
         )
         base["hot_numbers"] = hot_nums[:10]
         base["cold_numbers"] = cold_nums[:10]
-        return base
+
+        # ML: hotcold predictor의 per_category 12 카테고리 — narrative 통합
+        ml_block = None
+        payload = self._phase1_payload("hotcold")
+        if isinstance(payload, dict) and "per_category" in payload:
+            per_cat = payload["per_category"]
+            # 카테고리별 narrative 통합
+            narratives = []
+            sub_categories = {}
+            for label, cat_payload in (per_cat or {}).items():
+                if not isinstance(cat_payload, dict):
+                    continue
+                sub_block = _icp_payload_to_ml_block(cat_payload, pool_size=cat_payload.get("dynamic_pool_size"))
+                sub_block["members"] = cat_payload.get("members", [])
+                sub_categories[label] = sub_block
+                if cat_payload.get("narrative"):
+                    narratives.append(f"{label}: {cat_payload['narrative']}")
+            ml_block = {
+                "min": None,
+                "max": None,
+                "median": None,
+                "narrative": " | ".join(narratives[:4]) if narratives else "hotcold ready",
+                "model_contributions": {},
+                "per_category": sub_categories,
+                "dynamic_pool_sizes": payload.get("dynamic_pool_sizes"),
+                "windows": payload.get("windows"),
+                "groups": payload.get("groups"),
+            }
+        return self._attach_ml_block(base, ml_block)
 
     # ─────────────────────────────────────────
-    # 14. 번호 범위 (Number Range = max - min)
+    # 14. 번호 범위 (Number Range = max - min) — Phase 1 decade_distribution
     # ─────────────────────────────────────────
     def _number_range(self) -> dict:
         def calc(nums):
@@ -653,7 +1058,7 @@ class FilterStatsComputer:
 
         all_vals = [calc(nums) for nums in self.all_numbers]
         recent_vals = [calc(nums) for nums in self.recent_numbers]
-        return self._build_range_filter(
+        base = self._build_range_filter(
             key="number_range",
             name="번호 범위 (Range)",
             icon="expand",
@@ -662,11 +1067,35 @@ class FilterStatsComputer:
             description="최대번호 - 최소번호. 번호의 분산도 지표.",
         )
 
+        # ML: decade_distribution payload (5 카테고리 분포 -> 범위 지표 reference)
+        ml_block = None
+        payload = self._phase1_payload("decade_distribution")
+        if isinstance(payload, dict) and "per_category" in payload:
+            per_cat = payload["per_category"]
+            sub_categories = {}
+            narratives = []
+            for label, cat_payload in (per_cat or {}).items():
+                if not isinstance(cat_payload, dict):
+                    continue
+                sub_categories[label] = _icp_payload_to_ml_block(cat_payload)
+                if cat_payload.get("narrative"):
+                    narratives.append(cat_payload["narrative"])
+            ml_block = {
+                "min": None,
+                "max": None,
+                "median": None,
+                "narrative": " | ".join(narratives[:3]) if narratives else "decade ready",
+                "model_contributions": {},
+                "per_category": sub_categories,
+                "indicator": "decade_distribution",
+            }
+        return self._attach_ml_block(base, ml_block)
+
     # ─────────────────────────────────────────
-    # 15. 이웃수 (Neighbor Count)
+    # 15. 이웃수 (Neighbor Count) — Phase 1 categorical_neighbor
     # ─────────────────────────────────────────
     def _neighbor_count(self) -> dict:
-        """직전회차 번호의 ±1 범위에 있는 번호 개수."""
+        """직전회차 번호의 +/-1 범위에 있는 번호 개수."""
         all_vals = []
         for i in range(len(self.all_numbers) - 1):
             curr = self.all_numbers[i]
@@ -678,17 +1107,23 @@ class FilterStatsComputer:
             all_vals.append(hit)
         recent_vals = all_vals[:self.recent_n]
 
-        return self._build_range_filter(
+        base = self._build_range_filter(
             key="neighbor_count",
             name="이웃수 (Neighbor)",
             icon="share_location",
             all_vals=all_vals,
             recent_vals=recent_vals,
-            description="직전 회차 번호의 ±1 범위에 해당하는 번호 개수.",
+            description="직전 회차 번호의 +/-1 범위에 해당하는 번호 개수.",
         )
 
+        ml_block = None
+        payload = self._phase1_payload("categorical_neighbor")
+        if payload is not None:
+            ml_block = _icp_payload_to_ml_block(payload)
+        return self._attach_ml_block(base, ml_block)
+
     # ─────────────────────────────────────────
-    # 16. 3의 배수 개수
+    # 16. 3의 배수 개수 — Phase 1 multiple_distribution[m3]
     # ─────────────────────────────────────────
     def _multiple_3(self) -> dict:
         def calc(nums):
@@ -696,7 +1131,7 @@ class FilterStatsComputer:
 
         all_vals = [calc(nums) for nums in self.all_numbers]
         recent_vals = [calc(nums) for nums in self.recent_numbers]
-        return self._build_range_filter(
+        base = self._build_range_filter(
             key="multiple_3",
             name="3의 배수 개수",
             icon="filter_3",
@@ -705,18 +1140,21 @@ class FilterStatsComputer:
             description="6개 중 3의 배수(3,6,9,...,45)의 개수.",
         )
 
+        ml_block = self._extract_multiple_ml("m3")
+        return self._attach_ml_block(base, ml_block)
+
     # ─────────────────────────────────────────
-    # 16b. 7의 배수 개수
+    # 16b. 7의 배수 개수 — Phase 1 multiple_distribution[m7]
     # ─────────────────────────────────────────
     def _multiple_7(self) -> dict:
-        MUL7 = {7, 14, 21, 28, 35, 42}
+        MUL7_LOCAL = {7, 14, 21, 28, 35, 42}
 
         def calc(nums):
-            return sum(1 for n in nums if n in MUL7)
+            return sum(1 for n in nums if n in MUL7_LOCAL)
 
         all_vals = [calc(nums) for nums in self.all_numbers]
         recent_vals = [calc(nums) for nums in self.recent_numbers]
-        return self._build_range_filter(
+        base = self._build_range_filter(
             key="multiple_7",
             name="7의 배수 개수",
             icon="filter_7",
@@ -725,18 +1163,21 @@ class FilterStatsComputer:
             description="6개 중 7의 배수(7,14,21,28,35,42)의 개수.",
         )
 
+        ml_block = self._extract_multiple_ml("m7")
+        return self._attach_ml_block(base, ml_block)
+
     # ─────────────────────────────────────────
-    # 16c. 8의 배수 개수
+    # 16c. 8의 배수 개수 — Phase 1 multiple_distribution[m8]
     # ─────────────────────────────────────────
     def _multiple_8(self) -> dict:
-        MUL8 = {8, 16, 24, 32, 40}
+        MUL8_LOCAL = {8, 16, 24, 32, 40}
 
         def calc(nums):
-            return sum(1 for n in nums if n in MUL8)
+            return sum(1 for n in nums if n in MUL8_LOCAL)
 
         all_vals = [calc(nums) for nums in self.all_numbers]
         recent_vals = [calc(nums) for nums in self.recent_numbers]
-        return self._build_range_filter(
+        base = self._build_range_filter(
             key="multiple_8",
             name="8의 배수 개수",
             icon="filter_8",
@@ -745,8 +1186,22 @@ class FilterStatsComputer:
             description="6개 중 8의 배수(8,16,24,32,40)의 개수.",
         )
 
+        ml_block = self._extract_multiple_ml("m8")
+        return self._attach_ml_block(base, ml_block)
+
+    def _extract_multiple_ml(self, label_key: str) -> dict | None:
+        """multiple_distribution payload에서 특정 카테고리(m3/m4/m5/m7/m8/other) 추출."""
+        payload = self._phase1_payload("multiple_distribution")
+        if not isinstance(payload, dict):
+            return None
+        per_cat = payload.get("per_category") or {}
+        cat_payload = per_cat.get(label_key)
+        if not isinstance(cat_payload, dict):
+            return None
+        return _icp_payload_to_ml_block(cat_payload)
+
     # ─────────────────────────────────────────
-    # 17. 구간 패턴 (Zone 1~15/16~30/31~45)
+    # 17. 구간 패턴 (Zone 1~15/16~30/31~45) — Phase 1 lotto_paper (보조)
     # ─────────────────────────────────────────
     def _zone_pattern(self) -> dict:
         def calc(nums):
@@ -777,7 +1232,7 @@ class FilterStatsComputer:
         evidence += ", ".join(f"{p['pattern']}({p['all_pct']}%)" for p in top_patterns[:3])
         evidence += f". 최근 {self.recent_rounds}회 1위: {patterns[0]['pattern'] if patterns else '-'}"
 
-        return {
+        result = {
             "key": "zone_pattern",
             "name": "구간 패턴 (Zone)",
             "icon": "view_column",
@@ -790,8 +1245,35 @@ class FilterStatsComputer:
             },
         }
 
+        # ML: lotto_paper predictor (14 카테고리 — row+col)
+        ml_block = None
+        payload = self._phase1_payload("lotto_paper")
+        if isinstance(payload, dict) and ("per_row" in payload or "per_col" in payload):
+            per_row_in = payload.get("per_row") or {}
+            per_col_in = payload.get("per_col") or {}
+            per_row_blk = {k: _icp_payload_to_ml_block(v) for k, v in per_row_in.items() if isinstance(v, dict)}
+            per_col_blk = {k: _icp_payload_to_ml_block(v) for k, v in per_col_in.items() if isinstance(v, dict)}
+            narrative_pieces = []
+            for k, v in list(per_row_in.items())[:2]:
+                if isinstance(v, dict) and v.get("narrative"):
+                    narrative_pieces.append(v["narrative"])
+            for k, v in list(per_col_in.items())[:2]:
+                if isinstance(v, dict) and v.get("narrative"):
+                    narrative_pieces.append(v["narrative"])
+            ml_block = {
+                "min": None,
+                "max": None,
+                "median": None,
+                "narrative": " | ".join(narrative_pieces[:4]) if narrative_pieces else "lotto_paper ready",
+                "model_contributions": {},
+                "per_row": per_row_blk,
+                "per_col": per_col_blk,
+                "indicator": "lotto_paper_14",
+            }
+        return self._attach_ml_block(result, ml_block)
+
     # ─────────────────────────────────────────
-    # 18. 10단위 분포 (Decade Distribution)
+    # 18. 10단위 분포 (Decade Distribution) — Phase 1 decade_distribution (전체)
     # ─────────────────────────────────────────
     def _decade_distribution(self) -> dict:
         def calc(nums):
@@ -822,7 +1304,7 @@ class FilterStatsComputer:
         evidence = f"역대 상위 분포: "
         evidence += ", ".join(f"{p['pattern']}({p['all_pct']}%)" for p in top_patterns[:3])
 
-        return {
+        result = {
             "key": "decade_distribution",
             "name": "10단위 분포 (Decade)",
             "icon": "equalizer",
@@ -834,6 +1316,102 @@ class FilterStatsComputer:
                 "evidence": evidence,
             },
         }
+
+        # ML: decade_distribution payload 전체 5 카테고리
+        ml_block = None
+        payload = self._phase1_payload("decade_distribution")
+        if isinstance(payload, dict) and "per_category" in payload:
+            per_cat = payload["per_category"]
+            sub_categories = {}
+            narratives = []
+            for label, cat_payload in (per_cat or {}).items():
+                if not isinstance(cat_payload, dict):
+                    continue
+                sub_categories[label] = _icp_payload_to_ml_block(cat_payload)
+                if cat_payload.get("narrative"):
+                    narratives.append(cat_payload["narrative"])
+            ml_block = {
+                "min": None,
+                "max": None,
+                "median": None,
+                "narrative": " | ".join(narratives[:5]) if narratives else "decade ready",
+                "model_contributions": {},
+                "per_category": sub_categories,
+                "indicator": "decade_distribution",
+            }
+        return self._attach_ml_block(result, ml_block)
+
+    # ─────────────────────────────────────────
+    # 19. 미출현 그룹 (Missing Group) — Phase 1 missing_group (광역 4 카테고리)
+    # ─────────────────────────────────────────
+    def _missing_group(self) -> dict:
+        """미출현그룹 광역 4 카테고리 분포 (predictor only — fallback은 dormancy 룰베이스)."""
+        # 룰베이스 fallback: 직전 N회 미출현 회차 분포
+        max_gap_per_num = {}
+        for n in range(1, 46):
+            gap = 0
+            for d in self.draws:
+                if n in d.get("numbers", []):
+                    break
+                gap += 1
+            max_gap_per_num[n] = gap
+
+        # 4 그룹 분류 (단순 규칙: 0회=핫, 1~5=따뜻, 6~15=식음, 16+=초장기)
+        groups_count = {"hot": 0, "warm": 0, "cool": 0, "cold": 0}
+        for n, gap in max_gap_per_num.items():
+            if gap == 0:
+                groups_count["hot"] += 1
+            elif gap <= 5:
+                groups_count["warm"] += 1
+            elif gap <= 15:
+                groups_count["cool"] += 1
+            else:
+                groups_count["cold"] += 1
+
+        evidence = (
+            f"룰베이스 4 그룹 분포: "
+            f"hot={groups_count['hot']}, warm={groups_count['warm']}, "
+            f"cool={groups_count['cool']}, cold={groups_count['cold']}"
+        )
+
+        result = {
+            "key": "missing_group",
+            "name": "미출현 그룹 (Missing Group)",
+            "icon": "schedule",
+            "type": "categorical",
+            "description": "전체 45번호를 미출현 길이별로 4그룹(hot/warm/cool/cold)으로 분류한 분포.",
+            "groups_count": groups_count,
+            "recommendation": {
+                "evidence": evidence,
+            },
+        }
+
+        # ML: missing_group predictor (4 카테고리)
+        ml_block = None
+        payload = self._phase1_payload("missing_group")
+        if isinstance(payload, dict) and "per_group" in payload:
+            per_grp = payload["per_group"]
+            sub_groups = {}
+            narratives = []
+            for label, grp_payload in (per_grp or {}).items():
+                if not isinstance(grp_payload, dict):
+                    continue
+                sub_block = _icp_payload_to_ml_block(grp_payload, pool_size=grp_payload.get("dynamic_pool_size"))
+                sub_block["members"] = grp_payload.get("members", [])
+                sub_groups[label] = sub_block
+                if grp_payload.get("narrative"):
+                    narratives.append(grp_payload["narrative"])
+            ml_block = {
+                "min": None,
+                "max": None,
+                "median": None,
+                "narrative": " | ".join(narratives[:4]) if narratives else "missing_group ready",
+                "model_contributions": {},
+                "per_group": sub_groups,
+                "dynamic_pool_sizes": payload.get("dynamic_pool_sizes"),
+                "indicator": "missing_group_4",
+            }
+        return self._attach_ml_block(result, ml_block)
 
     # ═════════════════════════════════════════
     # 공통 빌더
@@ -871,7 +1449,7 @@ class FilterStatsComputer:
         rec_mode = Counter(recent_vals).most_common(1)[0][0] if recent_vals else all_mode
         rec_std = math.sqrt(sum((v - rec_mean) ** 2 for v in recent_vals) / len(recent_vals)) if recent_vals else all_std
 
-        # 추천 범위: 최근 N회 mean ± 1 std (정수로)
+        # 추천 범위: 최근 N회 mean +/- 1 std (정수로)
         rec_min = max(all_min, int(rec_mean - rec_std))
         rec_max = min(all_max, int(rec_mean + rec_std + 0.5))
 
@@ -901,7 +1479,7 @@ class FilterStatsComputer:
             f"최근 {self.recent_rounds}회 평균 {rec_mean:.1f} (표준편차 {rec_std:.1f}). "
             f"최빈값: 역대 {all_mode}, 최근 {rec_mode}. "
             f"최근 추세: {trend_direction}. "
-            f"추천 범위: {rec_min}~{rec_max} (최근 평균 ± 1표준편차)"
+            f"추천 범위: {rec_min}~{rec_max} (최근 평균 +/- 1표준편차)"
         )
 
         return {
