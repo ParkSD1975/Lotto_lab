@@ -9,3 +9,12 @@ __pycache__/
 
 # Temporary files
 .ipynb_checkpoints/
+
+# 학습 산출물 (Master Plan Stage 0 정책 — 가중치/캐시는 commit 제외)
+langchain-backend/saved_models/*.pt
+langchain-backend/saved_models/*.pkl
+langchain-backend/saved_models/cache/
+langchain-backend/saved_models/_archive/
+langchain-backend/saved_models/sla_history.parquet
+langchain-backend/saved_models/regression_meta_patterns.json
+langchain-backend/saved_models/pillar_meta_weights.json

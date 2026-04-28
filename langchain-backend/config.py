@@ -169,3 +169,41 @@ RANDOM_SEED = 42
 PRIMES = {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43}
 SQUARES = {1, 4, 9, 16, 25, 36}
 TRIANGULARS = {1, 3, 6, 10, 15, 21, 28, 36, 45}
+
+# ============================================================
+# Stage 0 (2026-04-28 Master Plan 기반) — 11 base 토폴로지 + T-1 A 폐기
+# 단일 진실 공급원: docs/MASTER_PLAN.md
+# ============================================================
+
+# 본 plan 결정 #24: 11 base 모델 전면 도입 (LSTM/Transformer 폐기, TFT 흡수)
+MODEL_TOPOLOGY = [
+    "xgboost", "catboost", "tabnet",   # 트리·attention
+    "cnn", "gnn",                       # 그리드·그래프
+    "markov",                            # 전이
+    "autoencoder",                       # 이상치 + MoE 게이트로 진화
+    "tft", "nbeats",                     # 시계열 통합·분해
+    "mhn",                               # 패턴 매칭 메모리
+    "bayesian_nn",                       # 불확실성 분포
+]
+LEGACY_MODELS = {"lstm", "transformer"}  # TFT가 흡수, saved_models/_archive/
+
+# 본 plan 결정 #23: T-1 결정 A 폐기 — 메인 1~45 INPUT_DIM 동결 해제
+INPUT_DIM_FROZEN = False
+MAIN_MODEL_INPUT_DIM = None  # 학습 시점에 21지표·회귀 압축·메모 합류 후 자동 결정
+
+# G-8: Self-Supervised Pretraining backbone
+SSL_BACKBONE_PATH = os.path.join(MODEL_DIR, "ssl_backbone.pt")
+SSL_PRETRAIN_EPOCHS = 50
+SSL_MASK_RATIO = 0.15
+SSL_CONTRASTIVE_TEMP = 0.07
+
+# M-1 진화: MoE 라우팅 (4 expert: normal/anomaly/regression/memo)
+MOE_NUM_EXPERTS = 4
+MOE_EXPERT_NAMES = ["normal", "anomaly", "regression", "memo"]
+MOE_GATING_PATH = os.path.join(MODEL_DIR, "moe_gating.pt")
+
+# Predictor 캐시 (Stage 1~2 산출물)
+PREDICTOR_CACHE_DIR = os.path.join(MODEL_DIR, "cache")
+os.makedirs(PREDICTOR_CACHE_DIR, exist_ok=True)
+for _phase in (1, 2, 3, 4, "regression"):
+    os.makedirs(os.path.join(PREDICTOR_CACHE_DIR, f"phase_{_phase}"), exist_ok=True)
