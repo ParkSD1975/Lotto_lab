@@ -57,12 +57,10 @@ except ImportError:
     BAYES_AVAIL = False
     LottoBayesianNN = None  # type: ignore
 
-try:
-    from models.autoencoder_model import LottoAutoencoder
-    AE_AVAIL = TORCH_AVAILABLE
-except ImportError:
-    AE_AVAIL = False
-    LottoAutoencoder = None  # type: ignore
+# Stage 1-5 임시 비활성: LottoAutoencoder는 7x7 grid 전용 (input_dim 인자 없음)
+# sum 스칼라 feature와 호환 안 됨. 향후 sum 전용 AE 또는 feature 변환으로 별도 통합.
+AE_AVAIL = False
+LottoAutoencoder = None  # type: ignore
 
 
 # ────────────────── Markov 6-bucket (sum range) ──────────────────

@@ -295,9 +295,28 @@ class IndependentCountPredictor:
                     weights.append(head.base_weights.get(model_name, 1.0))
 
             if probs_list:
+                # Shape 통일: 각 base의 prob을 n_classes로 padding/truncate
+                # XGBoost는 학습 라벨 max에 따라 num_class<n_classes로 축소 가능
+                normalized = []
+                for p in probs_list:
+                    p_arr = np.asarray(p, dtype=np.float64).flatten()
+                    if p_arr.shape[0] < self.n_classes:
+                        padded = np.zeros(self.n_classes)
+                        padded[: p_arr.shape[0]] = p_arr
+                        # 마지막 누락 클래스에 약한 prior 부여
+                        leftover = max(0.0, 1.0 - padded.sum())
+                        padded[p_arr.shape[0]:] = leftover / max(1, self.n_classes - p_arr.shape[0])
+                        normalized.append(padded)
+                    elif p_arr.shape[0] > self.n_classes:
+                        normalized.append(p_arr[: self.n_classes])
+                    else:
+                        normalized.append(p_arr)
                 weights_arr = np.array(weights)
                 weights_arr = weights_arr / weights_arr.sum()
-                avg_dist = np.average(np.stack(probs_list), axis=0, weights=weights_arr)
+                avg_dist = np.average(np.stack(normalized), axis=0, weights=weights_arr)
+                # 정규화
+                if avg_dist.sum() > 0:
+                    avg_dist = avg_dist / avg_dist.sum()
             else:
                 avg_dist = np.full(self.n_classes, 1.0 / self.n_classes)
 
