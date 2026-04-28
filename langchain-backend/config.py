@@ -218,3 +218,11 @@ REGRESSION_DEAD_CARRYOVER_THRESHOLD = 2  # Tier 3-E 데드 카운트 임계값
 REGRESSION_META_FREQUENCY_MIN = 0.20
 REGRESSION_META_SUPPORT_MIN = 10
 REGRESSION_META_PATTERNS_PATH = os.path.join(MODEL_DIR, "regression_meta_patterns.json")
+
+# ── Stage 3-B-1 (NumberScorer 4 Pillar 통합) 상수 ──
+# Ridge MetaLearner 가중치 저장 경로 (4 Pillar -> final_score)
+PILLAR_META_LEARNER_PATH = os.path.join(MODEL_DIR, "pillar_meta_weights.json")
+# 최근 N회차 backtest 윈도우로 Pillar 가중치 동적 갱신
+RECOMMENDATION_BACKTEST_WINDOW = 50
+# Pillar 1~4 Ridge 메타러너 정규화 강도 (sklearn Ridge alpha)
+PILLAR_RIDGE_ALPHA = 1.0
