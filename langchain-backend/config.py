@@ -207,3 +207,14 @@ PREDICTOR_CACHE_DIR = os.path.join(MODEL_DIR, "cache")
 os.makedirs(PREDICTOR_CACHE_DIR, exist_ok=True)
 for _phase in (1, 2, 3, 4, "regression"):
     os.makedirs(os.path.join(PREDICTOR_CACHE_DIR, f"phase_{_phase}"), exist_ok=True)
+
+# ── Stage 2 (회귀 4 Tier) 상수 ──
+REGRESSION_N_RANGE = (2, 200)
+REGRESSION_SAMPLE_THRESHOLD = 50  # Tier 1 신뢰 N 최소 sample
+REGRESSION_DECADE_CLUSTER_THRESHOLD = 3  # Tier 3-C 군집 트리거 임계값
+REGRESSION_LINE_MISS_THRESHOLD = 5  # Tier 3-A 라인 미출 감지
+REGRESSION_CONSECUTIVE_RULE_LOOKBACK = 4  # Tier 3-D 룰 2 (1회귀 4연번)
+REGRESSION_DEAD_CARRYOVER_THRESHOLD = 2  # Tier 3-E 데드 카운트 임계값
+REGRESSION_META_FREQUENCY_MIN = 0.20
+REGRESSION_META_SUPPORT_MIN = 10
+REGRESSION_META_PATTERNS_PATH = os.path.join(MODEL_DIR, "regression_meta_patterns.json")

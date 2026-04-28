@@ -38,6 +38,10 @@ class PredictorPipeline:
         self.ac = None
         self.sum_pred = None  # 'sum'은 builtin이라 sum_pred로
 
+        # Stage 2: 회귀 (4 Tier)
+        self.regression = None  # DynamicIndependentCountPredictor
+        self.regression_meta = None  # RegressionMetaAnalyzer
+
         self._train_status: dict[str, dict] = {}
         self._is_trained = False
 
@@ -124,6 +128,34 @@ class PredictorPipeline:
             results["phase4"] = {"status": "fail", "error": str(e)}
         self._train_status["phase4"] = results["phase4"]
 
+        # Stage 2: 회귀 (4 Tier) — Phase 4와 무관하므로 cross-feedback 입력 X
+        try:
+            from predictors.regression_predictor import DynamicIndependentCountPredictor
+            self.regression = DynamicIndependentCountPredictor(
+                feature_dim=self.feature_dim,
+                sample_threshold=config.REGRESSION_SAMPLE_THRESHOLD,
+            )
+            self.regression.train(draws)
+            results["regression_tier1"] = {"status": "ok", "predictor": "regression_dynamic_icp"}
+        except Exception as e:
+            print(f"  [PredictorPipeline] regression Tier 1 train fail: {e}")
+            results["regression_tier1"] = {"status": "fail", "error": str(e)}
+        self._train_status["regression_tier1"] = results["regression_tier1"]
+
+        # Tier 4 (메타 분석) — 별도 분석, predictor 학습 후 패턴 빈도만
+        try:
+            from services.regression_meta_analyzer import RegressionMetaAnalyzer
+            self.regression_meta = RegressionMetaAnalyzer(
+                frequency_min=config.REGRESSION_META_FREQUENCY_MIN,
+                support_min=config.REGRESSION_META_SUPPORT_MIN,
+            )
+            self.regression_meta.analyze_patterns(draws)
+            results["regression_tier4"] = {"status": "ok", "analyzer": "regression_meta"}
+        except Exception as e:
+            print(f"  [PredictorPipeline] regression Tier 4 fail: {e}")
+            results["regression_tier4"] = {"status": "fail", "error": str(e)}
+        self._train_status["regression_tier4"] = results["regression_tier4"]
+
         self._is_trained = True
         results["wall_time_total"] = time.time() - t_start
         return results
@@ -181,6 +213,42 @@ class PredictorPipeline:
                 out["phase4"] = p4
             except Exception as e:
                 out["phase4"] = {"error": str(e)}
+
+        # Stage 2: 회귀 (Tier 1 + Tier 3 자동 룰 + Tier 4 메타)
+        if self.regression is not None:
+            try:
+                tier1_out = self.regression.predict(draws_so_far)
+                # Tier 3 자동 룰 (회귀 features 입력)
+                from features.regression_features import build_regression_features_matrix_full
+                from services.regression_filter_rules import apply_all_regression_rules
+                target_round = draws_so_far[0]["round"] + 1 if draws_so_far else 0
+                active_n = list(tier1_out.get("active_N_set", []))
+                regression_features = build_regression_features_matrix_full(draws_so_far)
+                tier3_rules = apply_all_regression_rules(
+                    target_round=target_round,
+                    draws=draws_so_far,
+                    active_n_list=active_n,
+                    regression_features=regression_features,
+                )
+                # Tier 4 (메타 패턴 + MHN retrieve)
+                tier4_meta = None
+                if self.regression_meta is not None:
+                    try:
+                        tier4_meta = {
+                            "frequent_patterns": self.regression_meta.frequent_patterns,
+                            "similar_rounds": self.regression_meta.retrieve_similar_rounds(
+                                draws_so_far[0] if draws_so_far else None, top_k=5
+                            ) if hasattr(self.regression_meta, "retrieve_similar_rounds") else None,
+                        }
+                    except Exception:
+                        tier4_meta = None
+                out["regression"] = {
+                    "tier1": tier1_out,
+                    "tier3_rules": tier3_rules,
+                    "tier4_meta": tier4_meta,
+                }
+            except Exception as e:
+                out["regression"] = {"error": str(e)}
 
         return out
 
