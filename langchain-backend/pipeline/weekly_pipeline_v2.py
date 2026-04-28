@@ -45,6 +45,15 @@ class WeeklyPipelineV2:
         self.supabase = get_client()
         self.ensemble = LottoEnsemble()
 
+        # Master Plan Stage 1-4-E: predictor_pipeline 통합 (Phase 1~4 22 predictor)
+        # 학습 산출물은 메모리 + saved_models/predictor_pipeline 캐시
+        try:
+            from predictors.predictor_pipeline import PredictorPipeline
+            self.predictor_pipeline = PredictorPipeline(feature_dim=24)
+        except Exception as e:
+            logger.warning(f"  [WeeklyPipelineV2] predictor_pipeline init fail (skip): {e}")
+            self.predictor_pipeline = None
+
     # ──────────────────────────────────────────────────────────────────────────
     # 진입점
     # ──────────────────────────────────────────────────────────────────────────
@@ -171,8 +180,22 @@ class WeeklyPipelineV2:
 
         Returns dict with keys:
           prediction, contribs, xai, top5_result, excl_result,
-          final_probs, range_analysis, regression_analysis, combinations
+          final_probs, range_analysis, regression_analysis, combinations,
+          predictor_pipeline_outputs (Master Plan Stage 1-4-E 신설)
         """
+        # ── B0. predictor_pipeline 학습/추론 (Master Plan Stage 1-4-E) ──────
+        # Phase 1~4 22 predictor — filter_stats ml_recommendation 입력 제공
+        predictor_pipeline_outputs = None
+        if self.predictor_pipeline is not None:
+            logger.info("  [B0] predictor_pipeline (Phase 1~4) 학습/추론...")
+            try:
+                if not self.predictor_pipeline._is_trained:
+                    self.predictor_pipeline.train(draws, min_history=50)
+                predictor_pipeline_outputs = self.predictor_pipeline.predict_all(draws)
+            except Exception as e:
+                logger.warning(f"  predictor_pipeline 실패 (fallback): {e}")
+                predictor_pipeline_outputs = None
+
         # ── 1. 앙상블 예측 (P4 Top5 + P5 Veto) ──────────────────────────────
         logger.info("  [B1] 앙상블 예측...")
         top5_result = self.ensemble.predict_top5(draws)
@@ -270,6 +293,8 @@ class WeeklyPipelineV2:
             "regression_analysis": regression_analysis,
             "combinations":       combinations,
             "meta_status":        meta_status,
+            # Master Plan Stage 1-4-E 신설 — Phase 1~4 22 predictor 출력
+            "predictor_pipeline_outputs": predictor_pipeline_outputs,
         }
 
     # ──────────────────────────────────────────────────────────────────────────
