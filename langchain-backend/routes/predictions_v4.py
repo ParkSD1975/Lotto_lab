@@ -157,9 +157,12 @@ async def get_xai(round_num: int = 0):
         if not r:
             return _err("데이터 없음", 404)
 
+        # Stage 1-4-D-2-fix-6: 11 base 통일 SELECT (catboost/tabnet/tft/mhn/bayesian_nn 추가)
         res = client.table("weekly_number_xai") \
             .select("number, xgboost_pct, lstm_pct, cnn_pct, transformer_pct, "
-                    "gnn_pct, markov_pct, autoencoder_pct, top_model, veto, probability") \
+                    "gnn_pct, markov_pct, autoencoder_pct, "
+                    "catboost_pct, tabnet_pct, tft_pct, mhn_pct, bayesian_nn_pct, "
+                    "top_model, veto, probability") \
             .eq("target_round", r) \
             .order("number").execute()
 
@@ -170,6 +173,7 @@ async def get_xai(round_num: int = 0):
         for row in res.data:
             n = row["number"]
             xai_map[n] = {
+                # 7 base (legacy)
                 "xgboost":     row.get("xgboost_pct", 0),
                 "lstm":        row.get("lstm_pct", 0),
                 "cnn":         row.get("cnn_pct", 0),
@@ -177,6 +181,13 @@ async def get_xai(round_num: int = 0):
                 "gnn":         row.get("gnn_pct", 0),
                 "markov":      row.get("markov_pct", 0),
                 "autoencoder": row.get("autoencoder_pct", 0),
+                # 5 신규 base (Stage 1-4-D-2)
+                "catboost":    row.get("catboost_pct", 0),
+                "tabnet":      row.get("tabnet_pct", 0),
+                "tft":         row.get("tft_pct", 0),
+                "mhn":         row.get("mhn_pct", 0),
+                "bayesian_nn": row.get("bayesian_nn_pct", 0),
+                # 메타
                 "top_model":   row.get("top_model"),
                 "veto":        row.get("veto"),
                 "probability": row.get("probability"),

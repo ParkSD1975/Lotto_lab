@@ -350,16 +350,28 @@ class WeeklyPipelineV2:
                     gnn_pct = round(float(raw_gnn) * 100, 2)
                 else:
                     gnn_pct = x.get("gnn", 0.0)
+                # Stage 1-4-D-2-fix-6: 11 base 토폴로지 통일 (사용자 결정 #24)
+                # 메인 1~45 binary classifier 11 base — nbeats 제외 (스칼라 시계열 분해 전용)
+                # LSTM / Transformer는 폐기되었으나 schema 백워드 호환 위해 0 저장
                 rows.append({
                     "target_round":    target_round,
                     "number":          n,
+                    # 7 base (legacy 컬럼 보존)
                     "xgboost_pct":     x.get("xgboost", 0.0),
-                    "lstm_pct":        x.get("lstm", 0.0),
                     "cnn_pct":         x.get("cnn", 0.0),
-                    "transformer_pct": x.get("transformer", 0.0),
                     "gnn_pct":         gnn_pct,
                     "markov_pct":      x.get("markov", 0.0),
                     "autoencoder_pct": x.get("autoencoder", 0.0),
+                    # deprecated (사용자 결정 #24, weight 0 — 호환 위해 0.0 저장)
+                    "lstm_pct":        0.0,
+                    "transformer_pct": 0.0,
+                    # 5 신규 base (Stage 1-4-D-2 학습 산출물)
+                    "catboost_pct":    x.get("catboost", 0.0),
+                    "tabnet_pct":      x.get("tabnet", 0.0),
+                    "tft_pct":         x.get("tft", 0.0),
+                    "mhn_pct":         x.get("mhn", 0.0),
+                    "bayesian_nn_pct": x.get("bayesian_nn", 0.0),
+                    # 메타
                     "top_model":       x.get("top_model"),
                     "veto":            x.get("veto"),
                     "probability":     float(final_probs.get(n, 0)),
