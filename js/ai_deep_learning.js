@@ -920,17 +920,10 @@ const DeepLearning = {
             .filter(([, w]) => w > 0.03)
             .sort((a, b) => b[1] - a[1])
             .map(([m]) => MODEL_ABBR_KW[m] || m);
-        // pipeline_version 이 "v2" 처럼 이미 v로 시작하면 v를 추가하지 않음
-        const _ver = preds.pipeline_version
-            ? (String(preds.pipeline_version).startsWith('v')
-                ? String(preds.pipeline_version)
-                : `v${preds.pipeline_version}`)
-            : null;
+        // [Stage 1-4-D-2-fix-18] 사용자 결정 — 메타α / pipeline_version(v2) 키워드 노출 제거
         const keywords = [
             `${preds.target_round}회차`,
-            activeModelNames.length > 0 ? activeModelNames.slice(0, 3).join('+') : '앙상블',
-            preds.meta_active ? `메타α=${(preds.meta_alpha || 0).toFixed(2)}` : null,
-            _ver
+            activeModelNames.length > 0 ? activeModelNames.slice(0, 3).join('+') : '앙상블'
         ].filter(Boolean);
 
         // ── overall_strategy: 핵심 공략 — 번호별 주도 모델 + gap 구조화 ──
