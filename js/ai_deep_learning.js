@@ -2149,23 +2149,14 @@ const DeepLearning = {
         }).join('');
     },
 
-    renderModelRanking(matrixData, sliceFrom, sliceTo) {
+    renderModelRanking(matrixData) {
         const container = document.getElementById('modelRankingContainer');
         if (!container || !matrixData || !matrixData.length) return;
 
-        // [Stage 1-4-D-2-fix-11] matrixData 캐시 — setRankSlice 재렌더링용
+        // [Stage 1-4-D-2-fix-12] matrixData 캐시 — setRankSlice 그룹 분석용
         this._lastMatrixData = matrixData;
 
-        // [Stage 1-4-D-2-fix-11] 슬라이스 구간 (default: 1~45 전체)
-        let sf = parseInt(sliceFrom, 10);
-        let st = parseInt(sliceTo, 10);
-        if (!isFinite(sf) || sf < 1) sf = (this._rankSliceFrom || 1);
-        if (!isFinite(st) || st < 1) st = (this._rankSliceTo || 45);
-        if (sf > st) { const tmp = sf; sf = st; st = tmp; }
-        sf = Math.max(1, Math.min(45, sf));
-        st = Math.max(1, Math.min(45, st));
-        this._rankSliceFrom = sf;
-        this._rankSliceTo   = st;
+        // 우측 표는 항상 1~45 전체 고정 (슬라이드는 표가 아닌 그룹 분석에 영향)
 
         // [Stage 1-4-D-2-fix-10] 메인 1~45 모델 랭킹 — N-BEATS 제외 (10 base)
         const MODEL_ORDER  = MAIN_45_MODELS.slice();
@@ -2223,25 +2214,21 @@ const DeepLearning = {
             </tr>
         </thead>`;
 
-        // [Stage 1-4-D-2-fix-11] 행: sf~st 구간만, 각 셀은 해당 순위의 번호
-        const rowCount = Math.max(0, st - sf + 1);
-        const tbodyHtml = Array.from({ length: rowCount }, (_, i) => {
-            const rank = sf + i;
+        // [Stage 1-4-D-2-fix-12] 행: 1~45 전체 고정 — 슬라이드는 표가 아닌 그룹 분석에 영향
+        const tbodyHtml = Array.from({ length: 45 }, (_, i) => {
+            const rank = i + 1;
             const rankCls = rank <= 6 ? 'font-black text-indigo-600' : rank <= 15 ? 'font-bold text-gray-600' : 'font-medium text-gray-300';
             return `<tr class="border-b border-gray-100 last:border-0 hover:bg-indigo-50/20 transition-colors">
                 <td class="py-1.5 text-center text-[12px] ${rankCls}">${rank}</td>
-                ${cols.map(c => `<td class="py-1.5 text-center">${_ball(c.nums[rank - 1])}</td>`).join('')}
+                ${cols.map(c => `<td class="py-1.5 text-center">${_ball(c.nums[i])}</td>`).join('')}
             </tr>`;
         }).join('');
-
-        // 슬라이스 라벨 (예: "1~9위", "10~18위", "1~45위 전체")
-        const sliceLabel = (sf === 1 && st === 45) ? '1~45위 · 전체' : `${sf}~${st}위`;
 
         container.innerHTML = `
             <div class="card col-span-1 lg:col-span-2">
                 <div class="card-header">
                     <span class="material-symbols-outlined icon text-indigo-500">format_list_numbered</span>
-                    <h3>모델별 번호 순위 (${sliceLabel})</h3>
+                    <h3>모델별 번호 순위 (1위 → 45위)</h3>
                     <span class="ml-auto text-[10px] bg-indigo-50 text-indigo-500 font-bold px-2 py-0.5 rounded-full whitespace-nowrap">열 = 모델, 행 = 순위</span>
                 </div>
                 <div class="card-body p-0">
@@ -2252,18 +2239,134 @@ const DeepLearning = {
                 </div>
             </div>`;
         container.style.display = 'block';
+
+        // [Stage 1-4-D-2-fix-12] 표를 처음 그릴 때 그룹 분석도 default(현재 슬라이스)로 채움
+        this.renderRankSliceGroups();
     },
 
     /**
-     * [Stage 1-4-D-2-fix-11] RankSliceSelector 핸들러
+     * [Stage 1-4-D-2-fix-12] 슬라이스 구간 그룹 분석
+     *
+     * 각 모델이 sf~st 순위 안에 넣은 번호 집합을 모아:
+     *   - 합집합 (Union): 어느 한 모델이라도 그 구간에 포함시킨 번호
+     *   - 공집합 (Intersection): 10 base 모두 공통으로 포함시킨 번호
+     *   - 해당사항 없는 수: 어느 모델도 그 구간에 포함시키지 않은 번호 (1~45 \ 합집합)
+     */
+    renderRankSliceGroups(sliceFrom, sliceTo) {
+        const container = document.getElementById('rankSliceGroupsContainer');
+        if (!container) return;
+
+        const matrixData = this._lastMatrixData;
+        if (!matrixData || !matrixData.length) {
+            container.innerHTML = '<p class="muted dl-empty-desc">분석 데이터가 아직 로드되지 않았습니다.</p>';
+            return;
+        }
+
+        // 슬라이스 구간 정규화
+        let sf = parseInt(sliceFrom, 10);
+        let st = parseInt(sliceTo, 10);
+        if (!isFinite(sf) || sf < 1) sf = (this._rankSliceFrom || 1);
+        if (!isFinite(st) || st < 1) st = (this._rankSliceTo || 9);
+        if (sf > st) { const tmp = sf; sf = st; st = tmp; }
+        sf = Math.max(1, Math.min(45, sf));
+        st = Math.max(1, Math.min(45, st));
+        this._rankSliceFrom = sf;
+        this._rankSliceTo   = st;
+
+        const MODEL_ORDER = MAIN_45_MODELS.slice();
+        const self = this;
+        const _ball = (n) => {
+            const cls = self.getBallColorClass(n);
+            return `<span class="ball-common ${cls} inline-flex items-center justify-center" style="width:30px;height:30px;font-size:12px;font-weight:800;margin:2px;">${n}</span>`;
+        };
+
+        // 모델별 sf~st 구간 번호 집합 계산
+        const modelSets = {};
+        MODEL_ORDER.forEach(m => {
+            const sorted = [...matrixData]
+                .sort((a, b) => {
+                    const sa = ((a.models || {})[m] || {}).score || 0;
+                    const sb = ((b.models || {})[m] || {}).score || 0;
+                    return sb - sa;
+                })
+                .map(d => d.num);
+            modelSets[m] = new Set(sorted.slice(sf - 1, st));
+        });
+
+        // 합집합 / 공집합 / 해당사항 없는 수
+        const unionSet = new Set();
+        MODEL_ORDER.forEach(m => modelSets[m].forEach(n => unionSet.add(n)));
+
+        const intersectSet = new Set();
+        if (MODEL_ORDER.length > 0) {
+            const first = modelSets[MODEL_ORDER[0]];
+            first.forEach(n => {
+                if (MODEL_ORDER.every(m => modelSets[m].has(n))) intersectSet.add(n);
+            });
+        }
+
+        const emptyArr = [];
+        for (let n = 1; n <= 45; n++) {
+            if (!unionSet.has(n)) emptyArr.push(n);
+        }
+
+        const unionArr = Array.from(unionSet).sort((a, b) => a - b);
+        const intersectArr = Array.from(intersectSet).sort((a, b) => a - b);
+
+        // 모델당 몇 개 모델에서 등장했는지 카운트 (합집합 번호 강조용)
+        const counts = {};
+        unionArr.forEach(n => {
+            counts[n] = MODEL_ORDER.filter(m => modelSets[m].has(n)).length;
+        });
+
+        // 라벨
+        const sliceLabel = (sf === 1 && st === 45) ? '1~45위 · 전체' : `${sf}~${st}위`;
+
+        // 그룹 카드
+        const _group = (title, arr, color, icon, desc) => {
+            const ballsHtml = arr.length
+                ? arr.map(n => {
+                    const c = counts[n];
+                    const badge = c ? `<span style="position:absolute;top:-4px;right:-4px;background:${color};color:#fff;font-size:9px;font-weight:800;padding:1px 4px;border-radius:8px;line-height:1;">${c}</span>` : '';
+                    return `<span style="position:relative;display:inline-block;">${_ball(n)}${badge}</span>`;
+                  }).join('')
+                : '<span class="muted" style="font-size:12px;">해당 번호 없음</span>';
+            return `
+                <div style="border:1px solid var(--dl-border, #e5e7eb); border-radius:10px; padding:12px 14px; background:var(--dl-surface, #fff);">
+                    <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+                        <span class="material-symbols-outlined" style="font-size:18px; color:${color};">${icon}</span>
+                        <span style="font-weight:700; font-size:13px; color:${color};">${title}</span>
+                        <span style="margin-left:auto; font-size:11px; font-weight:700; color:#64748b;">${arr.length}개</span>
+                    </div>
+                    <div style="font-size:10px; color:#94a3b8; margin-bottom:8px;">${desc}</div>
+                    <div style="display:flex; flex-wrap:wrap; gap:2px;">${ballsHtml}</div>
+                </div>`;
+        };
+
+        container.innerHTML = `
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
+                <span style="font-weight:700; font-size:13px; color:var(--dl-text, #0f172a);">슬라이스 그룹 분석</span>
+                <span style="font-size:11px; font-weight:700; color:#4f46e5; background:#eef2ff; padding:2px 8px; border-radius:999px;">${sliceLabel}</span>
+                <span style="margin-left:auto; font-size:10px; color:#94a3b8;">10 base 기준</span>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:10px;">
+                ${_group('합집합 (Union)', unionArr, '#4f46e5', 'join_full', '10 모델 중 한 명이라도 이 구간에 포함시킨 번호. 우측 숫자 = 동의 모델 수.')}
+                ${_group('공집합 (Intersection)', intersectArr, '#10b981', 'check_circle', '10 모델 모두 공통으로 이 구간에 포함시킨 번호. 합의도 최상.')}
+                ${_group('해당사항 없는 수', emptyArr, '#94a3b8', 'do_not_disturb_on', '어느 모델도 이 구간에 포함시키지 않은 번호 (1~45 ∖ 합집합).')}
+            </div>`;
+    },
+
+    /**
+     * [Stage 1-4-D-2-fix-12] RankSliceSelector 핸들러
      *
      * 5분할 chip / 슬라이더에서 호출:
      *   window.DeepLearning.setRankSlice('1-9') 또는 setRankSlice(1, 9)
      *
-     * 동작:
-     *   - 캐시된 _lastMatrixData 로 슬라이스 구간만 재렌더
-     *   - 5분할 chip active state 토글 (data-slice 매칭)
-     *   - 슬라이더 from/to + 라벨 동기화
+     * 동작 (사용자 결정 #fix-12):
+     *   - 우측 표는 1~45 전체 고정 (변경 없음)
+     *   - 슬라이더 밑 그룹 분석(합집합/공집합/해당사항 없는 수) 갱신
+     *   - 5분할 chip active state 토글
+     *   - 슬라이더 from/to + 라벨 양방향 동기화
      */
     setRankSlice(arg1, arg2) {
         let sf, st;
@@ -2299,13 +2402,11 @@ const DeepLearning = {
             else btn.classList.remove('is-active');
         });
 
-        // 3. matrixData 재렌더 (캐시 우선, 없으면 무시)
+        // 3. 슬라이스 그룹 분석 갱신 (우측 표는 그대로)
+        this._rankSliceFrom = sf;
+        this._rankSliceTo   = st;
         if (this._lastMatrixData && this._lastMatrixData.length) {
-            this.renderModelRanking(this._lastMatrixData, sf, st);
-        } else {
-            // 캐시 없음 — 다음 데이터 로드 시 적용되도록 상태만 저장
-            this._rankSliceFrom = sf;
-            this._rankSliceTo   = st;
+            this.renderRankSliceGroups(sf, st);
         }
     },
 

@@ -811,7 +811,12 @@
                                     <input id="rankSliceTo" type="range" min="1" max="45" value="9" class="dl-slider" />
                                 </div>
                             </div>
-                            <p class="dl-note" style="margin-top: 16px;">슬라이더 또는 5분할 칩으로 구간 변경 시 우측 순위 컨테이너가 갱신됩니다.</p>
+                            <p class="dl-note" style="margin-top: 16px;">슬라이더 또는 5분할 칩으로 구간 변경 시 아래 그룹 분석이 즉시 갱신됩니다.</p>
+
+                            <!-- [Stage 1-4-D-2-fix-12] 슬라이스 결과 — 합집합 / 공집합 / 해당사항 없는 수 -->
+                            <div id="rankSliceGroupsContainer" class="dl-surface" style="margin-top: 14px; padding: 16px; min-height: 200px;">
+                                <p class="muted dl-empty-desc">슬라이더 또는 칩을 선택하면 그룹 분석이 표시됩니다.</p>
+                            </div>
                         </div>
                         <div id="modelRankingContainer" class="dl-surface" style="padding: 18px; min-height: 240px; display:flex; align-items:center; justify-content:center;">
                             <p class="muted dl-empty-desc">순위 슬라이스 데이터를 불러오는 중...</p>
