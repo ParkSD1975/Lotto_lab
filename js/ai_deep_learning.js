@@ -989,13 +989,50 @@ const DeepLearning = {
                 : `모델 합의도 ${Math.round(_agreement * 100)}% — ${_agreement > 0.7 ? '앙상블 일치도 양호' : _agreement > 0.4 ? '모델 간 의견 분산' : '모델 간 큰 이견, 주의 필요'}.`
         };
 
+        // [Stage 1-4-D-2-fix-19] 4 Pillar 점수 (ENS·FLT·STA·CNS) — frontend 계산
+        // ENS (앙상블): top5 평균 ensemble_prob 정규화 (기저 ~2.22% → 0점, 10% → 100점)
+        const _avgProb = _top5Nums.length > 0
+            ? _top5Nums.reduce((s, n) => s + ((xaiMap[n]?.probability) || 0), 0) / _top5Nums.length
+            : 0;
+        const _baseProb = 1 / 45;  // 균등 기저
+        const _ensRatio = _baseProb > 0 ? Math.max(0, (_avgProb - _baseProb) / _baseProb) : 0;
+        const pillarENS = Math.min(100, Math.round(_ensRatio * 50));  // 2배 = 100점
+
+        // FLT (필터): top5 중 veto(하드필터 경고) 미발동 비율
+        const pillarFLT = _top5Nums.length > 0
+            ? Math.round((1 - _vetoCount / _top5Nums.length) * 100)
+            : 0;
+
+        // STA (개별 상태): top5 missing_count 분산도 — 작을수록 균형 (단기·중기 적절 분포)
+        const _gaps = _top5Nums.map(n => featMap[n]?.missing_count ?? 0).filter(g => g != null);
+        const _gapMean = _gaps.length > 0 ? _gaps.reduce((s, g) => s + g, 0) / _gaps.length : 0;
+        const _gapStd = _gaps.length > 0
+            ? Math.sqrt(_gaps.reduce((s, g) => s + (g - _gapMean) ** 2, 0) / _gaps.length)
+            : 0;
+        // 분산 0 = 너무 단조 (낮음), 분산 매우 큼 = 분산 (낮음), 적당 = 높음
+        // 표준편차 6~10 일 때 100점, 0 또는 20+ 일 때 50점
+        const pillarSTA = _gaps.length > 0
+            ? Math.max(40, Math.min(100, Math.round(100 - Math.abs(_gapStd - 8) * 5)))
+            : 0;
+
+        // CNS (합의): _agreement (top5 × 핵심 5 모델 양수 기여 비율)
+        const pillarCNS = Math.round(_agreement * 100);
+
+        const pillars = {
+            ENS: pillarENS,
+            FLT: pillarFLT,
+            STA: pillarSTA,
+            CNS: pillarCNS
+        };
+
         const strategy = {
             summary:          `제${preds.target_round}회차 주간 앙상블 분석 완료. 추천 번호: ${_top5Nums.join(', ')}`,
             confidence,
             keywords,
             hot_cold_analysis,
             overall_strategy,
-            risk_assessment
+            risk_assessment,
+            pillars
         };
 
         // ── XAI 실기여도: top-5 번호의 모델별 평균 기여도 (weekly_number_xai 실데이터) ──
@@ -1471,6 +1508,18 @@ const DeepLearning = {
         const elapsedEl = document.getElementById('elapsedTime');
         if (elapsedEl && elapsed) {
             elapsedEl.textContent = '분석 소요: ' + elapsed + '초';
+        }
+
+        // [Stage 1-4-D-2-fix-19] 4 Pillar 게이지 wiring
+        // HTML의 MutationObserver가 textContent 변화 감지 → bar width 자동 갱신
+        if (strategy.pillars) {
+            ['ENS', 'FLT', 'STA', 'CNS'].forEach(k => {
+                const v = parseInt(strategy.pillars[k], 10) || 0;
+                const valEl = document.getElementById('pillar' + k);
+                const barEl = document.getElementById('pillar' + k + 'Bar');
+                if (valEl) valEl.textContent = v;
+                if (barEl) barEl.style.width = Math.max(0, Math.min(100, v)) + '%';
+            });
         }
     },
 
