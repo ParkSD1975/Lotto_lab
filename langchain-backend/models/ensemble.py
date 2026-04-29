@@ -174,7 +174,7 @@ class LottoEnsemble:
         # 메타 러닝 가중치 영구 저장 파일
         self.weights_file = os.path.join(self.save_dir, "ensemble_weights.json")
 
-        # 🌟 딥러닝/머신러닝 진짜 모델 객체화
+        # 🌟 딥러닝/머신러닝 진짜 모델 객체화 (기존 7 base)
         self.models = {
             "xgboost": LottoXGBoost(),
             "lstm": LSTMTrainer(),
@@ -184,16 +184,28 @@ class LottoEnsemble:
             "gnn": GNNTrainer()
         }
 
+        # ── Master Plan Stage 1-4-D-2: 5 신규 base lazy init ──
+        # 사용자 결정 #24 — 11 base 토폴로지 (LSTM/Transformer는 TFT 흡수, 추후 archive).
+        # 라이브러리 미설치 시 graceful skip. 학습 가중치는 D-3 학습 후 활성.
+        self._init_new_base_models()
+
         # 기본 뼈대 가중치 (초기값) - 합계 1.0
         # Phase 0.3 완료: GNN 실제 GAT 구현 → 가중치 0.15 복원
+        # Stage 1-4-D-2: 5 신규 base 키 추가 (default 0, D-3 학습 후 활성)
         self.default_weights = {
             "xgboost":     0.25,
             "lstm":        0.20,
             "cnn":         0.10,
             "transformer": 0.18,
-            "gnn":         0.15,   # Phase 0.3 완료: GAT 실제 신경망으로 복원
+            "gnn":         0.15,
             "markov":      0.08,
-            "autoencoder": 0.04
+            "autoencoder": 0.04,
+            # Stage 1-4-D-2 신규 (D-3 학습 후 활성)
+            "catboost":    0.0,
+            "tabnet":      0.0,
+            "tft":         0.0,
+            "mhn":         0.0,
+            "bayesian_nn": 0.0,
         }
 
         # ★ 시스템 시작 시 진화된 가중치가 있다면 불러오기
@@ -594,6 +606,49 @@ class LottoEnsemble:
                 
         with open(os.path.join(self.save_dir, "markov.json"), "w") as f:
             json.dump(markov_matrix.tolist(), f)
+
+    def _init_new_base_models(self):
+        """Master Plan Stage 1-4-D-2: 5 신규 base 메인 1~45 binary classifier 등록.
+
+        5 신규 base:
+          - catboost / tabnet: 트리·attention (input_dim 인자 없음/필요 분기)
+          - tft: 시계열 통합 (LSTM/Transformer 흡수, input_dim 필요)
+          - mhn: 패턴 매칭 메모리 (input_dim 필요)
+          - bayesian_nn: 불확실성 분포 (input_dim 필요)
+
+        라이브러리 미설치 또는 인스턴스화 실패 시 graceful skip.
+        실 학습은 Stage 1-4-D-3 (사용자 환경 8~12h).
+        """
+        try:
+            input_dim = config.MAIN_MODEL_INPUT_DIM or config.LSTM_INPUT_DIM
+        except (AttributeError, NameError):
+            input_dim = 65
+
+        new_base_specs = [
+            # (key, module_path, class_name, needs_input_dim)
+            ("catboost",    "models.catboost_model",    "LottoCatBoost",   False),
+            ("tabnet",      "models.tabnet_model",      "LottoTabNet",     True),
+            ("tft",         "models.tft_model",         "LottoTFT",        True),
+            ("mhn",         "models.mhn_model",         "LottoMHN",        True),
+            ("bayesian_nn", "models.bayesian_nn_model", "LottoBayesianNN", True),
+        ]
+
+        for key, mod_path, cls_name, needs_dim in new_base_specs:
+            try:
+                mod = __import__(mod_path, fromlist=[cls_name])
+                cls = getattr(mod, cls_name, None)
+                if cls is None:
+                    continue
+                # task_type="binary_45" — 메인 1~45 sigmoid 멀티핫
+                kwargs = {"task_type": "binary_45", "num_classes": 45}
+                if needs_dim:
+                    kwargs["input_dim"] = input_dim
+                self.models[key] = cls(**kwargs)
+            except (ImportError, RuntimeError) as e:
+                # 라이브러리 미설치 (CatBoost/TabNet/PyTorch-Forecasting/HFLayers)
+                print(f"[Stage 1-4-D-2] {key} skip (library not available)")
+            except Exception as e:
+                print(f"[Stage 1-4-D-2] {key} init fail (graceful): {type(e).__name__}")
 
     def _get_predictor_pipeline(self):
         """Master Plan Stage 1-4-D-1: predictor_pipeline lazy init.
