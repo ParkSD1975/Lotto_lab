@@ -33,6 +33,7 @@
     <script>
         // [캐시 버스터] 최신 분석 로직 강제 적용
         document.write('<script src="js/deep_insight_panel.js?v=20260426"><\/script>');
+        document.write('<script src="js/deep_insight_panel_v3.js?v=20260429"><\/script>');
         document.write('<script src="js/premium_insight_panel.js?v=20260426"><\/script>');
     </script>
     <script src="js/NLPInputComponent.js"></script>
@@ -501,7 +502,7 @@
                             </div>
                         </div>
 
-                        <div id="dlInsightContainer" class="mb-6">
+                        <div id="dlInsightContainer" data-indicator="total_sum" class="mb-6">
                             <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
                                 <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
                                 <span class="text-sm">딥러닝 모델 분석 중 (7개 모델)...</span>
