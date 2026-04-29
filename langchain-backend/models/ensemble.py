@@ -21,7 +21,7 @@ from models.meta_learner import MetaLearner   # P7: Stacking 메타러너
 # gnn_model.py: 2-layer GAT + per-node classifier, BCEWithLogitsLoss 학습
 # DISABLED_MODELS: 현재 비활성화 모델 없음 (모두 실제 딥러닝 구현 완료)
 # ============================================================
-DISABLED_MODELS: set = set()
+DISABLED_MODELS: set = {"lstm", "transformer"}  # Stage 1-4-D-2 (사용자 결정 #24): LSTM/Transformer 폐기 (TFT 흡수)
 
 # ============================================================
 # Phase 0.4 — Task-Specific 가중치 매트릭스 (8종으로 확장)
@@ -190,23 +190,26 @@ class LottoEnsemble:
         self._init_new_base_models()
 
         # 기본 뼈대 가중치 (초기값) - 합계 1.0
-        # Phase 0.3 완료: GNN 실제 GAT 구현 → 가중치 0.15 복원
-        # Stage 1-4-D-2: 5 신규 base 키 추가 (default 0, D-3 학습 후 활성)
+        # Stage 1-4-D-2 (사용자 결정 #24): LSTM/Transformer 폐기 (TFT 흡수)
+        # 5 신규 base 추가 (default 0, D-3 학습 후 활성)
+        # Phase 0.3 완료: GNN 실제 GAT
         self.default_weights = {
-            "xgboost":     0.25,
-            "lstm":        0.20,
-            "cnn":         0.10,
-            "transformer": 0.18,
-            "gnn":         0.15,
-            "markov":      0.08,
-            "autoencoder": 0.04,
+            "xgboost":     0.30,
+            "lstm":        0.0,    # 사용자 결정 #24 폐기 (TFT 흡수)
+            "cnn":         0.15,
+            "transformer": 0.0,    # 사용자 결정 #24 폐기 (TFT 흡수)
+            "gnn":         0.20,
+            "markov":      0.10,
+            "autoencoder": 0.05,
             # Stage 1-4-D-2 신규 (D-3 학습 후 활성)
             "catboost":    0.0,
             "tabnet":      0.0,
-            "tft":         0.0,
+            "tft":         0.20,   # LSTM/Transformer 흡수 (D-3 학습 후 활성)
             "mhn":         0.0,
             "bayesian_nn": 0.0,
         }
+        # 폐기 모델 명시 — 프론트 노출 X
+        self.deprecated_models = {"lstm", "transformer"}
 
         # ★ 시스템 시작 시 진화된 가중치가 있다면 불러오기
         self.weights = self._load_meta_weights()
