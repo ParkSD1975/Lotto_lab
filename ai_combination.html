@@ -1,10 +1,10 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html class="light" lang="ko">
 
 <head>
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
-    <title>Lotto Lab - AI 조합</title>
+    <title>AI 조합 · Lotto Lab</title>
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
     <link rel="icon" href="data:,">
     <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css"
@@ -12,37 +12,617 @@
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
         rel="stylesheet" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     <script src="js/config.js"></script>
     <script src="js/theme.js"></script>
     <script src="js/common_v2.js"></script>
     <script src="js/layout.js"></script>
 
     <style>
-        /* ── 디자인 토큰 (verification.html 공통) ── */
+        /* ════════════════════════════════════════
+           Stage 5-E · ac-* design tokens
+           라이트 모드 only · 프리미엄 · 미니멀
+           ════════════════════════════════════════ */
         :root {
-            --c-primary: #1d4ed8;
-            --c-primary-dark: #1e3a8a;
-            --c-primary-ai: #7c3aed;
-            --c-primary-ai-dark: #4c1d95;
-            --c-loading: #93c5fd;
-            --c-muted: #94a3b8;
-            --c-border: #e2e8f0;
-            --c-border-light: #f1f5f9;
-            --c-surface: #f8fafc;
-            --c-text: #334155;
-            --c-text-sub: #64748b;
-            --c-text-heading: #0f172a;
-            --c-ok: #dcfce7;
-            --c-fail: #fee2e2;
+            --ac-bg: #FAFAFA;
+            --ac-surface: #FFFFFF;
+            --ac-border: #E5E7EB;
+            --ac-divider: #F1F5F9;
+            --ac-text: #0F172A;
+            --ac-text-mid: #475569;
+            --ac-text-soft: #94A3B8;
+            --ac-accent: #3B82F6;
+            --ac-success: #059669;
+            --ac-danger: #DC2626;
+            --ac-warning: #D97706;
+
+            /* 11 base 모델 색상 (데이터 라벨 한정) */
+            --c-xgb:      #3B82F6;
+            --c-cat:      #14B8A6;
+            --c-tabnet:   #A855F7;
+            --c-cnn:      #EC4899;
+            --c-gnn:      #EF4444;
+            --c-markov:   #10B981;
+            --c-ae:       #8B5CF6;
+            --c-tft:      #F97316;
+            --c-nbeats:   #06B6D4;
+            --c-mhn:      #84CC16;
+            --c-bayesian: #F59E0B;
+
+            /* legacy compat */
+            --c-primary:        #2563eb;
+            --c-primary-dark:   #1d4ed8;
+            --c-border:         #e5e7eb;
+            --c-border-light:   #f3f4f6;
+            --c-surface:        #f9fafb;
+            --c-text:           #374151;
+            --c-text-sub:       #6b7280;
+            --c-text-heading:   #0f172a;
+            --c-muted:          #94a3b8;
         }
 
         body {
             font-family: 'Pretendard', sans-serif;
-            background: #fff;
-            color: var(--c-text);
+            background: var(--ac-bg);
+            color: var(--ac-text);
+            font-feature-settings: "ss01", "ss02", "tnum";
         }
 
-        /* ── 번호 볼 (완벽한 원형 유지) ── */
+        /* ── tabular numerals ── */
+        .ac-num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
+
+        /* ── 페이지 wrapper ── */
+        .ac-page { background: var(--ac-bg); }
+
+        /* ── 헤더 ── */
+        .ac-header {
+            padding: 32px 0 22px 0;
+            border-bottom: 1px solid var(--ac-divider);
+        }
+        .ac-eyebrow {
+            font-size: 0.7rem;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            color: var(--ac-text-soft);
+            font-weight: 600;
+            display: inline-block;
+            margin-bottom: 10px;
+        }
+        .ac-title {
+            font-size: clamp(1.75rem, 2.8vw, 2.4rem);
+            font-weight: 700;
+            line-height: 1.1;
+            letter-spacing: -0.02em;
+            color: var(--ac-text);
+            margin: 0;
+        }
+        .ac-subtitle {
+            font-size: 0.95rem;
+            color: var(--ac-text-mid);
+            margin-top: 8px;
+            font-weight: 400;
+            letter-spacing: -0.005em;
+            max-width: 60ch;
+        }
+        .ac-header-meta {
+            font-variant-numeric: tabular-nums;
+            font-size: 0.8rem;
+            color: var(--ac-text-soft);
+            font-weight: 500;
+        }
+        .ac-header-meta strong { color: var(--ac-text); font-weight: 700; }
+
+        /* ── asymmetric 우측 큰 숫자 ── */
+        .ac-round-display {
+            display: inline-flex;
+            align-items: baseline;
+            gap: 6px;
+            font-variant-numeric: tabular-nums;
+        }
+        .ac-round-num {
+            font-size: clamp(1.6rem, 2.4vw, 2rem);
+            font-weight: 700;
+            color: var(--ac-text);
+            letter-spacing: -0.025em;
+            line-height: 1;
+        }
+        .ac-round-unit {
+            font-size: 0.78rem;
+            color: var(--ac-text-soft);
+            font-weight: 500;
+        }
+
+        /* ── 섹션 ── */
+        .ac-section {
+            padding: 28px 0;
+            border-bottom: 1px solid var(--ac-divider);
+        }
+        .ac-section:last-child { border-bottom: none; }
+        .ac-section-eyebrow {
+            font-size: 0.68rem;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+            color: var(--ac-text-soft);
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+        .ac-section-title {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: var(--ac-text);
+            letter-spacing: -0.015em;
+            line-height: 1.2;
+            margin: 0;
+        }
+        .ac-section-desc {
+            font-size: 0.875rem;
+            color: var(--ac-text-mid);
+            margin-top: 6px;
+            font-weight: 400;
+            line-height: 1.5;
+            max-width: 60ch;
+        }
+        .ac-section-head {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 24px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        /* ── surface ── */
+        .ac-surface {
+            background: var(--ac-surface);
+            border: 1px solid var(--ac-border);
+            border-radius: 12px;
+        }
+
+        /* ── tab ── */
+        .ac-tabs {
+            display: flex;
+            gap: 24px;
+            border-bottom: 1px solid var(--ac-divider);
+        }
+        .ac-tab {
+            position: relative;
+            padding: 12px 0;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--ac-text-soft);
+            background: none;
+            border: none;
+            cursor: pointer;
+            transition: color 0.18s ease;
+            letter-spacing: -0.005em;
+        }
+        .ac-tab:hover { color: var(--ac-text-mid); }
+        .ac-tab.active {
+            color: var(--ac-text);
+            font-weight: 700;
+        }
+        .ac-tab.active::after {
+            content: "";
+            position: absolute;
+            left: 0; right: 0; bottom: -1px;
+            height: 2px;
+            background: var(--ac-text);
+        }
+
+        /* ── button group (top N selector) ── */
+        .ac-btn-group {
+            display: inline-flex;
+            border: 1px solid var(--ac-border);
+            border-radius: 10px;
+            overflow: hidden;
+            background: var(--ac-surface);
+        }
+        .ac-btn {
+            padding: 8px 14px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: var(--ac-text-mid);
+            background: transparent;
+            border: none;
+            border-right: 1px solid var(--ac-divider);
+            cursor: pointer;
+            font-variant-numeric: tabular-nums;
+            transition: background 0.18s ease, color 0.18s ease;
+        }
+        .ac-btn:last-child { border-right: none; }
+        .ac-btn:hover { background: var(--ac-divider); color: var(--ac-text); }
+        .ac-btn.active {
+            background: var(--ac-text);
+            color: var(--ac-surface);
+            font-weight: 600;
+        }
+
+        /* ── outline button ── */
+        .ac-btn-outline {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 7px 12px;
+            font-size: 0.78rem;
+            font-weight: 500;
+            color: var(--ac-text-mid);
+            background: var(--ac-surface);
+            border: 1px solid var(--ac-border);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: border-color 0.18s ease, color 0.18s ease;
+        }
+        .ac-btn-outline:hover {
+            border-color: var(--ac-text);
+            color: var(--ac-text);
+        }
+        .ac-btn-primary {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 9px 16px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--ac-surface);
+            background: var(--ac-text);
+            border: 1px solid var(--ac-text);
+            border-radius: 9px;
+            cursor: pointer;
+            transition: opacity 0.18s ease;
+        }
+        .ac-btn-primary:hover { opacity: 0.86; }
+        .ac-btn-primary:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        /* ── badge ── */
+        .ac-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: var(--ac-text-mid);
+            padding: 2px 8px;
+            border-radius: 999px;
+            border: 1px solid var(--ac-border);
+            background: var(--ac-surface);
+            letter-spacing: -0.005em;
+            font-variant-numeric: tabular-nums;
+        }
+        .ac-badge.accent  { color: var(--ac-accent);  border-color: var(--ac-accent); }
+        .ac-badge.success { color: var(--ac-success); border-color: var(--ac-success); }
+        .ac-badge.danger  { color: var(--ac-danger);  border-color: var(--ac-danger); }
+        .ac-badge.warning { color: var(--ac-warning); border-color: var(--ac-warning); }
+
+        /* ── metric ── */
+        .ac-metric { padding: 4px 0; }
+        .ac-metric-label {
+            font-size: 0.7rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--ac-text-soft);
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+        .ac-metric-value {
+            font-size: 1.7rem;
+            font-weight: 700;
+            color: var(--ac-text);
+            letter-spacing: -0.025em;
+            line-height: 1;
+            font-variant-numeric: tabular-nums;
+        }
+        .ac-metric-unit {
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: var(--ac-text-soft);
+            margin-left: 4px;
+        }
+
+        /* ── grid ── */
+        .ac-grid-meta {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 24px 32px;
+        }
+
+        /* ── 번호 볼 (단색, 데이터-퍼스트) ── */
+        .ac-ball {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+            font-size: 0.88rem;
+            font-weight: 700;
+            color: #FFFFFF;
+            font-variant-numeric: tabular-nums;
+            letter-spacing: -0.5px;
+            flex-shrink: 0;
+        }
+        .ac-ball-y  { background: #F59E0B; }
+        .ac-ball-b  { background: #3B82F6; }
+        .ac-ball-r  { background: #EF4444; }
+        .ac-ball-g  { background: #64748B; }
+        .ac-ball-gr { background: #10B981; }
+
+        /* recommend 강조: 작은 점 */
+        .ac-ball-wrap { position: relative; }
+        .ac-ball-mark {
+            position: absolute;
+            top: -1px; right: -1px;
+            width: 8px; height: 8px;
+            background: var(--ac-text);
+            border-radius: 50%;
+            border: 1.5px solid var(--ac-surface);
+        }
+        .ac-ball-sm {
+            width: 24px;
+            height: 24px;
+            font-size: 0.72rem;
+        }
+
+        /* ── 조합 카드 (세로 흐름) ── */
+        .ac-combo-card {
+            display: grid;
+            grid-template-columns: 36px minmax(0, 1fr) auto;
+            gap: 18px;
+            align-items: center;
+            padding: 16px 18px;
+            border: 1px solid var(--ac-border);
+            border-radius: 12px;
+            background: var(--ac-surface);
+            cursor: pointer;
+            transition: border-color 0.18s ease, background 0.18s ease;
+        }
+        .ac-combo-card:hover {
+            border-color: var(--ac-text-mid);
+        }
+        .ac-combo-card.selected {
+            border-color: var(--ac-text);
+            background: var(--ac-divider);
+        }
+        .ac-combo-rank {
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: var(--ac-text-soft);
+            font-variant-numeric: tabular-nums;
+            text-align: center;
+        }
+        .ac-combo-card.selected .ac-combo-rank { color: var(--ac-text); }
+
+        .ac-combo-balls {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .ac-combo-meta {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        /* ── score block (분해 mini-bar) ── */
+        .ac-score-block {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            min-width: 120px;
+        }
+        .ac-score-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+        .ac-score-label {
+            font-size: 0.66rem;
+            font-weight: 600;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: var(--ac-text-soft);
+        }
+        .ac-score-value {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--ac-text);
+            font-variant-numeric: tabular-nums;
+            letter-spacing: -0.02em;
+        }
+
+        /* score 분해 (5 segment mini-bar) */
+        .ac-score-decomp {
+            display: flex;
+            height: 4px;
+            background: var(--ac-divider);
+            border-radius: 999px;
+            overflow: hidden;
+        }
+        .ac-score-decomp .seg {
+            height: 100%;
+        }
+        .ac-score-decomp .seg-num     { background: var(--c-xgb); }
+        .ac-score-decomp .seg-fixed   { background: var(--c-bayesian); }
+        .ac-score-decomp .seg-filter  { background: var(--c-markov); }
+        .ac-score-decomp .seg-divers  { background: var(--c-ae); }
+        .ac-score-decomp .seg-exclude { background: var(--ac-danger); }
+
+        .ac-score-legend {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            font-size: 0.66rem;
+            color: var(--ac-text-soft);
+            font-weight: 500;
+        }
+        .ac-score-legend-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .ac-score-legend-dot {
+            width: 6px; height: 6px; border-radius: 50%;
+            display: inline-block;
+        }
+
+        /* ── confidence gauge ── */
+        .ac-gauge {
+            height: 4px;
+            background: var(--ac-divider);
+            border-radius: 999px;
+            overflow: hidden;
+        }
+        .ac-gauge-fill {
+            height: 100%;
+            background: var(--ac-text);
+            border-radius: 999px;
+            transition: width 0.3s ease;
+        }
+        .ac-gauge-fill.accent { background: var(--ac-accent); }
+
+        /* ── select indicator ── */
+        .ac-select-icon {
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            border: 1.5px solid var(--ac-border);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: transparent;
+            font-size: 14px;
+            transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
+        }
+        .ac-combo-card.selected .ac-select-icon {
+            background: var(--ac-text);
+            border-color: var(--ac-text);
+            color: var(--ac-surface);
+        }
+
+        /* ── narrative ── */
+        .ac-narrative {
+            grid-column: 1 / -1;
+            border-top: 1px solid var(--ac-divider);
+            padding-top: 14px;
+            margin-top: 4px;
+            display: none;
+            font-size: 0.82rem;
+            color: var(--ac-text-mid);
+            line-height: 1.6;
+        }
+        .ac-combo-card.expanded .ac-narrative { display: block; }
+        .ac-narrative-row {
+            display: grid;
+            grid-template-columns: 56px 1fr;
+            gap: 10px;
+            padding: 4px 0;
+        }
+        .ac-narrative-key {
+            font-size: 0.66rem;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--ac-text-soft);
+        }
+        .ac-narrative-val { color: var(--ac-text); }
+
+        /* ── divider line ── */
+        .ac-vdivider {
+            width: 1px;
+            height: 28px;
+            background: var(--ac-divider);
+        }
+
+        /* ── empty / loading ── */
+        .ac-empty {
+            padding: 56px 24px;
+            text-align: center;
+            color: var(--ac-text-soft);
+            border: 1px dashed var(--ac-border);
+            border-radius: 12px;
+            background: var(--ac-surface);
+        }
+        .ac-empty-title {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: var(--ac-text-mid);
+            margin: 0 0 4px 0;
+        }
+        .ac-empty-desc {
+            font-size: 0.825rem;
+            color: var(--ac-text-soft);
+            margin: 0;
+        }
+        .ac-empty-link {
+            color: var(--ac-text);
+            font-weight: 600;
+            border-bottom: 1px solid var(--ac-text);
+        }
+        .ac-empty-link:hover { opacity: 0.7; }
+
+        .ac-loading {
+            padding: 64px 24px;
+            text-align: center;
+            color: var(--ac-text-soft);
+            font-size: 0.85rem;
+        }
+
+        /* ── chart container ── */
+        .ac-chart      { width: 100%; min-height: 260px; }
+        .ac-chart-tall { min-height: 320px; }
+
+        /* ── note ── */
+        .ac-note {
+            font-size: 0.76rem;
+            color: var(--ac-text-soft);
+            line-height: 1.55;
+            border-left: 2px solid var(--ac-divider);
+            padding-left: 12px;
+            margin-top: 12px;
+        }
+
+        /* ── animations ── */
+        @keyframes acSpin { to { transform: rotate(360deg); } }
+        .ac-spin { animation: acSpin 0.8s linear infinite; display: inline-block; }
+
+        @keyframes acFadeIn {
+            from { opacity: 0; transform: translateY(4px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        .ac-fade-in { animation: acFadeIn 0.25s ease-out both; }
+
+        @keyframes acRowIn {
+            from { opacity: 0; transform: translateY(6px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        .ac-row-in { animation: acRowIn 0.3s ease-out both; }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+
+        /* ── responsive ── */
+        @media (max-width: 768px) {
+            .ac-combo-card {
+                grid-template-columns: 1fr;
+                gap: 12px;
+            }
+            .ac-combo-rank { text-align: left; }
+            .ac-combo-meta { justify-content: space-between; }
+        }
+
+        /* ── legacy compat (기존 ID/JS 호환) ── */
+        .hidden { display: none !important; }
+        .fade-in { animation: acFadeIn 0.3s ease-out; }
+        /* legacy ball */
         .ball {
             display: inline-flex;
             align-items: center;
@@ -51,415 +631,204 @@
             height: 32px;
             border-radius: 50%;
             font-size: 13px;
-            font-weight: 500;
+            font-weight: 600;
             color: #fff;
             flex-shrink: 0;
             position: relative;
         }
-
-
-        .ball-y {
-            background: #f59e0b;
-        }
-
-        .ball-b {
-            background: #3b82f6;
-        }
-
-        .ball-r {
-            background: #ef4444;
-        }
-
-        .ball-g {
-            background: #6b7280;
-        }
-
-        .ball-gr {
-            background: #10b981;
-        }
-
-        /* 추천 번호 하일라이트 (링이 볼 크기를 키우지 않도록 절대 좌표 배치) */
+        .ball-y { background: #F59E0B; }
+        .ball-b { background: #3B82F6; }
+        .ball-r { background: #EF4444; }
+        .ball-g { background: #64748B; }
+        .ball-gr { background: #10B981; }
         .ball-halo {
             position: absolute;
             inset: -3px;
-            border: 2.5px solid #fbbf24;
+            border: 2px solid var(--ac-text);
             border-radius: 50%;
             pointer-events: none;
-            box-shadow: 0 0 8px rgba(251, 191, 36, 0.4);
         }
-
         .ball-dot {
             position: absolute;
-            top: -1px;
-            right: -1px;
-            width: 8px;
-            height: 8px;
-            background: #fbbf24;
+            top: -1px; right: -1px;
+            width: 8px; height: 8px;
+            background: var(--ac-text);
             border-radius: 50%;
             border: 1.5px solid white;
         }
-
-
-
-        /* ── 메인 타이틀 ── */
-        .title-area {
-            border-bottom: 1px solid var(--c-border);
-        }
-
-        /* ── 정보 카드 ── */
-        .info-card {
-            background: #fff;
-            border: 1px solid var(--c-border);
-            border-radius: 16px;
-            padding: 14px;
-            transition: all 0.2s;
-        }
-
-        .info-card:hover {
-            border-color: var(--c-primary-ai);
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(124, 58, 237, 0.08);
-        }
-
-        .info-icon {
-            width: 32px;
-            height: 32px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 10px;
-            background: #f5f3ff;
-            color: var(--c-primary-ai);
-        }
-
-        /* ── 개수 선택 버튼 ── */
-        .cnt-btn {
-            padding: 6px 14px;
-            font-size: 13px;
-            font-weight: 500;
-            border-radius: 10px;
-            border: 1.5px solid var(--c-border);
-            color: var(--c-text-sub);
-            background: white;
-            transition: all 0.25s cubic-bezier(0.23, 1, 0.32, 1);
-        }
-
-
-        .cnt-btn.active {
-            color: white;
-            background: var(--c-primary);
-            border-color: var(--c-primary);
-        }
-
-        .cnt-btn:hover:not(.active) {
-            background: var(--c-surface);
-            border-color: var(--c-muted);
-        }
-
-        /* ── 조합 리스트 ── */
-        .combo-row {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 12px 14px;
-            border-radius: 14px;
-            border: 1px solid transparent;
-            background: var(--c-surface);
-            margin-bottom: 8px;
-            cursor: pointer;
-            transition: all 0.2s;
-            -webkit-tap-highlight-color: transparent;
-        }
-
-        .combo-row:active {
-            transform: scale(0.985);
-            opacity: 0.9;
-        }
-
-        .combo-row.selected {
-            background: #eff6ff;
-            border-color: #bfdbfe;
-        }
-
-        .combo-row.selected:hover {
-            background: #dbeafe;
-        }
-
-        /* ── 점수 바 ── */
-        .s-bar {
-            width: 100%;
-            height: 5px;
-            background: #e2e8f0;
-            border-radius: 3px;
-            overflow: hidden;
-        }
-
-        .s-bar-fill {
-            height: 100%;
-            background: linear-gradient(to right, var(--c-primary), #60a5fa);
-            border-radius: 3px;
-            width: 0;
-            transition: width 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
-        }
-
-        /* 저장 스피너 */
-        @keyframes spin {
-            to {
-                transform: rotate(360deg);
-            }
-        }
-
         .spin {
-            animation: spin 0.8s linear infinite;
+            animation: acSpin 0.8s linear infinite;
             display: inline-block;
         }
 
-        /* ── 애니메이션 ── */
-        @keyframes comboSlideUp {
-            from {
-                opacity: 0;
-                transform: translateY(12px);
-            }
-
-            to {
-                opacity: 1;
-                transform: none;
-            }
-        }
-
-        .combo-enter {
-            animation: comboSlideUp 0.4s cubic-bezier(0.23, 1, 0.32, 1) both;
-        }
-
-
-        @keyframes checkPop {
-            0% {
-                transform: scale(0) rotate(-20deg);
-                opacity: 0;
-            }
-
-            60% {
-                transform: scale(1.2) rotate(5deg);
-                opacity: 1;
-            }
-
-            100% {
-                transform: scale(1) rotate(0);
-                opacity: 1;
-            }
-        }
-
-        .check-pop {
-            animation: checkPop 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
-        }
-
-        /* 전체 콘텐츠 fadeIn */
-        @keyframes fadeIn {
-            from {
-                opacity: 0;
-                transform: translateY(4px);
-            }
-
-            to {
-                opacity: 1;
-                transform: none;
-            }
-        }
-
-        .fade-in {
-            animation: fadeIn 0.3s ease-out;
-        }
-
-        /* 부유 애니메이션 (No Data 아이콘용) */
-        @keyframes floatIcon {
-
-            0%,
-            100% {
-                transform: translateY(0);
-            }
-
-            50% {
-                transform: translateY(-8px);
-            }
-        }
-
-        .float-icon {
-            animation: floatIcon 3s ease-in-out infinite;
-        }
-
-        /* 프리퍼 리듀스드 모션 */
-        @media (prefers-reduced-motion: reduce) {
-
-            *,
-            *::before,
-            *::after {
-                animation-duration: 0.01ms !important;
-                animation-iteration-count: 1 !important;
-                transition-duration: 0.01ms !important;
-            }
-        }
+        /* legacy info-card override — neutralized */
+        .info-card { background: transparent; border: none; padding: 0; }
+        .info-card:hover { transform: none; box-shadow: none; border-color: transparent; }
+        .info-icon { display: none; }
     </style>
 </head>
 
-<body class="antialiased">
+<body class="antialiased ac-page">
     <!-- GNB -->
     <div id="gnb-container"></div>
 
-    <!-- 컨트롤 바 -->
-    <nav class="ctrl-bar sticky top-16 z-40 bg-white/95 backdrop-blur-md" role="toolbar" aria-label="조합 선택 도구">
-        <div class="max-w-4xl mx-auto px-3 sm:px-4 py-2 sm:py-3">
-            <!-- 1줄: 상위 선택 + 전체/해제 -->
-            <div class="flex items-center gap-2 sm:gap-3 flex-wrap">
-                <div class="flex items-center gap-1.5">
-                    <span class="text-[11px] sm:text-[12px] font-bold text-slate-500 whitespace-nowrap">상위 선택</span>
-                    <div class="flex gap-1" id="cntBtns">
-
-                        <button class="cnt-btn active" onclick="AIC.setCount(5)" data-cnt="5">5개</button>
-                        <button class="cnt-btn" onclick="AIC.setCount(10)" data-cnt="10">10개</button>
-                        <button class="cnt-btn" onclick="AIC.setCount(15)" data-cnt="15">15개</button>
-                        <button class="cnt-btn" onclick="AIC.setCount(20)" data-cnt="20">20개</button>
+    <!-- 컨트롤 바 (sticky) -->
+    <nav class="ctrl-bar sticky top-16 z-40" role="toolbar" aria-label="조합 선택 도구"
+        style="background: var(--ac-bg); border-bottom: 1px solid var(--ac-divider);">
+        <div class="max-w-5xl mx-auto px-4 sm:px-6" style="padding-top: 12px; padding-bottom: 12px;">
+            <div class="flex items-center gap-3 flex-wrap">
+                <div class="flex items-center gap-3">
+                    <span class="ac-eyebrow" style="margin: 0;">상위 N</span>
+                    <div class="ac-btn-group" id="cntBtns">
+                        <button class="ac-btn cnt-btn active" onclick="AIC.setCount(5)" data-cnt="5">5</button>
+                        <button class="ac-btn cnt-btn" onclick="AIC.setCount(10)" data-cnt="10">10</button>
+                        <button class="ac-btn cnt-btn" onclick="AIC.setCount(15)" data-cnt="15">15</button>
+                        <button class="ac-btn cnt-btn" onclick="AIC.setCount(20)" data-cnt="20">20</button>
+                        <button class="ac-btn cnt-btn" onclick="AIC.setCount(0)" data-cnt="0">전체</button>
                     </div>
                 </div>
 
-                <div class="flex gap-1 sm:gap-1.5">
-                    <button onclick="AIC.selectAll()"
-                        class="flex items-center gap-0.5 px-2 py-1.5 text-[11px] font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-all">
-                        <span class="material-symbols-outlined" style="font-size:12px;">check_box</span>전체
-                    </button>
-                    <button onclick="AIC.deselectAll()"
-                        class="flex items-center gap-0.5 px-2 py-1.5 text-[11px] font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-all">
-                        <span class="material-symbols-outlined" style="font-size:12px;">check_box_outline_blank</span>해제
-                    </button>
+                <div class="flex gap-2">
+                    <button class="ac-btn-outline" onclick="AIC.selectAll()">전체 선택</button>
+                    <button class="ac-btn-outline" onclick="AIC.deselectAll()">선택 해제</button>
                 </div>
 
-                <!-- 선택 뜨지 + 저장 버튼 -->
-                <div class="flex items-center gap-2 ml-auto">
-                    <span id="selBadge"
-                        class="hidden px-2 py-0.5 bg-blue-100 text-blue-700 text-[11px] font-bold rounded-full"></span>
-                    <button id="btnSave" onclick="AIC.save()"
-                        class="flex items-center gap-1 sm:gap-1.5 px-3 sm:px-4 py-2 bg-[var(--c-primary)] hover:bg-[var(--c-primary-dark)] disabled:opacity-40 disabled:cursor-not-allowed text-white text-[12px] sm:text-[13px] font-bold rounded-xl transition-all shadow-sm shadow-blue-200">
-                        <span id="saveLabel" class="flex items-center gap-1">저장하기</span>
+                <div class="flex items-center gap-3 ml-auto">
+                    <span id="selBadge" class="ac-badge accent hidden"></span>
+                    <button id="btnSave" class="ac-btn-primary" onclick="AIC.save()">
+                        <span id="saveLabel">저장하기</span>
                     </button>
                 </div>
             </div>
         </div>
     </nav>
 
-
     <!-- 메인 -->
-    <main class="max-w-4xl mx-auto px-3 sm:px-4 py-4 sm:py-6" id="mainArea" role="main">
+    <main class="max-w-5xl mx-auto px-4 sm:px-6 pb-16" id="mainArea" role="main">
 
         <!-- 로딩 -->
-        <div id="stateLoading" class="flex flex-col items-center justify-center py-24 gap-4" role="status"
-            aria-live="polite">
-            <span class="material-symbols-outlined animate-spin text-blue-400" style="font-size:40px;"
-                aria-hidden="true">progress_activity</span>
-            <p class="text-[14px] font-bold text-slate-500">딥러닝 점수 계산 중...</p>
+        <div id="stateLoading" class="ac-loading" role="status" aria-live="polite">
+            <div style="display:inline-flex; align-items:center; gap:10px;">
+                <span class="material-symbols-outlined ac-spin" style="font-size: 22px; color: var(--ac-text-mid);" aria-hidden="true">progress_activity</span>
+                <span>딥러닝 점수를 계산하고 있습니다.</span>
+            </div>
         </div>
 
-
-        <!-- 조합 없음 (localStorage) -->
-        <div id="stateNoCombo" class="hidden flex-col items-center justify-center py-24 gap-4 text-center">
-            <span class="material-symbols-outlined text-slate-300 float-icon" style="font-size:52px;">tune</span>
-            <h3 class="text-[16px] font-black text-slate-500">생성된 조합이 없습니다</h3>
-            <p class="text-[13px] text-slate-400 leading-relaxed">
-                먼저 <a href="filter.html" class="text-blue-500 font-bold underline">필터 페이지</a>에서 조합을 생성해주세요.
-            </p>
+        <!-- 조합 없음 -->
+        <div id="stateNoCombo" class="hidden" style="padding-top: 56px;">
+            <div class="ac-empty">
+                <p class="ac-empty-title">생성된 조합이 없습니다</p>
+                <p class="ac-empty-desc">먼저 <a href="filter.html" class="ac-empty-link">필터 페이지</a>에서 조합을 생성해 주세요.</p>
+            </div>
         </div>
 
         <!-- 딥러닝 데이터 없음 -->
-        <div id="stateNoAI" class="hidden flex-col items-center justify-center py-24 gap-4 text-center">
-            <span class="material-symbols-outlined text-slate-300 float-icon"
-                style="font-size:52px;">psychology_alt</span>
-            <h3 class="text-[16px] font-black text-slate-500">딥러닝 분석 데이터가 없습니다</h3>
-            <p class="text-[13px] text-slate-400 leading-relaxed">
-                <a href="ai_deep_learning.html" class="text-blue-500 font-bold underline">딥러닝 분석</a> 페이지에서 먼저 분석을
-                실행해주세요.
-            </p>
+        <div id="stateNoAI" class="hidden" style="padding-top: 56px;">
+            <div class="ac-empty">
+                <p class="ac-empty-title">딥러닝 분석 데이터가 없습니다</p>
+                <p class="ac-empty-desc"><a href="ai_deep_learning.html" class="ac-empty-link">딥러닝 분석</a> 페이지에서 먼저 분석을 실행해 주세요.</p>
+            </div>
         </div>
 
         <!-- 실제 콘텐츠 -->
-        <div id="stateContent" class="hidden fade-in space-y-4">
-            <!-- 헤더 -->
-            <header class="title-area bg-white sticky top-0 z-50">
-                <div class="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
-                    <div class="flex items-center gap-3">
-                        <button onclick="history.back()"
-                            class="p-2 -ml-2 text-slate-400 hover:text-slate-600 transition-colors" aria-label="뒤로 가기">
-                            <span class="material-symbols-outlined" style="font-size:24px;">arrow_back</span>
-                        </button>
-                        <div class="flex flex-col">
-                            <h1 class="text-[17px] font-semibold text-[#1e1b4b] leading-tight">AI 딥러닝 추천 조합</h1>
-                            <span class="text-[11px] font-medium text-slate-500/80">데이터 기반 상위 확률 조합 추출</span>
-                        </div>
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <span
-                            class="px-2.5 py-1 bg-purple-50 text-purple-600 text-[11px] font-semibold rounded-lg border border-purple-100 flex items-center gap-1">
+        <div id="stateContent" class="hidden ac-fade-in">
 
-                            <span class="material-symbols-outlined" style="font-size:14px;">psychology</span> AI분석중
-                        </span>
+            <!-- 헤더 (eyebrow + title + asymmetric meta) -->
+            <header class="ac-header">
+                <div style="display:grid; grid-template-columns: minmax(0,1fr) auto; gap: 24px; align-items: end;">
+                    <div>
+                        <span class="ac-eyebrow">AI Combinations</span>
+                        <h1 class="ac-title">AI 조합</h1>
+                        <p class="ac-subtitle">사용자 필터를 통과한 조합에 4 Pillar 점수와 11 base 다양성을 반영해 상위 후보를 선별합니다.</p>
+                    </div>
+                    <div style="display:flex; flex-direction:column; align-items:flex-end; gap: 8px;">
+                        <div class="ac-round-display">
+                            <span class="ac-round-unit" style="margin-right:2px;">대상 회차</span>
+                            <span class="ac-round-num" id="hdrRound">—</span>
+                            <span class="ac-round-unit">회</span>
+                        </div>
+                        <div class="ac-header-meta">
+                            <span>통과 풀 </span><strong id="hdrPool">—</strong><span> 조합</span>
+                            <span style="margin: 0 6px; color: var(--ac-divider);">·</span>
+                            <span>신뢰도 </span><strong id="hdrConf">—</strong>
+                        </div>
                     </div>
                 </div>
             </header>
 
-            <!-- 요약 정보 -->
-            <section class="bg-slate-50 border-b border-slate-200" aria-label="분석 전략 요약">
-                <div class="max-w-4xl mx-auto px-4 py-6">
-                    <div class="grid grid-cols-2 lg:grid-cols-3 gap-3">
-                        <!-- 대상 회차 (High Contrast 강조) -->
-                        <div class="info-card bg-white border-purple-100">
-                            <div class="flex items-center gap-3 mb-2">
-                                <div class="info-icon bg-purple-50 text-purple-500"><span
-                                        class="material-symbols-outlined">target</span></div>
-                                <span class="text-[11px] font-semibold text-slate-400 uppercase tracking-tight">분석
-                                    대상</span>
-                            </div>
-                            <div id="infoRound"
-                                class="text-[15px] sm:text-[16px] font-semibold text-[#1e1b4b] tabular-nums">-</div>
-                        </div>
+            <!-- 요약 메타 (기존 ID 보존: infoRound / infoTotal / infoRec) -->
+            <section class="ac-section" aria-label="분석 전략 요약">
+                <div class="ac-section-head">
+                    <div>
+                        <div class="ac-section-eyebrow">Strategy summary</div>
+                        <h2 class="ac-section-title">분석 전략 요약</h2>
+                        <p class="ac-section-desc">대상 회차의 딥러닝 추천/제외 번호와 사용자 필터 통과 풀의 규모.</p>
+                    </div>
+                </div>
 
-                        <!-- 분석 풀 -->
-                        <div class="info-card">
-                            <div class="flex items-center gap-3 mb-2">
-                                <div class="info-icon bg-blue-50 text-blue-500"><span
-                                        class="material-symbols-outlined">database</span></div>
-                                <span class="text-[11px] font-semibold text-slate-400 uppercase tracking-tight">필터 통과
-                                    풀</span>
-                            </div>
-                            <div id="infoTotal"
-                                class="text-[15px] sm:text-[16px] font-semibold text-[#1e1b4b] tabular-nums">-</div>
-                        </div>
-
-                        <!-- AI 고정수 (추락 방지 - 3열은 데스크탑에서만 보임) -->
-                        <div class="info-card col-span-2 lg:col-span-1 border-amber-100">
-                            <div class="flex items-center gap-3 mb-3">
-                                <div class="info-icon bg-amber-100 text-amber-600"><span
-                                        class="material-symbols-outlined">stars</span></div>
-                                <span class="text-[12px] font-black text-slate-400 uppercase tracking-tighter">AI
-                                    추천/고정수</span>
-                            </div>
-                            <div id="infoRec" class="flex items-center gap-1"></div>
-                        </div>
+                <div class="ac-grid-meta">
+                    <div class="ac-metric">
+                        <div class="ac-metric-label">분석 대상</div>
+                        <div id="infoRound" class="ac-metric-value">—</div>
+                    </div>
+                    <div class="ac-metric">
+                        <div class="ac-metric-label">필터 통과 풀</div>
+                        <div id="infoTotal" class="ac-metric-value">—</div>
+                    </div>
+                    <div class="ac-metric" style="grid-column: span 2; min-width: 0;">
+                        <div class="ac-metric-label">AI 추천 / 고정수</div>
+                        <div id="infoRec" style="display:flex; flex-wrap:wrap; align-items:center; gap: 8px; padding-top: 4px;"></div>
                     </div>
                 </div>
             </section>
 
-            <!-- 조합 리스트 -->
-            <div class="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
-                <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-slate-50/40">
-                    <div class="flex items-center gap-2">
-                        <span class="material-symbols-outlined text-violet-400"
-                            style="font-size:18px;">auto_awesome</span>
-                        <span class="text-[14px] font-semibold text-slate-600">AI 점수 상위 조합</span>
-                        <span id="cntLabel"
-                            class="px-2 py-0.5 bg-blue-50 text-blue-500 text-[11px] font-semibold rounded-full"></span>
+            <!-- 점수 분포 (ECharts histogram) -->
+            <section class="ac-section">
+                <div class="ac-section-head">
+                    <div>
+                        <div class="ac-section-eyebrow">Score distribution</div>
+                        <h2 class="ac-section-title">조합 점수 분포</h2>
+                        <p class="ac-section-desc">전체 통과 풀 조합의 AI 점수 분포. 음영은 현재 표시 중인 상위 N의 위치입니다.</p>
                     </div>
-
-                    <span class="text-[11px] text-slate-400" id="poolLabel"></span>
+                    <span class="ac-header-meta">전체 풀 기준</span>
                 </div>
-                <div id="comboList" class="p-3 flex flex-col gap-1.5"></div>
-            </div>
+                <div id="chartScoreDist" class="ac-chart"></div>
+            </section>
+
+            <!-- 다양성 분석 (heatmap, 11 모델 색상 활용) -->
+            <section class="ac-section">
+                <div class="ac-section-head">
+                    <div>
+                        <div class="ac-section-eyebrow">Diversity · top N coverage</div>
+                        <h2 class="ac-section-title">상위 조합 번호 커버리지</h2>
+                        <p class="ac-section-desc">상위 N 조합에 등장하는 1–45 번호 빈도. 진한 색일수록 더 자주 등장합니다.</p>
+                    </div>
+                    <span class="ac-header-meta">1–45 · 빈도</span>
+                </div>
+                <div id="chartDiversity" class="ac-chart"></div>
+            </section>
+
+            <!-- 조합 카드 list -->
+            <section class="ac-section">
+                <div class="ac-section-head">
+                    <div>
+                        <div class="ac-section-eyebrow" id="poolLabel">Top combinations</div>
+                        <h2 class="ac-section-title">AI 점수 상위 조합 <span id="cntLabel" class="ac-badge accent" style="margin-left: 8px;"></span></h2>
+                        <p class="ac-section-desc">각 조합의 점수는 number · fixed · filter · diversity 합에서 exclude 차감. 카드를 누르면 narrative가 펼쳐집니다.</p>
+                    </div>
+                    <div class="ac-score-legend" style="align-self: flex-end;">
+                        <span class="ac-score-legend-item"><span class="ac-score-legend-dot" style="background: var(--c-xgb);"></span>number</span>
+                        <span class="ac-score-legend-item"><span class="ac-score-legend-dot" style="background: var(--c-bayesian);"></span>fixed</span>
+                        <span class="ac-score-legend-item"><span class="ac-score-legend-dot" style="background: var(--c-markov);"></span>filter</span>
+                        <span class="ac-score-legend-item"><span class="ac-score-legend-dot" style="background: var(--c-ae);"></span>diversity</span>
+                        <span class="ac-score-legend-item"><span class="ac-score-legend-dot" style="background: var(--ac-danger);"></span>exclude</span>
+                    </div>
+                </div>
+
+                <div id="comboList" style="display:flex; flex-direction: column; gap: 10px;"></div>
+
+                <p class="ac-note">상위 N 토글로 표시 개수를 조절할 수 있습니다. 각 조합의 신뢰도 게이지는 Bayesian σ를 정규화한 값입니다.</p>
+            </section>
         </div>
 
     </main>
@@ -476,6 +845,10 @@
             let _cachedUser = null;
             let _cachedGroupNum = 0;
 
+            // ECharts instances
+            let _chartScore = null;
+            let _chartDiv = null;
+
             // ── Supabase ──
             function getSB() {
                 return window.supabaseClient || null;
@@ -483,11 +856,11 @@
 
             // ── 번호별 볼 색상 ──
             function bc(n) {
-                if (n <= 10) return 'ball-y';
-                if (n <= 20) return 'ball-b';
-                if (n <= 30) return 'ball-r';
-                if (n <= 40) return 'ball-g';
-                return 'ball-gr';
+                if (n <= 10) return 'ac-ball-y';
+                if (n <= 20) return 'ac-ball-b';
+                if (n <= 30) return 'ac-ball-r';
+                if (n <= 40) return 'ac-ball-g';
+                return 'ac-ball-gr';
             }
 
             // ── 상태 전환 ──
@@ -496,13 +869,9 @@
                     const el = document.getElementById(s);
                     if (!el) return;
                     el.classList.add('hidden');
-                    el.style.display = '';
                 });
                 const target = document.getElementById(id);
-                if (target) {
-                    target.classList.remove('hidden');
-                    if (id !== 'stateContent') target.style.display = 'flex';
-                }
+                if (target) target.classList.remove('hidden');
             }
 
             // ── 초기화 ──
@@ -516,6 +885,7 @@
                 } catch (e) { showState('stateNoCombo'); return; }
 
                 const sb = getSB();
+                if (!sb) { showState('stateNoAI'); return; }
 
                 // 2. 현재 유저 + 회차
                 try {
@@ -525,11 +895,10 @@
                     ]);
                     _cachedUser = user;
                     _cachedRound = draws?.[0]?.round ? draws[0].round + 1 : null;
-                } catch (e) { }
+                } catch (e) { /* noop */ }
 
-                // [추가] 회차 업데이트 시 로컬스토리지 비우기 로직 (일관성 유지)
+                // 회차 일관성 체크
                 if (_cachedRound) {
-                    // target_round가 아예 없거나(구버전 데이터), 현재 DB상 예정 회차와 다르면 무조건 리셋
                     if (!filterCombosData.target_round || filterCombosData.target_round !== _cachedRound) {
                         localStorage.removeItem('generated_filter_combos');
                         showState('stateNoCombo');
@@ -537,16 +906,16 @@
                     }
                 }
 
-                // 그룹 번호 파악 (같은 유저 기존 그룹 수)
+                // 그룹 번호
                 try {
                     const q = sb.from('saved_combination_groups').select('id', { count: 'exact', head: true });
                     if (_cachedUser) q.eq('user_id', _cachedUser.id);
                     else q.is('user_id', null);
                     const { count } = await q;
                     _cachedGroupNum = count || 0;
-                } catch (e) { }
+                } catch (e) { /* noop */ }
 
-                // 3. 딥러닝 분석 데이터 (matrix_data 포함)
+                // 3. 딥러닝 분석 데이터
                 try {
                     const { data, error } = await sb.from('deep_analysis_history')
                         .select('id, target_round, confidence, recommended_numbers, excluded_numbers, analysis_data')
@@ -558,27 +927,40 @@
                     aiData = data;
                 } catch (e) { showState('stateNoAI'); return; }
 
-                // 4. 각 조합에 AI 점수 부여
+                // 4. 점수 부여 + 정렬
                 scoreAndSort();
 
                 // 5. 화면 표시
+                renderHeader();
                 renderSummary();
                 setCount(5);
                 showState('stateContent');
+
+                // 차트 초기화 (DOM 표시 후)
+                requestAnimationFrame(() => {
+                    initCharts();
+                    renderScoreChart();
+                    renderDiversityChart();
+                });
+
+                // resize
+                window.addEventListener('resize', () => {
+                    if (_chartScore) _chartScore.resize();
+                    if (_chartDiv)   _chartDiv.resize();
+                });
             }
 
-            // ── AI 점수 계산 & 정렬 (다기준 채점) ──
-            let _parsedAI = null; // 파싱된 analysis_data 캐시
+            // ── 점수 계산 & 정렬 ──
+            let _parsedAI = null;
             function scoreAndSort() {
-                // [수정] analysis_data는 DB에 JSON 문자열로 저장됨 → 반드시 파싱 필요
                 try { _parsedAI = JSON.parse(aiData?.analysis_data || '{}'); } catch (e) { _parsedAI = {}; }
 
                 const matrixData = _parsedAI.analysis?.matrix_data || [];
                 const filterRecs = _parsedAI.strategy?.filter_recommendations || [];
-                const fixedNums = new Set(_parsedAI.strategy?.fixed_numbers?.numbers || aiData?.recommended_numbers || []);
-                const exclNums = new Set(_parsedAI.strategy?.exclude_numbers?.numbers || aiData?.excluded_numbers || []);
+                const fixedNums  = new Set(_parsedAI.strategy?.fixed_numbers?.numbers   || aiData?.recommended_numbers || []);
+                const exclNums   = new Set(_parsedAI.strategy?.exclude_numbers?.numbers || aiData?.excluded_numbers   || []);
 
-                // ① 번호별 앙상블 점수 맵 (total, 약 10,000~110,000 scale)
+                // 번호별 앙상블 점수 정규화
                 const scoreMap = {};
                 matrixData.forEach(d => { scoreMap[d.num] = d.total || 0; });
                 const totVals = Object.values(scoreMap);
@@ -586,11 +968,13 @@
                 const maxS = totVals.length ? Math.max(...totVals) : 1;
                 const normScore = n => maxS > minS ? ((scoreMap[n] || 0) - minS) / (maxS - minS) * 100 : 50;
 
-                // filter_recommendations 맵 (필터명 → 조건)
+                // GNN edge_prob / AE anomaly (다양성 보너스용 — 없으면 0)
+                const gnnEdge   = _parsedAI.analysis?.gnn_edge_score   || {};
+                const aeAnomaly = _parsedAI.analysis?.ae_anomaly_score || {};
+
                 const filterMap = {};
                 filterRecs.forEach(f => { filterMap[f.filter] = f; });
 
-                // 소수 집합 (1~45 내)
                 const PRIMES = new Set([2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43]);
 
                 const allCombos = filterCombosData.combinations || [];
@@ -599,22 +983,22 @@
                     const nums = combo.numbers || [];
                     const sorted = [...nums].sort((a, b) => a - b);
 
-                    // ━━ (A) 번호별 AI 앙상블 점수 (0~100 평균) ━━
+                    // (A) number score
                     const numScore = nums.reduce((s, n) => s + normScore(n), 0) / 6;
 
-                    // ━━ (B) AI 고정수 bonus & 제외수 penalty ━━
+                    // (B) fixed bonus / exclude penalty
                     const fixedCount = nums.filter(n => fixedNums.has(n)).length;
-                    const exclCount = nums.filter(n => exclNums.has(n)).length;
+                    const exclCount  = nums.filter(n => exclNums.has(n)).length;
                     const fixedBonus = fixedCount * 15;
                     const exclPenalty = exclCount * 20;
 
-                    // ━━ (C) filter_recommendations 다기준 채점 ━━
-                    const sumV = nums.reduce((a, b) => a + b, 0);
-                    const oddV = nums.filter(n => n % 2 !== 0).length;
-                    const highV = nums.filter(n => n > 22).length;
+                    // (C) filter compliance
+                    const sumV   = nums.reduce((a, b) => a + b, 0);
+                    const oddV   = nums.filter(n => n % 2 !== 0).length;
+                    const highV  = nums.filter(n => n > 22).length;
                     const primeV = nums.filter(n => PRIMES.has(n)).length;
-                    const sqV = nums.filter(n => [1, 4, 9, 16, 25, 36].includes(n)).length;
-                    const triV = nums.filter(n => [1, 3, 6, 10, 15, 21, 28, 36, 45].includes(n)).length;
+                    const sqV    = nums.filter(n => [1, 4, 9, 16, 25, 36].includes(n)).length;
+                    const triV   = nums.filter(n => [1, 3, 6, 10, 15, 21, 28, 36, 45].includes(n)).length;
                     const tailSum = nums.reduce((a, n) => a + (n % 10), 0);
                     let consecV = 0;
                     for (let i = 1; i < sorted.length; i++) if (sorted[i] - sorted[i - 1] === 1) consecV++;
@@ -623,48 +1007,87 @@
                         for (let j = i + 1; j < sorted.length; j++) diffs.add(sorted[j] - sorted[i]);
                     const acV = diffs.size - 5;
 
-                    // 각 필터 조건 pass 시 가점 (범위형: +8, 패턴형: +6)
                     const inRange = (v, f) => f?.min !== undefined && f?.max !== undefined && v >= f.min && v <= f.max;
                     let filterScore = 0;
-                    if (inRange(sumV, filterMap['총합'])) filterScore += 10;
+                    if (inRange(sumV,    filterMap['총합']))   filterScore += 10;
                     if (inRange(tailSum, filterMap['끝수합'])) filterScore += 8;
-                    if (inRange(acV, filterMap['AC값'])) filterScore += 8;
-                    if (inRange(primeV, filterMap['소수'])) filterScore += 6;
-                    if (inRange(sqV, filterMap['제곱수'])) filterScore += 4;
-                    if (inRange(triV, filterMap['삼각수'])) filterScore += 4;
+                    if (inRange(acV,     filterMap['AC값']))   filterScore += 8;
+                    if (inRange(primeV,  filterMap['소수']))   filterScore += 6;
+                    if (inRange(sqV,     filterMap['제곱수'])) filterScore += 4;
+                    if (inRange(triV,    filterMap['삼각수'])) filterScore += 4;
                     if (inRange(consecV, filterMap['연속수'])) filterScore += 5;
-                    // 홀짝 패턴
                     const oddRec = filterMap['홀짝']?.pattern || '';
                     if (oddRec.includes('3:3') && oddV === 3) filterScore += 8;
                     else if ((oddRec.includes('4:2') || oddRec.includes('2:4')) && (oddV === 4 || oddV === 2)) filterScore += 6;
-                    // 저고 패턴
                     const highRec = filterMap['저고']?.pattern || '';
                     if (highRec.includes('3:3') && highV === 3) filterScore += 8;
 
-                    // ━━ 최종 점수 ━━
-                    const aiScore = numScore + fixedBonus - exclPenalty + filterScore;
+                    // (D) diversity bonus (GNN edge_prob + AE anomaly)
+                    let diversityScore = 0;
+                    let edgeSum = 0, edgeCnt = 0;
+                    for (let i = 0; i < sorted.length; i++) {
+                        for (let j = i + 1; j < sorted.length; j++) {
+                            const k1 = `${sorted[i]}-${sorted[j]}`;
+                            const k2 = `${sorted[j]}-${sorted[i]}`;
+                            const v = gnnEdge[k1] ?? gnnEdge[k2];
+                            if (typeof v === 'number') { edgeSum += v; edgeCnt++; }
+                        }
+                    }
+                    const edgeAvg = edgeCnt > 0 ? edgeSum / edgeCnt : 0;
+                    const aeAvg = nums.reduce((s, n) => s + (aeAnomaly[n] || 0), 0) / 6;
+                    diversityScore = (edgeAvg * 8) + (aeAvg * 4); // 약 0~12 scale
 
-                    return { ...combo, aiScore, numScore, filterScore, fixedCount, exclCount, origRank: idx + 1 };
+                    // 총합
+                    const aiScore = numScore + fixedBonus - exclPenalty + filterScore + diversityScore;
+
+                    // Bayesian σ → confidence (없으면 점수 변동성으로 근사)
+                    const bayesSigma = _parsedAI.analysis?.bayesian_sigma?.[idx] ?? null;
+                    const confidence = bayesSigma !== null
+                        ? Math.max(0, Math.min(100, 100 - bayesSigma * 100))
+                        : Math.max(20, Math.min(95, numScore));
+
+                    return {
+                        ...combo,
+                        aiScore, numScore, filterScore, fixedBonus, exclPenalty, diversityScore,
+                        fixedCount, exclCount,
+                        confidence,
+                        sumV, oddV, highV,
+                        origRank: idx + 1
+                    };
                 }).sort((a, b) => b.aiScore - a.aiScore);
+            }
+
+            // ── 헤더 메타 ──
+            function renderHeader() {
+                const conf = _parsedAI?.strategy?.confidence ?? aiData?.confidence ?? null;
+                const total = filterCombosData?.total_pool || filterCombosData?.combinations?.length || 0;
+                document.getElementById('hdrRound').textContent = aiData?.target_round ?? '—';
+                document.getElementById('hdrPool').textContent  = total.toLocaleString();
+                document.getElementById('hdrConf').textContent  = conf !== null ? `${conf}%` : '—';
             }
 
             // ── 요약 정보 렌더 ──
             function renderSummary() {
-                // [수정] _parsedAI 기준으로 고정수/제외수 표시
-                const fixedNums = _parsedAI?.strategy?.fixed_numbers?.numbers || aiData?.recommended_numbers || [];
+                const fixedNums  = _parsedAI?.strategy?.fixed_numbers?.numbers || aiData?.recommended_numbers || [];
                 const confidence = _parsedAI?.strategy?.confidence ?? aiData?.confidence ?? '-';
 
-                document.getElementById('infoRound').textContent = aiData
-                    ? `${aiData.target_round}회 딥러닝 (신뢰도 ${confidence}%)`
-                    : '-';
+                document.getElementById('infoRound').innerHTML = aiData
+                    ? `${aiData.target_round}<span class="ac-metric-unit">회 · 신뢰도 ${confidence}%</span>`
+                    : '—';
 
                 const total = filterCombosData?.total_pool || filterCombosData?.combinations?.length || 0;
-                document.getElementById('infoTotal').textContent = `${total.toLocaleString()}개`;
+                document.getElementById('infoTotal').innerHTML = `${total.toLocaleString()}<span class="ac-metric-unit">조합</span>`;
 
                 const recEl = document.getElementById('infoRec');
-                fixedNums.slice(0, 5).forEach(n => {
-                    recEl.innerHTML += `<span class="ball ${bc(n)}" style="width:22px;height:22px;font-size:10px;">${n}</span>`;
-                });
+                recEl.innerHTML = '';
+                if (!fixedNums.length) {
+                    recEl.innerHTML = '<span class="ac-empty-desc" style="color:var(--ac-text-soft);">고정수 없음</span>';
+                } else {
+                    fixedNums.slice(0, 8).forEach(n => {
+                        recEl.insertAdjacentHTML('beforeend',
+                            `<span class="ac-ball ${bc(n)}" style="width: 28px; height: 28px; font-size: 0.78rem;">${n}</span>`);
+                    });
+                }
             }
 
             // ── 개수 선택 ──
@@ -673,111 +1096,295 @@
                 document.querySelectorAll('#cntBtns .cnt-btn').forEach(btn => {
                     btn.classList.toggle('active', parseInt(btn.dataset.cnt) === n);
                 });
-                displayed = allScoredCombos.slice(0, n);
+                displayed = n === 0 ? allScoredCombos.slice() : allScoredCombos.slice(0, n);
                 selSet = new Set(displayed.map((_, i) => i));
                 renderList();
                 updateBadge();
+                if (_chartScore) renderScoreChart();
+                if (_chartDiv)   renderDiversityChart();
             }
 
             // ── 조합 리스트 렌더 ──
             function renderList() {
-                const maxScore = displayed.length ? Math.max(...displayed.map(c => c.aiScore)) || 1 : 1;
                 const recSet = new Set(aiData?.recommended_numbers || []);
                 const total = filterCombosData?.combinations?.length || 0;
+                const cntLabelEl = document.getElementById('cntLabel');
+                const poolLabelEl = document.getElementById('poolLabel');
+                if (cntLabelEl)  cntLabelEl.textContent = `${displayed.length}개`;
+                if (poolLabelEl) poolLabelEl.textContent = `Top combinations · 전체 ${total.toLocaleString()}`;
 
-                document.getElementById('cntLabel').textContent = `${displayed.length}개`;
-                document.getElementById('poolLabel').textContent = `전체 ${total.toLocaleString()}개 중 AI 상위 ${displayed.length}개`;
+                const STAGGER = 30;
+                const MAX_STAGGER = 8;
 
-                // [애니] 스태거 쿼로 실제품 애니는 는림의 시간차를 제한
-                const STAGGER_DELAY_MS = 40;
-                const MAX_STAGGER = 8; // 8번까지만 스태거, 이후는 같은 시간
-
-                document.getElementById('comboList').innerHTML = displayed.map((combo, idx) => {
+                const html = displayed.map((combo, idx) => {
                     const nums = [...(combo.numbers || [])].sort((a, b) => a - b);
-                    const pct = maxScore > 0 ? (combo.aiScore / maxScore) * 100 : 0;
                     const isSel = selSet.has(idx);
-                    const sum = nums.reduce((a, b) => a + b, 0);
-                    const odd = nums.filter(n => n % 2 !== 0).length;
-                    // [애니] 스태거 딜레이 (idx가 MAX_STAGGER 이후는 같은 딜레이)
-                    const delay = Math.min(idx, MAX_STAGGER) * STAGGER_DELAY_MS;
+                    const delay = Math.min(idx, MAX_STAGGER) * STAGGER;
+
+                    // 점수 분해 비율 (절대 양수 합으로 정규화)
+                    const segs = [
+                        { cls: 'seg-num',     v: Math.max(0, combo.numScore) },
+                        { cls: 'seg-fixed',   v: Math.max(0, combo.fixedBonus) },
+                        { cls: 'seg-filter',  v: Math.max(0, combo.filterScore) },
+                        { cls: 'seg-divers',  v: Math.max(0, combo.diversityScore) },
+                        { cls: 'seg-exclude', v: Math.max(0, combo.exclPenalty) }
+                    ];
+                    const segTotal = segs.reduce((a, s) => a + s.v, 0) || 1;
+                    const segHtml = segs.filter(s => s.v > 0).map(s =>
+                        `<div class="seg ${s.cls}" style="width: ${(s.v / segTotal * 100).toFixed(2)}%;"></div>`
+                    ).join('');
 
                     const ballsHtml = nums.map(n => {
                         const isRec = recSet.has(n);
-                        return `
-                    <div style="position:relative; width: 32px; height: 32px;">
-                        <span class="ball ${bc(n)}">${n}</span>
-                        ${isRec ? '<div class="ball-halo"></div><div class="ball-dot"></div>' : ''}
-                    </div>`;
+                        return `<span class="ac-ball-wrap"><span class="ac-ball ${bc(n)}">${n}</span>${isRec ? '<span class="ac-ball-mark"></span>' : ''}</span>`;
                     }).join('');
 
+                    const conf = combo.confidence;
+                    const confW = Math.max(0, Math.min(100, conf));
+
+                    // narrative (Gemma fallback)
+                    const fixedTxt = combo.fixedCount > 0 ? `고정수 ${combo.fixedCount}개 일치` : '고정수 미일치';
+                    const exclTxt  = combo.exclCount > 0 ? `제외수 ${combo.exclCount}개 포함` : '제외수 회피';
+                    const filterTxt = combo.filterScore > 30 ? '필터 적합도 높음' : (combo.filterScore > 15 ? '필터 적합도 보통' : '필터 적합도 낮음');
+                    const trendTxt  = `합 ${combo.sumV} · ${combo.oddV}홀${6 - combo.oddV}짝 · 저고 ${6 - combo.highV}:${combo.highV}`;
+                    const recTxt    = combo.exclCount === 0 && combo.fixedCount > 0
+                        ? '추천 조합 — 고정수 매칭과 필터 통과가 일관됩니다.'
+                        : (combo.exclCount > 0 ? '주의 조합 — 제외수가 포함되어 점수가 낮아졌습니다.' : '관망 조합 — 균형 잡힌 통계 분포입니다.');
 
                     return `
-                <div class="combo-enter combo-row ${isSel ? 'selected' : ''}" style="animation-delay:${delay}ms" onclick="AIC.toggle(${idx})" id="cr${idx}">
-                    <!-- 번호 + 순위 -->
-                    <span class="text-[15px] font-medium w-10 text-center flex-shrink-0 tabular-nums ${isSel ? 'text-blue-500' : 'text-slate-300'}">${String(idx + 1).padStart(2, '0')}</span>
-                    <div class="flex gap-1.5 flex-wrap flex-1">${ballsHtml}</div>
-
-
-
-                    <!-- 점수 + 스탯 -->
-                    <div class="flex items-center gap-4 flex-shrink-0">
-                        <div class="hidden sm:flex flex-col gap-0.5 w-24">
-                            <div class="flex items-center justify-between text-[10px] font-bold">
-                                <span class="text-slate-400">AI점수</span>
-                                <span class="${pct >= 80 ? 'text-blue-600' : 'text-slate-500'} tabular-nums">${pct.toFixed(0)}</span>
+                        <div class="ac-combo-card ac-row-in ${isSel ? 'selected' : ''}"
+                             style="animation-delay: ${delay}ms;"
+                             id="cr${idx}"
+                             onclick="AIC.toggle(${idx})"
+                             role="listitem">
+                            <div class="ac-combo-rank ac-num">${String(idx + 1).padStart(2, '0')}</div>
+                            <div class="ac-combo-balls">${ballsHtml}</div>
+                            <div class="ac-combo-meta">
+                                <div class="ac-score-block">
+                                    <div class="ac-score-row">
+                                        <span class="ac-score-label">점수</span>
+                                        <span class="ac-score-value ac-num">${combo.aiScore.toFixed(1)}</span>
+                                    </div>
+                                    <div class="ac-score-decomp" title="number / fixed / filter / diversity / exclude">${segHtml}</div>
+                                    <div class="ac-score-row" style="margin-top: 6px;">
+                                        <span class="ac-score-label">신뢰도</span>
+                                        <span class="ac-num" style="font-size: 0.78rem; font-weight: 600; color: var(--ac-text-mid);">${confW.toFixed(0)}%</span>
+                                    </div>
+                                    <div class="ac-gauge"><div class="ac-gauge-fill" style="width: ${confW}%;"></div></div>
+                                </div>
+                                <div class="ac-vdivider"></div>
+                                <button type="button"
+                                    class="ac-btn-outline"
+                                    style="padding: 6px 10px; font-size: 0.72rem;"
+                                    onclick="event.stopPropagation(); AIC.toggleNarrative(${idx})">
+                                    상세
+                                </button>
+                                <span class="ac-select-icon" aria-hidden="true">
+                                    <span class="material-symbols-outlined" style="font-size: 14px;">check</span>
+                                </span>
                             </div>
-                            <!-- [애니] width=0 시작 → data-pct로 실제 값 저장 -->
-                            <div class="s-bar"><div class="s-bar-fill" data-pct="${pct.toFixed(0)}"></div></div>
-                            <div class="text-[9px] text-slate-400 text-right">
-                                합${sum} · ${odd}홀${6 - odd}짝
-                                ${combo.fixedCount > 0 ? `<span class="text-amber-500">★${combo.fixedCount}</span>` : ''}
-                                ${combo.filterScore > 0 ? `<span class="text-green-500">F+${combo.filterScore}</span>` : ''}
+                            <div class="ac-narrative" id="nrr${idx}">
+                                <div class="ac-narrative-row">
+                                    <span class="ac-narrative-key">흐름</span>
+                                    <span class="ac-narrative-val">${trendTxt}</span>
+                                </div>
+                                <div class="ac-narrative-row">
+                                    <span class="ac-narrative-key">추세</span>
+                                    <span class="ac-narrative-val">${fixedTxt} · ${exclTxt} · ${filterTxt}</span>
+                                </div>
+                                <div class="ac-narrative-row">
+                                    <span class="ac-narrative-key">추천</span>
+                                    <span class="ac-narrative-val">${recTxt}</span>
+                                </div>
                             </div>
-                        </div>
-                        <!-- 선택 아이콘 -->
-                        <span class="material-symbols-outlined text-[20px] ${isSel ? 'text-blue-500' : 'text-slate-200'}">
-                            ${isSel ? 'check_circle' : 'radio_button_unchecked'}
-                        </span>
-                    </div>
-                </div>`;
+                        </div>`;
                 }).join('');
 
-                // [애니] 렌더 직후 width=0으로 시작한 후,
-                // requestAnimationFrame으로 실제 너비 적용 (GPU 가속 fill)
-                requestAnimationFrame(() => {
-                    document.querySelectorAll('.s-bar-fill[data-pct]').forEach(el => {
-                        el.style.width = el.dataset.pct + '%';
-                    });
-                });
+                document.getElementById('comboList').innerHTML = html;
+            }
+
+            // ── narrative 펼침 ──
+            function toggleNarrative(idx) {
+                const card = document.getElementById('cr' + idx);
+                if (card) card.classList.toggle('expanded');
             }
 
             // ── 선택 토글 ──
             function toggle(idx) {
                 if (selSet.has(idx)) selSet.delete(idx);
                 else selSet.add(idx);
-
                 const row = document.getElementById('cr' + idx);
-                if (row) {
-                    row.classList.toggle('selected', selSet.has(idx));
-                    const rankEl = row.querySelector('span:first-child');
-                    const iconEl = row.querySelector('.material-symbols-outlined:last-child');
-                    if (rankEl) rankEl.className = rankEl.className.replace(/text-(blue|slate)-\d+/g, selSet.has(idx) ? 'text-blue-500' : 'text-slate-200');
-                    if (iconEl) {
-                        iconEl.className = iconEl.className.replace(/text-(blue|slate)-\d+/g, selSet.has(idx) ? 'text-blue-500' : 'text-slate-200');
-                        iconEl.textContent = selSet.has(idx) ? 'check_circle' : 'radio_button_unchecked';
-                    }
-                }
+                if (row) row.classList.toggle('selected', selSet.has(idx));
                 updateBadge();
             }
 
-            function selectAll() { selSet = new Set(displayed.map((_, i) => i)); renderList(); updateBadge(); }
+            function selectAll()   { selSet = new Set(displayed.map((_, i) => i)); renderList(); updateBadge(); }
             function deselectAll() { selSet.clear(); renderList(); updateBadge(); }
 
             function updateBadge() {
                 const badge = document.getElementById('selBadge');
+                if (!badge) return;
                 const n = selSet.size;
                 badge.classList.toggle('hidden', n === 0);
                 if (n > 0) badge.textContent = `${n}개 선택`;
+            }
+
+            // ── 차트 초기화 ──
+            function initCharts() {
+                if (typeof echarts === 'undefined') return;
+                const elS = document.getElementById('chartScoreDist');
+                const elD = document.getElementById('chartDiversity');
+                if (elS && !_chartScore) _chartScore = echarts.init(elS, null, { renderer: 'svg' });
+                if (elD && !_chartDiv)   _chartDiv   = echarts.init(elD, null, { renderer: 'svg' });
+            }
+
+            // 점수 분포 (histogram)
+            function renderScoreChart() {
+                if (!_chartScore || !allScoredCombos.length) return;
+                const scores = allScoredCombos.map(c => c.aiScore);
+                const minS = Math.min(...scores);
+                const maxS = Math.max(...scores);
+                const BIN = 24;
+                const step = (maxS - minS) / BIN || 1;
+                const bins = Array(BIN).fill(0);
+                const labels = [];
+                for (let i = 0; i < BIN; i++) {
+                    const lo = minS + i * step;
+                    labels.push(lo.toFixed(0));
+                }
+                scores.forEach(v => {
+                    let idx = Math.floor((v - minS) / step);
+                    if (idx >= BIN) idx = BIN - 1;
+                    if (idx < 0) idx = 0;
+                    bins[idx]++;
+                });
+
+                // 상위 N의 점수 임계값
+                const topN = displayed.length;
+                const cutoffScore = topN > 0 && allScoredCombos[topN - 1] ? allScoredCombos[topN - 1].aiScore : null;
+
+                const accent = getCssVar('--ac-accent') || '#3B82F6';
+                const text = getCssVar('--ac-text') || '#0F172A';
+                const soft = getCssVar('--ac-text-soft') || '#94A3B8';
+                const divider = getCssVar('--ac-divider') || '#F1F5F9';
+
+                _chartScore.setOption({
+                    grid: { left: 50, right: 24, top: 20, bottom: 36 },
+                    tooltip: {
+                        trigger: 'axis',
+                        backgroundColor: '#FFFFFF',
+                        borderColor: divider,
+                        textStyle: { color: text, fontSize: 12 },
+                        formatter: (p) => {
+                            const x = p[0]?.axisValue;
+                            const y = p[0]?.value;
+                            return `점수 ${x} 부근<br/>조합 <b>${y}</b>개`;
+                        }
+                    },
+                    xAxis: {
+                        type: 'category',
+                        data: labels,
+                        axisLine: { lineStyle: { color: divider } },
+                        axisTick: { show: false },
+                        axisLabel: { color: soft, fontSize: 11 }
+                    },
+                    yAxis: {
+                        type: 'value',
+                        splitLine: { lineStyle: { color: divider, type: 'dashed' } },
+                        axisLine: { show: false },
+                        axisTick: { show: false },
+                        axisLabel: { color: soft, fontSize: 11 }
+                    },
+                    series: [{
+                        type: 'bar',
+                        data: bins.map((v, i) => {
+                            const lo = minS + i * step;
+                            const isTop = cutoffScore !== null && lo >= cutoffScore;
+                            return {
+                                value: v,
+                                itemStyle: { color: isTop ? text : accent, opacity: isTop ? 1 : 0.45 }
+                            };
+                        }),
+                        barWidth: '78%',
+                        animationDuration: 320,
+                        animationEasing: 'cubicOut'
+                    }]
+                });
+            }
+
+            // 다양성 분석: top N에서 1-45 번호 빈도 (heatmap-style bar)
+            function renderDiversityChart() {
+                if (!_chartDiv || !displayed.length) return;
+                const freq = Array(46).fill(0);
+                displayed.forEach(c => (c.numbers || []).forEach(n => { if (n >= 1 && n <= 45) freq[n]++; }));
+                const maxF = Math.max(...freq.slice(1));
+
+                const text = getCssVar('--ac-text') || '#0F172A';
+                const soft = getCssVar('--ac-text-soft') || '#94A3B8';
+                const divider = getCssVar('--ac-divider') || '#F1F5F9';
+
+                // 11 모델 색상 토큰을 데이터 라벨로 활용 (그룹별)
+                const modelColors = [
+                    getCssVar('--c-xgb'), getCssVar('--c-cat'), getCssVar('--c-tabnet'),
+                    getCssVar('--c-cnn'), getCssVar('--c-gnn'), getCssVar('--c-markov'),
+                    getCssVar('--c-ae'), getCssVar('--c-tft'), getCssVar('--c-nbeats'),
+                    getCssVar('--c-mhn'), getCssVar('--c-bayesian')
+                ].filter(Boolean);
+
+                const data = [];
+                const labels = [];
+                for (let n = 1; n <= 45; n++) {
+                    labels.push(String(n));
+                    const v = freq[n];
+                    const intensity = maxF > 0 ? v / maxF : 0;
+                    // 단일 accent 톤 + opacity로 강도 표현 (장식 회피)
+                    const grpIdx = Math.floor((n - 1) / 5) % modelColors.length;
+                    data.push({
+                        value: v,
+                        itemStyle: {
+                            color: modelColors[grpIdx] || text,
+                            opacity: 0.25 + intensity * 0.75
+                        }
+                    });
+                }
+
+                _chartDiv.setOption({
+                    grid: { left: 36, right: 16, top: 16, bottom: 28 },
+                    tooltip: {
+                        trigger: 'axis',
+                        backgroundColor: '#FFFFFF',
+                        borderColor: divider,
+                        textStyle: { color: text, fontSize: 12 },
+                        formatter: (p) => `번호 ${p[0].axisValue}<br/>등장 <b>${p[0].value}</b>회`
+                    },
+                    xAxis: {
+                        type: 'category',
+                        data: labels,
+                        axisLine: { lineStyle: { color: divider } },
+                        axisTick: { show: false },
+                        axisLabel: { color: soft, fontSize: 10, interval: 2 }
+                    },
+                    yAxis: {
+                        type: 'value',
+                        splitLine: { lineStyle: { color: divider, type: 'dashed' } },
+                        axisLine: { show: false },
+                        axisTick: { show: false },
+                        axisLabel: { color: soft, fontSize: 10 }
+                    },
+                    series: [{
+                        type: 'bar',
+                        data: data,
+                        barWidth: '70%',
+                        animationDuration: 320,
+                        animationEasing: 'cubicOut'
+                    }]
+                });
+            }
+
+            function getCssVar(name) {
+                try {
+                    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+                } catch (e) { return ''; }
             }
 
             // ── 저장 ──
@@ -786,9 +1393,9 @@
                 if (!sel.length) { alert('저장할 조합을 선택해주세요.'); return; }
 
                 const btn = document.getElementById('btnSave');
-                const label = document.getElementById('btnLabel');
+                const label = document.getElementById('saveLabel');
                 btn.disabled = true;
-                label.innerHTML = '<span class="spin material-symbols-outlined" style="font-size:14px;">progress_activity</span>';
+                if (label) label.innerHTML = '<span class="material-symbols-outlined ac-spin" style="font-size: 14px;">progress_activity</span> 저장 중';
 
                 try {
                     const sb = getSB();
@@ -809,7 +1416,7 @@
                         })),
                         combo_count: sel.length,
                         total_pool: filterCombosData?.combinations?.length || 0,
-                        memo: 'ai_combination',      // [핵심] AI 조합 라벨
+                        memo: 'ai_combination',
                         filter_snapshot: {
                             source: 'ai_deep_learning',
                             analysis_id: aiData?.id,
@@ -823,9 +1430,7 @@
                     const { error } = await sb.from('saved_combination_groups').insert(payload);
                     if (error) throw error;
 
-                    // [애니] 저장 성공 체크마크 애니메이션 표시
-                    label.innerHTML = '<span class="check-pop material-symbols-outlined" style="font-size:15px;color:#86efac;">check_circle</span> 저장완료';
-                    btn.style.background = '#059669';
+                    if (label) label.textContent = '저장 완료';
 
                     localStorage.setItem('output_combinations', JSON.stringify({
                         timestamp: Date.now(),
@@ -835,21 +1440,16 @@
                         round_number: _cachedRound
                     }));
 
-                    // 애니메이션이 보인 뒤 이동
-                    setTimeout(() => {
-                        window.location.href = 'output.html';
-                    }, 800);
-
-
+                    setTimeout(() => { window.location.href = 'output.html'; }, 600);
                 } catch (err) {
                     console.error('[AIC] 저장 실패:', err);
                     btn.disabled = false;
-                    label.innerHTML = '저장하기';
-                    alert('⚠️ 저장 실패\n' + err.message);
+                    if (label) label.textContent = '저장하기';
+                    alert('저장 실패: ' + err.message);
                 }
             }
 
-            return { init, setCount, toggle, selectAll, deselectAll, save };
+            return { init, setCount, toggle, toggleNarrative, selectAll, deselectAll, save };
         })();
 
         document.addEventListener('DOMContentLoaded', () => AIC.init());
