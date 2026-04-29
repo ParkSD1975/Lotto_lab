@@ -1620,14 +1620,19 @@
         //  1. 분류 기준 = 프론트 CRITERIA[currentPeriod] (5/10/15/20회 각각 다름)
         //  2. DL 예측 = matrix_data 각 모델의 상위 번호를 hot/neutral/cold로 분류
         //  3. 즉시 렌더(동기) → 모델 셀만 비동기 업데이트 (레이아웃 고정)
+        // 11 base 토폴로지 (사용자 결정 #24) — lstm/transformer 폐기, TFT 흡수
         const _HNC_MODELS = [
-            { key: 'lstm',        label: 'LSTM'        },
             { key: 'xgboost',     label: 'XGBOOST'     },
-            { key: 'cnn',         label: 'CNN'          },
-            { key: 'transformer', label: 'TRANSFORMER'  },
-            { key: 'markov',      label: 'MARKOV'       },
-            { key: 'autoencoder', label: 'AUTOENCODER'  },
-            { key: 'gnn',         label: 'GNN'          },
+            { key: 'catboost',    label: 'CATBOOST'    },
+            { key: 'tabnet',      label: 'TABNET'      },
+            { key: 'cnn',         label: 'CNN'         },
+            { key: 'gnn',         label: 'GNN'         },
+            { key: 'markov',      label: 'MARKOV'      },
+            { key: 'autoencoder', label: 'AE'          },
+            { key: 'tft',         label: 'TFT'         },
+            { key: 'nbeats',      label: 'N-BEATS'     },
+            { key: 'mhn',         label: 'MHN'         },
+            { key: 'bayesian_nn', label: 'BAYESIAN'    },
         ];
 
         // matrix_data에서 각 모델의 상위 번호를 hot/neutral/cold로 분류하여 예측

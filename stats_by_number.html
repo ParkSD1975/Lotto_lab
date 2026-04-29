@@ -1218,7 +1218,7 @@ ${contextData}
 ${userPrompt}
 
 [응답 작성 규칙 - 반드시 준수]
-1. 반드시 순수 한국어만 사용하세요. 영문 단어(XGBoost, LSTM, momentum, probability, feature, significance 등) 절대 사용 금지.
+1. 반드시 순수 한국어만 사용하세요. 영문 단어(XGBoost, CatBoost, TabNet, TFT, N-BEATS, MHN, Bayesian, momentum, probability, feature, significance 등) 절대 사용 금지.
 2. 소수점 확률값(0.xxxx 형태)을 절대 출력하지 마세요. 대신 "출현 가능성 높음/보통/낮음"으로만 표현하세요.
 3. "통계적 유의성", "앙상블 확률", "표준편차 구간" 같은 학술 전문용어 사용 금지.
 4. 최근 5회차 내 3회 이상 출현한 번호는 "과열 번호"로 분류하여 추천에서 제외하세요.
@@ -1306,14 +1306,19 @@ ${userPrompt}
         // ═══════════════════════════════════════════════════════
         // XAI 번호별 인라인 패널 (AI 프리미엄 전략 리포트 동일 디자인)
         // ═══════════════════════════════════════════════════════
+        // 11 base 토폴로지 (사용자 결정 #24) — lstm/transformer 폐기, TFT 흡수
         const _XAI_MODELS = [
-            { key: 'lstm',        label: 'LSTM (시계열)',      color: '#818cf8' },
-            { key: 'xgboost',     label: 'XGBoost (패턴)',     color: '#60a5fa' },
-            { key: 'cnn',         label: 'CNN (공간)',          color: '#f472b6' },
-            { key: 'transformer', label: 'Transformer (맥락)', color: '#fb923c' },
-            { key: 'markov',      label: 'Markov (전이)',       color: '#34d399' },
-            { key: 'autoencoder', label: 'Autoencoder (압축)', color: '#a855f7' },
-            { key: 'gnn',         label: 'GNN (그래프)',        color: '#f59e0b' },
+            { key: 'xgboost',     label: 'XGBoost (트리)',       color: '#3B82F6' },
+            { key: 'catboost',    label: 'CatBoost (카테고리)',  color: '#14B8A6' },
+            { key: 'tabnet',      label: 'TabNet (attention)',   color: '#A855F7' },
+            { key: 'cnn',         label: 'CNN (그리드)',          color: '#EC4899' },
+            { key: 'gnn',         label: 'GNN (그래프)',          color: '#EF4444' },
+            { key: 'markov',      label: 'Markov (전이)',          color: '#10B981' },
+            { key: 'autoencoder', label: 'AE (이상치)',           color: '#8B5CF6' },
+            { key: 'tft',         label: 'TFT (시계열)',           color: '#F97316' },
+            { key: 'nbeats',      label: 'N-BEATS (분해)',         color: '#06B6D4' },
+            { key: 'mhn',         label: 'MHN (메모리)',           color: '#84CC16' },
+            { key: 'bayesian_nn', label: 'Bayesian (불확실성)',    color: '#F59E0B' },
         ];
 
         let _xaiData = null;
@@ -1644,7 +1649,7 @@ ${userPrompt}
                     `,
                     customRules: `
 [응답 작성 규칙 - 반드시 준수]
-1. 반드시 순수 한국어만 사용하세요. 영문 단어(XGBoost, LSTM, momentum, max_gap, total_freq, feature, probability, significance, Deep Learning 등) 절대 사용 금지.
+1. 반드시 순수 한국어만 사용하세요. 영문 단어(XGBoost, CatBoost, TabNet, TFT, N-BEATS, MHN, Bayesian, momentum, max_gap, total_freq, feature, probability, significance, Deep Learning 등) 절대 사용 금지.
 2. 소수점 확률값(0.xxxx 형태)을 절대 출력하지 마세요. 출현 빈도는 "출현 가능성 높음/보통/낮음"으로만 표현하세요.
 3. "통계적 유의성", "앙상블 확률", "표준편차 구간", "신뢰구간" 같은 학술 전문용어 사용 절대 금지.
 4. 최근 5회차 내 3회 이상 출현한 번호는 "과열 번호"로 분류하여 제외수로 추천하세요.

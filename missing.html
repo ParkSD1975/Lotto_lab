@@ -1055,14 +1055,19 @@
         //  1. 분류 기준 = getMissRange() → 4그룹 (0~5 / 6~10 / 11~15 / 16+)
         //  2. DL 예측 = matrix_data 각 모델 top6을 그룹별로 분류
         //  3. 즉시 렌더(동기) → 모델 셀만 비동기 업데이트 (레이아웃 고정)
+        // 11 base 토폴로지 (사용자 결정 #24) — lstm/transformer 폐기, TFT 흡수
         const _MISS_MODELS = [
-            { key: 'lstm',        label: 'LSTM'        },
             { key: 'xgboost',     label: 'XGBOOST'     },
-            { key: 'cnn',         label: 'CNN'          },
-            { key: 'transformer', label: 'TRANSFORMER'  },
-            { key: 'markov',      label: 'MARKOV'       },
-            { key: 'autoencoder', label: 'AUTOENCODER'  },
-            { key: 'gnn',         label: 'GNN'          },
+            { key: 'catboost',    label: 'CATBOOST'    },
+            { key: 'tabnet',      label: 'TABNET'      },
+            { key: 'cnn',         label: 'CNN'         },
+            { key: 'gnn',         label: 'GNN'         },
+            { key: 'markov',      label: 'MARKOV'      },
+            { key: 'autoencoder', label: 'AE'          },
+            { key: 'tft',         label: 'TFT'         },
+            { key: 'nbeats',      label: 'N-BEATS'     },
+            { key: 'mhn',         label: 'MHN'         },
+            { key: 'bayesian_nn', label: 'BAYESIAN'    },
         ];
 
         function _computeMissingPredictions(matrixData, g1, g2, g3, g4) {

@@ -692,7 +692,7 @@ You must return a valid JSON object matching this schema:
     "expression": "...",
     
     // For "ai_model_top" or "ai_model_bottom" type:
-    "model": "lstm" | "xgboost" | "cnn" | "transformer" | "markov" | "ensemble",
+    "model": "xgboost" | "catboost" | "tabnet" | "cnn" | "gnn" | "markov" | "autoencoder" | "tft" | "nbeats" | "mhn" | "bayesian_nn" | "ensemble",
     "count": 10
   }
 }
@@ -702,7 +702,7 @@ You must return a valid JSON object matching this schema:
 2. If the user asks for a rule relative to previous rounds (e.g., "+ 2", "- 1", "Carryover"), set type to "dynamic" and appropriate formula.
 3. [IMPORTANT] If the user asks for a specific round offset end digit (e.g., "회차 - 1 끝수", "전회차 끝수"), set forumla to "round_end_digit" and "value" to the offset (e.g., -1).
 4. [IMPORTANT] If the request mentions AI, Deep Learning, Recommendation, Fixed, or Excluded (e.g., "AI 고정수", "제외수 분석"), set type to "ai_ensemble_fixed" or "ai_ensemble_excluded".
-5. [IMPORTANT] If the request mentions a specific model or ranking (e.g., "LSTM 상위 10개", "XGB 하위 5개"), set type to "ai_model_top" or "ai_model_bottom", and specify "model" and "count" in "rules".
+5. [IMPORTANT] If the request mentions a specific model or ranking (e.g., "TFT 상위 10개", "XGB 하위 5개", "CatBoost 상위 7개"), set type to "ai_model_top" or "ai_model_bottom", and specify "model" and "count" in "rules".
 
 # Response
 Return ONLY the JSON. No markdown.

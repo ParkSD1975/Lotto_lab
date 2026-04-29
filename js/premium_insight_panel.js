@@ -129,7 +129,7 @@
             return { modelExp: fd.model_expectations, targetRound: payload?.target_round || '' };
         }
         // 폴백: mul3/mul5 데이터에서 7배수 특성(저빈도) 합성
-        const MODEL_KEYS = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
+        const MODEL_KEYS = ['xgboost', 'catboost', 'tabnet', 'cnn', 'gnn', 'markov', 'autoencoder', 'tft', 'nbeats', 'mhn', 'bayesian_nn'];
         const mul3 = ra['mul3'], mul5 = ra['mul5'];
         const modelExp = {};
         MODEL_KEYS.forEach(m => {
@@ -149,7 +149,7 @@
             return { modelExp: fd.model_expectations, targetRound: payload?.target_round || '' };
         }
         // 폴백: mul4 데이터에서 8배수 특성 합성 (8배수 ⊂ 짝수, 45개 중 5개)
-        const MODEL_KEYS = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
+        const MODEL_KEYS = ['xgboost', 'catboost', 'tabnet', 'cnn', 'gnn', 'markov', 'autoencoder', 'tft', 'nbeats', 'mhn', 'bayesian_nn'];
         const mul4 = ra['mul4'];
         const modelExp = {};
         MODEL_KEYS.forEach(m => {
@@ -183,7 +183,7 @@
         if (!parts.length) return null;
 
         // 7개 모델 × 구성 필터 범위를 교집합(min의 최솟값, max의 최솟값)으로 합성
-        const MODEL_KEYS = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
+        const MODEL_KEYS = ['xgboost', 'catboost', 'tabnet', 'cnn', 'gnn', 'markov', 'autoencoder', 'tft', 'nbeats', 'mhn', 'bayesian_nn'];
         const modelExp = {};
         MODEL_KEYS.forEach(m => {
             const ranges = parts.map(pk => {
@@ -421,7 +421,7 @@
 
         const targetSet = new Set((item.targets || []).map(Number));
         const targetRound = payload?.target_round || '';
-        const MODEL_KEYS = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
+        const MODEL_KEYS = ['xgboost', 'catboost', 'tabnet', 'cnn', 'gnn', 'markov', 'autoencoder', 'tft', 'nbeats', 'mhn', 'bayesian_nn'];
         const modelExp = {};
 
         if (Array.isArray(matrix) && matrix.length > 0) {
@@ -495,15 +495,23 @@
         return null;
     }
 
+    // 11 base 토폴로지 (사용자 결정 #24) — lstm/transformer 폐기, TFT 흡수
     const MODEL_ORDER = [
-        { key: 'lstm',        label: 'LSTM' },
         { key: 'xgboost',     label: 'XGBOOST' },
+        { key: 'catboost',    label: 'CATBOOST' },
+        { key: 'tabnet',      label: 'TABNET' },
         { key: 'cnn',         label: 'CNN' },
-        { key: 'transformer', label: 'TRANSFORMER' },
+        { key: 'gnn',         label: 'GNN' },
         { key: 'markov',      label: 'MARKOV' },
-        { key: 'autoencoder', label: 'AUTOENCODER' },
-        { key: 'gnn',         label: 'GNN' }
+        { key: 'autoencoder', label: 'AE' },
+        { key: 'tft',         label: 'TFT' },
+        { key: 'nbeats',      label: 'N-BEATS' },
+        { key: 'mhn',         label: 'MHN' },
+        { key: 'bayesian_nn', label: 'BAYESIAN' }
     ];
+
+    // 백워드 호환: 폐기 모델 키 (API 응답에 와도 graceful skip)
+    const DEPRECATED_MODEL_KEYS = new Set(['lstm', 'transformer']);
 
     // 탭 HTML (헤더 우측에 삽입) — sky-blue 언더바 활성 표시
     function _tabsHTML(tabs, containerId) {

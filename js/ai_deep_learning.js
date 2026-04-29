@@ -524,11 +524,14 @@ const DeepLearning = {
                 const me = row.model_exp || {};
                 const targets = me._targets || row.predicted_numbers || [];
                 const modelExpClean = {};
-                ['lstm','xgboost','cnn','transformer','markov','autoencoder','gnn'].forEach(m => {
+                // 11 base 토폴로지 (lstm/transformer 폐기, TFT 흡수)
+                ['xgboost','catboost','tabnet','cnn','gnn','markov','autoencoder','tft','nbeats','mhn','bayesian_nn'].forEach(m => {
                     if (me[m] != null) modelExpClean[m] = me[m];
                 });
-                const ensExp = modelExpClean.lstm != null
-                    ? parseFloat(((modelExpClean.lstm || 0) * 0.4 + (modelExpClean.transformer || 0) * 0.3 + (modelExpClean.xgboost || 0) * 0.2 + (modelExpClean.markov || 0) * 0.1).toFixed(3))
+                // 앙상블 가중치: TFT 0.30 + XGB 0.20 + CatBoost 0.20 + Markov 0.10 + N-BEATS 0.10 + Bayesian 0.10
+                const _w = (k, w) => (modelExpClean[k] || 0) * w;
+                const ensExp = (modelExpClean.tft != null || modelExpClean.xgboost != null)
+                    ? parseFloat((_w('tft', 0.30) + _w('xgboost', 0.20) + _w('catboost', 0.20) + _w('markov', 0.10) + _w('nbeats', 0.10) + _w('bayesian_nn', 0.10)).toFixed(3))
                     : null;
                 return {
                     id:           row.step,
@@ -563,7 +566,7 @@ const DeepLearning = {
     },
 
     // ── V4 데이터 → renderAll() 호환 V3 포맷 변환 ──
-    // xaiMap:  { [num]: { xgboost_pct, lstm_pct, ..., probability } }  (0~100 % 단위)
+    // xaiMap:  { [num]: { xgboost_pct, catboost_pct, tabnet_pct, cnn_pct, gnn_pct, markov_pct, autoencoder_pct, tft_pct, nbeats_pct, mhn_pct, bayesian_nn_pct, probability } }  (0~100 % 단위)
     // featMap: { [num]: { missing_count, hot_cold, appearance_count_20, regression_*, gung, ... } }
     // rangeAnalysis: { filter_key: { range, ensemble_min, ensemble_max, model_expectations } }
     // regressionAnalysis: [ { id, targets, gap, str, avg_hit, model_exp, ensemble_exp, notable } ]
@@ -603,13 +606,18 @@ const DeepLearning = {
                 freq: freqFrac,
                 hot_cold: f.hot_cold || null,
                 models: {
+                    // 11 base 토폴로지 (사용자 결정 #24) — lstm/transformer 폐기, TFT 흡수
                     xgboost:     { score: parseFloat((x.xgboost_pct     || 0).toFixed(2)), reason: DeepLearning._modelReason('xgboost',     x.xgboost_pct     || 0, numInfo) },
-                    lstm:        { score: parseFloat((x.lstm_pct        || 0).toFixed(2)), reason: DeepLearning._modelReason('lstm',        x.lstm_pct        || 0, numInfo) },
+                    catboost:    { score: parseFloat((x.catboost_pct    || 0).toFixed(2)), reason: DeepLearning._modelReason('catboost',    x.catboost_pct    || 0, numInfo) },
+                    tabnet:      { score: parseFloat((x.tabnet_pct      || 0).toFixed(2)), reason: DeepLearning._modelReason('tabnet',      x.tabnet_pct      || 0, numInfo) },
                     cnn:         { score: parseFloat((x.cnn_pct         || 0).toFixed(2)), reason: DeepLearning._modelReason('cnn',         x.cnn_pct         || 0, numInfo) },
-                    transformer: { score: parseFloat((x.transformer_pct || 0).toFixed(2)), reason: DeepLearning._modelReason('transformer', x.transformer_pct || 0, numInfo) },
                     gnn:         { score: parseFloat(_gnnPct(x).toFixed(2)),                reason: DeepLearning._modelReason('gnn',         _gnnPct(x),              numInfo) },
                     markov:      { score: parseFloat((x.markov_pct      || 0).toFixed(2)), reason: DeepLearning._modelReason('markov',      x.markov_pct      || 0, numInfo) },
-                    autoencoder: { score: parseFloat((x.autoencoder_pct || 0).toFixed(2)), reason: DeepLearning._modelReason('autoencoder', x.autoencoder_pct || 0, numInfo) }
+                    autoencoder: { score: parseFloat((x.autoencoder_pct || 0).toFixed(2)), reason: DeepLearning._modelReason('autoencoder', x.autoencoder_pct || 0, numInfo) },
+                    tft:         { score: parseFloat((x.tft_pct         || 0).toFixed(2)), reason: DeepLearning._modelReason('tft',         x.tft_pct         || 0, numInfo) },
+                    nbeats:      { score: parseFloat((x.nbeats_pct      || 0).toFixed(2)), reason: DeepLearning._modelReason('nbeats',      x.nbeats_pct      || 0, numInfo) },
+                    mhn:         { score: parseFloat((x.mhn_pct         || 0).toFixed(2)), reason: DeepLearning._modelReason('mhn',         x.mhn_pct         || 0, numInfo) },
+                    bayesian_nn: { score: parseFloat((x.bayesian_nn_pct || 0).toFixed(2)), reason: DeepLearning._modelReason('bayesian_nn', x.bayesian_nn_pct || 0, numInfo) }
                 }
             });
         }
@@ -633,13 +641,18 @@ const DeepLearning = {
                 ensemble_prob: ensProb,
                 is_top15:      _top15Set.has(n),
                 models: {
-                    lstm:        { prob: x.lstm_pct        || 0 },
+                    // 11 base 토폴로지
                     xgboost:     { prob: x.xgboost_pct     || 0 },
-                    cnn:         { prob: x.cnn_pct          || 0 },
-                    transformer: { prob: x.transformer_pct  || 0 },
-                    markov:      { prob: x.markov_pct       || 0 },
-                    autoencoder: { prob: x.autoencoder_pct  || 0 },
-                    gnn:         { prob: _gnnPct(x) }
+                    catboost:    { prob: x.catboost_pct    || 0 },
+                    tabnet:      { prob: x.tabnet_pct      || 0 },
+                    cnn:         { prob: x.cnn_pct         || 0 },
+                    gnn:         { prob: _gnnPct(x) },
+                    markov:      { prob: x.markov_pct      || 0 },
+                    autoencoder: { prob: x.autoencoder_pct || 0 },
+                    tft:         { prob: x.tft_pct         || 0 },
+                    nbeats:      { prob: x.nbeats_pct      || 0 },
+                    mhn:         { prob: x.mhn_pct         || 0 },
+                    bayesian_nn: { prob: x.bayesian_nn_pct || 0 }
                 }
             };
             const status = g <= 2 ? 'hot' : g <= 7 ? 'active' : g <= 15 ? 'cooling' : g <= 25 ? 'cold' : 'deadcold';
@@ -674,19 +687,25 @@ const DeepLearning = {
                     return acc;
                 }, {}),
                 models: {
+                    // 11 base 토폴로지
                     xgboost:     { score: x.xgboost_pct     || 0 },
-                    lstm:        { score: x.lstm_pct         || 0 },
-                    cnn:         { score: x.cnn_pct          || 0 },
-                    transformer: { score: x.transformer_pct  || 0 },
-                    markov:      { score: x.markov_pct       || 0 },
-                    autoencoder: { score: x.autoencoder_pct  || 0 },
-                    gnn:         { score: x.gnn_pct          || 0 }
+                    catboost:    { score: x.catboost_pct    || 0 },
+                    tabnet:      { score: x.tabnet_pct      || 0 },
+                    cnn:         { score: x.cnn_pct         || 0 },
+                    gnn:         { score: x.gnn_pct         || 0 },
+                    markov:      { score: x.markov_pct      || 0 },
+                    autoencoder: { score: x.autoencoder_pct || 0 },
+                    tft:         { score: x.tft_pct         || 0 },
+                    nbeats:      { score: x.nbeats_pct      || 0 },
+                    mhn:         { score: x.mhn_pct         || 0 },
+                    bayesian_nn: { score: x.bayesian_nn_pct || 0 }
                 }
             });
         }
 
         // ── 공통 헬퍼: 번호 그룹에서 model_exp(기대수) 계산 ──
-        const _MODEL_KEYS = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
+        // 11 base 토폴로지 (lstm/transformer 폐기)
+        const _MODEL_KEYS = ['xgboost', 'catboost', 'tabnet', 'cnn', 'gnn', 'markov', 'autoencoder', 'tft', 'nbeats', 'mhn', 'bayesian_nn'];
         const _calcModelExp = (nums) => {
             const me = {};
             // 앙상블 기대 출현수 (기준값: 해당 그룹의 실제 확률 합 × 6)
@@ -786,13 +805,18 @@ const DeepLearning = {
                 exp:       _calcExp(nums),
                 model_exp: _calcModelExp(nums),
                 counts: {
+                    // 11 base 토폴로지
                     xgboost:     parseFloat(nums.reduce((s, n) => s + (xaiMap[n]?.xgboost_pct     || 0), 0).toFixed(1)),
-                    lstm:        parseFloat(nums.reduce((s, n) => s + (xaiMap[n]?.lstm_pct        || 0), 0).toFixed(1)),
+                    catboost:    parseFloat(nums.reduce((s, n) => s + (xaiMap[n]?.catboost_pct    || 0), 0).toFixed(1)),
+                    tabnet:      parseFloat(nums.reduce((s, n) => s + (xaiMap[n]?.tabnet_pct      || 0), 0).toFixed(1)),
                     cnn:         parseFloat(nums.reduce((s, n) => s + (xaiMap[n]?.cnn_pct         || 0), 0).toFixed(1)),
-                    transformer: parseFloat(nums.reduce((s, n) => s + (xaiMap[n]?.transformer_pct || 0), 0).toFixed(1)),
+                    gnn:         parseFloat(nums.reduce((s, n) => s + _gnnPct(xaiMap[n] || {}),  0).toFixed(1)),
                     markov:      parseFloat(nums.reduce((s, n) => s + (xaiMap[n]?.markov_pct      || 0), 0).toFixed(1)),
                     autoencoder: parseFloat(nums.reduce((s, n) => s + (xaiMap[n]?.autoencoder_pct || 0), 0).toFixed(1)),
-                    gnn:         parseFloat(nums.reduce((s, n) => s + _gnnPct(xaiMap[n] || {}),  0).toFixed(1))
+                    tft:         parseFloat(nums.reduce((s, n) => s + (xaiMap[n]?.tft_pct         || 0), 0).toFixed(1)),
+                    nbeats:      parseFloat(nums.reduce((s, n) => s + (xaiMap[n]?.nbeats_pct      || 0), 0).toFixed(1)),
+                    mhn:         parseFloat(nums.reduce((s, n) => s + (xaiMap[n]?.mhn_pct         || 0), 0).toFixed(1)),
+                    bayesian_nn: parseFloat(nums.reduce((s, n) => s + (xaiMap[n]?.bayesian_nn_pct || 0), 0).toFixed(1))
                 },
                 gap: _calcGroupGap(nums),
                 str: '-'
@@ -826,7 +850,8 @@ const DeepLearning = {
             const totalProb = nums.reduce((s, d) => s + d.ensemble_prob, 0);
             const avg_prob  = parseFloat((totalProb / nums.length).toFixed(2));
             const model_exp = {};
-            ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'].forEach(m => {
+            // 11 base 토폴로지
+            ['xgboost', 'catboost', 'tabnet', 'cnn', 'gnn', 'markov', 'autoencoder', 'tft', 'nbeats', 'mhn', 'bayesian_nn'].forEach(m => {
                 const sumPct = nums.reduce((s, d) => {
                     const x = xaiMap[d.num] || {};
                     return s + ((m === 'gnn') ? _gnnPct(x) : (x[m + '_pct'] || 0));
@@ -849,7 +874,8 @@ const DeepLearning = {
 
         // ── 앙상블 합의도(confidence): top-5 번호에 대해 각 모델이 실제로 양수 기여하는 비율 ──
         // 가짜 85/78 대신 xaiMap 실데이터 기반 계산
-        const _CONF_MODELS = ['xgboost', 'lstm', 'cnn', 'transformer', 'markov'];
+        // 11 base 핵심 5종 (합의도 산정용)
+        const _CONF_MODELS = ['xgboost', 'catboost', 'tft', 'tabnet', 'markov'];
         const _top5Nums = top5.slice(0, 5);
         let _agreeCount = 0;
         _top5Nums.forEach(n => {
@@ -862,7 +888,7 @@ const DeepLearning = {
         const confidence = Math.round(40 + _agreement * 55);
 
         // ── keywords: 회차·모델·메타·버전 ──
-        const MODEL_ABBR_KW = { xgboost: 'XGBoost', lstm: 'LSTM', cnn: 'CNN', transformer: 'TF', markov: 'Markov', autoencoder: 'ATC', gnn: 'GNN' };
+        const MODEL_ABBR_KW = { xgboost: 'XGBoost', catboost: 'CatBoost', tabnet: 'TabNet', cnn: 'CNN', gnn: 'GNN', markov: 'Markov', autoencoder: 'AE', tft: 'TFT', nbeats: 'N-BEATS', mhn: 'MHN', bayesian_nn: 'Bayesian' };
         const activeModelNames = Object.entries(mw)
             .filter(([, w]) => w > 0.03)
             .sort((a, b) => b[1] - a[1])
@@ -893,11 +919,16 @@ const DeepLearning = {
         // 번호별 주도 모델 계산
         const _numLeader = _top5Nums.map(n => {
             const x = xaiMap[n] || {};
+            // 11 base 토폴로지 — 주도 모델 선정 (TFT가 시계열 1순위로 LSTM/Transformer 흡수)
             const candidates = [
-                ['lstm', x.lstm_pct || 0],
-                ['xgboost', x.xgboost_pct || 0],
-                ['cnn', x.cnn_pct || 0],
-                ['transformer', x.transformer_pct || 0]
+                ['xgboost',     x.xgboost_pct     || 0],
+                ['catboost',    x.catboost_pct    || 0],
+                ['tabnet',      x.tabnet_pct      || 0],
+                ['cnn',         x.cnn_pct         || 0],
+                ['tft',         x.tft_pct         || 0],
+                ['nbeats',      x.nbeats_pct      || 0],
+                ['mhn',         x.mhn_pct         || 0],
+                ['bayesian_nn', x.bayesian_nn_pct || 0]
             ];
             const best = candidates.sort((a, b) => b[1] - a[1])[0];
             return {
@@ -949,7 +980,8 @@ const DeepLearning = {
 
         // ── XAI 실기여도: top-5 번호의 모델별 평균 기여도 (weekly_number_xai 실데이터) ──
         // 이게 "모델 컨디션" 차트에 표시될 진짜 값
-        const _XAI_MODEL_KEYS = ['xgboost', 'lstm', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
+        // 11 base 토폴로지 (lstm/transformer 폐기)
+        const _XAI_MODEL_KEYS = ['xgboost', 'catboost', 'tabnet', 'cnn', 'gnn', 'markov', 'autoencoder', 'tft', 'nbeats', 'mhn', 'bayesian_nn'];
         const _top5ForXai = top5.slice(0, 5).filter(n => xaiMap[n] && Object.keys(xaiMap[n]).length > 0);
         const xaiTop5Weights = {};
         _XAI_MODEL_KEYS.forEach(m => {
@@ -1020,15 +1052,8 @@ const DeepLearning = {
             ? (gap === 0 ? '직전 회차 출현' : `${gap}회 미출현`)
             : null;
 
+        // 11 base 토폴로지 (lstm/transformer 폐기, TFT 흡수)
         const MODEL_REASONS = {
-            lstm: () => {
-                // LSTM: 시계열 순환 패턴 — gap이 출현 주기와 맞는지가 핵심
-                if (!G) return `LSTM ${sc}% — 시계열 출현 패턴 기여`;
-                if (gap <= 2)  return `LSTM ${sc}% — ${G}, 직전 연속 출현 주기 유지`;
-                if (gap <= 8)  return `LSTM ${sc}% — ${G}, 평균 출현 주기(7회) 내 복귀 패턴`;
-                if (gap <= 20) return `LSTM ${sc}% — ${G}, 장기 미출현 → 복귀 시계열 신호`;
-                return              `LSTM ${sc}% — ${G}, 극단적 미출현 → 강한 복귀 시계열`;
-            },
             xgboost: () => {
                 // XGBoost: 출현빈도·gap·홀짝·고저 등 복합 특성 트리
                 if (!G) return `XGBoost ${sc}% — 복합 특성 기반 기여`;
@@ -1037,17 +1062,22 @@ const DeepLearning = {
                 if (gap <= 25) return `XGBoost ${sc}% — ${G}, 장기 미출현 반등 통계 신호`;
                 return              `XGBoost ${sc}% — ${G}, 초장기 미출현 → 부스팅 강신호`;
             },
+            catboost: () => {
+                // CatBoost: 카테고리(끝수/구간/홀짝) 결합 부스팅
+                if (!G) return `CatBoost ${sc}% — 카테고리 결합 기여`;
+                if (gap <= 5)  return `CatBoost ${sc}% — ${G}, 단기 카테고리 빈도 활성`;
+                if (gap <= 15) return `CatBoost ${sc}% — ${G}, 중기 카테고리 결합 신호`;
+                return              `CatBoost ${sc}% — ${G}, 장기 카테고리 반등 가중`;
+            },
+            tabnet: () => {
+                // TabNet: attention 기반 특성 선택 — 강조 특성 활성화
+                if (!G) return `TabNet ${sc}% — attention 특성 선택 기여`;
+                return `TabNet ${sc}% — ${G}, 핵심 특성 어텐션 가중치`;
+            },
             cnn: () => {
                 // CNN: 로또용지 번호 위치(행/열) 공간 패턴
                 if (!G) return `CNN ${sc}% — 로또용지 공간 패턴 감지`;
                 return `CNN ${sc}% — ${G} 번호의 용지 위치(행/열) 활성화 패턴`;
-            },
-            transformer: () => {
-                // Transformer: 전체 시퀀스 어텐션 — 번호 간 장거리 의존성
-                if (!G) return `Transformer ${sc}% — 시퀀스 어텐션 기여`;
-                if (gap <= 5)  return `Transformer ${sc}% — ${G}, 최근 회차 어텐션 집중`;
-                if (gap <= 15) return `Transformer ${sc}% — ${G}, 중거리 출현 패턴 의존성`;
-                return              `Transformer ${sc}% — ${G}, 장거리 출현 의존성 포착`;
             },
             markov: () => {
                 // Markov: 직전 당첨번호 → 다음 번호 전이 확률
@@ -1057,8 +1087,32 @@ const DeepLearning = {
             },
             autoencoder: () => {
                 // Autoencoder: 비정상 패턴(쏠림) 감지 → 정상 범위 번호 선호
-                if (!G) return `ATC ${sc}% — 재구성 오차 기반 정상 패턴`;
-                return `ATC ${sc}% — ${G} 번호, 정상 출현 패턴 범위`;
+                if (!G) return `AE ${sc}% — 재구성 오차 기반 정상 패턴`;
+                return `AE ${sc}% — ${G} 번호, 정상 출현 패턴 범위`;
+            },
+            tft: () => {
+                // TFT: Temporal Fusion Transformer — 시계열 통합 (LSTM/Transformer 흡수)
+                if (!G) return `TFT ${sc}% — 시계열 통합 어텐션 기여`;
+                if (gap <= 2)  return `TFT ${sc}% — ${G}, 직전 출현 주기 유지 신호`;
+                if (gap <= 8)  return `TFT ${sc}% — ${G}, 평균 주기(7회) 내 복귀 어텐션`;
+                if (gap <= 20) return `TFT ${sc}% — ${G}, 중장기 시계열 복귀 신호`;
+                return              `TFT ${sc}% — ${G}, 장기 어텐션 의존성 포착`;
+            },
+            nbeats: () => {
+                // N-BEATS: trend/seasonality 분해 → 잔차 기반 예측
+                if (!G) return `N-BEATS ${sc}% — 분해 기반 추세 기여`;
+                if (gap <= 5)  return `N-BEATS ${sc}% — ${G}, 단기 추세 컴포넌트 활성`;
+                return              `N-BEATS ${sc}% — ${G}, 계절성·잔차 분해 신호`;
+            },
+            mhn: () => {
+                // MHN: Modern Hopfield Network — 패턴 메모리 검색
+                if (!G) return `MHN ${sc}% — 패턴 메모리 매칭 기여`;
+                return `MHN ${sc}% — ${G}, 과거 유사 패턴 검색 신호`;
+            },
+            bayesian_nn: () => {
+                // Bayesian NN: 불확실성 정량화 — posterior 평균/분산 기반
+                if (!G) return `Bayesian ${sc}% — 사후확률 기여`;
+                return `Bayesian ${sc}% — ${G}, 불확실성 보정 posterior 신호`;
             }
         };
 
@@ -1221,10 +1275,12 @@ const DeepLearning = {
 
         if (matrixData && matrixData.length > 0) {
             let maxTotal = 0;
-            const maxScores = { lstm: 0, xgboost: 0, cnn: 0, transformer: 0, markov: 0, autoencoder: 0, gnn: 0 };
+            // 11 base 토폴로지 (lstm/transformer 폐기, TFT 흡수)
+            const _MODELS_FOR_NORM = ['xgboost', 'catboost', 'tabnet', 'cnn', 'gnn', 'markov', 'autoencoder', 'tft', 'nbeats', 'mhn', 'bayesian_nn'];
+            const maxScores = _MODELS_FOR_NORM.reduce((acc, m) => (acc[m] = 0, acc), {});
             matrixData.forEach(item => {
                 if (item.total > maxTotal) maxTotal = item.total;
-                ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'].forEach(m => {
+                _MODELS_FOR_NORM.forEach(m => {
                     if (item.models && item.models[m] && item.models[m].score > maxScores[m]) {
                         maxScores[m] = item.models[m].score;
                     }
@@ -1234,7 +1290,7 @@ const DeepLearning = {
                 matrixData.forEach(item => {
                     item.raw_total = item.total;
                     item.total = maxTotal > 0 ? parseFloat(((item.total / maxTotal) * 100).toFixed(2)) : 0;
-                    ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'].forEach(m => {
+                    _MODELS_FOR_NORM.forEach(m => {
                         if (item.models && item.models[m] && item.models[m].score) {
                             item.models[m].score = maxScores[m] > 0 ? parseFloat(((item.models[m].score / maxScores[m]) * 100).toFixed(2)) : 0;
                         }
@@ -1252,7 +1308,8 @@ const DeepLearning = {
 
         const modelTop10 = {};
         if (matrixData && matrixData.length > 0) {
-            const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
+            // 11 base 토폴로지
+            const models = ['xgboost', 'catboost', 'tabnet', 'cnn', 'gnn', 'markov', 'autoencoder', 'tft', 'nbeats', 'mhn', 'bayesian_nn'];
             models.forEach(function (m) {
                 const sorted = [...matrixData].sort((a, b) => {
                     const sa = ((a.models || {})[m] || {}).score || 0;
@@ -1449,8 +1506,21 @@ const DeepLearning = {
         if (strategyUI) {
             const os = strategy.overall_strategy;
             if (os && typeof os === 'object' && os.nums && os.nums.length > 0) {
-                const MC = { lstm:'#818cf8', xgboost:'#60a5fa', cnn:'#f472b6', transformer:'#fb923c', markov:'#34d399' };
-                const ML = { lstm:'LSTM', xgboost:'XGB', cnn:'CNN', transformer:'TF', markov:'MKV' };
+                // 11 base 토폴로지 색상/라벨 (top-N 주도 모델 표시)
+                const MC = {
+                    xgboost: '#3B82F6', catboost: '#14B8A6', tabnet: '#A855F7',
+                    cnn: '#EC4899', gnn: '#EF4444',
+                    markov: '#10B981', autoencoder: '#8B5CF6',
+                    tft: '#F97316', nbeats: '#06B6D4',
+                    mhn: '#84CC16', bayesian_nn: '#F59E0B'
+                };
+                const ML = {
+                    xgboost: 'XGB', catboost: 'CAT', tabnet: 'TAB',
+                    cnn: 'CNN', gnn: 'GNN',
+                    markov: 'MKV', autoencoder: 'AE',
+                    tft: 'TFT', nbeats: 'NBT',
+                    mhn: 'MHN', bayesian_nn: 'BAY'
+                };
 
                 // 번호 볼 + 주도 모델 + gap
                 const ballsHtml = os.nums.map(d => {
@@ -1476,7 +1546,7 @@ const DeepLearning = {
 
                 // 주도 모델 뱃지
                 const modelBadges = os.mainModels.map(m => {
-                    const key = Object.keys(ML).find(k => ML[k] === m || k === m.toLowerCase()) || 'lstm';
+                    const key = Object.keys(ML).find(k => ML[k] === m || k === m.toLowerCase()) || 'tft';
                     const c = MC[key] || '#9CA3AF';
                     return `<span style="font-size:9px;font-weight:700;color:${c};background:${c}18;
                                         border-radius:99px;padding:1px 6px">${m}</span>`;
@@ -1546,14 +1616,19 @@ const DeepLearning = {
     renderModelTop10(modelTop10, weights) {
         const container = document.getElementById('modelDetailContainer');
         if (!container || !modelTop10) return;
+        // 11 base 토폴로지 (사용자 결정 #24) — lstm/transformer 폐기, TFT 흡수
         const modelConfig = {
-            lstm: { label: 'LSTM (시계열)', icon: 'timeline', gradient: 'from-blue-500 to-blue-600', barColor: '#818cf8' },
-            xgboost: { label: 'XGBoost (패턴)', icon: 'account_tree', gradient: 'from-blue-500 to-blue-600', barColor: '#60a5fa' },
-            cnn: { label: 'CNN (공간)', icon: 'grid_view', gradient: 'from-pink-500 to-pink-600', barColor: '#f472b6' },
-            transformer: { label: 'Transformer (맥락)', icon: 'psychology', gradient: 'from-orange-500 to-orange-600', barColor: '#fb923c' },
-            markov: { label: 'Markov (통계)', icon: 'analytics', gradient: 'from-emerald-500 to-emerald-600', barColor: '#34d399' },
-            autoencoder: { label: 'Autoencoder (압축)', icon: 'compress', gradient: 'from-purple-500 to-purple-600', barColor: '#a855f7' },
-            gnn: { label: 'GNN (관계망)', icon: 'hub', gradient: 'from-red-500 to-red-600', barColor: '#ef4444' }
+            xgboost:     { label: 'XGBoost (트리)',      icon: 'account_tree', gradient: 'from-blue-500 to-blue-600',    barColor: '#3B82F6' },
+            catboost:    { label: 'CatBoost (카테고리)', icon: 'category',     gradient: 'from-teal-500 to-teal-600',    barColor: '#14B8A6' },
+            tabnet:      { label: 'TabNet (attention)',  icon: 'psychology',   gradient: 'from-purple-500 to-purple-600',barColor: '#A855F7' },
+            cnn:         { label: 'CNN (그리드)',        icon: 'grid_view',    gradient: 'from-pink-500 to-pink-600',    barColor: '#EC4899' },
+            gnn:         { label: 'GNN (그래프)',        icon: 'hub',          gradient: 'from-red-500 to-red-600',      barColor: '#EF4444' },
+            markov:      { label: 'Markov (전이)',        icon: 'analytics',    gradient: 'from-emerald-500 to-emerald-600', barColor: '#10B981' },
+            autoencoder: { label: 'AE (이상치)',          icon: 'compress',     gradient: 'from-violet-500 to-violet-600',barColor: '#8B5CF6' },
+            tft:         { label: 'TFT (시계열)',         icon: 'timeline',     gradient: 'from-orange-500 to-orange-600',barColor: '#F97316' },
+            nbeats:      { label: 'N-BEATS (분해)',       icon: 'stacked_line_chart', gradient: 'from-cyan-500 to-cyan-600', barColor: '#06B6D4' },
+            mhn:         { label: 'MHN (메모리)',         icon: 'memory',       gradient: 'from-lime-500 to-lime-600',    barColor: '#84CC16' },
+            bayesian_nn: { label: 'Bayesian (불확실성)',  icon: 'scatter_plot', gradient: 'from-amber-500 to-amber-600',  barColor: '#F59E0B' }
         };
         var self = this;
         var html = '';
@@ -1670,24 +1745,30 @@ const DeepLearning = {
             } catch(e) {}
             return null;
         };
+        // 11 base 토폴로지 (lstm/transformer 폐기, TFT 흡수)
         const MODEL_CONFIG = {
-            lstm: { label: 'LSTM', color: '#818cf8', bg: '#eef2ff' },
-            xgboost: { label: 'XGBoost', color: '#60a5fa', bg: '#eff6ff' },
-            cnn: { label: 'CNN', color: '#f472b6', bg: '#fdf2f8' },
-            transformer: { label: 'Transformer', color: '#fb923c', bg: '#fff7ed' },
-            markov: { label: 'Markov', color: '#34d399', bg: '#f0fdf4' },
-            autoencoder: { label: 'Auto', color: '#a855f7', bg: '#faf5ff' },
-            gnn: { label: 'GNN', color: '#ef4444', bg: '#fef2f2' }
+            xgboost:     { label: 'XGBoost',  color: '#3B82F6', bg: '#eff6ff' },
+            catboost:    { label: 'CatBoost', color: '#14B8A6', bg: '#f0fdfa' },
+            tabnet:      { label: 'TabNet',   color: '#A855F7', bg: '#faf5ff' },
+            cnn:         { label: 'CNN',      color: '#EC4899', bg: '#fdf2f8' },
+            gnn:         { label: 'GNN',      color: '#EF4444', bg: '#fef2f2' },
+            markov:      { label: 'Markov',   color: '#10B981', bg: '#f0fdf4' },
+            autoencoder: { label: 'AE',       color: '#8B5CF6', bg: '#f5f3ff' },
+            tft:         { label: 'TFT',      color: '#F97316', bg: '#fff7ed' },
+            nbeats:      { label: 'N-BEATS',  color: '#06B6D4', bg: '#ecfeff' },
+            mhn:         { label: 'MHN',      color: '#84CC16', bg: '#f7fee7' },
+            bayesian_nn: { label: 'Bayesian', color: '#F59E0B', bg: '#fffbeb' }
         };
-        const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
+        const models = ['xgboost', 'catboost', 'tabnet', 'cnn', 'gnn', 'markov', 'autoencoder', 'tft', 'nbeats', 'mhn', 'bayesian_nn'];
         let html = '<div class="overflow-x-auto rounded-2xl border border-gray-100 shadow-sm bg-white">';
-        html += '<table class="w-full text-xs table-fixed">';
-        // 컬럼 폭 통일: 지표 12% / 현재 9% / 앙상블 9% / 모델 7개 × 10%
+        // 11 모델 컬럼은 가로 스크롤이 필요 — table-fixed + 최소 폭 확보
+        html += '<table class="text-xs table-fixed" style="min-width:1180px; width:100%;">';
+        // 지표 130 / 현재 80 / 앙상블 80 / 모델 11 × 80 (총 ~1170)
         html += '<colgroup>';
-        html += '<col style="width:12%">';
-        html += '<col style="width:9%">';
-        html += '<col style="width:9%">';
-        for (let i = 0; i < models.length; i++) html += '<col style="width:10%">';
+        html += '<col style="width:130px">';
+        html += '<col style="width:80px">';
+        html += '<col style="width:80px">';
+        for (let i = 0; i < models.length; i++) html += '<col style="width:80px">';
         html += '</colgroup>';
         html += '<thead><tr>';
         html += '<th class="px-3 py-4 text-left font-bold text-gray-700">지표</th>';
@@ -1792,23 +1873,35 @@ const DeepLearning = {
     sortMatrix(key) {
         const matrixData = this._matrixData;
         if (!matrixData) return;
-        const colors = { total: '#1F2937', lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7', gnn: '#ef4444' };
-        ['total', 'lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'].forEach(k => {
+        // 11 base 토폴로지 (lstm/transformer 폐기, TFT 흡수)
+        const colors = {
+            total: '#1F2937',
+            xgboost: '#3B82F6', catboost: '#14B8A6', tabnet: '#A855F7',
+            cnn: '#EC4899', gnn: '#EF4444',
+            markov: '#10B981', autoencoder: '#8B5CF6',
+            tft: '#F97316', nbeats: '#06B6D4',
+            mhn: '#84CC16', bayesian_nn: '#F59E0B'
+        };
+        ['total', 'xgboost', 'catboost', 'tabnet', 'cnn', 'gnn', 'markov', 'autoencoder', 'tft', 'nbeats', 'mhn', 'bayesian_nn'].forEach(k => {
             const btn = document.getElementById('sort-btn-' + k);
             if (!btn) return;
             if (k === key) { btn.style.background = colors[k]; btn.style.color = '#fff'; btn.style.borderColor = colors[k]; }
             else { btn.style.background = '#fff'; btn.style.color = k === 'total' ? '#374151' : colors[k]; btn.style.borderColor = '#E5E7EB'; }
         });
         const MODEL_CONFIG = {
-            lstm: { label: 'LSTM', color: '#818cf8' },
-            xgboost: { label: 'XGBoost', color: '#60a5fa' },
-            cnn: { label: 'CNN', color: '#f472b6' },
-            transformer: { label: 'Transformer', color: '#fb923c' },
-            markov: { label: 'Markov', color: '#34d399' },
-            autoencoder: { label: 'Autoencoder', color: '#a855f7' },
-            gnn: { label: 'GNN', color: '#ef4444' }
+            xgboost:     { label: 'XGBoost',  color: '#3B82F6' },
+            catboost:    { label: 'CatBoost', color: '#14B8A6' },
+            tabnet:      { label: 'TabNet',   color: '#A855F7' },
+            cnn:         { label: 'CNN',      color: '#EC4899' },
+            gnn:         { label: 'GNN',      color: '#EF4444' },
+            markov:      { label: 'Markov',   color: '#10B981' },
+            autoencoder: { label: 'AE',       color: '#8B5CF6' },
+            tft:         { label: 'TFT',      color: '#F97316' },
+            nbeats:      { label: 'N-BEATS',  color: '#06B6D4' },
+            mhn:         { label: 'MHN',      color: '#84CC16' },
+            bayesian_nn: { label: 'Bayesian', color: '#F59E0B' }
         };
-        const models = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
+        const models = ['xgboost', 'catboost', 'tabnet', 'cnn', 'gnn', 'markov', 'autoencoder', 'tft', 'nbeats', 'mhn', 'bayesian_nn'];
         const self = this;
         const container = document.getElementById('matrixDataContainer');
         const sorted = [...matrixData].sort((a, b) => {
@@ -1936,7 +2029,8 @@ const DeepLearning = {
         const maxScore = Math.max(...combinations.map(c => c.score || 0)) || 1;
         const modelTop = {};
         if (matrixData) {
-            ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'].forEach(m => {
+            // 11 base 토폴로지
+            ['xgboost', 'catboost', 'tabnet', 'cnn', 'gnn', 'markov', 'autoencoder', 'tft', 'nbeats', 'mhn', 'bayesian_nn'].forEach(m => {
                 const sorted = [...matrixData].sort((a, b) => ((b.models || {})[m] || {}).score - ((a.models || {})[m] || {}).score);
                 modelTop[m] = new Set(sorted.slice(0, 10).map(d => d.num));
             });
@@ -1956,7 +2050,8 @@ const DeepLearning = {
             const anomaly = anomalyMap[nums.join('-')];
             const isVerified = pipeline.rlGenerated && (!anomaly || anomaly.passed !== false);
             const topIncluded = nums.filter(n => top5Set.has(n));
-            const modelAgreement = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'].filter(m =>
+            // 11 base 토폴로지 — 모델 동의도 계산
+            const modelAgreement = ['xgboost', 'catboost', 'tabnet', 'cnn', 'gnn', 'markov', 'autoencoder', 'tft', 'nbeats', 'mhn', 'bayesian_nn'].filter(m =>
                 nums.some(n => modelTop[m] && modelTop[m].has(n))
             ).length;
             const sum = nums.reduce((a, b) => a + b, 0);
@@ -1982,9 +2077,22 @@ const DeepLearning = {
                 </span>`;
             }).join('');
 
-            const MODEL_LIST = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
-            const MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7', gnn: '#ef4444' };
-            const MODEL_SHORT  = { lstm: 'L', xgboost: 'X', cnn: 'C', transformer: 'T', markov: 'M', autoencoder: 'A', gnn: 'G' };
+            // 11 base 토폴로지 (사용자 결정 #24)
+            const MODEL_LIST = ['xgboost', 'catboost', 'tabnet', 'cnn', 'gnn', 'markov', 'autoencoder', 'tft', 'nbeats', 'mhn', 'bayesian_nn'];
+            const MODEL_COLORS = {
+                xgboost: '#3B82F6', catboost: '#14B8A6', tabnet: '#A855F7',
+                cnn: '#EC4899', gnn: '#EF4444',
+                markov: '#10B981', autoencoder: '#8B5CF6',
+                tft: '#F97316', nbeats: '#06B6D4',
+                mhn: '#84CC16', bayesian_nn: '#F59E0B'
+            };
+            const MODEL_SHORT  = {
+                xgboost: 'X', catboost: 'B', tabnet: 'N',
+                cnn: 'C', gnn: 'G',
+                markov: 'M', autoencoder: 'A',
+                tft: 'T', nbeats: 'D',
+                mhn: 'H', bayesian_nn: 'Y'
+            };
             const modelBar = MODEL_LIST.map(m => {
                 const agree = nums.some(n => modelTop[m] && modelTop[m].has(n));
                 return `<div style="width:4px;height:22px;border-radius:3px;background:${agree ? MODEL_COLORS[m] : '#F3F4F6'};" title="${MODEL_SHORT[m]}"></div>`;
@@ -2032,9 +2140,22 @@ const DeepLearning = {
         const container = document.getElementById('modelRankingContainer');
         if (!container || !matrixData || !matrixData.length) return;
 
-        const MODEL_ORDER  = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
-        const MODEL_LABELS = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV', autoencoder: 'ATC', gnn: 'GNN' };
-        const MODEL_COLORS = { lstm: '#6366F1', xgboost: '#3B82F6', cnn: '#EC4899', transformer: '#F97316', markov: '#10B981', autoencoder: '#8B5CF6', gnn: '#EF4444' };
+        // 11 base 토폴로지 (사용자 결정 #24) — lstm/transformer 폐기, TFT 흡수
+        const MODEL_ORDER  = ['xgboost', 'catboost', 'tabnet', 'cnn', 'gnn', 'markov', 'autoencoder', 'tft', 'nbeats', 'mhn', 'bayesian_nn'];
+        const MODEL_LABELS = {
+            xgboost: 'XGB', catboost: 'CAT', tabnet: 'TAB',
+            cnn: 'CNN', gnn: 'GNN',
+            markov: 'MKV', autoencoder: 'AE',
+            tft: 'TFT', nbeats: 'NBT',
+            mhn: 'MHN', bayesian_nn: 'BAY'
+        };
+        const MODEL_COLORS = {
+            xgboost: '#3B82F6', catboost: '#14B8A6', tabnet: '#A855F7',
+            cnn: '#EC4899', gnn: '#EF4444',
+            markov: '#10B981', autoencoder: '#8B5CF6',
+            tft: '#F97316', nbeats: '#06B6D4',
+            mhn: '#84CC16', bayesian_nn: '#F59E0B'
+        };
 
         const self = this;
 
@@ -2067,7 +2188,7 @@ const DeepLearning = {
             ...MODEL_ORDER.map(m => ({ label: MODEL_LABELS[m], color: MODEL_COLORS[m], nums: modelRanked[m] }))
         ];
 
-        // 헤더: 순위(고정) | 앙상블 | LSTM | XGB | CNN | TF | MKV | ATC | GNN
+        // 헤더: 순위(고정) | 앙상블 | XGB | CAT | TAB | CNN | GNN | MKV | AE | TFT | NBT | MHN | BAY
         const theadHtml = `<thead>
             <tr class="border-b-2 border-gray-200 bg-gray-50/80 sticky top-0">
                 <th class="py-2 text-center text-[11px] font-bold text-gray-400 whitespace-nowrap" style="width:40px">순위</th>
@@ -2106,8 +2227,21 @@ const DeepLearning = {
         if (!pipeline) return;
         const condContainer = document.getElementById('modelConditionContainer');
         if (condContainer && pipeline.modelWeights) {
-            const MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7', gnn: '#ef4444' };
-            const MODEL_LABELS = { lstm: 'LSTM', xgboost: 'XGBoost', cnn: 'CNN', transformer: 'Transformer', markov: 'Markov', autoencoder: 'Autoenc.', gnn: 'GNN' };
+            // 11 base 토폴로지 (사용자 결정 #24)
+            const MODEL_COLORS = {
+                xgboost: '#3B82F6', catboost: '#14B8A6', tabnet: '#A855F7',
+                cnn: '#EC4899', gnn: '#EF4444',
+                markov: '#10B981', autoencoder: '#8B5CF6',
+                tft: '#F97316', nbeats: '#06B6D4',
+                mhn: '#84CC16', bayesian_nn: '#F59E0B'
+            };
+            const MODEL_LABELS = {
+                xgboost: 'XGBoost', catboost: 'CatBoost', tabnet: 'TabNet',
+                cnn: 'CNN', gnn: 'GNN',
+                markov: 'Markov', autoencoder: 'AE',
+                tft: 'TFT', nbeats: 'N-BEATS',
+                mhn: 'MHN', bayesian_nn: 'Bayesian'
+            };
             const rawWeights = pipeline.modelWeights;
             const isXai = !!pipeline.isXaiMode;
 
@@ -2176,7 +2310,7 @@ const DeepLearning = {
             const reportId = 'aiReportBody_' + Date.now();
             const highlighted = pipeline.aiReport
                 .replace(/(\d+(?:\.\d+)?%)/g, '<b style="color:#4F46E5">$1</b>')
-                .replace(/(LSTM|XGBoost|CNN|Transformer|Markov|Autoencoder)/gi, '<b style="color:#0EA5E9">$1</b>')
+                .replace(/(XGBoost|CatBoost|TabNet|CNN|Markov|Autoencoder|AE|TFT|N-?BEATS|MHN|Bayesian)/gi, '<b style="color:#0EA5E9">$1</b>')
                 .replace(/(몬테카를로|강화학습|RL|GNN|Meta-Learning)/gi, '<b style="color:#8B5CF6">$1</b>')
                 .replace(/(\d+(?:,\d+)*회)/g, '<b style="color:#F59E0B">$1</b>')
                 .replace(/(\d{1,2}-\d{1,2})/g, '<b style="color:#10B981">$1</b>')
@@ -2211,10 +2345,14 @@ const DeepLearning = {
             if (prob < 1.80)  return '1~3';
             return '2~3';
         };
-        const MODEL_ORDER = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
+        // 11 base 토폴로지 (사용자 결정 #24)
+        const MODEL_ORDER = ['xgboost', 'catboost', 'tabnet', 'cnn', 'gnn', 'markov', 'autoencoder', 'tft', 'nbeats', 'mhn', 'bayesian_nn'];
         const MODEL_COLORS = {
-            lstm: '#6366F1', xgboost: '#3B82F6', cnn: '#EC4899',
-            transformer: '#F97316', markov: '#10B981', autoencoder: '#8B5CF6', gnn: '#EF4444'
+            xgboost: '#3B82F6', catboost: '#14B8A6', tabnet: '#A855F7',
+            cnn: '#EC4899', gnn: '#EF4444',
+            markov: '#10B981', autoencoder: '#8B5CF6',
+            tft: '#F97316', nbeats: '#06B6D4',
+            mhn: '#84CC16', bayesian_nn: '#F59E0B'
         };
 
         tbody.innerHTML = tailData.map(item => {
@@ -2261,11 +2399,21 @@ const DeepLearning = {
             if (prob < 1.80)  return '1~3';
             return '2~3';
         };
-        const MODEL_ORDER = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
-        const MODEL_ABBR = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV', autoencoder: 'ATC', gnn: 'GNN' };
+        // 11 base 토폴로지 (사용자 결정 #24)
+        const MODEL_ORDER = ['xgboost', 'catboost', 'tabnet', 'cnn', 'gnn', 'markov', 'autoencoder', 'tft', 'nbeats', 'mhn', 'bayesian_nn'];
+        const MODEL_ABBR = {
+            xgboost: 'XGB', catboost: 'CAT', tabnet: 'TAB',
+            cnn: 'CNN', gnn: 'GNN',
+            markov: 'MKV', autoencoder: 'AE',
+            tft: 'TFT', nbeats: 'NBT',
+            mhn: 'MHN', bayesian_nn: 'BAY'
+        };
         const MODEL_COLORS = {
-            lstm: '#6366F1', xgboost: '#3B82F6', cnn: '#EC4899',
-            transformer: '#F97316', markov: '#10B981', autoencoder: '#8B5CF6', gnn: '#EF4444'
+            xgboost: '#3B82F6', catboost: '#14B8A6', tabnet: '#A855F7',
+            cnn: '#EC4899', gnn: '#EF4444',
+            markov: '#10B981', autoencoder: '#8B5CF6',
+            tft: '#F97316', nbeats: '#06B6D4',
+            mhn: '#84CC16', bayesian_nn: '#F59E0B'
         };
 
         const _modelHeader = () => MODEL_ORDER.map(m =>
@@ -2338,11 +2486,21 @@ const DeepLearning = {
             '11~20': '10번대', '21~30': '20번대',
             '31~40': '30번대', '41~45': '40번대'
         };
-        const MODEL_ORDER = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
-        const MODEL_ABBR = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV', autoencoder: 'ATC', gnn: 'GNN' };
+        // 11 base 토폴로지 (사용자 결정 #24)
+        const MODEL_ORDER = ['xgboost', 'catboost', 'tabnet', 'cnn', 'gnn', 'markov', 'autoencoder', 'tft', 'nbeats', 'mhn', 'bayesian_nn'];
+        const MODEL_ABBR = {
+            xgboost: 'XGB', catboost: 'CAT', tabnet: 'TAB',
+            cnn: 'CNN', gnn: 'GNN',
+            markov: 'MKV', autoencoder: 'AE',
+            tft: 'TFT', nbeats: 'NBT',
+            mhn: 'MHN', bayesian_nn: 'BAY'
+        };
         const MODEL_COLORS = {
-            lstm: '#6366F1', xgboost: '#3B82F6', cnn: '#EC4899',
-            transformer: '#F97316', markov: '#10B981', autoencoder: '#8B5CF6', gnn: '#EF4444'
+            xgboost: '#3B82F6', catboost: '#14B8A6', tabnet: '#A855F7',
+            cnn: '#EC4899', gnn: '#EF4444',
+            markov: '#10B981', autoencoder: '#8B5CF6',
+            tft: '#F97316', nbeats: '#06B6D4',
+            mhn: '#84CC16', bayesian_nn: '#F59E0B'
         };
 
         let html = '<div class="overflow-x-auto rounded-2xl border border-gray-200 shadow-sm bg-white">';
@@ -2396,11 +2554,21 @@ const DeepLearning = {
             if (prob < 1.80)  return '1~3';
             return '2~3';
         };
-        const MODEL_ORDER = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
-        const MODEL_ABBR = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV', autoencoder: 'ATC', gnn: 'GNN' };
+        // 11 base 토폴로지 (사용자 결정 #24)
+        const MODEL_ORDER = ['xgboost', 'catboost', 'tabnet', 'cnn', 'gnn', 'markov', 'autoencoder', 'tft', 'nbeats', 'mhn', 'bayesian_nn'];
+        const MODEL_ABBR = {
+            xgboost: 'XGB', catboost: 'CAT', tabnet: 'TAB',
+            cnn: 'CNN', gnn: 'GNN',
+            markov: 'MKV', autoencoder: 'AE',
+            tft: 'TFT', nbeats: 'NBT',
+            mhn: 'MHN', bayesian_nn: 'BAY'
+        };
         const MODEL_COLORS = {
-            lstm: '#6366F1', xgboost: '#3B82F6', cnn: '#EC4899',
-            transformer: '#F97316', markov: '#10B981', autoencoder: '#8B5CF6', gnn: '#EF4444'
+            xgboost: '#3B82F6', catboost: '#14B8A6', tabnet: '#A855F7',
+            cnn: '#EC4899', gnn: '#EF4444',
+            markov: '#10B981', autoencoder: '#8B5CF6',
+            tft: '#F97316', nbeats: '#06B6D4',
+            mhn: '#84CC16', bayesian_nn: '#F59E0B'
         };
 
         let html = '<div class="overflow-x-auto rounded-2xl border border-gray-200 shadow-sm bg-white">';
@@ -2448,11 +2616,21 @@ const DeepLearning = {
         const groupArray = Array.isArray(rawGroups) ? rawGroups : Object.values(rawGroups);
         // groupArray가 비어있어도 4구간 틀은 항상 표시 (데이터 없음 표기)
 
-        const MODEL_ORDER = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
-        const MODEL_ABBR = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV', autoencoder: 'ATC', gnn: 'GNN' };
+        // 11 base 토폴로지 (사용자 결정 #24)
+        const MODEL_ORDER = ['xgboost', 'catboost', 'tabnet', 'cnn', 'gnn', 'markov', 'autoencoder', 'tft', 'nbeats', 'mhn', 'bayesian_nn'];
+        const MODEL_ABBR = {
+            xgboost: 'XGB', catboost: 'CAT', tabnet: 'TAB',
+            cnn: 'CNN', gnn: 'GNN',
+            markov: 'MKV', autoencoder: 'AE',
+            tft: 'TFT', nbeats: 'NBT',
+            mhn: 'MHN', bayesian_nn: 'BAY'
+        };
         const MODEL_COLORS = {
-            lstm: '#6366F1', xgboost: '#3B82F6', cnn: '#EC4899',
-            transformer: '#F97316', markov: '#10B981', autoencoder: '#8B5CF6', gnn: '#EF4444'
+            xgboost: '#3B82F6', catboost: '#14B8A6', tabnet: '#A855F7',
+            cnn: '#EC4899', gnn: '#EF4444',
+            markov: '#10B981', autoencoder: '#8B5CF6',
+            tft: '#F97316', nbeats: '#06B6D4',
+            mhn: '#84CC16', bayesian_nn: '#F59E0B'
         };
         const _fmtRange = (prob) => {
             if (prob == null || isNaN(prob)) return '-';
@@ -2543,11 +2721,21 @@ const DeepLearning = {
         const container = document.getElementById('hotColdContainer');
         if (!container || !hotColdData) return;
 
-        const MODEL_ORDER = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
-        const MODEL_ABBR = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV', autoencoder: 'ATC', gnn: 'GNN' };
+        // 11 base 토폴로지 (사용자 결정 #24)
+        const MODEL_ORDER = ['xgboost', 'catboost', 'tabnet', 'cnn', 'gnn', 'markov', 'autoencoder', 'tft', 'nbeats', 'mhn', 'bayesian_nn'];
+        const MODEL_ABBR = {
+            xgboost: 'XGB', catboost: 'CAT', tabnet: 'TAB',
+            cnn: 'CNN', gnn: 'GNN',
+            markov: 'MKV', autoencoder: 'AE',
+            tft: 'TFT', nbeats: 'NBT',
+            mhn: 'MHN', bayesian_nn: 'BAY'
+        };
         const MODEL_COLORS = {
-            lstm: '#6366F1', xgboost: '#3B82F6', cnn: '#EC4899',
-            transformer: '#F97316', markov: '#10B981', autoencoder: '#8B5CF6', gnn: '#EF4444'
+            xgboost: '#3B82F6', catboost: '#14B8A6', tabnet: '#A855F7',
+            cnn: '#EC4899', gnn: '#EF4444',
+            markov: '#10B981', autoencoder: '#8B5CF6',
+            tft: '#F97316', nbeats: '#06B6D4',
+            mhn: '#84CC16', bayesian_nn: '#F59E0B'
         };
         const STATUS_ORDER = ['hot', 'active', 'cooling', 'cold', 'deadcold'];
         const STATUS_META = {
@@ -2771,9 +2959,22 @@ const DeepLearning = {
             return 0;
         });
 
-        const MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7', gnn: '#ef4444' };
-        const MODEL_LABELS = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV', autoencoder: 'ATC', gnn: 'GNN' };
-        const MODEL_ORDER = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
+        // 11 base 토폴로지 (사용자 결정 #24)
+        const MODEL_COLORS = {
+            xgboost: '#3B82F6', catboost: '#14B8A6', tabnet: '#A855F7',
+            cnn: '#EC4899', gnn: '#EF4444',
+            markov: '#10B981', autoencoder: '#8B5CF6',
+            tft: '#F97316', nbeats: '#06B6D4',
+            mhn: '#84CC16', bayesian_nn: '#F59E0B'
+        };
+        const MODEL_LABELS = {
+            xgboost: 'XGB', catboost: 'CAT', tabnet: 'TAB',
+            cnn: 'CNN', gnn: 'GNN',
+            markov: 'MKV', autoencoder: 'AE',
+            tft: 'TFT', nbeats: 'NBT',
+            mhn: 'MHN', bayesian_nn: 'BAY'
+        };
+        const MODEL_ORDER = ['xgboost', 'catboost', 'tabnet', 'cnn', 'gnn', 'markov', 'autoencoder', 'tft', 'nbeats', 'mhn', 'bayesian_nn'];
 
         tbody.innerHTML = displayData.map(item => {
             const targetsHtml = (item.targets || []).map(n => {
@@ -2875,9 +3076,9 @@ const DeepLearning = {
         });
     },
 
-    // ── 번호 목록 → 모델별 기대값 계산 ──
+    // ── 번호 목록 → 모델별 기대값 계산 (11 base 토폴로지) ──
     _computeModelExpFromNumProbs(nums) {
-        const MODELS = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
+        const MODELS = ['xgboost', 'catboost', 'tabnet', 'cnn', 'gnn', 'markov', 'autoencoder', 'tft', 'nbeats', 'mhn', 'bayesian_nn'];
         const exp = {};
         MODELS.forEach(m => {
             const total = this._modelTotals[m] || 1;
@@ -3001,9 +3202,22 @@ const DeepLearning = {
         const container = document.getElementById('custom-container');
         if (!container || !customData) return;
         const self = this;
-        const MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7', gnn: '#ef4444' };
-        const MODEL_LABELS = { lstm: 'LSTM', xgboost: 'XGB', cnn: 'CNN', transformer: 'TF', markov: 'MKV', autoencoder: 'ATC', gnn: 'GNN' };
-        const MODEL_ORDER = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
+        // 11 base 토폴로지 (사용자 결정 #24)
+        const MODEL_COLORS = {
+            xgboost: '#3B82F6', catboost: '#14B8A6', tabnet: '#A855F7',
+            cnn: '#EC4899', gnn: '#EF4444',
+            markov: '#10B981', autoencoder: '#8B5CF6',
+            tft: '#F97316', nbeats: '#06B6D4',
+            mhn: '#84CC16', bayesian_nn: '#F59E0B'
+        };
+        const MODEL_LABELS = {
+            xgboost: 'XGB', catboost: 'CAT', tabnet: 'TAB',
+            cnn: 'CNN', gnn: 'GNN',
+            markov: 'MKV', autoencoder: 'AE',
+            tft: 'TFT', nbeats: 'NBT',
+            mhn: 'MHN', bayesian_nn: 'BAY'
+        };
+        const MODEL_ORDER = ['xgboost', 'catboost', 'tabnet', 'cnn', 'gnn', 'markov', 'autoencoder', 'tft', 'nbeats', 'mhn', 'bayesian_nn'];
 
         if (!customData || customData.length === 0) {
             container.innerHTML = '<p class="text-sm text-slate-400 py-8 text-center">커스텀 분석 데이터가 없습니다.</p>';
@@ -3353,17 +3567,30 @@ const DeepLearning = {
                 `;
             }
             if (matrixItem && matrixItem.models) {
-                var MODEL_COLORS = { lstm: '#818cf8', xgboost: '#60a5fa', cnn: '#f472b6', transformer: '#fb923c', markov: '#34d399', autoencoder: '#a855f7', gnn: '#ef4444' };
-                var MODEL_LABELS = { lstm: 'LSTM (시계열)', xgboost: 'XGBoost (패턴)', cnn: 'CNN (공간)', transformer: 'Transformer (맥락)', markov: 'Markov (전이)', autoencoder: 'Autoencoder (압축)', gnn: 'GNN (관계망)' };
+                // 11 base 토폴로지 (사용자 결정 #24) — lstm/transformer 폐기, TFT 흡수
+                var MODEL_COLORS = {
+                    xgboost: '#3B82F6', catboost: '#14B8A6', tabnet: '#A855F7',
+                    cnn: '#EC4899', gnn: '#EF4444',
+                    markov: '#10B981', autoencoder: '#8B5CF6',
+                    tft: '#F97316', nbeats: '#06B6D4',
+                    mhn: '#84CC16', bayesian_nn: '#F59E0B'
+                };
+                var MODEL_LABELS = {
+                    xgboost: 'XGBoost (트리)',     catboost: 'CatBoost (카테고리)', tabnet: 'TabNet (attention)',
+                    cnn: 'CNN (그리드)',           gnn: 'GNN (그래프)',
+                    markov: 'Markov (전이)',        autoencoder: 'AE (이상치)',
+                    tft: 'TFT (시계열)',            nbeats: 'N-BEATS (분해)',
+                    mhn: 'MHN (메모리)',            bayesian_nn: 'Bayesian (불확실성)'
+                };
                 var modelHtml = '';
-                ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'].forEach(mKey => {
+                ['xgboost', 'catboost', 'tabnet', 'cnn', 'gnn', 'markov', 'autoencoder', 'tft', 'nbeats', 'mhn', 'bayesian_nn'].forEach(mKey => {
                     var mVal = matrixItem.models[mKey] || {};
                     var score = mVal.score || 0;
                     var color = MODEL_COLORS[mKey] || '#94a3b8';
                     var label = MODEL_LABELS[mKey] || mKey;
                     modelHtml += `<div class="flex items-center gap-3 mb-2"><span class="text-[10px] font-bold w-28 text-slate-500 flex-shrink-0">${label}</span><div class="flex-1 bg-slate-100 h-1.5 rounded-full overflow-hidden"><div class="h-full rounded-full" style="width:${score}%;background:${color}"></div></div><span class="text-[10px] font-bold w-8 text-right text-slate-600">${score}</span></div>`;
                 });
-                localInfo += `<div class="bg-slate-50 rounded-xl p-4 border border-slate-100 mt-4"><h5 class="font-bold text-slate-600 text-xs mb-3">7개 모델별 기여도</h5>${modelHtml}</div>`;
+                localInfo += `<div class="bg-slate-50 rounded-xl p-4 border border-slate-100 mt-4"><h5 class="font-bold text-slate-600 text-xs mb-3">11개 모델별 기여도</h5>${modelHtml}</div>`;
             }
         }
         content.innerHTML = localInfo || '<div class="text-center text-slate-400 py-8"><p>분석 데이터를 먼저 실행해주세요.</p></div>';

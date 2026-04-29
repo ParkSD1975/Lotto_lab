@@ -864,24 +864,28 @@ const VP = (() => {
                 .eq('target_round', round)
                 .order('combo_rank');
 
-            // weekly_number_xai 조회 (matrix_data 구성용)
+            // weekly_number_xai 조회 (matrix_data 구성용) — 11 base 토폴로지 (사용자 결정 #24)
             const { data: wxai } = await sb.from('weekly_number_xai')
-                .select('number, xgboost_pct, lstm_pct, cnn_pct, transformer_pct, gnn_pct, markov_pct, autoencoder_pct, probability')
+                .select('number, xgboost_pct, catboost_pct, tabnet_pct, cnn_pct, gnn_pct, markov_pct, autoencoder_pct, tft_pct, nbeats_pct, mhn_pct, bayesian_nn_pct, probability')
                 .eq('target_round', round)
                 .order('number');
 
-            // matrix_data 구성
+            // matrix_data 구성 (11 base — lstm/transformer 폐기, TFT 흡수)
             const matrixData = (wxai || []).map(x => ({
                 num: x.number,
                 total: parseFloat(((x.probability || 0) * 100).toFixed(2)),
                 models: {
-                    xgboost:     { score: parseFloat(((x.xgboost_pct || 0) * (x.probability || 0) * 100).toFixed(2)) },
-                    lstm:        { score: parseFloat(((x.lstm_pct || 0) * (x.probability || 0) * 100).toFixed(2)) },
-                    cnn:         { score: parseFloat(((x.cnn_pct || 0) * (x.probability || 0) * 100).toFixed(2)) },
-                    transformer: { score: parseFloat(((x.transformer_pct || 0) * (x.probability || 0) * 100).toFixed(2)) },
-                    gnn:         { score: parseFloat(((x.gnn_pct || 0) * (x.probability || 0) * 100).toFixed(2)) },
-                    markov:      { score: parseFloat(((x.markov_pct || 0) * (x.probability || 0) * 100).toFixed(2)) },
-                    autoencoder: { score: parseFloat(((x.autoencoder_pct || 0) * (x.probability || 0) * 100).toFixed(2)) }
+                    xgboost:     { score: parseFloat(((x.xgboost_pct     || 0) * (x.probability || 0) * 100).toFixed(2)) },
+                    catboost:    { score: parseFloat(((x.catboost_pct    || 0) * (x.probability || 0) * 100).toFixed(2)) },
+                    tabnet:      { score: parseFloat(((x.tabnet_pct      || 0) * (x.probability || 0) * 100).toFixed(2)) },
+                    cnn:         { score: parseFloat(((x.cnn_pct         || 0) * (x.probability || 0) * 100).toFixed(2)) },
+                    gnn:         { score: parseFloat(((x.gnn_pct         || 0) * (x.probability || 0) * 100).toFixed(2)) },
+                    markov:      { score: parseFloat(((x.markov_pct      || 0) * (x.probability || 0) * 100).toFixed(2)) },
+                    autoencoder: { score: parseFloat(((x.autoencoder_pct || 0) * (x.probability || 0) * 100).toFixed(2)) },
+                    tft:         { score: parseFloat(((x.tft_pct         || 0) * (x.probability || 0) * 100).toFixed(2)) },
+                    nbeats:      { score: parseFloat(((x.nbeats_pct      || 0) * (x.probability || 0) * 100).toFixed(2)) },
+                    mhn:         { score: parseFloat(((x.mhn_pct         || 0) * (x.probability || 0) * 100).toFixed(2)) },
+                    bayesian_nn: { score: parseFloat(((x.bayesian_nn_pct || 0) * (x.probability || 0) * 100).toFixed(2)) }
                 }
             }));
 
@@ -3540,7 +3544,8 @@ const VP = (() => {
             const recNums = (dlRow.recommended_numbers || []).map(Number).filter(n=>n>=1&&n<=45);
             const recSet  = new Set(recNums);
 
-            const MODEL_ORDER  = ['lstm','xgboost','cnn','transformer','markov','autoencoder','gnn'];
+            // 11 base 토폴로지 (사용자 결정 #24)
+            const MODEL_ORDER  = ['xgboost','catboost','tabnet','cnn','gnn','markov','autoencoder','tft','nbeats','mhn','bayesian_nn'];
 
             // ── hot_cold_data에서 번호별 모델 확률 구축 (DL 페이지 _buildNumModelProbs 동일 로직) ──
             const _numModelProbs = {};
@@ -3594,8 +3599,20 @@ const VP = (() => {
                 const ensemble_exp = item.ensemble_exp != null ? item.ensemble_exp : _computeEnsembleExp(tNums);
                 return { ...item, model_exp, ensemble_exp };
             });
-            const MODEL_LABELS = { lstm:'LSTM', xgboost:'XGB', cnn:'CNN', transformer:'TF', markov:'MKV', autoencoder:'ATC', gnn:'GNN' };
-            const MODEL_COLORS = { lstm:'#6366F1', xgboost:'#3B82F6', cnn:'#EC4899', transformer:'#F97316', markov:'#10B981', autoencoder:'#8B5CF6', gnn:'#EF4444' };
+            const MODEL_LABELS = {
+                xgboost:'XGB', catboost:'CAT', tabnet:'TAB',
+                cnn:'CNN', gnn:'GNN',
+                markov:'MKV', autoencoder:'AE',
+                tft:'TFT', nbeats:'NBT',
+                mhn:'MHN', bayesian_nn:'BAY'
+            };
+            const MODEL_COLORS = {
+                xgboost:'#3B82F6', catboost:'#14B8A6', tabnet:'#A855F7',
+                cnn:'#EC4899', gnn:'#EF4444',
+                markov:'#10B981', autoencoder:'#8B5CF6',
+                tft:'#F97316', nbeats:'#06B6D4',
+                mhn:'#84CC16', bayesian_nn:'#F59E0B'
+            };
 
             const _expToRange = (exp) => {
                 if (exp < 0.5)  return { min:0, max:1 };
@@ -3741,16 +3758,20 @@ const VP = (() => {
         const winSet = new Set(nums);
         const undrawn = isUndrawn(curDraw);
 
-        // dbKey: analysis.matrix_data 내 실제 키 이름
+        // dbKey: analysis.matrix_data 내 실제 키 이름 — 11 base 토폴로지 (사용자 결정 #24)
             const MODEL_LIST = [
                 { key:'ens',   dbKey:'ensemble',    label:'앙상블 Result',     color:'#7C3AED' },
-                { key:'lstm',  dbKey:'lstm',        label:'LSTM',           color:'#6366F1' },
-                { key:'xgb',   dbKey:'xgboost',     label:'XGBoost',        color:'#F59E0B' },
-                { key:'cnn',   dbKey:'cnn',         label:'CNN-LSTM',        color:'#10B981' },
-                { key:'tf',    dbKey:'transformer', label:'Transformer',     color:'#3B82F6' },
-                { key:'mkv',   dbKey:'markov',      label:'Markov',          color:'#8B5CF6' },
-                { key:'atc',   dbKey:'autoencoder', label:'Autoencoder', color:'#EC4899' },
-                { key:'gnn',   dbKey:'gnn',         label:'GNN',             color:'#14B8A6' }
+                { key:'xgb',   dbKey:'xgboost',     label:'XGBoost',          color:'#3B82F6' },
+                { key:'cat',   dbKey:'catboost',    label:'CatBoost',         color:'#14B8A6' },
+                { key:'tab',   dbKey:'tabnet',      label:'TabNet',           color:'#A855F7' },
+                { key:'cnn',   dbKey:'cnn',         label:'CNN',              color:'#EC4899' },
+                { key:'gnn',   dbKey:'gnn',         label:'GNN',              color:'#EF4444' },
+                { key:'mkv',   dbKey:'markov',      label:'Markov',           color:'#10B981' },
+                { key:'ae',    dbKey:'autoencoder', label:'AE',               color:'#8B5CF6' },
+                { key:'tft',   dbKey:'tft',         label:'TFT',              color:'#F97316' },
+                { key:'nbt',   dbKey:'nbeats',      label:'N-BEATS',          color:'#06B6D4' },
+                { key:'mhn',   dbKey:'mhn',         label:'MHN',              color:'#84CC16' },
+                { key:'bay',   dbKey:'bayesian_nn', label:'Bayesian',         color:'#F59E0B' }
             ];
 
         // 배열/객체에서 TOP 20 추출 (범용)
@@ -3800,7 +3821,7 @@ const VP = (() => {
             })();
 
             // ── matrix_data에서 모델별 번호 점수 맵 빌드 ──
-            // analysis.matrix_data: [{num, models:{lstm:{score}, xgboost:{score}, ...}}, ...]
+            // analysis.matrix_data: [{num, models:{xgboost:{score}, catboost:{score}, ..., tft:{score}, ...}}, ...]
             const matrixData = ad?.analysis?.matrix_data || [];
             const modelScoreMap = {}; // { dbKey: { numStr: score } }
             matrixData.forEach(item => {
@@ -4124,9 +4145,22 @@ const VP = (() => {
             // DL 페이지와 동일한 data path: result.analysis || {}
             const analysisData = ad?.analysis || ad;
 
-            const MODEL_ORDER  = ['lstm','xgboost','cnn','transformer','markov','autoencoder','gnn'];
-            const MODEL_LABELS = { lstm:'LSTM', xgboost:'XGB', cnn:'CNN', transformer:'TF', markov:'MKV', autoencoder:'ATC', gnn:'GNN' };
-            const MODEL_COLORS = { lstm:'#6366F1', xgboost:'#3B82F6', cnn:'#EC4899', transformer:'#F97316', markov:'#10B981', autoencoder:'#8B5CF6', gnn:'#EF4444' };
+            // 11 base 토폴로지 (사용자 결정 #24)
+            const MODEL_ORDER  = ['xgboost','catboost','tabnet','cnn','gnn','markov','autoencoder','tft','nbeats','mhn','bayesian_nn'];
+            const MODEL_LABELS = {
+                xgboost:'XGB', catboost:'CAT', tabnet:'TAB',
+                cnn:'CNN', gnn:'GNN',
+                markov:'MKV', autoencoder:'AE',
+                tft:'TFT', nbeats:'NBT',
+                mhn:'MHN', bayesian_nn:'BAY'
+            };
+            const MODEL_COLORS = {
+                xgboost:'#3B82F6', catboost:'#14B8A6', tabnet:'#A855F7',
+                cnn:'#EC4899', gnn:'#EF4444',
+                markov:'#10B981', autoencoder:'#8B5CF6',
+                tft:'#F97316', nbeats:'#06B6D4',
+                mhn:'#84CC16', bayesian_nn:'#F59E0B'
+            };
 
             const _probToRange = (prob) => {
                 if (prob < 0.3) return { min:0, max:1 };
@@ -4815,9 +4849,22 @@ const VP = (() => {
                 return;
             }
 
-            const MODEL_ORDER  = ['lstm','xgboost','cnn','transformer','markov','autoencoder','gnn'];
-            const MODEL_LABELS = { lstm:'LSTM', xgboost:'XGB', cnn:'CNN', transformer:'TF', markov:'MKV', autoencoder:'ATC', gnn:'GNN' };
-            const MODEL_COLORS = { lstm:'#6366F1', xgboost:'#3B82F6', cnn:'#EC4899', transformer:'#F97316', markov:'#10B981', autoencoder:'#8B5CF6', gnn:'#EF4444' };
+            // 11 base 토폴로지 (사용자 결정 #24)
+            const MODEL_ORDER  = ['xgboost','catboost','tabnet','cnn','gnn','markov','autoencoder','tft','nbeats','mhn','bayesian_nn'];
+            const MODEL_LABELS = {
+                xgboost:'XGB', catboost:'CAT', tabnet:'TAB',
+                cnn:'CNN', gnn:'GNN',
+                markov:'MKV', autoencoder:'AE',
+                tft:'TFT', nbeats:'NBT',
+                mhn:'MHN', bayesian_nn:'BAY'
+            };
+            const MODEL_COLORS = {
+                xgboost:'#3B82F6', catboost:'#14B8A6', tabnet:'#A855F7',
+                cnn:'#EC4899', gnn:'#EF4444',
+                markov:'#10B981', autoencoder:'#8B5CF6',
+                tft:'#F97316', nbeats:'#06B6D4',
+                mhn:'#84CC16', bayesian_nn:'#F59E0B'
+            };
             const TYPE_MAP   = { static:'고정', dynamic:'동적', manual:'매뉴얼', group:'그룹', regression_overlap:'회귀중첩' };
             const TYPE_COLOR = { static:'#6366F1', dynamic:'#10B981', manual:'#F97316', group:'#3B82F6', regression_overlap:'#EC4899' };
 

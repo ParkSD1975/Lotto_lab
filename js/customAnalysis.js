@@ -114,8 +114,8 @@ function getAnalysisContext(analysis) {
     if (!analysis) return { type: 'static', isAiType: false, isExclusion: false };
     const type = analysis.type || 'static';
     const title = (analysis.title || '').toUpperCase();
-    // [수정] "앙상블", "추천조합", "XGB" 등 누락된 키워드 추가
-    const isAiModelTitle = !!title.match(/(LSTM|GNN|CNN|TRANSFORMER|MARKOV|AUTOENCODER|XGBOOST|XGB|ENSEMBLE|앙상블|추천조합|TF|ATC|AI|딥러닝|추천|제외)/i);
+    // [수정] 11 base 토폴로지 키워드 매칭 (lstm/transformer 폐기, TFT 흡수)
+    const isAiModelTitle = !!title.match(/(GNN|CNN|MARKOV|AUTOENCODER|XGBOOST|XGB|CATBOOST|TABNET|TFT|N-?BEATS|NBEATS|MHN|BAYESIAN|ENSEMBLE|앙상블|추천조합|TF|ATC|AE|AI|딥러닝|추천|제외)/i);
     const isExclusion = title.includes('제외') || title.includes('EXCLUDE') || type.includes('excluded');
     const aiSource = analysis.config?.aiSource;
     const isAiType = type.startsWith('ai_') || !!aiSource || isAiModelTitle;
@@ -195,12 +195,14 @@ function extractTargetsFromAIData(aiData, context, analysis) {
     } else if (type === 'ai_model_top' || type === 'ai_model_bottom' || isAiModelTitle) {
         let model = (analysis.rules?.model || 'ensemble').toLowerCase();
         if (isAiModelTitle && (!analysis.rules?.model || model === 'ensemble')) {
-            const matched = title.match(/(LSTM|GNN|CNN|TRANSFORMER|MARKOV|AUTOENCODER|XGBOOST|XGB|TF|ATC|앙상블)/i);
+            // 11 base 토폴로지 매칭 (TF → tft, ATC/AE → autoencoder, XGB → xgboost, N-BEATS → nbeats)
+            const matched = title.match(/(GNN|CNN|MARKOV|AUTOENCODER|XGBOOST|XGB|CATBOOST|TABNET|TFT|N-?BEATS|NBEATS|MHN|BAYESIAN|TF|ATC|AE|앙상블)/i);
             if (matched) {
-                model = matched[0].toLowerCase();
-                if (model === 'tf') model = 'transformer';
-                if (model === 'atc') model = 'autoencoder';
+                model = matched[0].toLowerCase().replace('-', '');
+                if (model === 'tf') model = 'tft';
+                if (model === 'atc' || model === 'ae') model = 'autoencoder';
                 if (model === 'xgb') model = 'xgboost';
+                if (model === 'bayesian') model = 'bayesian_nn';
                 if (model === '앙상블') model = 'ensemble';
             }
         }
@@ -415,7 +417,7 @@ async function ensureAIHistoryLoaded(rounds) {
     }
 
     // ── 2단계: DB에 없거나, DB에 있어도 matrix_data가 비어있는 회차는 Python API 재호출 ──
-    // matrix_data 없으면 모델별(LSTM/XGB/CNN 등) 점수 계산 불가 → 빈 데이터로 캐시된 회차도 재시도
+    // matrix_data 없으면 모델별(XGB/CatBoost/TFT 등 11 base) 점수 계산 불가 → 빈 데이터로 캐시된 회차도 재시도
     const noMatrixRounds = [...dbFoundRounds].filter(r => {
         const cached = aiCache.get(r);
         return cached && (!cached.matrix_data || cached.matrix_data.length === 0);
@@ -1433,7 +1435,7 @@ function renderHistoryTable(stats) {
             const isManualEntry = (type === 'manual' || type === 'direct') && !isAiType;
 
             if (isAiType) {
-                // ── AI 분석 타입 (딥러닝 제외수/추천수/추천조합, 앙상블, LSTM, XGB 등):
+                // ── AI 분석 타입 (딥러닝 제외수/추천수/추천조합, 앙상블, XGB/CatBoost/TFT 등 11 base):
                 // 원형 공(circle) 스타일 — 미적중: 테두리 원, 적중: 그라데이션 채움
                 targetContent = targetVisualAI;
 
@@ -2103,18 +2105,23 @@ window.addEventListener('storage', (e) => {
 
 // ═══════════════════════════════════════════════════════════════════════════
 // [New] 커스텀 분석용 AI 프리미엄 전략 리포트 (동적 · 분석별 고유)
-//   - target_numbers 대해 각 모델(LSTM/XGB/CNN/TF/Markov/ATC/GNN)의
+//   - target_numbers 대해 11 base 모델의
 //     다음 회차 "예상 적중 개수 범위"를 matrix_data.models[*].score 기반으로 계산
 //   - 최근 10회차 실제 적중으로 Min/Max 범위 보정
+//   - 사용자 결정 #24: lstm/transformer 폐기, TFT 흡수
 // ═══════════════════════════════════════════════════════════════════════════
 const CUSTOM_INSIGHT_MODELS = [
-    { key: 'lstm',        label: 'LSTM' },
     { key: 'xgboost',     label: 'XGBOOST' },
+    { key: 'catboost',    label: 'CATBOOST' },
+    { key: 'tabnet',      label: 'TABNET' },
     { key: 'cnn',         label: 'CNN' },
-    { key: 'transformer', label: 'TRANSFORMER' },
+    { key: 'gnn',         label: 'GNN' },
     { key: 'markov',      label: 'MARKOV' },
-    { key: 'autoencoder', label: 'AUTOENCODER' },
-    { key: 'gnn',         label: 'GNN' }
+    { key: 'autoencoder', label: 'AE' },
+    { key: 'tft',         label: 'TFT' },
+    { key: 'nbeats',      label: 'N-BEATS' },
+    { key: 'mhn',         label: 'MHN' },
+    { key: 'bayesian_nn', label: 'BAYESIAN' }
 ];
 
 function _ciModelRange(matrixData, modelKey, targets) {
@@ -2234,13 +2241,13 @@ function _ciBuildHTML(analysis, targetRound, modelRanges, ensemble, recentStats)
                     <div style="height:10px; background:#f1f5f9; border-radius:5px; overflow:hidden;">
                         <div style="width:${ensemble.agreement}%; height:100%; background:linear-gradient(90deg,#38bdf8,#2563eb);"></div>
                     </div>
-                    <div style="font-size:0.62rem; color:#94a3b8; font-weight:700; text-align:right; margin-top:6px;">7개 딥러닝 모델 교차 검증</div>
+                    <div style="font-size:0.62rem; color:#94a3b8; font-weight:700; text-align:right; margin-top:6px;">11개 딥러닝 모델 교차 검증</div>
                 </div>
             </div>
         </div>
 
         <!-- Model Cards -->
-        <div style="display:grid; grid-template-columns:repeat(7, 1fr); gap:10px; padding:1.25rem 2rem; background:#f8fafc;">
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(86px, 1fr)); gap:10px; padding:1.25rem 2rem; background:#f8fafc;">
             ${cardsHTML}
         </div>
 

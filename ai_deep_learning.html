@@ -932,13 +932,17 @@
                         <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
                             <span class="dl-header-meta" style="margin-right:6px;">정렬</span>
                             <button id="sort-btn-total" onclick="DeepLearning.sortMatrix('total')" class="dl-badge accent">종합</button>
-                            <button id="sort-btn-lstm" onclick="DeepLearning.sortMatrix('lstm')" class="dl-badge">LSTM</button>
                             <button id="sort-btn-xgboost" onclick="DeepLearning.sortMatrix('xgboost')" class="dl-badge">XGB</button>
+                            <button id="sort-btn-catboost" onclick="DeepLearning.sortMatrix('catboost')" class="dl-badge">CAT</button>
+                            <button id="sort-btn-tabnet" onclick="DeepLearning.sortMatrix('tabnet')" class="dl-badge">TAB</button>
                             <button id="sort-btn-cnn" onclick="DeepLearning.sortMatrix('cnn')" class="dl-badge">CNN</button>
-                            <button id="sort-btn-transformer" onclick="DeepLearning.sortMatrix('transformer')" class="dl-badge">TF</button>
-                            <button id="sort-btn-markov" onclick="DeepLearning.sortMatrix('markov')" class="dl-badge">MKV</button>
-                            <button id="sort-btn-autoencoder" onclick="DeepLearning.sortMatrix('autoencoder')" class="dl-badge">ATC</button>
                             <button id="sort-btn-gnn" onclick="DeepLearning.sortMatrix('gnn')" class="dl-badge">GNN</button>
+                            <button id="sort-btn-markov" onclick="DeepLearning.sortMatrix('markov')" class="dl-badge">MKV</button>
+                            <button id="sort-btn-autoencoder" onclick="DeepLearning.sortMatrix('autoencoder')" class="dl-badge">AE</button>
+                            <button id="sort-btn-tft" onclick="DeepLearning.sortMatrix('tft')" class="dl-badge">TFT</button>
+                            <button id="sort-btn-nbeats" onclick="DeepLearning.sortMatrix('nbeats')" class="dl-badge">NBT</button>
+                            <button id="sort-btn-mhn" onclick="DeepLearning.sortMatrix('mhn')" class="dl-badge">MHN</button>
+                            <button id="sort-btn-bayesian_nn" onclick="DeepLearning.sortMatrix('bayesian_nn')" class="dl-badge">BAY</button>
                         </div>
                     </div>
                     <div id="matrixDataContainer">
@@ -1044,13 +1048,17 @@
                                     <th>끝수</th>
                                     <th class="num">평균</th>
                                     <th class="num">AI 종합</th>
-                                    <th class="num">LSTM</th>
                                     <th class="num">XGB</th>
+                                    <th class="num">CAT</th>
+                                    <th class="num">TAB</th>
                                     <th class="num">CNN</th>
-                                    <th class="num">TF</th>
-                                    <th class="num">MKV</th>
-                                    <th class="num">ATC</th>
                                     <th class="num">GNN</th>
+                                    <th class="num">MKV</th>
+                                    <th class="num">AE</th>
+                                    <th class="num">TFT</th>
+                                    <th class="num">NBT</th>
+                                    <th class="num">MHN</th>
+                                    <th class="num">BAY</th>
                                     <th class="num">Gap</th>
                                     <th class="num">STR</th>
                                 </tr>
@@ -1242,13 +1250,17 @@
                                     <th>특이</th>
                                     <th onclick="DeepLearning._regSort('avg_hit')" style="cursor:pointer">과거평균 <span id="reg-sort-arrow-avg_hit"></span></th>
                                     <th class="num">AI 종합</th>
-                                    <th class="num">LSTM</th>
                                     <th class="num">XGB</th>
+                                    <th class="num">CAT</th>
+                                    <th class="num">TAB</th>
                                     <th class="num">CNN</th>
-                                    <th class="num">TF</th>
-                                    <th class="num">MKV</th>
-                                    <th class="num">ATC</th>
                                     <th class="num">GNN</th>
+                                    <th class="num">MKV</th>
+                                    <th class="num">AE</th>
+                                    <th class="num">TFT</th>
+                                    <th class="num">NBT</th>
+                                    <th class="num">MHN</th>
+                                    <th class="num">BAY</th>
                                 </tr>
                             </thead>
                             <tbody id="reg-body"></tbody>

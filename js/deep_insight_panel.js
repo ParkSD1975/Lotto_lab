@@ -19,17 +19,31 @@
 
     let _lastContainerId = ''; // [추가] 새로고침 버튼 대응용
 
+    // 11 base 토폴로지 (Master Plan 사용자 결정 #24) — lstm/transformer 폐기, TFT 흡수
     const MODEL_META = {
-        lstm: { label: 'LSTM', dot: '#3b82f6', tag: '시계열' },
-        xgboost: { label: 'XGBoost', dot: '#22c55e', tag: '빈도통계' },
-        cnn: { label: 'CNN', dot: '#f97316', tag: '공간분석' },
-        transformer: { label: 'Transformer', dot: '#a855f7', tag: '주기패턴' },
-        markov: { label: 'Markov', dot: '#ef4444', tag: '전이확률' },
-        autoencoder: { label: 'AutoEncoder', dot: '#14b8a6', tag: '잠재특징' },
-        gnn: { label: 'GNN', dot: '#6366f1', tag: '관계망' }
+        xgboost:     { label: 'XGBoost',  dot: '#3B82F6', tag: '트리' },
+        catboost:    { label: 'CatBoost', dot: '#14B8A6', tag: '카테고리' },
+        tabnet:      { label: 'TabNet',   dot: '#A855F7', tag: 'attention' },
+        cnn:         { label: 'CNN',      dot: '#EC4899', tag: '그리드' },
+        gnn:         { label: 'GNN',      dot: '#EF4444', tag: '그래프' },
+        markov:      { label: 'Markov',   dot: '#10B981', tag: '전이' },
+        autoencoder: { label: 'AE',       dot: '#8B5CF6', tag: '이상치' },
+        tft:         { label: 'TFT',      dot: '#F97316', tag: '시계열' },
+        nbeats:      { label: 'N-BEATS',  dot: '#06B6D4', tag: '분해' },
+        mhn:         { label: 'MHN',      dot: '#84CC16', tag: '메모리' },
+        bayesian_nn: { label: 'Bayesian', dot: '#F59E0B', tag: '불확실성' }
     };
 
-    const MODEL_ORDER = ['lstm', 'xgboost', 'cnn', 'transformer', 'markov', 'autoencoder', 'gnn'];
+    const MODEL_ORDER = [
+        'xgboost', 'catboost', 'tabnet',
+        'cnn', 'gnn',
+        'markov', 'autoencoder',
+        'tft', 'nbeats',
+        'mhn', 'bayesian_nn'
+    ];
+
+    // 백워드 호환: 폐기 모델 키 (API 응답에 와도 graceful skip)
+    const DEPRECATED_MODEL_KEYS = new Set(['lstm', 'transformer']);
 
     // ── 캐시 ─────────────────────────────────────────────────────────────────
     let _memCache = null;

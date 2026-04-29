@@ -838,9 +838,9 @@ window.FilterDashboard = {
     },
 
     calculateCustomTargets(custom) {
-        // [추가] AI 모델 타입에 대한 실시간/이력 대상 번호 매핑
+        // [추가] AI 모델 타입에 대한 실시간/이력 대상 번호 매핑 (11 base 토폴로지)
         const title = (custom.title || '').toUpperCase();
-        const isAiModelTitle = !!title.match(/(LSTM|GNN|CNN|TRANSFORMER|MARKOV|AUTOENCODER|XGBOOST|XGB|ENSEMBLE|앙상블|추천조합|TF|ATC|AI|딥러닝|추천|제외)/i);
+        const isAiModelTitle = !!title.match(/(GNN|CNN|MARKOV|AUTOENCODER|XGBOOST|XGB|CATBOOST|TABNET|TFT|N-?BEATS|NBEATS|MHN|BAYESIAN|ENSEMBLE|앙상블|추천조합|TF|ATC|AE|AI|딥러닝|추천|제외)/i);
         const isAiType = (custom.type && custom.type.startsWith('ai_')) || isAiModelTitle;
 
         if (isAiType && this.state.aiUpcomingData) {
@@ -858,14 +858,15 @@ window.FilterDashboard = {
             else if (custom.type === 'ai_model_top' || custom.type === 'ai_model_bottom' || isAiModelTitle) {
                 let model = (custom.rules?.model || 'ensemble').toLowerCase();
 
-                // [추가] 타이틀 기반 모델 자동 인식 (LSTM 20, XGB 20 등)
+                // [추가] 타이틀 기반 모델 자동 인식 (TFT 20, XGB 20, CatBoost 10 등)
                 if (isAiModelTitle && (!custom.rules?.model || model === 'ensemble')) {
-                    const matched = title.match(/(LSTM|GNN|CNN|TRANSFORMER|MARKOV|AUTOENCODER|XGBOOST|XGB|TF|ATC|앙상블)/i);
+                    const matched = title.match(/(GNN|CNN|MARKOV|AUTOENCODER|XGBOOST|XGB|CATBOOST|TABNET|TFT|N-?BEATS|NBEATS|MHN|BAYESIAN|TF|ATC|AE|앙상블)/i);
                     if (matched) {
-                        model = matched[0].toLowerCase();
-                        if (model === 'tf') model = 'transformer';
-                        if (model === 'atc') model = 'autoencoder';
+                        model = matched[0].toLowerCase().replace('-', '');
+                        if (model === 'tf') model = 'tft';
+                        if (model === 'atc' || model === 'ae') model = 'autoencoder';
                         if (model === 'xgb') model = 'xgboost';
+                        if (model === 'bayesian') model = 'bayesian_nn';
                         if (model === '앙상블') model = 'ensemble';
                     }
                 }
