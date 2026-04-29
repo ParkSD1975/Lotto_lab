@@ -24,13 +24,14 @@ except ImportError:
     Pool = None  # type: ignore
 
 
-_TASK_TYPES = ("multiclass", "binary", "regression")
+_TASK_TYPES = ("binary_45", "multiclass", "binary", "regression")
 
 
 class LottoCatBoost:
     """CatBoost 분류/회귀 wrapper.
 
     task_type:
+      - "binary_45": 1~45 multi-label (CatBoost는 multi-label 미지원이므로 multiclass로 수렴)
       - "multiclass": (N, num_classes) 확률
       - "binary": (N,) 이진 확률
       - "regression": (N,) 회귀값
@@ -40,6 +41,7 @@ class LottoCatBoost:
         self,
         task_type: str = "multiclass",
         num_classes: int = 7,
+        input_dim: int | None = None,
         iterations: int = 500,
         learning_rate: float = 0.05,
         depth: int = 6,
@@ -48,18 +50,15 @@ class LottoCatBoost:
         verbose: int = 0,
         cat_features: list[int] | None = None,
         random_seed: int | None = None,
+        **kwargs: Any,
     ) -> None:
-        if not CATBOOST_AVAILABLE:
-            raise ImportError(
-                "[catboost_model] requires catboost library, "
-                "install with: pip install catboost"
-            )
-
+        # 인자 검증은 라이브러리 유무와 독립적으로 우선 수행 (Stage 1-4-D-2-fix-2)
         if task_type not in _TASK_TYPES:
             raise ValueError(f"task_type must be one of {_TASK_TYPES}, got {task_type}")
 
         self.task_type = task_type
-        self.num_classes = num_classes
+        self.num_classes = int(num_classes)
+        self.input_dim = int(input_dim) if input_dim is not None else None
         self.iterations = iterations
         self.learning_rate = learning_rate
         self.depth = depth
@@ -68,12 +67,20 @@ class LottoCatBoost:
         self.verbose = verbose
         self.cat_features = cat_features or []
         self.random_seed = random_seed if random_seed is not None else config.RANDOM_SEED
+        self._catboost_available = CATBOOST_AVAILABLE
 
         self.model: Any = None
-        self._build_model()
+        if CATBOOST_AVAILABLE:
+            self._build_model()
 
     def _build_model(self) -> None:
         """task_type에 따른 CatBoost 인스턴스 생성."""
+        if not CATBOOST_AVAILABLE:
+            raise ImportError(
+                "[catboost_model] requires catboost library, "
+                "install with: pip install catboost"
+            )
+
         common = {
             "iterations": self.iterations,
             "learning_rate": self.learning_rate,
@@ -86,7 +93,9 @@ class LottoCatBoost:
             "allow_writing_files": False,
         }
 
-        if self.task_type == "multiclass":
+        # binary_45: CatBoost는 multi-label 직접 지원 X — multiclass 동일 인터페이스로 빌드
+        # 실제 학습 시 train()에서 멀티핫 라벨을 num_classes개의 binary head로 순회 학습
+        if self.task_type in ("multiclass", "binary_45"):
             self.model = CatBoostClassifier(
                 loss_function="MultiClass",
                 classes_count=self.num_classes,

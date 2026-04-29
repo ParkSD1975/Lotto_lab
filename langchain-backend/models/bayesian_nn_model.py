@@ -74,11 +74,9 @@ class LottoBayesianNN:
         weight_decay: float = 1e-5,
         random_seed: int | None = None,
         device: str | None = None,
+        **kwargs: Any,
     ) -> None:
-        if not TORCH_AVAILABLE:
-            raise ImportError(
-                "[bayesian_nn_model] requires torch, install with: pip install torch"
-            )
+        # 인자 검증은 라이브러리 유무와 독립적으로 우선 수행 (Stage 1-4-D-2-fix-2)
         if task_type not in _TASK_TYPES:
             raise ValueError(f"task_type must be one of {_TASK_TYPES}, got {task_type}")
 
@@ -92,6 +90,14 @@ class LottoBayesianNN:
         self.learning_rate = float(learning_rate)
         self.weight_decay = float(weight_decay)
         self.random_seed = random_seed if random_seed is not None else config.RANDOM_SEED
+        self._torch_available = TORCH_AVAILABLE
+
+        if not TORCH_AVAILABLE:
+            # 라이브러리 미설치 시 lazy 모드 — 인스턴스화만 OK, 학습/예측 호출 시 ImportError
+            self.device = "cpu"
+            self.model = None
+            np.random.seed(self.random_seed)
+            return
 
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"

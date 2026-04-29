@@ -59,17 +59,14 @@ class LottoTFT:
         num_layers: int = 2,
         dropout: float = 0.1,
         output_size: int = 45,
+        num_classes: int | None = None,
         task_type: str = "binary_45",
         learning_rate: float = 1e-3,
         random_seed: int | None = None,
         device: str | None = None,
+        **kwargs: Any,
     ) -> None:
-        if not PYTORCH_FORECASTING_AVAILABLE:
-            raise ImportError(
-                "[tft_model] requires pytorch-forecasting library, "
-                "install with: pip install pytorch-forecasting"
-            )
-
+        # 인자 검증은 라이브러리 유무와 독립적으로 우선 수행 (Stage 1-4-D-2-fix-2)
         if task_type not in _TASK_TYPES:
             raise ValueError(f"task_type must be one of {_TASK_TYPES}, got {task_type}")
 
@@ -78,23 +75,33 @@ class LottoTFT:
         self.attention_head_size = attention_head_size
         self.num_layers = num_layers
         self.dropout = dropout
-        self.output_size = output_size
+        # ensemble.py가 num_classes=45로 호출 → output_size로 매핑 (호환성)
+        if num_classes is not None:
+            self.output_size = int(num_classes)
+        else:
+            self.output_size = int(output_size)
+        self.num_classes = self.output_size  # 별칭
         self.task_type = task_type
         self.learning_rate = learning_rate
         self.random_seed = random_seed if random_seed is not None else config.RANDOM_SEED
+        self._pf_available = PYTORCH_FORECASTING_AVAILABLE
 
-        if device is None:
-            device = "cuda" if torch.cuda.is_available() else "cpu"
+        # device 자동 감지 (torch 미설치 시 cpu 가정)
+        if PYTORCH_FORECASTING_AVAILABLE and torch is not None:
+            if device is None:
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+            # 시드 고정 (라이브러리 가용 시에만)
+            torch.manual_seed(self.random_seed)
+        else:
+            if device is None:
+                device = "cpu"
         self.device = device
+        np.random.seed(self.random_seed)
 
         # 학습 후 채워짐
         self.model: Any = None
         self.training_dataset: Any = None
         self.trainer: Any = None
-
-        # 시드 고정
-        torch.manual_seed(self.random_seed)
-        np.random.seed(self.random_seed)
 
     def _build_dataset(
         self,
@@ -172,6 +179,12 @@ class LottoTFT:
         time_series_data: pandas DataFrame (또는 TimeSeriesDataSet)
         val_data: 동일 형식 (optional)
         """
+        if not PYTORCH_FORECASTING_AVAILABLE:
+            raise ImportError(
+                "[tft_model] requires pytorch-forecasting library, "
+                "install with: pip install pytorch-forecasting"
+            )
+
         if isinstance(time_series_data, TimeSeriesDataSet):
             train_dataset = time_series_data
         else:

@@ -641,17 +641,22 @@ class LottoEnsemble:
                 mod = __import__(mod_path, fromlist=[cls_name])
                 cls = getattr(mod, cls_name, None)
                 if cls is None:
+                    print(f"[Stage 1-4-D-2] {key} skip (class not found)")
                     continue
-                # task_type="binary_45" — 메인 1~45 sigmoid 멀티핫
+                # task_type="binary_45" - main 1~45 sigmoid multi-hot
                 kwargs = {"task_type": "binary_45", "num_classes": 45}
                 if needs_dim:
                     kwargs["input_dim"] = input_dim
                 self.models[key] = cls(**kwargs)
-            except (ImportError, RuntimeError) as e:
-                # 라이브러리 미설치 (CatBoost/TabNet/PyTorch-Forecasting/HFLayers)
-                print(f"[Stage 1-4-D-2] {key} skip (library not available)")
+                print(f"[Stage 1-4-D-2] {key} registered (input_dim={input_dim if needs_dim else 'n/a'})")
+            except ImportError as e:
+                # CatBoost / TabNet / PyTorch-Forecasting / HFLayers / torch missing
+                print(f"[Stage 1-4-D-2] {key} skip (library not available): {e}")
+            except (TypeError, ValueError) as e:
+                # signature mismatch - surface real message for debug
+                print(f"[Stage 1-4-D-2] {key} init fail (signature): {type(e).__name__}: {e}")
             except Exception as e:
-                print(f"[Stage 1-4-D-2] {key} init fail (graceful): {type(e).__name__}")
+                print(f"[Stage 1-4-D-2] {key} init fail (graceful): {type(e).__name__}: {e}")
 
     def _get_predictor_pipeline(self):
         """Master Plan Stage 1-4-D-1: predictor_pipeline lazy init.

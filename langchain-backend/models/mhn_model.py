@@ -74,12 +74,9 @@ class LottoMHN:
         dropout: float = 0.1,
         random_seed: int | None = None,
         device: str | None = None,
+        **kwargs: Any,
     ) -> None:
-        if not TORCH_AVAILABLE:
-            raise ImportError(
-                "[mhn_model] requires torch, install with: pip install torch"
-            )
-
+        # 인자 검증은 라이브러리 유무와 독립적으로 우선 수행 (Stage 1-4-D-2-fix-2)
         if task_type not in _TASK_TYPES:
             raise ValueError(f"task_type must be one of {_TASK_TYPES}, got {task_type}")
 
@@ -91,6 +88,21 @@ class LottoMHN:
         self.num_classes = int(num_classes)
         self.dropout = float(dropout)
         self.random_seed = random_seed if random_seed is not None else config.RANDOM_SEED
+        self._torch_available = TORCH_AVAILABLE
+
+        # 메모리 슬롯 (store_patterns 호출 시 채워짐)
+        self._patterns = None
+        self._labels: np.ndarray | None = None
+        self._pattern_norm = None
+
+        if not TORCH_AVAILABLE:
+            # 라이브러리 미설치 시 lazy 모드 — 학습/예측 호출 전까지 인스턴스화만 허용
+            self.device = "cpu"
+            self.use_hflayers = False
+            self._hf_layer = None
+            self._head = None
+            np.random.seed(self.random_seed)
+            return
 
         # device 자동 감지
         if device is None:
@@ -99,11 +111,6 @@ class LottoMHN:
 
         torch.manual_seed(self.random_seed)
         np.random.seed(self.random_seed)
-
-        # 메모리 슬롯 (store_patterns 호출 시 채워짐)
-        self._patterns: torch.Tensor | None = None
-        self._labels: np.ndarray | None = None
-        self._pattern_norm: torch.Tensor | None = None
 
         # backend 선택
         self.use_hflayers = HFLAYERS_AVAILABLE
