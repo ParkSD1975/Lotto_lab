@@ -37,6 +37,36 @@ from services.filter_stats import (
 
 router = APIRouter(prefix="/api/deep-analysis/v3", tags=["deep-analysis-v3"])
 
+# ------------------------------------------------------------------
+# Stage 1-4-D-2 (사용자 결정 #24): 11 base 토폴로지
+#   - ACTIVE 10 base (메인 1~45 영역): xgboost / catboost / tabnet / cnn / gnn /
+#                                       markov / autoencoder / tft / mhn / bayesian_nn
+#   - DEPRECATED: lstm / transformer (TFT 흡수, weight 0)
+#   - 보조: nbeats (스칼라 시계열 분해 전용 - 메인 1~45 영역 X, 미포함)
+# 백워드 호환: 응답 dict에는 lstm / transformer 도 0(또는 빈) 값으로 포함
+# ------------------------------------------------------------------
+ALL_MODELS: list = [
+    "xgboost", "catboost", "tabnet", "cnn", "gnn",
+    "markov", "autoencoder", "tft", "mhn", "bayesian_nn",
+    "lstm", "transformer",  # deprecated
+]
+DEPRECATED_MODELS: set = {"lstm", "transformer"}
+ACTIVE_MODELS: list = [m for m in ALL_MODELS if m not in DEPRECATED_MODELS]
+
+def _fill_deprecated(d: dict, fill_value=0) -> dict:
+    """응답 dict에 deprecated 모델(lstm/transformer)을 0으로 채워 프론트 백워드 호환 유지.
+
+    Stage 1-4-D-2: 5 신규 base(catboost/tabnet/tft/mhn/bayesian_nn)는 ACTIVE_MODELS 순회로
+    이미 채워지므로, deprecated 키만 명시적으로 추가한다.
+    프론트는 0이면 표시 안 함.
+    """
+    if not isinstance(d, dict):
+        return d
+    for dep in DEPRECATED_MODELS:
+        if dep not in d:
+            d[dep] = fill_value
+    return d
+
 class NumpyEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, (np.integer, int)): return int(obj)
@@ -172,7 +202,8 @@ def compute_ratio_analysis(corrected_probs, history_draws, model_contributions, 
              ensemble.probs/recommended/agreement
     """
     import math
-    models = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder", "gnn"]
+    # Stage 1-4-D-2: 11 base 활성 (lstm/transformer deprecated 제외)
+    models = list(ACTIVE_MODELS)
 
     def _ratio_key(odd):
         return f"{odd}:{6 - odd}"
@@ -235,6 +266,11 @@ def compute_ratio_analysis(corrected_probs, history_draws, model_contributions, 
                 "probs": dist,
                 "top": [k for k, v in top_keys if v > 0]
             }
+    # Stage 1-4-D-2: deprecated 모델(lstm/transformer) 백워드 호환 — 빈 분포로 채움
+    for metric in METRICS:
+        for dep in DEPRECATED_MODELS:
+            if dep not in model_dists[metric]:
+                model_dists[metric][dep] = {"probs": _blank_dist(), "top": []}
 
     # 합의도: Jensen-Shannon 평균 유사도
     def _js_similarity(dists):
@@ -388,7 +424,8 @@ def get_model_filter_expectations(filter_name: str, history_draws: list,
         - filter_count_relation + consecutive → GNN predict_edge_prob() PB
         - filter_spatial 임의 필터           → CNN predict_spatial_pool() zone 정보
     """
-    models = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder", "gnn"]
+    # Stage 1-4-D-2: 11 base 활성 (lstm/transformer deprecated 제외)
+    models = list(ACTIVE_MODELS)
     # sub-task 가중치 로드 (없으면 filter_count_attr 기본값)
     task_weights = ENSEMBLE_TASK_WEIGHTS.get(task, ENSEMBLE_TASK_WEIGHTS["filter_count_attr"])
     PRIMES = {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43}
@@ -713,6 +750,16 @@ def get_model_filter_expectations(filter_name: str, history_draws: list,
 
             expectations["__ensemble__"] = _ensemble_entry
 
+    # Stage 1-4-D-2: deprecated 모델(lstm/transformer) 백워드 호환 — 빈 범위로 채움
+    for dep in DEPRECATED_MODELS:
+        if dep not in expectations:
+            expectations[dep] = {
+                "min": 0,
+                "max": 0,
+                "weight": 0.0,
+                "reasoning": "deprecated (TFT/Transformer 흡수, weight 0)",
+            }
+
     return expectations
 
 # ------------------------------------------------------------------
@@ -946,7 +993,8 @@ def get_number_status(num: int, history_draws: list):
 
 def analyze_hot_cold(final_probs, history_draws, contribs):
     """Hot/Cold 상태 분석 - 모델별 점수 포함"""
-    models = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder", "gnn"]
+    # Stage 1-4-D-2: 11 base 활성 (lstm/transformer deprecated 제외)
+    models = list(ACTIVE_MODELS)
 
     # 각 번호별 gap 계산
     num_gaps = {}
@@ -984,12 +1032,17 @@ def analyze_hot_cold(final_probs, history_draws, contribs):
         model_ranks[m] = {num: (idx + 1) for idx, (num, _) in enumerate(m_probs)}
 
     status_analysis = {}
+    # Stage 1-4-D-2: deprecated 모델 응답 백워드 호환용 빈 score
+    _empty_score = {"avg_rank": 0, "top_count": 0, "signal": "neutral"}
     for status, nums in status_groups.items():
         if not nums:
+            empty_scores = {m: dict(_empty_score) for m in models}
+            for dep in DEPRECATED_MODELS:
+                empty_scores[dep] = dict(_empty_score)
             status_analysis[status] = {
                 "count": 0, "numbers": [], "top_count": 0,
                 "avg_prob": 0.0, "avg_gap": 0.0,
-                "model_scores": {m: {"avg_rank": 0, "top_count": 0, "signal": "neutral"} for m in models}
+                "model_scores": empty_scores
             }
             continue
 
@@ -1017,6 +1070,9 @@ def analyze_hot_cold(final_probs, history_draws, contribs):
                 "top_count": m_top,
                 "signal": signal
             }
+        # Stage 1-4-D-2: deprecated 모델(lstm/transformer) 백워드 호환
+        for dep in DEPRECATED_MODELS:
+            model_scores[dep] = {"avg_rank": 0, "top_count": 0, "signal": "neutral"}
 
         # 번호별 상세 (전체 번호 포함)
         num_details = []
@@ -1026,6 +1082,8 @@ def analyze_hot_cold(final_probs, history_draws, contribs):
                 rank = model_ranks[m].get(n, 45)
                 prob = contribs.get(m, {}).get(n, 0)
                 per_model[m] = {"rank": rank, "prob": round(float(prob) * 100, 2)}
+            for dep in DEPRECATED_MODELS:
+                per_model[dep] = {"rank": 0, "prob": 0.0}
             num_details.append({
                 "num": n,
                 "gap": num_gaps[n],
@@ -1105,7 +1163,8 @@ def analyze_9palace(combination: list, history_draws: list):
 # ------------------------------------------------------------------
 def analyze_tail_detailed(final_probs, history_draws, model_contributions=None):
     tails = []
-    models = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder", "gnn"]
+    # Stage 1-4-D-2: 11 base 활성 (lstm/transformer deprecated 제외)
+    models = list(ACTIVE_MODELS)
 
     # 앙상블 확률 정규화 (합=1)
     ens_total = sum(final_probs.values())
@@ -1155,6 +1214,7 @@ def analyze_tail_detailed(final_probs, history_draws, model_contributions=None):
             for m in models:
                 nm = norm_model.get(m, {})
                 model_exp[m] = round(sum(nm.get(n, 0) for n in t_nums) * 6, 2)
+        _fill_deprecated(model_exp)  # lstm/transformer 백워드 호환 0 채움
 
         tails.append({
             "tail": t,
@@ -1240,7 +1300,8 @@ def analyze_all_regressions(history_draws, final_probs, model_contributions=None
                 cur = idx
                 if str_count > 50: break
 
-        MODELS = ["lstm","xgboost","cnn","transformer","markov","autoencoder","gnn"]
+        # Stage 1-4-D-2: 11 base 활성 (lstm/transformer deprecated 제외)
+        MODELS = list(ACTIVE_MODELS)
         # P3: predict_regression() 별도 경로 사용 (ensemble 인스턴스 있을 때)
         model_exp = {}
         if ensemble is not None and target_nums:
@@ -1263,6 +1324,7 @@ def analyze_all_regressions(history_draws, final_probs, model_contributions=None
                 m_total = sum(m_probs.values()) or 1.0
                 m_exp = sum(m_probs.get(n, m_probs.get(str(n), 0)) / m_total for n in target_nums) * 6
                 model_exp[m] = round(float(m_exp), 3)
+        _fill_deprecated(model_exp)  # lstm/transformer 백워드 호환 0 채움
 
         # 특이사항: w주기로 3회 이상 연속 출현한 번호
         notable = []
@@ -1297,7 +1359,8 @@ def analyze_lotto_paper(final_probs, history_draws, model_contributions=None):
     """
     로또 용지 기준 가로/세로 라인 분석
     """
-    models = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder", "gnn"]
+    # Stage 1-4-D-2: 11 base 활성 (lstm/transformer deprecated 제외)
+    models = list(ACTIVE_MODELS)
 
     # 앙상블 확률 정규화
     ens_total = sum(final_probs.values())
@@ -1372,6 +1435,7 @@ def analyze_lotto_paper(final_probs, history_draws, model_contributions=None):
                 for m in models:
                     nm = norm_model.get(m, {})
                     model_exp[m] = round(sum(nm.get(n, 0) for n in nums) * 6, 2)
+            _fill_deprecated(model_exp)  # lstm/transformer 백워드 호환 0 채움
 
             result.append({
                 "label": item["label"],
@@ -1399,7 +1463,8 @@ def analyze_magic_square(final_probs, history_draws, model_contributions=None):
     - 6궁(26-30), 7궁(31-35), 8궁(36-40), 9궁(41-45)
     - 각 궁별 Gap(미출현 연속 횟수), STR(연속 출현 횟수), 추천도 포함
     """
-    models = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder", "gnn"]
+    # Stage 1-4-D-2: 11 base 활성 (lstm/transformer deprecated 제외)
+    models = list(ACTIVE_MODELS)
 
     # 앙상블 확률 정규화
     ens_total = sum(final_probs.values())
@@ -1460,6 +1525,7 @@ def analyze_magic_square(final_probs, history_draws, model_contributions=None):
             for m in models:
                 nm = norm_model.get(m, {})
                 model_exp[m] = round(sum(nm.get(n, 0) for n in nums) * 6, 2)
+        _fill_deprecated(model_exp)  # lstm/transformer 백워드 호환 0 채움
 
         result.append({
             "label": gung["label"],
@@ -1481,7 +1547,8 @@ def analyze_number_band(final_probs, history_draws, model_contributions=None):
     번호대별(10단위 구간) 분석:
     01~10, 11~20, 21~30, 31~40, 41~45
     """
-    models = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder", "gnn"]
+    # Stage 1-4-D-2: 11 base 활성 (lstm/transformer deprecated 제외)
+    models = list(ACTIVE_MODELS)
 
     # 앙상블 확률 정규화
     ens_total = sum(final_probs.values())
@@ -1535,6 +1602,7 @@ def analyze_number_band(final_probs, history_draws, model_contributions=None):
             for m in models:
                 nm = norm_model.get(m, {})
                 model_exp[m] = round(sum(nm.get(n, 0) for n in nums) * 6, 2)
+        _fill_deprecated(model_exp)  # lstm/transformer 백워드 호환 0 채움
 
         result.append({
             "label": band["label"],
@@ -1552,8 +1620,9 @@ def analyze_number_band(final_probs, history_draws, model_contributions=None):
 # ------------------------------------------------------------------
 # [추가] 모델 간 컨센서스 요약 생성 함수
 def _build_consensus_summary(contribs: dict) -> str:
-    """7개 모델의 결과에서 의견 일치(top15 기준) 번호 분포를 요약"""
-    models = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder", "gnn"]
+    """10 base 활성 모델 결과에서 의견 일치(top15 기준) 번호 분포를 요약 (LLM 프롬프트용)."""
+    # Stage 1-4-D-2: 11 base 활성 (lstm/transformer deprecated 제외)
+    models = list(ACTIVE_MODELS)
     model_top15 = {}
     for m in models:
         probs = contribs.get(m, {})
@@ -2051,7 +2120,8 @@ def _save_model_performance_log(target_round: int, result: dict):
 def analyze_missing_group(target_round: int, final_probs: dict, history_draws: list, contribs: dict = None) -> dict:
     """number_features_by_round에서 missing_count를 가져와 4개 구간으로 분류."""
 
-    MODELS = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder", "gnn"]
+    # Stage 1-4-D-2: 11 base 활성 (lstm/transformer deprecated 제외)
+    MODELS = list(ACTIVE_MODELS)
 
     # Supabase에서 missing_count 조회
     missing_counts = fetch_missing_counts(target_round)
@@ -2126,6 +2196,7 @@ def analyze_missing_group(target_round: int, final_probs: dict, history_draws: l
                     for x in nums
                 ) * 6
                 model_exp[m] = round(float(m_exp), 3)
+            _fill_deprecated(model_exp)  # lstm/transformer 백워드 호환 0 채움
             groups[g]["model_exp"] = model_exp
 
     return {"groups": groups, "missing_counts": {str(k): v for k, v in missing_counts.items()}}
@@ -2455,7 +2526,8 @@ async def get_deep_analysis(round_num: int = None):
             if str(e) not in ["stale_cache_detected", "memo_changed"]:
                 print(f"캐시 체크 실패 (정상 분석 진행): {e}")
 
-        models = ["lstm", "xgboost", "cnn", "transformer", "markov", "autoencoder", "gnn"]
+        # Stage 1-4-D-2: 11 base 활성 (lstm/transformer deprecated 제외)
+        models = list(ACTIVE_MODELS)
 
         # Streak 계산
         streak_count = {n: 0 for n in range(1, 46)}
