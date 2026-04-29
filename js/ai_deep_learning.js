@@ -2223,24 +2223,29 @@ const DeepLearning = {
             ...MODEL_ORDER.map(m => ({ label: MODEL_LABELS[m], color: MODEL_COLORS[m], nums: modelRanked[m] }))
         ];
 
-        // 헤더: 순위(고정) | 앙상블 | XGB | CAT | TAB | CNN | GNN | MKV | AE | TFT | NBT | MHN | BAY
+        // [Stage 1-4-D-2-fix-15] sticky를 <tr>가 아닌 <th> 각각에 적용 (table sticky 정석)
+        // border-collapse:collapse + tr.sticky 조합은 Chrome/Firefox에서 동작 안 함 → th sticky로 우회
+        const thStickyStyle = 'position: sticky; top: 0; z-index: 10; background: #ffffff; box-shadow: 0 2px 0 0 #e5e7eb;';
         const theadHtml = `<thead>
-            <tr class="border-b-2 border-gray-200 bg-gray-50/80 sticky top-0">
-                <th class="py-2 text-center text-[11px] font-bold text-gray-400 whitespace-nowrap" style="width:40px">순위</th>
-                ${cols.map(c => `<th class="py-2 text-center text-[12px] font-black whitespace-nowrap" style="color:${c.color}">${c.label}</th>`).join('')}
+            <tr>
+                <th class="py-2 text-center text-[11px] font-bold text-gray-500 whitespace-nowrap" style="${thStickyStyle} width:40px;">순위</th>
+                ${cols.map(c => `<th class="py-2 text-center text-[12px] font-black whitespace-nowrap" style="${thStickyStyle} color:${c.color};">${c.label}</th>`).join('')}
             </tr>
         </thead>`;
 
-        // [Stage 1-4-D-2-fix-12] 행: 1~45 전체 고정 — 슬라이드는 표가 아닌 그룹 분석에 영향
+        // [Stage 1-4-D-2-fix-15] border-collapse:separate 모드 → td 자체에 border-bottom (마지막 행은 제외)
         const tbodyHtml = Array.from({ length: 45 }, (_, i) => {
             const rank = i + 1;
             const rankCls = rank <= 6 ? 'font-black text-indigo-600' : rank <= 15 ? 'font-bold text-gray-600' : 'font-medium text-gray-300';
-            return `<tr class="border-b border-gray-100 last:border-0 hover:bg-indigo-50/20 transition-colors">
-                <td class="py-1.5 text-center text-[12px] ${rankCls}">${rank}</td>
-                ${cols.map(c => `<td class="py-1.5 text-center">${_ball(c.nums[i])}</td>`).join('')}
+            const tdBorder = i < 44 ? 'border-bottom: 1px solid #f3f4f6;' : '';
+            return `<tr class="hover:bg-indigo-50/20 transition-colors">
+                <td class="py-1.5 text-center text-[12px] ${rankCls}" style="${tdBorder}">${rank}</td>
+                ${cols.map(c => `<td class="py-1.5 text-center" style="${tdBorder}">${_ball(c.nums[i])}</td>`).join('')}
             </tr>`;
         }).join('');
 
+        // [Stage 1-4-D-2-fix-14] card-body에 max-height + overflow-y로 스크롤 컨테이너 확보
+        // → sticky thead 가 이 컨테이너 안에서 정상 동작
         container.innerHTML = `
             <div class="card col-span-1 lg:col-span-2">
                 <div class="card-header">
@@ -2248,8 +2253,8 @@ const DeepLearning = {
                     <h3>모델별 번호 순위 (1위 → 45위)</h3>
                     <span class="ml-auto text-[10px] bg-indigo-50 text-indigo-500 font-bold px-2 py-0.5 rounded-full whitespace-nowrap">열 = 모델, 행 = 순위</span>
                 </div>
-                <div class="card-body p-0">
-                    <table class="w-full text-xs" style="border-collapse:collapse;table-layout:fixed">
+                <div class="card-body p-0" style="padding: 0 !important; max-height: 560px; overflow-y: auto; overflow-x: auto; position: relative;">
+                    <table class="w-full text-xs" style="border-collapse:separate; border-spacing:0; table-layout:fixed;">
                         ${theadHtml}
                         <tbody>${tbodyHtml}</tbody>
                     </table>
@@ -2330,36 +2335,50 @@ const DeepLearning = {
             if (!unionSet.has(n)) emptyArr.push(n);
         }
 
-        const unionArr = Array.from(unionSet).sort((a, b) => a - b);
-        const intersectArr = Array.from(intersectSet).sort((a, b) => a - b);
-
         // 모델당 몇 개 모델에서 등장했는지 카운트 (합집합 번호 강조용)
         const counts = {};
-        unionArr.forEach(n => {
+        Array.from(unionSet).forEach(n => {
             counts[n] = MODEL_ORDER.filter(m => modelSets[m].has(n)).length;
         });
+
+        // [Stage 1-4-D-2-fix-17] 앙상블 순위 매핑 (total 내림차순 → idx 작을수록 상위)
+        const ensembleRanks = {};
+        [...matrixData]
+            .sort((a, b) => (b.total || 0) - (a.total || 0))
+            .forEach((d, idx) => { ensembleRanks[d.num] = idx; });
+
+        // [Stage 1-4-D-2-fix-17] 합집합 정렬 — 1차: 동의 모델 수 내림차순, 2차: 앙상블 순위
+        const unionArr = Array.from(unionSet).sort((a, b) => {
+            const dc = (counts[b] || 0) - (counts[a] || 0);
+            if (dc !== 0) return dc;
+            return (ensembleRanks[a] ?? 999) - (ensembleRanks[b] ?? 999);
+        });
+        const intersectArr = Array.from(intersectSet).sort((a, b) => a - b);
 
         // 라벨
         const sliceLabel = (sf === 1 && st === 45) ? '1~45위 · 전체' : `${sf}~${st}위`;
 
-        // 그룹 카드
+        // [Stage 1-4-D-2-fix-16] 그룹 카드 — 한 줄 10개 grid + 상하 간격 확대
         const _group = (title, arr, color, icon, desc) => {
             const ballsHtml = arr.length
                 ? arr.map(n => {
                     const c = counts[n];
                     const badge = c ? `<span style="position:absolute;top:-4px;right:-4px;background:${color};color:#fff;font-size:9px;font-weight:800;padding:1px 4px;border-radius:8px;line-height:1;">${c}</span>` : '';
-                    return `<span style="position:relative;display:inline-block;">${_ball(n)}${badge}</span>`;
+                    return `<span style="position:relative;display:inline-flex;align-items:center;justify-content:center;">${_ball(n)}${badge}</span>`;
                   }).join('')
                 : '<span class="muted" style="font-size:12px;">해당 번호 없음</span>';
+            const gridStyle = arr.length
+                ? 'display:grid; grid-template-columns: repeat(10, minmax(0, 1fr)); row-gap: 16px; column-gap: 8px; padding: 8px 4px 4px;'
+                : 'padding: 4px 0;';
             return `
-                <div style="border:1px solid var(--dl-border, #e5e7eb); border-radius:10px; padding:12px 14px; background:var(--dl-surface, #fff);">
+                <div style="border:1px solid var(--dl-border, #e5e7eb); border-radius:10px; padding:14px 16px; background:var(--dl-surface, #fff);">
                     <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
                         <span class="material-symbols-outlined" style="font-size:18px; color:${color};">${icon}</span>
                         <span style="font-weight:700; font-size:13px; color:${color};">${title}</span>
                         <span style="margin-left:auto; font-size:11px; font-weight:700; color:#64748b;">${arr.length}개</span>
                     </div>
-                    <div style="font-size:10px; color:#94a3b8; margin-bottom:8px;">${desc}</div>
-                    <div style="display:flex; flex-wrap:wrap; gap:2px;">${ballsHtml}</div>
+                    <div style="font-size:10px; color:#94a3b8; margin-bottom:10px;">${desc}</div>
+                    <div style="${gridStyle}">${ballsHtml}</div>
                 </div>`;
         };
 
