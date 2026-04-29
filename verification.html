@@ -9,6 +9,7 @@
     <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" rel="stylesheet" />
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     <script src="js/config.js"></script>
     <script src="js/theme.js"></script>
     <script src="js/common_v2.js"></script>
@@ -19,6 +20,24 @@
 
     <style>
         :root {
+            /* ── Stage 5-F vfy-* tokens (premium · minimal · light) ── */
+            --vfy-bg:        #FAFAFA;
+            --vfy-surface:   #FFFFFF;
+            --vfy-border:    #E5E7EB;
+            --vfy-divider:   #F1F5F9;
+            --vfy-text:      #0F172A;
+            --vfy-text-mid:  #475569;
+            --vfy-text-soft: #94A3B8;
+            --vfy-accent:    #3B82F6;
+            --vfy-success:   #059669;
+            --vfy-danger:    #DC2626;
+            /* 11 모델 색상 (데이터 라벨 한정) */
+            --c-xgb: #3B82F6; --c-cat: #14B8A6; --c-tabnet: #A855F7;
+            --c-cnn: #EC4899; --c-gnn: #EF4444; --c-markov: #10B981;
+            --c-ae: #8B5CF6;  --c-tft: #F97316; --c-nbeats: #06B6D4;
+            --c-mhn: #84CC16; --c-bayesian: #F59E0B;
+
+            /* ── 기존 legacy 토큰 (하위 호환) ── */
             --c-primary: #2563eb;
             --c-primary-light: #eff6ff;
             --c-primary-ai: #7c3aed;
@@ -35,7 +54,7 @@
             --c-match: #10b981;
         }
 
-        body { font-family: 'Pretendard', sans-serif; background: #f3f4f6; color: var(--c-text); }
+        body { font-family: 'Pretendard', sans-serif; background: var(--vfy-bg); color: var(--vfy-text); font-feature-settings: "ss01", "ss02", "tnum"; }
 
         /* ── 번호 볼 ── */
         .ball { display:inline-flex;align-items:center;justify-content:center;border-radius:50%;font-weight:700;color:#fff;flex-shrink:0;letter-spacing:-0.5px; }
@@ -59,39 +78,18 @@
         /* 미당첨 번호 — 흰 바탕 + 엷은 테두리 + 다크그레이 글씨 */
         .ball-dimmed     { background:#fff !important; color:#6b7280 !important; border:1.5px solid #d1d5db !important; box-shadow:none !important; opacity:1 !important; filter:none !important; }
 
-        /* ── 스티키 헤더 바 ── */
+        /* ── 스티키 헤더 바 (Stage 5-F: 그림자 제거 · 1px divider) ── */
         .page-bar {
             position: sticky;
             top: 64px;
             z-index: 40;
-            background: #fff;
-            box-shadow: 0 1px 0 #e5e7eb, 0 2px 8px rgba(0,0,0,.03);
+            background: var(--vfy-bg);
+            box-shadow: none;
         }
 
-        /* ── 메인 탭 (언더라인 프리미엄) ── */
-        .main-tab {
-            position: relative;
-            padding: 0 4px;
-            height: 42px;
-            display: inline-flex;
-            align-items: center;
-            font-size: 13px;
-            font-weight: 500;
-            color: #9ca3af;
-            border-bottom: 2px solid transparent;
-            cursor: pointer;
-            white-space: nowrap;
-            transition: color .2s, border-color .2s;
-            flex-shrink: 0;
-            background: none;
-        }
-        .main-tab:hover:not(.active) { color: #374151; }
-        .main-tab.active {
-            color: #111827;
-            font-weight: 700;
-            border-bottom-color: #2563eb;
-        }
-        .main-tab:focus-visible { outline: none; color: #2563eb; }
+        /* ── 메인 탭: legacy (.main-tab) 스타일 disabled — Stage 5-F .vfy-tab가 대체 ── */
+        /* (Backward compat — JS는 여전히 .main-tab.active 토글) */
+        .main-tab.active { font-weight: 700; }
 
         /* ── 서브 탭 (언더라인) ── */
         .sub-tab {
@@ -113,22 +111,28 @@
         .sub-tab:hover:not(.active) { color: #374151; }
         .sub-tab:focus-visible { outline: none; color: #2563eb; }
 
-        /* ── 카드 ── */
+        /* ── 카드 (Stage 5-F: 작은 radius, 얇은 border) ── */
         .vp-card {
-            background: #fff;
-            border: 1px solid var(--c-border);
-            border-radius: 16px;
+            background: var(--vfy-surface);
+            border: 1px solid var(--vfy-border);
+            border-radius: 12px;
             overflow: hidden;
         }
         /* 하위 호환 */
-        .stat-card { background:#fff; border:1px solid var(--c-border); border-radius:14px; padding:16px 20px; }
-        .info-card  { background:#fff; border:1px solid var(--c-border); border-radius:16px; overflow:hidden; }
+        .stat-card { background: var(--vfy-surface); border:1px solid var(--vfy-border); border-radius:12px; padding:18px 22px; }
+        .info-card { background: var(--vfy-surface); border:1px solid var(--vfy-border); border-radius:12px; overflow:hidden; }
 
-        /* ── 당첨번호 카드 헤더 ── */
+        /* ── 당첨번호 카드 헤더 (Stage 5-F: 그라디언트 제거 · 화이트 surface) ── */
         .win-header {
-            background: linear-gradient(135deg, #1e40af 0%, #1d4ed8 50%, #2563eb 100%);
-            padding: 24px 28px;
+            background: var(--vfy-surface);
+            padding: 22px 26px;
+            border-bottom: 1px solid var(--vfy-divider);
         }
+        .win-header #winTitle { color: var(--vfy-text) !important; font-weight: 800 !important; letter-spacing: -0.02em; }
+        .win-header #winDate  { color: var(--vfy-text-soft) !important; font-variant-numeric: tabular-nums; }
+        .win-header .text-white\/30 { color: var(--vfy-text-soft) !important; }
+        .win-header .text-white\/40 { color: var(--vfy-text-soft) !important; }
+        .win-header span.px-3 { background: transparent !important; border-color: var(--vfy-border) !important; color: var(--vfy-text-mid) !important; font-weight: 600 !important; }
 
         /* ── 필터 테이블 행 ── */
         .filter-row { display:flex; align-items:center; padding:10px 16px; border-bottom:1px solid var(--c-border-light); gap:8px; }
@@ -193,75 +197,365 @@
         /* ── 스크롤바 숨김 ── */
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        /* ════════════════════════════════════════
+           Stage 5-F · vfy-* utility classes
+           프리미엄 · 미니멀 · 데이터-우선
+           ════════════════════════════════════════ */
+
+        /* tabular numerals 정밀 정렬 */
+        .vfy-num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
+
+        /* 페이지 본문 wrapper */
+        .vfy-page { background: var(--vfy-bg); }
+
+        /* ── 헤더: eyebrow + title + meta (asymmetric grid) ── */
+        .vfy-header { padding: 28px 0 20px 0; border-bottom: 1px solid var(--vfy-divider); }
+        .vfy-eyebrow {
+            font-size: 0.7rem;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            color: var(--vfy-text-soft);
+            font-weight: 600;
+            display: inline-block;
+            margin-bottom: 10px;
+        }
+        .vfy-title {
+            font-size: clamp(1.75rem, 2.8vw, 2.4rem);
+            font-weight: 700;
+            line-height: 1.1;
+            letter-spacing: -0.02em;
+            color: var(--vfy-text);
+            margin: 0;
+        }
+        .vfy-subtitle {
+            font-size: 0.95rem;
+            color: var(--vfy-text-mid);
+            margin-top: 8px;
+            font-weight: 400;
+            letter-spacing: -0.005em;
+        }
+        .vfy-header-meta {
+            font-variant-numeric: tabular-nums;
+            font-size: 0.8rem;
+            color: var(--vfy-text-soft);
+            font-weight: 500;
+        }
+        .vfy-header-meta strong { color: var(--vfy-text); font-weight: 700; }
+
+        /* ── 미니멀 텍스트 탭 (bottom border only) ── */
+        .vfy-tabs {
+            display: flex;
+            gap: 28px;
+            border-bottom: 1px solid var(--vfy-divider);
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none;
+        }
+        .vfy-tabs::-webkit-scrollbar { display: none; }
+        .vfy-tab {
+            position: relative;
+            padding: 14px 0;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--vfy-text-soft);
+            background: none;
+            border: none;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: color 0.18s ease;
+            letter-spacing: -0.005em;
+        }
+        .vfy-tab:hover { color: var(--vfy-text-mid); }
+        .vfy-tab.active {
+            color: var(--vfy-text);
+            font-weight: 700;
+        }
+        .vfy-tab.active::after {
+            content: "";
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: -1px;
+            height: 2px;
+            background: var(--vfy-text);
+        }
+        .vfy-tab:focus-visible { outline: none; color: var(--vfy-accent); }
+
+        /* ── surface (절제된 카드) ── */
+        .vfy-surface {
+            background: var(--vfy-surface);
+            border: 1px solid var(--vfy-border);
+            border-radius: 12px;
+        }
+        .vfy-surface-flat {
+            background: var(--vfy-surface);
+            border-top: 1px solid var(--vfy-divider);
+        }
+
+        /* ── 메트릭 (큰 숫자 + 캡션) ── */
+        .vfy-metric { padding: 4px 0; }
+        .vfy-metric-label {
+            font-size: 0.72rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--vfy-text-soft);
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        .vfy-metric-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--vfy-text);
+            letter-spacing: -0.025em;
+            line-height: 1;
+            font-variant-numeric: tabular-nums;
+        }
+        .vfy-metric-unit {
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--vfy-text-soft);
+            margin-left: 4px;
+            letter-spacing: 0;
+        }
+        .vfy-metric-meta {
+            margin-top: 6px;
+            font-size: 0.78rem;
+            color: var(--vfy-text-mid);
+            font-variant-numeric: tabular-nums;
+        }
+        .vfy-metric-meta.up    { color: var(--vfy-success); }
+        .vfy-metric-meta.down  { color: var(--vfy-danger); }
+
+        /* ── 섹션 (큰 타이포 위계) ── */
+        .vfy-section { padding: 36px 0; border-bottom: 1px solid var(--vfy-divider); }
+        .vfy-section:last-child { border-bottom: none; }
+        .vfy-section-eyebrow {
+            font-size: 0.68rem;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+            color: var(--vfy-text-soft);
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+        .vfy-section-title {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--vfy-text);
+            letter-spacing: -0.015em;
+            line-height: 1.2;
+            margin: 0;
+        }
+        .vfy-section-desc {
+            font-size: 0.875rem;
+            color: var(--vfy-text-mid);
+            margin-top: 6px;
+            font-weight: 400;
+            line-height: 1.5;
+            max-width: 56ch;
+        }
+
+        /* ── 테이블 (얇은 divider + tabular nums) ── */
+        .vfy-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+            font-variant-numeric: tabular-nums;
+        }
+        .vfy-table th {
+            text-align: left;
+            font-weight: 600;
+            font-size: 0.7rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--vfy-text-soft);
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--vfy-border);
+            background: transparent;
+        }
+        .vfy-table td {
+            padding: 14px 16px;
+            border-bottom: 1px solid var(--vfy-divider);
+            color: var(--vfy-text);
+            vertical-align: middle;
+        }
+        .vfy-table tr:last-child td { border-bottom: none; }
+        .vfy-table tr:hover td { background: rgba(241, 245, 249, 0.4); }
+        .vfy-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+        .vfy-table .muted { color: var(--vfy-text-soft); }
+
+        /* ── 빈 상태 ── */
+        .vfy-empty {
+            padding: 56px 24px;
+            text-align: center;
+            color: var(--vfy-text-soft);
+            border: 1px dashed var(--vfy-border);
+            border-radius: 12px;
+            background: var(--vfy-surface);
+        }
+        .vfy-empty-title {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: var(--vfy-text-mid);
+            margin: 0 0 4px 0;
+        }
+        .vfy-empty-desc { font-size: 0.825rem; color: var(--vfy-text-soft); margin: 0; }
+
+        /* ── 차트 컨테이너 ── */
+        .vfy-chart {
+            width: 100%;
+            min-height: 280px;
+        }
+        .vfy-chart-tall { min-height: 340px; }
+
+        /* ── inline trend pill (수치 보조) ── */
+        .vfy-trend {
+            display: inline-flex;
+            align-items: baseline;
+            gap: 2px;
+            font-size: 0.78rem;
+            font-weight: 500;
+            font-variant-numeric: tabular-nums;
+            color: var(--vfy-text-soft);
+        }
+        .vfy-trend-up   { color: var(--vfy-success); }
+        .vfy-trend-down { color: var(--vfy-danger); }
+
+        /* ── 작은 라벨 dot (모델 색상 라벨용) ── */
+        .vfy-dot { display:inline-block; width:8px; height:8px; border-radius:50%; vertical-align:middle; margin-right:6px; }
+
+        /* ── 대시보드 sparkline 컨테이너 ── */
+        .vfy-spark { width: 100%; height: 36px; }
+
+        /* ── 미세한 인용/note ── */
+        .vfy-note {
+            font-size: 0.76rem;
+            color: var(--vfy-text-soft);
+            line-height: 1.55;
+            border-left: 2px solid var(--vfy-divider);
+            padding-left: 12px;
+            margin-top: 8px;
+        }
+
+        /* ── grid (asymmetric, 의도적 깨짐) ── */
+        .vfy-grid-metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 36px 48px;
+        }
+        .vfy-grid-2 {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+            gap: 32px;
+        }
+        @media (max-width: 760px) {
+            .vfy-grid-2 { grid-template-columns: 1fr; gap: 28px; }
+            .vfy-grid-metrics { gap: 28px 24px; }
+        }
+
+        /* ── 헤더 회차 네비게이션 (미니멀) ── */
+        .vfy-round-nav {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-variant-numeric: tabular-nums;
+        }
+        .vfy-round-btn {
+            width: 32px; height: 32px;
+            display: inline-flex; align-items: center; justify-content: center;
+            background: transparent;
+            border: 1px solid var(--vfy-border);
+            border-radius: 8px;
+            color: var(--vfy-text-mid);
+            cursor: pointer;
+            transition: border-color 0.15s, color 0.15s;
+        }
+        .vfy-round-btn:hover:not(:disabled) { border-color: var(--vfy-text); color: var(--vfy-text); }
+        .vfy-round-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+        .vfy-round-select {
+            appearance: none;
+            -webkit-appearance: none;
+            background: transparent;
+            border: 1px solid var(--vfy-border);
+            border-radius: 8px;
+            height: 32px;
+            padding: 0 30px 0 12px;
+            font-size: 0.825rem;
+            font-weight: 600;
+            color: var(--vfy-text);
+            font-variant-numeric: tabular-nums;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394A3B8' stroke-width='2.5'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 10px center;
+            cursor: pointer;
+            outline: none;
+            transition: border-color 0.15s;
+        }
+        .vfy-round-select:hover, .vfy-round-select:focus { border-color: var(--vfy-text); }
+
+        /* ── tabDl v3 dashboard wrapper ── */
+        .vfy-dl-dashboard { padding: 8px 0 24px 0; }
+        .vfy-dl-dashboard + #dlSubNav { margin-top: 24px; }
+
     </style>
 </head>
 <body class="antialiased">
 
 <div id="gnb-container"></div>
 
-<!-- ══ 스티키 헤더 바 ══ -->
-<div class="page-bar">
+<!-- ══ Stage 5-F · 미니멀 프리미엄 헤더 ══ -->
+<div class="page-bar vfy-page" style="background: var(--vfy-bg); box-shadow: none; border-bottom: 1px solid var(--vfy-divider);">
+    <div class="max-w-6xl mx-auto px-5">
 
-    <!-- 상단 행: 타이틀 + 회차 네비 + 로딩 -->
-    <div class="max-w-6xl mx-auto px-5 flex items-center gap-4" style="height:54px;">
+        <!-- ── 헤더 본문 (eyebrow + 타이틀 + 메타) ── -->
+        <header class="vfy-header" style="border-bottom: 0; padding: 32px 0 22px 0;">
+            <div style="display:grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; align-items: end;">
+                <div>
+                    <span class="vfy-eyebrow">Verification</span>
+                    <h1 class="vfy-title">검증</h1>
+                    <p class="vfy-subtitle">필터 · 추천 · 11 base 모델 결과를 회차 단위로 검증합니다.</p>
+                </div>
+                <!-- 회차 네비게이션 + 그룹 + 로딩 (오른쪽 정렬) -->
+                <div style="display:flex; align-items:center; gap:18px; flex-wrap: wrap; justify-content: flex-end;" role="navigation" aria-label="회차 이동">
+                    <div class="vfy-round-nav">
+                        <button id="btnPrev" onclick="VP.prevRound()" aria-label="이전 회차" class="vfy-round-btn">
+                            <span class="material-symbols-outlined" style="font-size:16px;">chevron_left</span>
+                        </button>
+                        <select id="roundSelect" onchange="VP.selectRound(parseInt(this.value))" aria-label="검증 회차 선택" class="vfy-round-select" style="min-width:152px; max-width:200px;"></select>
+                        <button id="btnNext" onclick="VP.nextRound()" aria-label="다음 회차" class="vfy-round-btn">
+                            <span class="material-symbols-outlined" style="font-size:16px;">chevron_right</span>
+                        </button>
+                    </div>
+                    <span id="roundDate" class="vfy-header-meta hidden sm:inline"></span>
 
-        <!-- 타이틀 -->
-        <div class="flex items-center gap-2 shrink-0">
-            <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background:linear-gradient(135deg,#2563eb,#1d4ed8);">
-                <span class="material-symbols-outlined text-white" style="font-size:17px;">fact_check</span>
+                    <!-- 조합 그룹 선택 -->
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <span class="vfy-eyebrow" style="margin:0;">조합 그룹</span>
+                        <select id="groupSelect" onchange="VP.onGroupChange(this.value)" class="vfy-round-select" style="min-width:180px; max-width:260px;">
+                            <option value="">전역 기본 설정</option>
+                        </select>
+                        <span id="groupInfoBadge" class="hidden items-center" style="font-size:0.72rem; font-weight:600; color: var(--vfy-success);">· 스냅샷</span>
+                    </div>
+
+                    <!-- 로딩 (JS가 .hidden / .flex 토글) -->
+                    <div id="ctrlLoading" class="hidden items-center gap-1.5 vfy-header-meta">
+                        <span class="spin material-symbols-outlined" style="font-size:14px;">refresh</span>
+                        <span class="hidden sm:inline">로딩 중</span>
+                    </div>
+                </div>
             </div>
-            <h1 class="text-[15px] font-bold text-slate-800 hidden sm:block">검증</h1>
-        </div>
+        </header>
 
-        <div class="w-px h-6 bg-slate-100 shrink-0 hidden sm:block"></div>
-
-        <!-- 회차 네비게이션 -->
-        <div class="flex items-center gap-2 flex-1" role="navigation" aria-label="회차 이동">
-            <button id="btnPrev" onclick="VP.prevRound()" aria-label="이전 회차"
-                class="w-9 h-9 flex items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-all disabled:opacity-30 disabled:cursor-not-allowed">
-                <span class="material-symbols-outlined" style="font-size:16px;">chevron_left</span>
-            </button>
-            <select id="roundSelect" onchange="VP.selectRound(parseInt(this.value))" aria-label="검증 회차 선택"
-                class="h-9 px-3 border border-slate-200 rounded-lg text-[13px] font-semibold text-slate-700 bg-white focus:ring-2 focus:ring-blue-400 focus:outline-none cursor-pointer"
-                style="min-width:160px; max-width:200px;">
-            </select>
-            <button id="btnNext" onclick="VP.nextRound()" aria-label="다음 회차"
-                class="w-9 h-9 flex items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-all disabled:opacity-30 disabled:cursor-not-allowed">
-                <span class="material-symbols-outlined" style="font-size:16px;">chevron_right</span>
-            </button>
-            <span id="roundDate" class="text-[12px] text-slate-400 hidden sm:inline pl-1"></span>
-        </div>
-
-        <!-- 조합 그룹 선택 -->
-        <div class="flex items-center gap-3 shrink-0">
-            <div class="flex flex-col gap-0.5">
-                <span class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider leading-none">조합 그룹</span>
-                <select id="groupSelect" onchange="VP.onGroupChange(this.value)" style="min-width:180px; max-width:260px;">
-                    <option value="">전역 기본 설정</option>
-                </select>
-            </div>
-            <div id="groupInfoBadge" class="hidden items-center gap-1 text-[11px] font-semibold text-emerald-600">
-                <span class="material-symbols-outlined" style="font-size:13px;">check_circle</span>
-                스냅샷
-            </div>
-        </div>
-
-        <!-- 로딩 -->
-        <div id="ctrlLoading" class="hidden items-center gap-1.5 text-[12px] text-slate-400 shrink-0">
-            <span class="spin material-symbols-outlined" style="font-size:14px;">refresh</span>
-            <span class="hidden sm:inline">로딩 중...</span>
-        </div>
-    </div>
-
-    <!-- 탭 행 -->
-    <div role="tablist" aria-label="검증 탭" class="max-w-6xl mx-auto px-5 flex items-end gap-6 overflow-x-auto no-scrollbar">
-        <button role="tab" aria-selected="true"  aria-controls="tabFixedExclude" class="main-tab active" onclick="VP.switchTab('fixedExclude',this)">고정수/제외수</button>
-        <button role="tab" aria-selected="false" aria-controls="tabBasic"        class="main-tab" onclick="VP.switchTab('basic',this)">기초필터</button>
-        <button role="tab" aria-selected="false" aria-controls="tabRegression"   class="main-tab" onclick="VP.switchTab('regression',this)">회귀필터</button>
-        <button role="tab" aria-selected="false" aria-controls="tabCustom"       class="main-tab" onclick="VP.switchTab('custom',this)">커스텀필터</button>
-        <button role="tab" aria-selected="false" aria-controls="tabManual"       class="main-tab" onclick="VP.switchTab('manual',this)">수동필터</button>
-        <button role="tab" aria-selected="false" aria-controls="tabDl"           class="main-tab" onclick="VP.switchTab('dl',this)">딥러닝분석필터</button>
-        <button role="tab" aria-selected="false" aria-controls="tabCombosTab"    class="main-tab" onclick="VP.switchTab('combosTab',this)">조합</button>
+        <!-- ── 미니멀 텍스트 탭 ── -->
+        <nav role="tablist" aria-label="검증 탭" class="vfy-tabs">
+            <button role="tab" aria-selected="true"  aria-controls="tabFixedExclude" class="vfy-tab main-tab active" onclick="VP.switchTab('fixedExclude',this)">고정수 · 제외수</button>
+            <button role="tab" aria-selected="false" aria-controls="tabBasic"        class="vfy-tab main-tab" onclick="VP.switchTab('basic',this)">기초필터</button>
+            <button role="tab" aria-selected="false" aria-controls="tabRegression"   class="vfy-tab main-tab" onclick="VP.switchTab('regression',this)">회귀필터</button>
+            <button role="tab" aria-selected="false" aria-controls="tabCustom"       class="vfy-tab main-tab" onclick="VP.switchTab('custom',this)">커스텀필터</button>
+            <button role="tab" aria-selected="false" aria-controls="tabManual"       class="vfy-tab main-tab" onclick="VP.switchTab('manual',this)">수동필터</button>
+            <button role="tab" aria-selected="false" aria-controls="tabDl"           class="vfy-tab main-tab" onclick="VP.switchTab('dl',this)">딥러닝분석</button>
+            <button role="tab" aria-selected="false" aria-controls="tabCombosTab"    class="vfy-tab main-tab" onclick="VP.switchTab('combosTab',this)">조합</button>
+        </nav>
     </div>
 </div>
 
@@ -350,6 +644,160 @@
                 <p class="text-[13px] text-slate-400">특정 조합 그룹 선택 시 딥러닝분석필터는 적용되지 않습니다.</p>
                 <p class="text-[12px] text-slate-300 mt-1">드롭다운에서 <strong>전역 기본 설정</strong>을 선택하면 딥러닝 분석을 볼 수 있습니다.</p>
             </div>
+
+            <!-- ══════════════════════════════════════════════════════════
+                 Stage 5-F · v3 딥러닝 검증 대시보드
+                 (50회차 평균 메트릭 · 적중 시계열 · Pillar · 룰 · SLA)
+                 ══════════════════════════════════════════════════════════ -->
+            <section id="dlV3Dashboard" class="vfy-dl-dashboard" aria-label="딥러닝 v3 검증 대시보드">
+
+                <!-- 1) 최근 50회차 평균 메트릭 -->
+                <div class="vfy-section" style="padding-top: 20px;">
+                    <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:24px; margin-bottom: 24px;">
+                        <div>
+                            <div class="vfy-section-eyebrow">Recent 50 rounds · average</div>
+                            <h2 class="vfy-section-title">최근 50회차 평균 메트릭</h2>
+                            <p class="vfy-section-desc">11 base 모델 + 4 Pillar 합의 추천/제외의 회차당 평균 적중을 베이스라인(랜덤 0.67) 대비로 표시합니다.</p>
+                        </div>
+                        <span class="vfy-header-meta" id="dlV3MetricUpdated">갱신 —</span>
+                    </div>
+
+                    <div class="vfy-grid-metrics">
+                        <div class="vfy-metric">
+                            <div class="vfy-metric-label">추천 5 평균 적중</div>
+                            <div><span class="vfy-metric-value" id="mRecHit">—</span><span class="vfy-metric-unit">/ 5</span></div>
+                            <div class="vfy-metric-meta" id="mRecHitDelta">목표 2.0~3.0</div>
+                        </div>
+                        <div class="vfy-metric">
+                            <div class="vfy-metric-label">제외 10 평균 적중</div>
+                            <div><span class="vfy-metric-value" id="mExcHit">—</span><span class="vfy-metric-unit">/ 10</span></div>
+                            <div class="vfy-metric-meta" id="mExcHitDelta">목표 0~1</div>
+                        </div>
+                        <div class="vfy-metric">
+                            <div class="vfy-metric-label">베이스라인 대비</div>
+                            <div><span class="vfy-metric-value" id="mBaseDelta">—</span><span class="vfy-metric-unit">×</span></div>
+                            <div class="vfy-metric-meta" id="mBaseDeltaNote">랜덤 0.67 기준</div>
+                        </div>
+                        <div class="vfy-metric">
+                            <div class="vfy-metric-label">합의 강도 평균</div>
+                            <div><span class="vfy-metric-value" id="mConsensus">—</span><span class="vfy-metric-unit">/ 4</span></div>
+                            <div class="vfy-metric-meta" id="mConsensusNote">Pillar 4 합의</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2) 회차별 적중 시계열 -->
+                <div class="vfy-section">
+                    <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:24px; margin-bottom: 24px;">
+                        <div>
+                            <div class="vfy-section-eyebrow">Hit timeline · 50 rounds</div>
+                            <h2 class="vfy-section-title">회차별 적중 시계열</h2>
+                            <p class="vfy-section-desc">최근 50회차의 추천 적중(실선) 및 제외 적중(점선) 분포. 랜덤 베이스라인 0.67 기준선 표시.</p>
+                        </div>
+                        <div style="display:flex; gap: 16px; font-size:0.78rem; color: var(--vfy-text-mid);">
+                            <span><span class="vfy-dot" style="background: var(--vfy-text);"></span>추천 적중</span>
+                            <span><span class="vfy-dot" style="background: var(--vfy-text-soft);"></span>제외 적중</span>
+                        </div>
+                    </div>
+                    <div id="chartHitTimeline" class="vfy-chart vfy-chart-tall"></div>
+                </div>
+
+                <!-- 3) Pillar 기여도 + 자동 룰 트리거 -->
+                <div class="vfy-section">
+                    <div class="vfy-grid-2">
+                        <div>
+                            <div class="vfy-section-eyebrow">Pillar attribution · SHAP-style</div>
+                            <h2 class="vfy-section-title">4 Pillar 기여도</h2>
+                            <p class="vfy-section-desc">ENS · FLT · STA · CNS 합의 기여도 (정규화).</p>
+                            <div id="chartPillar" class="vfy-chart" style="margin-top: 18px;"></div>
+                        </div>
+                        <div>
+                            <div class="vfy-section-eyebrow">Auto-rules · trigger frequency</div>
+                            <h2 class="vfy-section-title">자동 룰 트리거 빈도</h2>
+                            <p class="vfy-section-desc">룰 1 (회귀 4연번) · 룰 2 (1회귀 4연번) · 룰 3 (데드 라인) 발동 횟수와 정합률.</p>
+                            <div style="margin-top: 18px;">
+                                <table class="vfy-table" id="tblAutoRules" aria-label="자동 룰 트리거">
+                                    <thead><tr><th>룰</th><th class="num">발동</th><th class="num">정합률</th></tr></thead>
+                                    <tbody>
+                                        <tr><td>룰 1 · 회귀 4연번</td><td class="num" id="rule1Trig">—</td><td class="num" id="rule1Hit">—</td></tr>
+                                        <tr><td>룰 2 · 1회귀 4연번</td><td class="num" id="rule2Trig">—</td><td class="num" id="rule2Hit">—</td></tr>
+                                        <tr><td>룰 3 · 데드 라인</td><td class="num" id="rule3Trig">—</td><td class="num" id="rule3Hit">—</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 4) 메모 적중률 + SLA -->
+                <div class="vfy-section">
+                    <div class="vfy-grid-2">
+                        <div>
+                            <div class="vfy-section-eyebrow">Memo · forced rec/exc</div>
+                            <h2 class="vfy-section-title">사용자 메모 적중률</h2>
+                            <p class="vfy-section-desc">강제 추천/제외 항목의 회차별 적중률 추이.</p>
+                            <div class="vfy-grid-metrics" style="margin-top: 18px; gap: 24px 32px;">
+                                <div class="vfy-metric">
+                                    <div class="vfy-metric-label">강제 추천 적중률</div>
+                                    <div><span class="vfy-metric-value" id="memoForceRec">—</span><span class="vfy-metric-unit">%</span></div>
+                                    <div class="vfy-metric-meta" id="memoForceRecMeta">샘플 —회차</div>
+                                </div>
+                                <div class="vfy-metric">
+                                    <div class="vfy-metric-label">강제 제외 적중률</div>
+                                    <div><span class="vfy-metric-value" id="memoForceExc">—</span><span class="vfy-metric-unit">%</span></div>
+                                    <div class="vfy-metric-meta" id="memoForceExcMeta">샘플 —회차</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="vfy-section-eyebrow">SLA · training & inference</div>
+                            <h2 class="vfy-section-title">학습 / 추론 SLA</h2>
+                            <p class="vfy-section-desc">11 base 모델 평균 학습/추론 시간 (목표 학습 ≤ 5분, 추론 ≤ 1분).</p>
+                            <table class="vfy-table" style="margin-top: 18px;" aria-label="SLA">
+                                <thead><tr><th>구분</th><th class="num">평균 (s)</th><th class="num">P95 (s)</th></tr></thead>
+                                <tbody>
+                                    <tr><td>전체 학습</td><td class="num" id="slaTrainAvg">—</td><td class="num" id="slaTrainP95">—</td></tr>
+                                    <tr><td>전체 추론</td><td class="num" id="slaInferAvg">—</td><td class="num" id="slaInferP95">—</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 5) 회귀 4 Tier 검증 -->
+                <div class="vfy-section">
+                    <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:24px; margin-bottom: 24px;">
+                        <div>
+                            <div class="vfy-section-eyebrow">Regression · 4 tier</div>
+                            <h2 class="vfy-section-title">회귀 4 Tier 검증</h2>
+                            <p class="vfy-section-desc">활성 N 분포 sparkline · Tier 4 메타 패턴 (frequency ≥ 0.20, support ≥ 10).</p>
+                        </div>
+                        <div id="sparkActiveN" class="vfy-spark" style="width: 200px;"></div>
+                    </div>
+                    <table class="vfy-table" id="tblTier4Meta" aria-label="Tier 4 메타 패턴">
+                        <thead><tr><th>패턴</th><th class="num">Frequency</th><th class="num">Support</th><th class="num">최근 회차</th></tr></thead>
+                        <tbody id="tier4MetaBody">
+                            <tr><td colspan="4" class="muted" style="text-align:center; padding: 24px;">집계 대기 중</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- 6) 11 base 모델별 추론 시간 -->
+                <div class="vfy-section">
+                    <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:24px; margin-bottom: 24px;">
+                        <div>
+                            <div class="vfy-section-eyebrow">11 base · inference latency</div>
+                            <h2 class="vfy-section-title">모델별 추론 시간</h2>
+                            <p class="vfy-section-desc">각 base 모델의 평균 추론 시간. 막대 길이 = 회차당 추론 latency.</p>
+                        </div>
+                        <span class="vfy-header-meta">초 단위</span>
+                    </div>
+                    <div id="chartModelLatency" class="vfy-chart"></div>
+                </div>
+
+                <p class="vfy-note">데이터 출처: <code>recommendation_backtest_runs</code> · <code>deep_analysis_history</code> · <code>model_latency_log</code>. 일부 항목이 비어 있을 수 있습니다.</p>
+            </section>
+
             <!-- 서브 탭 -->
             <div id="dlSubNav" role="tablist" aria-label="딥러닝 서브 탭" class="flex items-end gap-5 mb-5 border-b border-slate-100 overflow-x-auto no-scrollbar">
                 <button role="tab" aria-selected="true"  class="sub-tab active" onclick="VP.switchSub('recommend',this)">추천수/제외수</button>
@@ -1100,17 +1548,363 @@ const VP = (() => {
             const notice  = document.getElementById('dlSnapNotice');
             const subNav  = document.getElementById('dlSubNav');
             const subCont = document.getElementById('dlSubContent');
+            const dashV3  = document.getElementById('dlV3Dashboard');
             if (currentSnapshot) {
                 // 특정 조합 그룹 선택 중 — 딥러닝분석필터 비적용 안내
                 if (notice)  notice.classList.remove('hidden');
                 if (subNav)  subNav.classList.add('hidden');
                 if (subCont) subCont.classList.add('hidden');
+                if (dashV3)  dashV3.style.display = 'none';
             } else {
                 if (notice)  notice.classList.add('hidden');
                 if (subNav)  subNav.classList.remove('hidden');
                 if (subCont) subCont.classList.remove('hidden');
+                if (dashV3)  dashV3.style.display = '';
+                // Stage 5-F · v3 대시보드 초기화 (1회만 차트 인스턴스 생성)
+                try { initDlV3Dashboard(); } catch (e) { console.warn('[VP] v3 dashboard init skipped:', e); }
                 renderSub(curSub);
             }
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════
+    //  Stage 5-F · v3 딥러닝 검증 대시보드 (ECharts · light theme)
+    // ════════════════════════════════════════════════════════════
+    let _dlV3Inited = false;
+    let _dlV3Charts = { hit: null, pillar: null, latency: null, spark: null };
+
+    /** v3 대시보드 초기화 — 차트 인스턴스 생성 + 데이터 로드 + 렌더 */
+    async function initDlV3Dashboard() {
+        if (typeof echarts === 'undefined') {
+            console.warn('[VP v3] ECharts 미로드');
+            return;
+        }
+        // ── 1) 차트 인스턴스 (재사용) ──
+        const elHit     = document.getElementById('chartHitTimeline');
+        const elPillar  = document.getElementById('chartPillar');
+        const elLat     = document.getElementById('chartModelLatency');
+        const elSpark   = document.getElementById('sparkActiveN');
+
+        if (elHit && !_dlV3Charts.hit)         _dlV3Charts.hit     = echarts.init(elHit, null, { renderer: 'svg' });
+        if (elPillar && !_dlV3Charts.pillar)   _dlV3Charts.pillar  = echarts.init(elPillar, null, { renderer: 'svg' });
+        if (elLat && !_dlV3Charts.latency)     _dlV3Charts.latency = echarts.init(elLat, null, { renderer: 'svg' });
+        if (elSpark && !_dlV3Charts.spark)     _dlV3Charts.spark   = echarts.init(elSpark, null, { renderer: 'svg' });
+
+        // ── 2) 리사이즈 핸들러 ──
+        if (!_dlV3Inited) {
+            window.addEventListener('resize', () => {
+                Object.values(_dlV3Charts).forEach(c => c && c.resize());
+            });
+            _dlV3Inited = true;
+        }
+
+        // ── 3) 데이터 로드 + 렌더 ──
+        const data = await _loadDlV3Data();
+        _renderDlV3Metrics(data);
+        _renderDlV3HitTimeline(data);
+        _renderDlV3Pillar(data);
+        _renderDlV3AutoRules(data);
+        _renderDlV3Memo(data);
+        _renderDlV3Sla(data);
+        _renderDlV3Tier4(data);
+        _renderDlV3ModelLatency(data);
+    }
+
+    /** Supabase에서 v3 대시보드 집계 데이터 로드 (graceful fallback) */
+    async function _loadDlV3Data() {
+        const out = {
+            updated: null, samples: 0,
+            recHitAvg: null, excHitAvg: null, baseDelta: null, consensusAvg: null,
+            timeline: [],            // [{round, recHit, excHit}, ...]
+            pillar: { ENS: 0, FLT: 0, STA: 0, CNS: 0 },
+            rules: { r1: { trig: 0, hit: null }, r2: { trig: 0, hit: null }, r3: { trig: 0, hit: null } },
+            memo: { force_rec: { rate: null, n: 0 }, force_exc: { rate: null, n: 0 } },
+            sla:  { trainAvg: null, trainP95: null, inferAvg: null, inferP95: null },
+            tier4: [], activeN: [],
+            modelLatency: []         // [{model, sec}, ...]
+        };
+        try {
+            const sb = getSB();
+            // 최근 50회차 backtest 결과 (있다면)
+            const { data: btRows } = await sb.from('recommendation_backtest_runs')
+                .select('target_round, rec_hit, exc_hit, consensus, pillar_attrib, rule1_trig, rule2_trig, rule3_trig, rule1_hit, rule2_hit, rule3_hit, created_at')
+                .order('target_round', { ascending: false })
+                .limit(50)
+                .catch(() => ({ data: null }));
+
+            if (Array.isArray(btRows) && btRows.length) {
+                out.samples = btRows.length;
+                out.updated = btRows[0]?.created_at || null;
+
+                const recHits = btRows.map(r => Number(r.rec_hit ?? 0));
+                const excHits = btRows.map(r => Number(r.exc_hit ?? 0));
+                const cons    = btRows.map(r => Number(r.consensus ?? 0));
+                const avg = arr => arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : 0;
+                out.recHitAvg    = avg(recHits);
+                out.excHitAvg    = avg(excHits);
+                out.consensusAvg = avg(cons);
+                // 베이스라인 = 5번호 추첨에서 6/45 등장 기댓값 ≈ 0.67
+                out.baseDelta    = out.recHitAvg ? (out.recHitAvg / 0.67) : null;
+
+                // timeline (오래된 → 최근)
+                out.timeline = [...btRows].reverse().map(r => ({
+                    round: r.target_round,
+                    recHit: Number(r.rec_hit ?? 0),
+                    excHit: Number(r.exc_hit ?? 0)
+                }));
+
+                // Pillar 평균
+                const pAcc = { ENS: 0, FLT: 0, STA: 0, CNS: 0 };
+                let pN = 0;
+                btRows.forEach(r => {
+                    const p = (() => { try { return typeof r.pillar_attrib === 'string' ? JSON.parse(r.pillar_attrib) : r.pillar_attrib; } catch(e) { return null; } })();
+                    if (p && typeof p === 'object') {
+                        ['ENS','FLT','STA','CNS'].forEach(k => { if (typeof p[k] === 'number') pAcc[k] += p[k]; });
+                        pN += 1;
+                    }
+                });
+                if (pN > 0) {
+                    Object.keys(pAcc).forEach(k => { out.pillar[k] = pAcc[k] / pN; });
+                }
+
+                // 룰 트리거 / 정합률
+                const ruleAgg = (trigKey, hitKey) => {
+                    const trigs = btRows.filter(r => r[trigKey]);
+                    const hits  = trigs.filter(r => r[hitKey]);
+                    return { trig: trigs.length, hit: trigs.length ? hits.length / trigs.length : null };
+                };
+                out.rules.r1 = ruleAgg('rule1_trig', 'rule1_hit');
+                out.rules.r2 = ruleAgg('rule2_trig', 'rule2_hit');
+                out.rules.r3 = ruleAgg('rule3_trig', 'rule3_hit');
+            }
+
+            // 모델별 추론 latency (있다면)
+            const { data: latRows } = await sb.from('model_latency_log')
+                .select('model, inference_sec')
+                .order('created_at', { ascending: false })
+                .limit(500)
+                .catch(() => ({ data: null }));
+            if (Array.isArray(latRows) && latRows.length) {
+                const groups = {};
+                latRows.forEach(r => {
+                    const m = r.model || 'unknown';
+                    if (!groups[m]) groups[m] = [];
+                    if (typeof r.inference_sec === 'number') groups[m].push(r.inference_sec);
+                });
+                out.modelLatency = Object.entries(groups).map(([model, arr]) => ({
+                    model,
+                    sec: arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : 0
+                })).sort((a,b) => b.sec - a.sec);
+            }
+
+        } catch (e) {
+            console.warn('[VP v3] data load failed:', e);
+        }
+        return out;
+    }
+
+    function _fmt(v, digits = 2) {
+        if (v === null || v === undefined || isNaN(v)) return '—';
+        return Number(v).toFixed(digits);
+    }
+    function _fmtPct(v, digits = 1) {
+        if (v === null || v === undefined || isNaN(v)) return '—';
+        return (Number(v) * 100).toFixed(digits);
+    }
+
+    function _renderDlV3Metrics(d) {
+        const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+        set('mRecHit',     _fmt(d.recHitAvg, 2));
+        set('mExcHit',     _fmt(d.excHitAvg, 2));
+        set('mBaseDelta',  _fmt(d.baseDelta, 2));
+        set('mConsensus',  _fmt(d.consensusAvg, 2));
+
+        const recDeltaEl = document.getElementById('mRecHitDelta');
+        if (recDeltaEl && typeof d.recHitAvg === 'number') {
+            const inTarget = d.recHitAvg >= 2.0 && d.recHitAvg <= 3.0;
+            recDeltaEl.textContent = inTarget ? '목표 내 · 2.0~3.0' : `목표 2.0~3.0 (현재 ${_fmt(d.recHitAvg, 2)})`;
+            recDeltaEl.classList.toggle('up', inTarget);
+        }
+        const excDeltaEl = document.getElementById('mExcHitDelta');
+        if (excDeltaEl && typeof d.excHitAvg === 'number') {
+            const inTarget = d.excHitAvg <= 1.0;
+            excDeltaEl.textContent = inTarget ? '목표 내 · ≤ 1' : `목표 ≤ 1 (현재 ${_fmt(d.excHitAvg, 2)})`;
+            excDeltaEl.classList.toggle('up', inTarget);
+            excDeltaEl.classList.toggle('down', !inTarget);
+        }
+        const baseEl = document.getElementById('mBaseDeltaNote');
+        if (baseEl && typeof d.baseDelta === 'number') {
+            baseEl.textContent = d.baseDelta >= 1.0 ? `랜덤 0.67 대비 ${_fmt(d.baseDelta, 2)}× 우위` : `베이스라인 미달`;
+        }
+        const updEl = document.getElementById('dlV3MetricUpdated');
+        if (updEl) updEl.textContent = d.samples ? `샘플 ${d.samples}회차` : '샘플 — · 데이터 대기';
+    }
+
+    function _renderDlV3HitTimeline(d) {
+        const ch = _dlV3Charts.hit;
+        if (!ch) return;
+        const x = d.timeline.map(t => t.round);
+        const recSeries = d.timeline.map(t => t.recHit);
+        const excSeries = d.timeline.map(t => t.excHit);
+        ch.setOption({
+            backgroundColor: 'transparent',
+            grid: { left: 36, right: 16, top: 28, bottom: 30, containLabel: false },
+            tooltip: {
+                trigger: 'axis',
+                backgroundColor: '#FFFFFF',
+                borderColor: '#E5E7EB',
+                borderWidth: 1,
+                textStyle: { color: '#0F172A', fontSize: 12 },
+                extraCssText: 'box-shadow: 0 1px 4px rgba(15,23,42,0.06); border-radius: 8px;'
+            },
+            xAxis: {
+                type: 'category',
+                data: x,
+                boundaryGap: false,
+                axisLine: { lineStyle: { color: '#E5E7EB' } },
+                axisTick: { show: false },
+                axisLabel: { color: '#94A3B8', fontSize: 11 }
+            },
+            yAxis: {
+                type: 'value',
+                axisLine: { show: false },
+                axisTick: { show: false },
+                splitLine: { lineStyle: { color: '#F1F5F9' } },
+                axisLabel: { color: '#94A3B8', fontSize: 11 }
+            },
+            series: [
+                {
+                    name: '추천 적중', type: 'line', data: recSeries,
+                    smooth: false, symbol: 'circle', symbolSize: 5,
+                    lineStyle: { color: '#0F172A', width: 1.5 },
+                    itemStyle: { color: '#0F172A' },
+                    markLine: {
+                        silent: true, symbol: 'none',
+                        lineStyle: { color: '#CBD5E1', type: 'dashed', width: 1 },
+                        data: [{ yAxis: 0.67, label: { formatter: 'baseline 0.67', color: '#94A3B8', fontSize: 10, position: 'insideEndTop' } }]
+                    }
+                },
+                {
+                    name: '제외 적중', type: 'line', data: excSeries,
+                    smooth: false, symbol: 'none',
+                    lineStyle: { color: '#94A3B8', width: 1, type: 'dashed' }
+                }
+            ]
+        });
+    }
+
+    function _renderDlV3Pillar(d) {
+        const ch = _dlV3Charts.pillar;
+        if (!ch) return;
+        const labels = ['ENS','FLT','STA','CNS'];
+        const vals   = labels.map(k => Number(d.pillar?.[k] ?? 0));
+        ch.setOption({
+            backgroundColor: 'transparent',
+            grid: { left: 50, right: 16, top: 12, bottom: 24, containLabel: false },
+            tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, backgroundColor: '#FFFFFF', borderColor: '#E5E7EB', textStyle: { color: '#0F172A', fontSize: 12 } },
+            xAxis: { type: 'value', axisLine: { show: false }, axisTick: { show: false }, splitLine: { lineStyle: { color: '#F1F5F9' } }, axisLabel: { color: '#94A3B8', fontSize: 11 } },
+            yAxis: { type: 'category', data: labels, axisLine: { lineStyle: { color: '#E5E7EB' } }, axisTick: { show: false }, axisLabel: { color: '#475569', fontSize: 12, fontWeight: 600 } },
+            series: [{
+                type: 'bar',
+                data: vals,
+                barWidth: 18,
+                itemStyle: { color: '#3B82F6', borderRadius: [0, 2, 2, 0] }
+            }]
+        });
+    }
+
+    function _renderDlV3AutoRules(d) {
+        const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+        const fmtRule = (r) => ({ trig: r.trig || 0, hit: r.hit === null ? '—' : `${_fmtPct(r.hit, 1)} %` });
+        const f1 = fmtRule(d.rules.r1), f2 = fmtRule(d.rules.r2), f3 = fmtRule(d.rules.r3);
+        set('rule1Trig', f1.trig); set('rule1Hit', f1.hit);
+        set('rule2Trig', f2.trig); set('rule2Hit', f2.hit);
+        set('rule3Trig', f3.trig); set('rule3Hit', f3.hit);
+    }
+
+    function _renderDlV3Memo(d) {
+        const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+        set('memoForceRec', d.memo.force_rec.rate === null ? '—' : _fmtPct(d.memo.force_rec.rate, 1));
+        set('memoForceExc', d.memo.force_exc.rate === null ? '—' : _fmtPct(d.memo.force_exc.rate, 1));
+        set('memoForceRecMeta', `샘플 ${d.memo.force_rec.n}회차`);
+        set('memoForceExcMeta', `샘플 ${d.memo.force_exc.n}회차`);
+    }
+
+    function _renderDlV3Sla(d) {
+        const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+        set('slaTrainAvg', _fmt(d.sla.trainAvg, 2));
+        set('slaTrainP95', _fmt(d.sla.trainP95, 2));
+        set('slaInferAvg', _fmt(d.sla.inferAvg, 2));
+        set('slaInferP95', _fmt(d.sla.inferP95, 2));
+    }
+
+    function _renderDlV3Tier4(d) {
+        // sparkline (활성 N)
+        const ch = _dlV3Charts.spark;
+        if (ch) {
+            const series = d.activeN.length ? d.activeN : new Array(20).fill(0);
+            ch.setOption({
+                backgroundColor: 'transparent',
+                grid: { left: 0, right: 0, top: 4, bottom: 4 },
+                xAxis: { type: 'category', show: false, data: series.map((_, i) => i) },
+                yAxis: { type: 'value', show: false },
+                series: [{
+                    type: 'line', data: series,
+                    smooth: true, symbol: 'none',
+                    lineStyle: { color: '#0F172A', width: 1 },
+                    areaStyle: { color: 'rgba(15,23,42,0.06)' }
+                }]
+            });
+        }
+        // tier4 메타 패턴 (있다면)
+        const body = document.getElementById('tier4MetaBody');
+        if (!body) return;
+        if (!Array.isArray(d.tier4) || d.tier4.length === 0) {
+            body.innerHTML = `<tr><td colspan="4" class="muted" style="text-align:center; padding: 24px;">집계 대기 중</td></tr>`;
+            return;
+        }
+        body.innerHTML = d.tier4.map(t => `
+            <tr>
+                <td>${(t.pattern || '—')}</td>
+                <td class="num">${_fmt(t.frequency, 3)}</td>
+                <td class="num">${t.support ?? '—'}</td>
+                <td class="num muted">${t.last_round ?? '—'}</td>
+            </tr>`).join('');
+    }
+
+    function _renderDlV3ModelLatency(d) {
+        const ch = _dlV3Charts.latency;
+        if (!ch) return;
+        const list = (d.modelLatency || []).slice(0, 11);
+        const labels = list.map(x => x.model);
+        const vals   = list.map(x => Number(x.sec || 0));
+        const colorMap = {
+            xgb: '#3B82F6', cat: '#14B8A6', tabnet: '#A855F7',
+            cnn: '#EC4899', gnn: '#EF4444', markov: '#10B981',
+            ae:  '#8B5CF6', tft: '#F97316', nbeats: '#06B6D4',
+            mhn: '#84CC16', bayesian: '#F59E0B'
+        };
+        const colorOf = (k) => colorMap[(k||'').toLowerCase()] || '#94A3B8';
+        ch.setOption({
+            backgroundColor: 'transparent',
+            grid: { left: 80, right: 24, top: 12, bottom: 28, containLabel: false },
+            tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, backgroundColor: '#FFFFFF', borderColor: '#E5E7EB', textStyle: { color: '#0F172A', fontSize: 12 }, valueFormatter: v => `${Number(v).toFixed(2)} s` },
+            xAxis: { type: 'value', axisLine: { show: false }, axisTick: { show: false }, splitLine: { lineStyle: { color: '#F1F5F9' } }, axisLabel: { color: '#94A3B8', fontSize: 11, formatter: '{value} s' } },
+            yAxis: { type: 'category', data: labels, axisLine: { lineStyle: { color: '#E5E7EB' } }, axisTick: { show: false }, axisLabel: { color: '#475569', fontSize: 12 } },
+            series: [{
+                type: 'bar',
+                data: vals.map((v, i) => ({ value: v, itemStyle: { color: colorOf(labels[i]), borderRadius: [0, 2, 2, 0] } })),
+                barWidth: 14
+            }]
+        });
+        // empty state
+        if (!list.length) {
+            ch.setOption({
+                graphic: [{
+                    type: 'text', left: 'center', top: 'middle',
+                    style: { text: '추론 latency 로그 없음', fill: '#94A3B8', fontSize: 12 }
+                }]
+            });
         }
     }
 
