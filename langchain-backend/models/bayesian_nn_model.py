@@ -298,10 +298,68 @@ class LottoBayesianNN:
             return torch.softmax(logits, dim=1)
         return logits  # regression
 
-    def predict(self, X: np.ndarray) -> np.ndarray:
+    def predict(self, draws_or_X, **kwargs):
+        """Polymorphic 예측.
+
+        - draws_or_X 가 list[dict] (ensemble.predict 호환): {1~45: float} 반환.
+        - 그 외 (ndarray 등): 기존 ndarray 반환 (mean).
+        """
+        if isinstance(draws_or_X, list) and draws_or_X and isinstance(draws_or_X[0], dict):
+            return self._predict_from_draws(draws_or_X)
+        return self._predict_main(draws_or_X, **kwargs)
+
+    def _predict_main(self, X: np.ndarray, **kwargs: Any) -> np.ndarray:
         """MC Dropout 평균 (mc_samples 회 forward 평균)."""
         result = self.predict_with_uncertainty(X)
         return result["mean"]
+
+    def _is_main_trained(self) -> bool:
+        """binary_45 메인 가중치 학습 여부."""
+        if not TORCH_AVAILABLE:
+            return False
+        if self.model is not None:
+            # 가중치가 있는지 — 인스턴스 model이 _MCDropoutMLP면 OK
+            return True
+        save_path = os.path.join(config.MODEL_DIR, "bayesian_nn_main45.pt")
+        return os.path.exists(save_path)
+
+    def _predict_from_draws(self, draws: list) -> dict:
+        """draws -> {1~45: float} (메인 1~45 binary)."""
+        if not TORCH_AVAILABLE:
+            return {n: 0.0 for n in range(1, 46)}
+
+        try:
+            from models._draws_adapter import draws_to_xy
+            X, _ = draws_to_xy(draws, seq_len=30, input_dim=self.input_dim)
+            if X is None or len(X) == 0:
+                return {n: 0.0 for n in range(1, 46)}
+
+            # 메인 모델 확보 — 없으면 ckpt 로드
+            if self.model is None:
+                save_path = os.path.join(config.MODEL_DIR, "bayesian_nn_main45.pt")
+                if not os.path.exists(save_path):
+                    return {n: 0.0 for n in range(1, 46)}
+                try:
+                    self.load(save_path)
+                except Exception:
+                    return {n: 0.0 for n in range(1, 46)}
+
+            if self.model is None:
+                return {n: 0.0 for n in range(1, 46)}
+
+            x_query = X[-1:].astype(np.float32)
+            result = self.predict_with_uncertainty(x_query)
+            mean = result["mean"]
+            if mean.ndim == 2 and mean.shape[-1] == 45:
+                flat = mean[0]
+            elif mean.ndim == 1 and mean.shape[0] == 45:
+                flat = mean
+            else:
+                return {n: 0.0 for n in range(1, 46)}
+            return {n: float(flat[n - 1]) for n in range(1, 46)}
+        except Exception as e:
+            print(f"[bayesian_nn_model] predict_from_draws fail (graceful): {type(e).__name__}: {e}")
+            return {n: 0.0 for n in range(1, 46)}
 
     def predict_with_uncertainty(self, X: np.ndarray) -> dict:
         """mc_samples 회 forward 후 평균/분산/quantile 반환.

@@ -85,18 +85,25 @@ class CNNTrainer:
 
         dataset = LottoGridSequenceDataset(draws, seq_len=config.CNN_SEQ_LEN)
         if len(dataset) < 100: return {"success": False, "error": "데이터 부족"}
-        
+
         train_loader = DataLoader(dataset, batch_size=config.CNN_BATCH_SIZE, shuffle=True)
         self.model = LottoCNN2D().to(self.device)
 
         if fine_tune:
             path = os.path.join(config.MODEL_DIR, "cnn_model.pt")
             if os.path.exists(path):
+                # 파일 손상/락 graceful 처리: load_state_dict 직전 torch.load도 try
                 try:
-                    self.model.load_state_dict(torch.load(path, map_location=self.device, weights_only=True))
-                    print("  [CNN] 기존 뇌(.pt) 가중치를 성공적으로 불러와 파인튜닝을 시작합니다.")
+                    state = torch.load(path, map_location=self.device, weights_only=True)
                 except Exception as e:
-                    print(f"  [CNN] 구 버전 가중치 호환 불가, 초기 상태에서 학습합니다: {e}")
+                    print(f"  [CNN] 가중치 파일 로드 실패 (from scratch): {e}")
+                    state = None
+                if state is not None:
+                    try:
+                        self.model.load_state_dict(state)
+                        print("  [CNN] 기존 뇌(.pt) 가중치를 성공적으로 불러와 파인튜닝을 시작합니다.")
+                    except Exception as e:
+                        print(f"  [CNN] 구 버전 가중치 호환 불가, 초기 상태에서 학습합니다: {e}")
             else:
                 print("  [CNN] 기존 뇌가 없어 초기 상태에서 학습합니다.")
 
@@ -254,7 +261,38 @@ class CNNTrainer:
         }
 
     def _save_model(self):
-        if self.model: torch.save(self.model.state_dict(), os.path.join(config.MODEL_DIR, "cnn_model.pt"))
+        if not self.model:
+            return
+        path = os.path.join(config.MODEL_DIR, "cnn_model.pt")
+        # tmp 파일에 저장 후 atomic rename — 동시 접근 시 손상 방지
+        tmp = path + ".tmp"
+        try:
+            torch.save(self.model.state_dict(), tmp)
+            # rename은 일부 OS에서 락이 걸려 실패할 수 있어 fallback 추가
+            try:
+                os.replace(tmp, path)
+            except Exception as e:
+                print(f"  [CNN] 저장 rename 실패 (재시도): {e}")
+                # 재시도: 직접 덮어쓰기
+                try:
+                    if os.path.exists(path):
+                        os.remove(path)
+                    os.replace(tmp, path)
+                except Exception as e2:
+                    print(f"  [CNN] 저장 최종 실패 (skip): {e2}")
+                    if os.path.exists(tmp):
+                        try:
+                            os.remove(tmp)
+                        except Exception:
+                            pass
+        except Exception as e:
+            print(f"  [CNN] _save_model 실패 (skip): {e}")
+            if os.path.exists(tmp):
+                try:
+                    os.remove(tmp)
+                except Exception:
+                    pass
+
     def _load_model(self):
         path = os.path.join(config.MODEL_DIR, "cnn_model.pt")
         if os.path.exists(path):

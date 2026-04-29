@@ -302,10 +302,27 @@ class LottoTFT:
         except Exception as e:
             return {"success": False, "error": f"{type(e).__name__}: {e}"}
 
-    def predict(self, X) -> np.ndarray:
-        """예측. X는 DataFrame 또는 TimeSeriesDataSet."""
+    def predict(self, X, **kwargs):
+        """Polymorphic 예측.
+
+        - X 가 list[dict] (ensemble.predict 호환): {1~45: float} 반환.
+        - X 가 DataFrame / TimeSeriesDataSet / ndarray: 기존 ndarray 반환.
+        """
+        if isinstance(X, list) and X and isinstance(X[0], dict):
+            return self._predict_from_draws(X)
+        return self._predict_main(X, **kwargs)
+
+    def _predict_main(self, X, **kwargs) -> np.ndarray:
+        """기존 시계열 예측. X는 DataFrame 또는 TimeSeriesDataSet."""
         if self.model is None:
             raise RuntimeError("Model is not trained yet")
+
+        # numpy ndarray 입력 시 DataFrame 변환은 호출 측 책임 — 강제 호환을 위해 fallback
+        if PYTORCH_FORECASTING_AVAILABLE and pd is not None and isinstance(X, np.ndarray):
+            raise RuntimeError(
+                "TFT predict requires DataFrame/TimeSeriesDataSet, not raw ndarray. "
+                "Use predict(draws=list[dict]) for ensemble compat."
+            )
 
         if isinstance(X, TimeSeriesDataSet):
             dataset = X
@@ -323,6 +340,76 @@ class LottoTFT:
         if hasattr(raw, "cpu"):
             raw = raw.cpu().numpy()
         return np.asarray(raw, dtype=np.float32)
+
+    def _is_main_trained(self) -> bool:
+        """binary_45 메인 가중치 학습 여부."""
+        if not PYTORCH_FORECASTING_AVAILABLE:
+            return False
+        if self.model is not None and self.training_dataset is not None:
+            return True
+        save_path = os.path.join(config.MODEL_DIR, "tft_main45.pt")
+        return os.path.exists(save_path)
+
+    def _predict_from_draws(self, draws: list) -> dict:
+        """draws -> {1~45: float} (메인 1~45 binary).
+
+        TFT의 회귀 출력(target=정규화 sum)은 1~45 binary와 직접 매핑되지 않는다.
+        대신 직전 회차의 frequency feature를 그대로 활용한 fallback 산출을 사용
+        (학습된 가중치 + dataset이 있을 때만 attention 기반 가중 보정).
+        """
+        if not PYTORCH_FORECASTING_AVAILABLE:
+            return {n: 0.0 for n in range(1, 46)}
+
+        try:
+            # frequency 기반 base score
+            from collections import Counter
+            recent = draws[:50] if len(draws) >= 50 else draws
+            cnt: Counter = Counter()
+            for d in recent:
+                for n in d.get("numbers", []) or []:
+                    if 1 <= int(n) <= 45:
+                        cnt[int(n)] += 1
+            total = sum(cnt.values()) or 1
+            base = {n: cnt.get(n, 0) / total for n in range(1, 46)}
+
+            # 학습된 weight 미존재 시 base 그대로 반환
+            if not self._is_main_trained():
+                return {n: float(base.get(n, 0.0)) for n in range(1, 46)}
+
+            # 학습된 model + training_dataset이 메모리에 있을 때만 forward 시도
+            if self.model is None or self.training_dataset is None:
+                return {n: float(base.get(n, 0.0)) for n in range(1, 46)}
+
+            from models._draws_adapter import draws_to_tft_dataframe
+            df = draws_to_tft_dataframe(draws, seq_len=30, input_dim=self.input_dim)
+            if df is None or len(df) < 30:
+                return {n: float(base.get(n, 0.0)) for n in range(1, 46)}
+
+            # 마지막 30회차 윈도만 사용 (predict mode)
+            df_tail = df.tail(60).reset_index(drop=True)
+            df_tail["time_idx"] = df_tail.index
+
+            try:
+                pred_dataset = self._build_dataset(
+                    df_tail, is_train=False, from_dataset=self.training_dataset
+                )
+                loader = pred_dataset.to_dataloader(train=False, batch_size=4, num_workers=0)
+                raw = self.model.predict(loader, mode="prediction")
+                if hasattr(raw, "cpu"):
+                    raw = raw.cpu().numpy()
+                raw_arr = np.asarray(raw, dtype=np.float32).reshape(-1)
+                if raw_arr.size == 0:
+                    return {n: float(base.get(n, 0.0)) for n in range(1, 46)}
+                # 정규화 sum 회귀 출력 → 단일 스칼라 → base 가중치 보정
+                signal = float(raw_arr[-1])
+                # base + signal × frequency normalization
+                final = {n: float(base.get(n, 0.0) * (1.0 + 0.1 * signal)) for n in range(1, 46)}
+                return final
+            except Exception:
+                return {n: float(base.get(n, 0.0)) for n in range(1, 46)}
+        except Exception as e:
+            print(f"[tft_model] predict_from_draws fail (graceful): {type(e).__name__}: {e}")
+            return {n: 0.0 for n in range(1, 46)}
 
     def explain(self, X) -> dict:
         """TFT XAI 산출.

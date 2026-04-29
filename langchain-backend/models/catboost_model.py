@@ -235,14 +235,90 @@ class LottoCatBoost:
         except Exception as e:
             return {"success": False, "error": f"{type(e).__name__}: {e}"}
 
-    def predict(self, X: np.ndarray) -> np.ndarray:
-        """예측. multiclass면 (N, num_classes), 그 외 (N,)."""
+    def predict(self, draws_or_X, **kwargs):
+        """Polymorphic 예측.
+
+        - draws_or_X 가 list[dict] (ensemble.predict 호환): {1~45: float} 반환.
+        - 그 외 (ndarray 등): 기존 ndarray 반환.
+        """
+        if isinstance(draws_or_X, list) and draws_or_X and isinstance(draws_or_X[0], dict):
+            return self._predict_from_draws(draws_or_X)
+        return self._predict_main(draws_or_X, **kwargs)
+
+    def _predict_main(self, X: np.ndarray, **kwargs: Any) -> np.ndarray:
+        """기존 ndarray 입력 → ndarray 출력."""
+        if self.model is None:
+            raise RuntimeError("Model is not trained yet")
         if self.task_type == "multiclass":
             return np.asarray(self.model.predict_proba(X), dtype=np.float32)
         if self.task_type == "binary":
             proba = np.asarray(self.model.predict_proba(X), dtype=np.float32)
             return proba[:, 1]
         return np.asarray(self.model.predict(X), dtype=np.float32).reshape(-1)
+
+    def _is_main_trained(self) -> bool:
+        """binary_45 메인 1~45 가중치 학습 여부."""
+        if not CATBOOST_AVAILABLE:
+            return False
+        save_path = os.path.join(config.MODEL_DIR, "catboost_main45.cbm")
+        if self.model is not None:
+            try:
+                # CatBoost의 학습 여부 확인 (best_iteration 호출 가능 여부)
+                _ = self.model.tree_count_
+                if _ is not None and _ > 0:
+                    return True
+            except Exception:
+                pass
+        return os.path.exists(save_path)
+
+    def _predict_from_draws(self, draws: list) -> dict:
+        """draws -> {1~45: float} (메인 1~45 binary)."""
+        if not CATBOOST_AVAILABLE:
+            return {n: 0.0 for n in range(1, 46)}
+
+        try:
+            from models._draws_adapter import draws_to_xy
+            input_dim = self.input_dim if self.input_dim else 65
+            X, _ = draws_to_xy(draws, seq_len=30, input_dim=input_dim)
+            if X is None or len(X) == 0:
+                return {n: 0.0 for n in range(1, 46)}
+
+            # 학습된 메인 가중치 확인 + 필요 시 로드
+            save_path = os.path.join(config.MODEL_DIR, "catboost_main45.cbm")
+            need_load = True
+            if self.model is not None:
+                try:
+                    if getattr(self.model, "tree_count_", 0) and self.model.tree_count_ > 0:
+                        need_load = False
+                except Exception:
+                    need_load = True
+            if need_load:
+                if not os.path.exists(save_path):
+                    return {n: 0.0 for n in range(1, 46)}
+                try:
+                    reg = CatBoostRegressor(loss_function="MultiRMSE", verbose=0, allow_writing_files=False)
+                    reg.load_model(save_path, format="cbm")
+                    self.model = reg
+                except Exception:
+                    return {n: 0.0 for n in range(1, 46)}
+
+            x_query = X[-1:].astype(np.float32)
+            raw_pred = np.asarray(self.model.predict(x_query), dtype=np.float32)
+
+            # MultiRMSE 출력 (1, 45)
+            if raw_pred.ndim == 2 and raw_pred.shape[-1] == 45:
+                flat = raw_pred[0]
+            elif raw_pred.ndim == 1 and raw_pred.shape[0] == 45:
+                flat = raw_pred
+            else:
+                return {n: 0.0 for n in range(1, 46)}
+
+            # MultiRMSE 회귀 출력은 [0, 1] 밖일 수 있어 sigmoid로 후처리
+            flat = 1.0 / (1.0 + np.exp(-flat.astype(np.float64)))
+            return {n: float(flat[n - 1]) for n in range(1, 46)}
+        except Exception as e:
+            print(f"[catboost_model] predict_from_draws fail (graceful): {type(e).__name__}: {e}")
+            return {n: 0.0 for n in range(1, 46)}
 
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
         """분류 확률 (regression이면 NotImplementedError)."""

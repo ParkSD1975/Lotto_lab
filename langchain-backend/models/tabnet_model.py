@@ -282,8 +282,18 @@ class LottoTabNet:
         except Exception as e:
             return {"success": False, "error": f"{type(e).__name__}: {e}"}
 
-    def predict(self, X: np.ndarray) -> np.ndarray:
-        """예측.
+    def predict(self, draws_or_X, **kwargs):
+        """Polymorphic 예측.
+
+        - draws_or_X 가 list[dict] (ensemble.predict 호환): {1~45: float} 반환.
+        - 그 외 (ndarray 등): 기존 ndarray 반환.
+        """
+        if isinstance(draws_or_X, list) and draws_or_X and isinstance(draws_or_X[0], dict):
+            return self._predict_from_draws(draws_or_X)
+        return self._predict_main(draws_or_X, **kwargs)
+
+    def _predict_main(self, X: np.ndarray, **kwargs: Any) -> np.ndarray:
+        """기존 ndarray 입력 → ndarray 출력.
 
         - multiclass / binary_45: (N, num_classes) 확률 (binary_45는 sigmoid-like)
         - binary: (N,) 양성 확률
@@ -292,14 +302,77 @@ class LottoTabNet:
         if self.model is None:
             raise RuntimeError("Model is not trained yet (or library missing)")
         X_arr = np.asarray(X, dtype=np.float32)
-        if self.task_type in ("multiclass", "binary_45"):
+        if self.task_type == "multiclass":
             return np.asarray(self.model.predict_proba(X_arr), dtype=np.float32)
         if self.task_type == "binary":
             proba = np.asarray(self.model.predict_proba(X_arr), dtype=np.float32)
             return proba[:, 1] if proba.ndim == 2 and proba.shape[1] >= 2 else proba.reshape(-1)
+        if self.task_type == "binary_45":
+            # binary_45 어댑터는 TabNetRegressor 45 멀티 아웃풋 — predict로 raw 회귀 출력
+            return np.asarray(self.model.predict(X_arr), dtype=np.float32)
         # regression
         out = np.asarray(self.model.predict(X_arr), dtype=np.float32)
         return out.reshape(-1)
+
+    def _is_main_trained(self) -> bool:
+        """binary_45 메인 가중치 학습 여부."""
+        if not TABNET_AVAILABLE:
+            return False
+        save_base = os.path.join(config.MODEL_DIR, "tabnet_main45")
+        if os.path.exists(save_base + ".zip"):
+            return True
+        # 인스턴스 model이 fit 된 경우
+        if self.model is not None and hasattr(self.model, "network") and self.model.network is not None:
+            return True
+        return False
+
+    def _predict_from_draws(self, draws: list) -> dict:
+        """draws -> {1~45: float} (메인 1~45 binary)."""
+        if not TABNET_AVAILABLE:
+            return {n: 0.0 for n in range(1, 46)}
+
+        try:
+            from models._draws_adapter import draws_to_xy
+            input_dim = self.input_dim if self.input_dim else 65
+            X, _ = draws_to_xy(draws, seq_len=30, input_dim=input_dim)
+            if X is None or len(X) == 0:
+                return {n: 0.0 for n in range(1, 46)}
+
+            save_base = os.path.join(config.MODEL_DIR, "tabnet_main45")
+            save_path = save_base + ".zip"
+
+            # 모델 로드 (TabNetRegressor 45-output)
+            need_load = not (
+                self.model is not None
+                and hasattr(self.model, "network")
+                and self.model.network is not None
+            )
+            if need_load:
+                if not os.path.exists(save_path):
+                    return {n: 0.0 for n in range(1, 46)}
+                try:
+                    reg = TabNetRegressor(device_name=self.device)
+                    reg.load_model(save_path)
+                    self.model = reg
+                except Exception:
+                    return {n: 0.0 for n in range(1, 46)}
+
+            x_query = X[-1:].astype(np.float32)
+            raw_pred = np.asarray(self.model.predict(x_query), dtype=np.float32)
+
+            if raw_pred.ndim == 2 and raw_pred.shape[-1] == 45:
+                flat = raw_pred[0]
+            elif raw_pred.ndim == 1 and raw_pred.shape[0] == 45:
+                flat = raw_pred
+            else:
+                return {n: 0.0 for n in range(1, 46)}
+
+            # TabNetRegressor 출력 → sigmoid 후처리로 [0, 1] 매핑
+            flat = 1.0 / (1.0 + np.exp(-flat.astype(np.float64)))
+            return {n: float(flat[n - 1]) for n in range(1, 46)}
+        except Exception as e:
+            print(f"[tabnet_model] predict_from_draws fail (graceful): {type(e).__name__}: {e}")
+            return {n: 0.0 for n in range(1, 46)}
 
     def explain(self, X: np.ndarray) -> dict:
         """TabNet 자체 explain() 활용.

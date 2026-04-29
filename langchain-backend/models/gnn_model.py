@@ -404,6 +404,11 @@ class GNNTrainer:
         from validation.seed_utils import set_global_seed
         set_global_seed()
 
+        # ensemble.train_all 이 학습 후 model=None 처리 — 다음 cycle에서 자동 재생성
+        if self.model is None:
+            self.model = LottoGNNModel().to(self.device)
+            print("  [GNN] model 인스턴스 재생성 (None → 새 LottoGNNModel)")
+
         print("  [GNN] Graph Attention Network 학습 시작...")
         draws_sorted = sorted(draws, key=lambda x: x["round"])
 
@@ -550,6 +555,10 @@ class GNNTrainer:
         # 모델 파일 또는 이력 부족 시 균등 확률 반환
         if not os.path.exists(model_path) or len(draws) < 5:
             return {n: 1.0 / 45.0 for n in range(1, 46)}
+
+        # ensemble 후처리(model=None) 대응 — 인스턴스 자동 복구
+        if self.model is None:
+            self.model = LottoGNNModel().to(self.device)
 
         # 모델 로드
         try:
