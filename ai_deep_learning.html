@@ -674,7 +674,7 @@
                 <div>
                     <span class="dl-eyebrow">Deep Learning Analysis</span>
                     <h1 class="dl-title">AI 딥러닝 분석</h1>
-                    <p class="dl-subtitle">11 base 모델 · 4 Pillar · Hard Filter 3계층</p>
+                    <p class="dl-subtitle">10 base 모델(1~45) + N-BEATS(스칼라 분해) · 4 Pillar · Hard Filter 3계층</p>
                 </div>
                 <div style="display:flex; flex-direction:column; align-items:flex-end; gap:8px;">
                     <div class="dl-round-display">
@@ -728,16 +728,16 @@
         <!-- ══ 콘텐츠 영역 ══ -->
         <section id="content-area" class="flex-1 overflow-y-auto custom-scrollbar pb-12">
 
-            <!-- ─── 0. #tab-status · 상태 분석 (11 base 모델 컨디션) ─── -->
-            <div id="tab-status" class="content-grid hidden dl-fade-in">
+            <!-- ─── 0. #tab-status · 상태 분석 (10 base 메인 모델 컨디션 + N-BEATS 보조) ─── -->
+<div id="tab-status" class="content-grid hidden dl-fade-in">
 
-                <!-- 11 모델 chip 영역 -->
+                <!-- 10 모델 chip 영역 (메인 1~45) + N-BEATS 보조 chip (스칼라 분해) -->
                 <section class="dl-section">
                     <div class="dl-section-head">
                         <div>
-                            <div class="dl-section-eyebrow">11 base · model condition</div>
-                            <h2 class="dl-section-title">11 base 모델 컨디션</h2>
-                            <p class="dl-section-desc">트리 · 그리드 · 그래프 · 전이 · 이상치 · 시계열 · 메모리 · 불확실성 모델군의 활성 상태와 가중치.</p>
+                            <div class="dl-section-eyebrow">10 base · model condition</div>
+                            <h2 class="dl-section-title">메인 1~45 모델 컨디션</h2>
+                            <p class="dl-section-desc">트리 · 그리드 · 그래프 · 전이 · 이상치 · 시계열 · 메모리 · 불확실성 모델군의 활성 상태와 가중치 (10 base).</p>
                         </div>
                         <span class="dl-header-meta" id="modelConditionUpdated">갱신 —</span>
                     </div>
@@ -752,9 +752,15 @@
                         <span class="dl-model-chip"><span class="dl-dot" style="background:var(--c-markov);"></span><span class="dl-model-chip-label">Markov</span><span class="dl-model-chip-tag">transition</span></span>
                         <span class="dl-model-chip"><span class="dl-dot" style="background:var(--c-ae);"></span><span class="dl-model-chip-label">Autoencoder</span><span class="dl-model-chip-tag">anomaly</span></span>
                         <span class="dl-model-chip"><span class="dl-dot" style="background:var(--c-tft);"></span><span class="dl-model-chip-label">TFT</span><span class="dl-model-chip-tag">temporal</span></span>
-                        <span class="dl-model-chip"><span class="dl-dot" style="background:var(--c-nbeats);"></span><span class="dl-model-chip-label">N-BEATS</span><span class="dl-model-chip-tag">temporal</span></span>
                         <span class="dl-model-chip"><span class="dl-dot" style="background:var(--c-mhn);"></span><span class="dl-model-chip-label">MHN</span><span class="dl-model-chip-tag">memory</span></span>
                         <span class="dl-model-chip"><span class="dl-dot" style="background:var(--c-bayesian);"></span><span class="dl-model-chip-label">Bayesian</span><span class="dl-model-chip-tag">uncertainty</span></span>
+                    </div>
+
+                    <!-- 보조: 스칼라 시계열 분해 (총합 / 끝수합 / AC값) — N-BEATS -->
+                    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding-top:10px; margin-top:4px; border-top:1px dashed #E5E7EB;">
+                        <span class="dl-header-meta" style="font-weight:700;">스칼라 시계열 분해</span>
+                        <span class="dl-model-chip"><span class="dl-dot" style="background:var(--c-nbeats);"></span><span class="dl-model-chip-label">N-BEATS</span><span class="dl-model-chip-tag">trend / seasonality / residual</span></span>
+                        <span class="dl-header-meta" style="color:#94a3b8;">총합 · 끝수합 · AC값 등 스칼라 지표 분해 전용 (1~45 직접 예측 X)</span>
                     </div>
 
                     <!-- legacy: 모델 컨디션 바 (Meta-Learning 가중치) — JS가 채움 -->
@@ -767,7 +773,7 @@
                         <div>
                             <div class="dl-section-eyebrow">Rank slice · selector</div>
                             <h2 class="dl-section-title">번호 순위 슬라이스</h2>
-                            <p class="dl-section-desc">11 모델별 1~45위 순위 중 임의 구간을 선택해 분포를 비교합니다. 5분할 default · 사용자 정의 가능.</p>
+                            <p class="dl-section-desc">10 모델별 1~45위 순위 중 임의 구간을 선택해 분포를 비교합니다. 5분할 default · 사용자 정의 가능.</p>
                         </div>
                     </div>
 
@@ -810,7 +816,7 @@
                         <div>
                             <div class="dl-section-eyebrow">Consensus matrix · 11×11</div>
                             <h2 class="dl-section-title">모델 합의 매트릭스</h2>
-                            <p class="dl-section-desc">11 base 모델 간 상위 N 추천의 교집합 비율 (0–1). 진한 색일수록 두 모델의 합의가 높습니다.</p>
+                            <p class="dl-section-desc">10 base 메인 모델 간 상위 N 추천의 교집합 비율 (0–1). 진한 색일수록 두 모델의 합의가 높습니다.</p>
                         </div>
                         <span class="dl-header-meta">교집합 비율 0–1</span>
                     </div>
@@ -927,7 +933,7 @@
                         <div>
                             <div class="dl-section-eyebrow">Per-number · model breakdown</div>
                             <h2 class="dl-section-title">번호별 모델 분석</h2>
-                            <p class="dl-section-desc">11 모델의 번호별 점수를 정렬·비교합니다.</p>
+                            <p class="dl-section-desc">메인 1~45 영역 10 모델의 번호별 점수를 정렬·비교합니다 (N-BEATS는 스칼라 분해 전용).</p>
                         </div>
                         <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
                             <span class="dl-header-meta" style="margin-right:6px;">정렬</span>
@@ -940,7 +946,6 @@
                             <button id="sort-btn-markov" onclick="DeepLearning.sortMatrix('markov')" class="dl-badge">MKV</button>
                             <button id="sort-btn-autoencoder" onclick="DeepLearning.sortMatrix('autoencoder')" class="dl-badge">AE</button>
                             <button id="sort-btn-tft" onclick="DeepLearning.sortMatrix('tft')" class="dl-badge">TFT</button>
-                            <button id="sort-btn-nbeats" onclick="DeepLearning.sortMatrix('nbeats')" class="dl-badge">NBT</button>
                             <button id="sort-btn-mhn" onclick="DeepLearning.sortMatrix('mhn')" class="dl-badge">MHN</button>
                             <button id="sort-btn-bayesian_nn" onclick="DeepLearning.sortMatrix('bayesian_nn')" class="dl-badge">BAY</button>
                         </div>
@@ -948,7 +953,7 @@
                     <div id="matrixDataContainer">
                         <div class="dl-empty">
                             <p class="dl-empty-title">분석 중</p>
-                            <p class="dl-empty-desc">11 모델 점수 매트릭스를 불러오는 중입니다.</p>
+                            <p class="dl-empty-desc">10 모델 점수 매트릭스를 불러오는 중입니다.</p>
                         </div>
                     </div>
                 </section>
@@ -1006,9 +1011,9 @@
                 <section class="dl-section">
                     <div class="dl-section-head">
                         <div>
-                            <div class="dl-section-eyebrow">11 base · filter range</div>
+                            <div class="dl-section-eyebrow">10 base · filter range</div>
                             <h2 class="dl-section-title">모델별 필터 예상 범위</h2>
-                            <p class="dl-section-desc">11 모델 각각이 예측한 필터 적용 범위를 비교합니다.</p>
+                            <p class="dl-section-desc">10 모델 각각이 예측한 필터 적용 범위를 비교합니다 (스칼라 지표는 N-BEATS 별도).</p>
                         </div>
                     </div>
                     <div id="rangeAnalysisSource" style="margin-bottom: 12px;"></div>
@@ -1026,7 +1031,7 @@
                         <div>
                             <div class="dl-section-eyebrow">Ensemble · confidence interval</div>
                             <h2 class="dl-section-title">앙상블 신뢰구간</h2>
-                            <p class="dl-section-desc">11 모델 합의 평균 ± 1σ 영역을 표시합니다.</p>
+                            <p class="dl-section-desc">10 모델 합의 평균 ± 1σ 영역을 표시합니다.</p>
                         </div>
                     </div>
                     <div id="chartEnsembleCI" class="dl-chart"></div>
@@ -1038,7 +1043,7 @@
                         <div>
                             <div class="dl-section-eyebrow">Tail-digit · indicator</div>
                             <h2 class="dl-section-title">끝수 분석</h2>
-                            <p class="dl-section-desc">끝수 0–9의 11 모델 점수와 Gap / Strength.</p>
+                            <p class="dl-section-desc">끝수 0–9의 10 메인 모델 점수와 Gap / Strength.</p>
                         </div>
                     </div>
                     <div style="overflow-x:auto;">
@@ -1108,7 +1113,7 @@
                         <div>
                             <div class="dl-section-eyebrow">Decade · 10-band</div>
                             <h2 class="dl-section-title">번호대별 분석</h2>
-                            <p class="dl-section-desc">10단위 구간별 출현 흐름과 N-BEATS 분해.</p>
+                            <p class="dl-section-desc">10단위 구간별 출현 흐름. 보조: 구간 합 스칼라 시계열 분해 (N-BEATS).</p>
                         </div>
                     </div>
                     <div id="numberBandContainer" style="overflow-x:auto;">
@@ -1276,9 +1281,9 @@
                         <div>
                             <div class="dl-section-eyebrow">Custom · ensemble batch</div>
                             <h2 class="dl-section-title">커스텀 분석 딥러닝 평가</h2>
-                            <p class="dl-section-desc">각 커스텀분석의 현재 회차 대상번호를 11 base 앙상블로 평가합니다.</p>
+                            <p class="dl-section-desc">각 커스텀분석의 현재 회차 대상번호를 10 base 메인 앙상블로 평가합니다.</p>
                         </div>
-                        <span class="dl-badge accent">11 모델 배치 분석</span>
+                        <span class="dl-badge accent">10 모델 배치 분석</span>
                     </div>
                     <div id="custom-container" style="overflow-x:auto;">
                         <div class="dl-empty">

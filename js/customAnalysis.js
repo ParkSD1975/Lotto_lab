@@ -2110,6 +2110,7 @@ window.addEventListener('storage', (e) => {
 //   - 최근 10회차 실제 적중으로 Min/Max 범위 보정
 //   - 사용자 결정 #24: lstm/transformer 폐기, TFT 흡수
 // ═══════════════════════════════════════════════════════════════════════════
+// [Stage 1-4-D-2-fix-10] 메인 1~45 영역 — N-BEATS 제외 (스칼라 분해 전용)
 const CUSTOM_INSIGHT_MODELS = [
     { key: 'xgboost',     label: 'XGBOOST' },
     { key: 'catboost',    label: 'CATBOOST' },
@@ -2119,7 +2120,6 @@ const CUSTOM_INSIGHT_MODELS = [
     { key: 'markov',      label: 'MARKOV' },
     { key: 'autoencoder', label: 'AE' },
     { key: 'tft',         label: 'TFT' },
-    { key: 'nbeats',      label: 'N-BEATS' },
     { key: 'mhn',         label: 'MHN' },
     { key: 'bayesian_nn', label: 'BAYESIAN' }
 ];

@@ -27,6 +27,10 @@
     'use strict';
 
     // ────── 11 base 모델 메타 (데이터 라벨용) ──────
+    // [Stage 1-4-D-2-fix-10] N-BEATS는 메인 1~45 영역에서 제외 (스칼라 분해 전용)
+    //   - MODEL_META: 11 base 메타 유지 (백워드 호환)
+    //   - MODEL_ORDER(메인 1~45 렌더용): nbeats 제외 → 10 base
+    //   - INDICATOR_ACTIVE_MODELS: 스칼라 지표만 nbeats 활성, 나머지는 nbeats 미포함
     const MODEL_META = {
         xgboost:     { label: 'XGBoost',  token: '--c-xgb',     tag: '트리' },
         catboost:    { label: 'CatBoost', token: '--c-cat',     tag: '카테고리' },
@@ -36,26 +40,32 @@
         markov:      { label: 'Markov',   token: '--c-markov',  tag: '전이' },
         autoencoder: { label: 'AE',       token: '--c-ae',      tag: '이상치' },
         tft:         { label: 'TFT',      token: '--c-tft',     tag: '시계열' },
-        nbeats:      { label: 'N-BEATS',  token: '--c-nbeats',  tag: '분해' },
+        nbeats:      { label: 'N-BEATS',  token: '--c-nbeats',  tag: '스칼라 분해' },
         mhn:         { label: 'MHN',      token: '--c-mhn',     tag: '메모리' },
         bayesian_nn: { label: 'Bayesian', token: '--c-bayesian',tag: '불확실성' },
     };
 
+    // 메인 1~45 영역 — N-BEATS 제외 (10 base)
     const MODEL_ORDER = [
         'xgboost', 'catboost', 'tabnet',
         'cnn', 'gnn',
         'markov',
         'autoencoder',
-        'tft', 'nbeats',
+        'tft',
         'mhn',
         'bayesian_nn',
     ];
 
+    // 스칼라 시계열 분해 전용 모델 (보조 영역)
+    const SCALAR_DECOMPOSITION_MODELS = ['nbeats'];
+    const SCALAR_INDICATORS = new Set(['total_sum', 'tail_sum', 'ac_value']);
+
     // 지표별 활성 모델 매핑 (Master Plan 표 1)
+    // 스칼라 지표(total_sum/tail_sum/ac_value)만 nbeats 활성 — 별도 분해 차트로 노출
     const INDICATOR_ACTIVE_MODELS = {
-        total_sum:         ['xgboost','catboost','tabnet','tft','nbeats','markov','autoencoder','gnn','bayesian_nn'],
-        tail_sum:          ['xgboost','catboost','tabnet','tft','nbeats','markov','autoencoder','gnn','cnn','bayesian_nn'],
-        ac_value:          ['xgboost','tft','markov','nbeats','catboost','bayesian_nn'],
+        total_sum:         ['xgboost','catboost','tabnet','tft','markov','autoencoder','gnn','bayesian_nn'],
+        tail_sum:          ['xgboost','catboost','tabnet','tft','markov','autoencoder','gnn','cnn','bayesian_nn'],
+        ac_value:          ['xgboost','tft','markov','catboost','bayesian_nn'],
         low_high:          ['xgboost','catboost','tabnet','markov','tft','gnn','bayesian_nn'],
         odd_even:          ['xgboost','catboost','tabnet','markov','tft','gnn','bayesian_nn'],
         carryover:         ['xgboost','catboost','gnn','markov','tft'],
@@ -75,6 +85,13 @@
         hot_cold:          ['xgboost','catboost','tabnet','gnn','markov','autoencoder','tft'],
         regression:        ['xgboost','catboost','tabnet','gnn','markov','tft','bayesian_nn','mhn'],
         custom_analysis:   MODEL_ORDER,
+    };
+
+    // 스칼라 지표일 때 별도 노출되는 보조 모델 (스칼라 시계열 분해)
+    const INDICATOR_SCALAR_MODELS = {
+        total_sum: SCALAR_DECOMPOSITION_MODELS,
+        tail_sum:  SCALAR_DECOMPOSITION_MODELS,
+        ac_value:  SCALAR_DECOMPOSITION_MODELS,
     };
 
     const INDICATOR_LABEL_KO = {
@@ -470,7 +487,7 @@
         const left = el('div');
         left.appendChild(el('h2', 'dl-v3__title', indicatorLabel));
         left.appendChild(el('p', 'dl-v3__subtitle',
-            `11개 모델 합의 분석 · ${data && data.target_round ? '회차 ' + data.target_round : '최신 회차'}`));
+            `메인 10 모델 합의 분석 · ${data && data.target_round ? '회차 ' + data.target_round : '최신 회차'}`));
 
         const right = el('div', 'dl-v3__confidence');
         right.appendChild(el('div', 'dl-v3__confidence-label', '신뢰도'));
@@ -501,6 +518,25 @@
             wrap.appendChild(chip);
         });
         container.appendChild(wrap);
+
+        // 스칼라 지표는 별도 보조 영역 — 스칼라 시계열 분해 모델
+        const scalarModels = INDICATOR_SCALAR_MODELS[indicator];
+        if (scalarModels && scalarModels.length) {
+            const auxWrap = el('div', 'dl-v3__models');
+            auxWrap.style.marginTop = '0.5rem';
+            auxWrap.appendChild(el('span', 'dl-v3__models-label', '스칼라 시계열 분해'));
+            scalarModels.forEach(name => {
+                const meta = MODEL_META[name];
+                if (!meta) return;
+                const chip = el('span', 'dl-v3__model-chip');
+                const dot = el('span', 'dl-v3__model-dot');
+                dot.style.color = `var(${meta.token})`;
+                chip.append(dot, document.createTextNode(meta.label));
+                chip.appendChild(el('span', 'dl-v3__model-tag', meta.tag));
+                auxWrap.appendChild(chip);
+            });
+            container.appendChild(auxWrap);
+        }
     }
 
     function renderPillars(container, data) {

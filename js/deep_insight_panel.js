@@ -4,7 +4,7 @@
  *
  * 구조:
  *  [1] 모델별 예측 범위  — 게이지 없이 숫자만, 컴팩트 리스트
- *  [2] 앙상블 종합       — 7개 모델 평균 + 합의도
+ *  [2] 앙상블 종합       — 10개 메인 모델 평균 + 합의도 (스칼라 분해는 별도)
  *  [3] AI 분석 & 최종 제안 — 흐름분석 + 딥러닝 결과 기반 LLM 제안
  *
  * 사용법:
@@ -20,6 +20,10 @@
     let _lastContainerId = ''; // [추가] 새로고침 버튼 대응용
 
     // 11 base 토폴로지 (Master Plan 사용자 결정 #24) — lstm/transformer 폐기, TFT 흡수
+    // [Stage 1-4-D-2-fix-10] N-BEATS는 메인 1~45 영역에서 제외 (스칼라 시계열 분해 전용)
+    //   - MODEL_META는 11 base 메타 유지 (백워드 호환 — xaiMap.nbeats_pct 키 lookup)
+    //   - MODEL_ORDER(메인 1~45 렌더용)는 nbeats 제외 → 10 base
+    //   - 스칼라 지표(total_sum/tail_sum/ac_value)는 별도 SCALAR_DECOMPOSITION_MODELS 사용
     const MODEL_META = {
         xgboost:     { label: 'XGBoost',  dot: '#3B82F6', tag: '트리' },
         catboost:    { label: 'CatBoost', dot: '#14B8A6', tag: '카테고리' },
@@ -29,21 +33,31 @@
         markov:      { label: 'Markov',   dot: '#10B981', tag: '전이' },
         autoencoder: { label: 'AE',       dot: '#8B5CF6', tag: '이상치' },
         tft:         { label: 'TFT',      dot: '#F97316', tag: '시계열' },
-        nbeats:      { label: 'N-BEATS',  dot: '#06B6D4', tag: '분해' },
+        nbeats:      { label: 'N-BEATS',  dot: '#06B6D4', tag: '스칼라 분해' },
         mhn:         { label: 'MHN',      dot: '#84CC16', tag: '메모리' },
         bayesian_nn: { label: 'Bayesian', dot: '#F59E0B', tag: '불확실성' }
     };
 
+    // 메인 1~45 영역 — N-BEATS 제외 (10 base)
     const MODEL_ORDER = [
         'xgboost', 'catboost', 'tabnet',
         'cnn', 'gnn',
         'markov', 'autoencoder',
-        'tft', 'nbeats',
+        'tft',
         'mhn', 'bayesian_nn'
     ];
 
+    // 스칼라 시계열 분해 전용 모델 (보조 영역) — total_sum / tail_sum / ac_value
+    const SCALAR_DECOMPOSITION_MODELS = ['nbeats'];
+    const SCALAR_INDICATORS = new Set(['total_sum', 'tail_sum', 'sum', 'ac_value', 'ac', 'end_sum']);
+
     // 백워드 호환: 폐기 모델 키 (API 응답에 와도 graceful skip)
     const DEPRECATED_MODEL_KEYS = new Set(['lstm', 'transformer']);
+
+    // 메인 1~45 영역에서 사용할 모델 list — 스칼라 지표일 때도 메인 그리드는 10 base 유지
+    function _mainModelOrder() {
+        return MODEL_ORDER.slice();
+    }
 
     // ── 캐시 ─────────────────────────────────────────────────────────────────
     let _memCache = null;
@@ -124,8 +138,11 @@
     }
 
     // ── 합의도 계산 ───────────────────────────────────────────────────────────
+    // [Stage 1-4-D-2-fix-10] 메인 1~45 영역 — nbeats 제외
     function _computeAgreement(modelExp) {
-        const vals = Object.values(modelExp);
+        const vals = Object.entries(modelExp)
+            .filter(([k, _]) => k !== '__ensemble__' && !SCALAR_DECOMPOSITION_MODELS.includes(k))
+            .map(([, e]) => e);
         if (vals.length < 2) return 1;
         const mids = vals.map(e => (e.min + e.max) / 2);
         const mean = mids.reduce((a, b) => a + b, 0) / mids.length;
@@ -144,9 +161,12 @@
     }
 
     // ── 앙상블 min/max 및 합의도 계산 ─────────────────────────────���─────────────
+    // [Stage 1-4-D-2-fix-10] 메인 1~45 영역 — nbeats(스칼라 분해 전용)는 평균/합의도에서 제외
     function _ensembleRange(modelExp) {
-        const mins = Object.values(modelExp).map(e => e.min).filter(v => v !== undefined);
-        const maxs = Object.values(modelExp).map(e => e.max).filter(v => v !== undefined);
+        const _isMain = ([k, _]) => k !== '__ensemble__' && !SCALAR_DECOMPOSITION_MODELS.includes(k);
+        const mainEntries = Object.entries(modelExp).filter(_isMain);
+        const mins = mainEntries.map(([, e]) => e.min).filter(v => v !== undefined);
+        const maxs = mainEntries.map(([, e]) => e.max).filter(v => v !== undefined);
         if (!mins.length) return { cMin: '-', cMax: '-', agreement: 0 };
 
         // P8: __ensemble__ 키가 있으면 백엔드 가중 앙상블 값 우선 사용
@@ -157,9 +177,9 @@
         // P8: Bootstrap CI (sum/tail_sum/ac/filter_range 에만 존재)
         const ci = ensEntry?.ci || null;  // {lo_p10, lo_p90, hi_p10, hi_p90, band, level}
 
-        // 합의도 계산 (표준편차 기반) — __ensemble__ 제외한 모델들만 사용
-        const validForMids = Object.entries(modelExp)
-            .filter(([k, e]) => k !== '__ensemble__' && e.min !== undefined && e.max !== undefined)
+        // 합의도 계산 (표준편차 기반) — __ensemble__ 및 스칼라 분해 모델(nbeats) 제외
+        const validForMids = mainEntries
+            .filter(([_, e]) => e.min !== undefined && e.max !== undefined)
             .map(([, e]) => e);
         const mids = validForMids.map(e => (e.min + e.max) / 2);
         if (!mids.length) return { cMin, cMax, agreement: 0, recommendations: [], ci };
@@ -441,7 +461,7 @@
 # Data Context:
 - 분석 범위: 최근 ${safeAnalysisRange}회차 전수 데이터 기반
 - 통계 분석: 평균 ${stats?.avg || 'N/A'}, 범위 ${stats?.min || 'N/A'}~${stats?.max || 'N/A'}, 표준편차 ${stats?.stdDev || 'N/A'}, 추세 ${stats?.trend || 'N/A'}
-- 7개 개별 모델 예측: ${modelSummary}
+- 10개 개별 모델 예측 (메인 1~45 영역): ${modelSummary}
 - AI 앙상블 종합 예측 범위: ${cMin}~${cMax}
 - 현재 전략 가이드 (기본): ${(strategy.overall_strategy && strategy.overall_strategy.short_advice) || 'N/A'}
 
@@ -753,7 +773,7 @@
                         <div class="dip-v3-gauge-track" style="height:10px; background:#f1f5f9; border-radius:5px; overflow:hidden;">
                             <div class="dip-v3-gauge-bar" style="width: ${agreement}%; height:100%; background:linear-gradient(90deg, #3b82f6, #2563eb); border-radius:5px; transition:width 1s ease-out;"></div>
                         </div>
-                        <div style="font-size:0.65rem; color:#94a3b8; font-weight:600; text-align:right; margin-top:6px;">7개 딥러닝 모델 교차 검증 완료</div>
+                        <div style="font-size:0.65rem; color:#94a3b8; font-weight:600; text-align:right; margin-top:6px;">10개 메인 딥러닝 모델 교차 검증 완료</div>
                     </div>
                 </div>
             </div>

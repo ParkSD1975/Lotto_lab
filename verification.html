@@ -513,7 +513,7 @@
                 <div>
                     <span class="vfy-eyebrow">Verification</span>
                     <h1 class="vfy-title">검증</h1>
-                    <p class="vfy-subtitle">필터 · 추천 · 11 base 모델 결과를 회차 단위로 검증합니다.</p>
+                    <p class="vfy-subtitle">필터 · 추천 · 10 base 메인 모델(+N-BEATS 스칼라 분해) 결과를 회차 단위로 검증합니다.</p>
                 </div>
                 <!-- 회차 네비게이션 + 그룹 + 로딩 (오른쪽 정렬) -->
                 <div style="display:flex; align-items:center; gap:18px; flex-wrap: wrap; justify-content: flex-end;" role="navigation" aria-label="회차 이동">
@@ -657,7 +657,7 @@
                         <div>
                             <div class="vfy-section-eyebrow">Recent 50 rounds · average</div>
                             <h2 class="vfy-section-title">최근 50회차 평균 메트릭</h2>
-                            <p class="vfy-section-desc">11 base 모델 + 4 Pillar 합의 추천/제외의 회차당 평균 적중을 베이스라인(랜덤 0.67) 대비로 표시합니다.</p>
+                            <p class="vfy-section-desc">10 base 메인 모델 + 4 Pillar 합의 추천/제외의 회차당 평균 적중을 베이스라인(랜덤 0.67) 대비로 표시합니다.</p>
                         </div>
                         <span class="vfy-header-meta" id="dlV3MetricUpdated">갱신 —</span>
                     </div>
@@ -752,7 +752,7 @@
                         <div>
                             <div class="vfy-section-eyebrow">SLA · training & inference</div>
                             <h2 class="vfy-section-title">학습 / 추론 SLA</h2>
-                            <p class="vfy-section-desc">11 base 모델 평균 학습/추론 시간 (목표 학습 ≤ 5분, 추론 ≤ 1분).</p>
+                            <p class="vfy-section-desc">11 base 모델(메인 10 + N-BEATS 스칼라 분해) 평균 학습/추론 시간 (목표 학습 ≤ 5분, 추론 ≤ 1분).</p>
                             <table class="vfy-table" style="margin-top: 18px;" aria-label="SLA">
                                 <thead><tr><th>구분</th><th class="num">평균 (s)</th><th class="num">P95 (s)</th></tr></thead>
                                 <tbody>
@@ -3545,7 +3545,7 @@ const VP = (() => {
             const recSet  = new Set(recNums);
 
             // 11 base 토폴로지 (사용자 결정 #24)
-            const MODEL_ORDER  = ['xgboost','catboost','tabnet','cnn','gnn','markov','autoencoder','tft','nbeats','mhn','bayesian_nn'];
+            const MODEL_ORDER  = ['xgboost','catboost','tabnet','cnn','gnn','markov','autoencoder','tft','mhn','bayesian_nn']; // [Stage 1-4-D-2-fix-10] 메인 1~45 — N-BEATS 제외 (10 base)
 
             // ── hot_cold_data에서 번호별 모델 확률 구축 (DL 페이지 _buildNumModelProbs 동일 로직) ──
             const _numModelProbs = {};
@@ -3759,6 +3759,7 @@ const VP = (() => {
         const undrawn = isUndrawn(curDraw);
 
         // dbKey: analysis.matrix_data 내 실제 키 이름 — 11 base 토폴로지 (사용자 결정 #24)
+            // [Stage 1-4-D-2-fix-10] 메인 1~45 — N-BEATS 제외 (10 base + 앙상블)
             const MODEL_LIST = [
                 { key:'ens',   dbKey:'ensemble',    label:'앙상블 Result',     color:'#7C3AED' },
                 { key:'xgb',   dbKey:'xgboost',     label:'XGBoost',          color:'#3B82F6' },
@@ -3769,7 +3770,6 @@ const VP = (() => {
                 { key:'mkv',   dbKey:'markov',      label:'Markov',           color:'#10B981' },
                 { key:'ae',    dbKey:'autoencoder', label:'AE',               color:'#8B5CF6' },
                 { key:'tft',   dbKey:'tft',         label:'TFT',              color:'#F97316' },
-                { key:'nbt',   dbKey:'nbeats',      label:'N-BEATS',          color:'#06B6D4' },
                 { key:'mhn',   dbKey:'mhn',         label:'MHN',              color:'#84CC16' },
                 { key:'bay',   dbKey:'bayesian_nn', label:'Bayesian',         color:'#F59E0B' }
             ];
@@ -4146,7 +4146,7 @@ const VP = (() => {
             const analysisData = ad?.analysis || ad;
 
             // 11 base 토폴로지 (사용자 결정 #24)
-            const MODEL_ORDER  = ['xgboost','catboost','tabnet','cnn','gnn','markov','autoencoder','tft','nbeats','mhn','bayesian_nn'];
+            const MODEL_ORDER  = ['xgboost','catboost','tabnet','cnn','gnn','markov','autoencoder','tft','mhn','bayesian_nn']; // [Stage 1-4-D-2-fix-10] 메인 1~45 — N-BEATS 제외 (10 base)
             const MODEL_LABELS = {
                 xgboost:'XGB', catboost:'CAT', tabnet:'TAB',
                 cnn:'CNN', gnn:'GNN',
@@ -4850,7 +4850,7 @@ const VP = (() => {
             }
 
             // 11 base 토폴로지 (사용자 결정 #24)
-            const MODEL_ORDER  = ['xgboost','catboost','tabnet','cnn','gnn','markov','autoencoder','tft','nbeats','mhn','bayesian_nn'];
+            const MODEL_ORDER  = ['xgboost','catboost','tabnet','cnn','gnn','markov','autoencoder','tft','mhn','bayesian_nn']; // [Stage 1-4-D-2-fix-10] 메인 1~45 — N-BEATS 제외 (10 base)
             const MODEL_LABELS = {
                 xgboost:'XGB', catboost:'CAT', tabnet:'TAB',
                 cnn:'CNN', gnn:'GNN',

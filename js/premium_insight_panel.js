@@ -496,6 +496,7 @@
     }
 
     // 11 base 토폴로지 (사용자 결정 #24) — lstm/transformer 폐기, TFT 흡수
+    // [Stage 1-4-D-2-fix-10] 메인 1~45 영역에서 N-BEATS 제외 (스칼라 분해 전용)
     const MODEL_ORDER = [
         { key: 'xgboost',     label: 'XGBOOST' },
         { key: 'catboost',    label: 'CATBOOST' },
@@ -505,13 +506,14 @@
         { key: 'markov',      label: 'MARKOV' },
         { key: 'autoencoder', label: 'AE' },
         { key: 'tft',         label: 'TFT' },
-        { key: 'nbeats',      label: 'N-BEATS' },
         { key: 'mhn',         label: 'MHN' },
         { key: 'bayesian_nn', label: 'BAYESIAN' }
     ];
 
     // 백워드 호환: 폐기 모델 키 (API 응답에 와도 graceful skip)
     const DEPRECATED_MODEL_KEYS = new Set(['lstm', 'transformer']);
+    // 메인 1~45 영역에서 제외할 모델 (스칼라 분해 전용 — 별도 영역에서만 노출)
+    const MAIN_EXCLUDED_MODEL_KEYS = new Set(['nbeats']);
 
     // 탭 HTML (헤더 우측에 삽입) — sky-blue 언더바 활성 표시
     function _tabsHTML(tabs, containerId) {
@@ -582,7 +584,7 @@
                             <span style="font-size:0.85rem; color:#1e293b; font-weight:900;">${shimmer}</span>
                         </div>
                         <div style="height:10px; background:#f1f5f9; border-radius:5px; overflow:hidden;"></div>
-                        <div style="font-size:0.62rem; color:#94a3b8; font-weight:700; text-align:right; margin-top:6px;">7개 딥러닝 모델 교차 검증</div>
+                        <div style="font-size:0.62rem; color:#94a3b8; font-weight:700; text-align:right; margin-top:6px;">10개 메인 딥러닝 모델 교차 검증</div>
                     </div>
                 </div>
             </div>
@@ -890,7 +892,7 @@
                         <div style="height:8px; background:#f1f5f9; border-radius:5px; overflow:hidden;">
                             <div style="width:${ratioData && ratioData.ensemble ? Math.round((ratioData.ensemble.agreement || 0) * 100) : ensemble.agreement}%; height:100%; background:linear-gradient(90deg,#38bdf8,#2563eb);"></div>
                         </div>
-                        <div style="font-size:0.6rem; color:#94a3b8; font-weight:700; text-align:right; margin-top:4px;">7개 딥러닝 모델</div>
+                        <div style="font-size:0.6rem; color:#94a3b8; font-weight:700; text-align:right; margin-top:4px;">10개 메인 딥러닝 모델</div>
                     </div>
                 </div>
             </div>

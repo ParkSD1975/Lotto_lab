@@ -1307,6 +1307,7 @@ ${userPrompt}
         // XAI 번호별 인라인 패널 (AI 프리미엄 전략 리포트 동일 디자인)
         // ═══════════════════════════════════════════════════════
         // 11 base 토폴로지 (사용자 결정 #24) — lstm/transformer 폐기, TFT 흡수
+        // [Stage 1-4-D-2-fix-10] 메인 1~45 영역(번호별 XAI) — N-BEATS 제외 (10 base, 스칼라 분해 전용)
         const _XAI_MODELS = [
             { key: 'xgboost',     label: 'XGBoost (트리)',       color: '#3B82F6' },
             { key: 'catboost',    label: 'CatBoost (카테고리)',  color: '#14B8A6' },
@@ -1316,7 +1317,6 @@ ${userPrompt}
             { key: 'markov',      label: 'Markov (전이)',          color: '#10B981' },
             { key: 'autoencoder', label: 'AE (이상치)',           color: '#8B5CF6' },
             { key: 'tft',         label: 'TFT (시계열)',           color: '#F97316' },
-            { key: 'nbeats',      label: 'N-BEATS (분해)',         color: '#06B6D4' },
             { key: 'mhn',         label: 'MHN (메모리)',           color: '#84CC16' },
             { key: 'bayesian_nn', label: 'Bayesian (불확실성)',    color: '#F59E0B' },
         ];
