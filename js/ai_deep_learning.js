@@ -2149,9 +2149,23 @@ const DeepLearning = {
         }).join('');
     },
 
-    renderModelRanking(matrixData) {
+    renderModelRanking(matrixData, sliceFrom, sliceTo) {
         const container = document.getElementById('modelRankingContainer');
         if (!container || !matrixData || !matrixData.length) return;
+
+        // [Stage 1-4-D-2-fix-11] matrixData 캐시 — setRankSlice 재렌더링용
+        this._lastMatrixData = matrixData;
+
+        // [Stage 1-4-D-2-fix-11] 슬라이스 구간 (default: 1~45 전체)
+        let sf = parseInt(sliceFrom, 10);
+        let st = parseInt(sliceTo, 10);
+        if (!isFinite(sf) || sf < 1) sf = (this._rankSliceFrom || 1);
+        if (!isFinite(st) || st < 1) st = (this._rankSliceTo || 45);
+        if (sf > st) { const tmp = sf; sf = st; st = tmp; }
+        sf = Math.max(1, Math.min(45, sf));
+        st = Math.max(1, Math.min(45, st));
+        this._rankSliceFrom = sf;
+        this._rankSliceTo   = st;
 
         // [Stage 1-4-D-2-fix-10] 메인 1~45 모델 랭킹 — N-BEATS 제외 (10 base)
         const MODEL_ORDER  = MAIN_45_MODELS.slice();
@@ -2209,21 +2223,25 @@ const DeepLearning = {
             </tr>
         </thead>`;
 
-        // 행: 1위~45위, 각 셀은 해당 순위의 번호
-        const tbodyHtml = Array.from({ length: 45 }, (_, i) => {
-            const rank = i + 1;
+        // [Stage 1-4-D-2-fix-11] 행: sf~st 구간만, 각 셀은 해당 순위의 번호
+        const rowCount = Math.max(0, st - sf + 1);
+        const tbodyHtml = Array.from({ length: rowCount }, (_, i) => {
+            const rank = sf + i;
             const rankCls = rank <= 6 ? 'font-black text-indigo-600' : rank <= 15 ? 'font-bold text-gray-600' : 'font-medium text-gray-300';
             return `<tr class="border-b border-gray-100 last:border-0 hover:bg-indigo-50/20 transition-colors">
                 <td class="py-1.5 text-center text-[12px] ${rankCls}">${rank}</td>
-                ${cols.map(c => `<td class="py-1.5 text-center">${_ball(c.nums[i])}</td>`).join('')}
+                ${cols.map(c => `<td class="py-1.5 text-center">${_ball(c.nums[rank - 1])}</td>`).join('')}
             </tr>`;
         }).join('');
+
+        // 슬라이스 라벨 (예: "1~9위", "10~18위", "1~45위 전체")
+        const sliceLabel = (sf === 1 && st === 45) ? '1~45위 · 전체' : `${sf}~${st}위`;
 
         container.innerHTML = `
             <div class="card col-span-1 lg:col-span-2">
                 <div class="card-header">
                     <span class="material-symbols-outlined icon text-indigo-500">format_list_numbered</span>
-                    <h3>모델별 번호 순위 (1위 → 45위)</h3>
+                    <h3>모델별 번호 순위 (${sliceLabel})</h3>
                     <span class="ml-auto text-[10px] bg-indigo-50 text-indigo-500 font-bold px-2 py-0.5 rounded-full whitespace-nowrap">열 = 모델, 행 = 순위</span>
                 </div>
                 <div class="card-body p-0">
@@ -2234,6 +2252,61 @@ const DeepLearning = {
                 </div>
             </div>`;
         container.style.display = 'block';
+    },
+
+    /**
+     * [Stage 1-4-D-2-fix-11] RankSliceSelector 핸들러
+     *
+     * 5분할 chip / 슬라이더에서 호출:
+     *   window.DeepLearning.setRankSlice('1-9') 또는 setRankSlice(1, 9)
+     *
+     * 동작:
+     *   - 캐시된 _lastMatrixData 로 슬라이스 구간만 재렌더
+     *   - 5분할 chip active state 토글 (data-slice 매칭)
+     *   - 슬라이더 from/to + 라벨 동기화
+     */
+    setRankSlice(arg1, arg2) {
+        let sf, st;
+        if (typeof arg1 === 'string') {
+            const parts = arg1.split('-');
+            sf = parseInt(parts[0], 10);
+            st = parseInt(parts[1], 10);
+        } else {
+            sf = parseInt(arg1, 10);
+            st = parseInt(arg2, 10);
+        }
+        if (!isFinite(sf) || sf < 1) sf = 1;
+        if (!isFinite(st) || st < 1) st = 45;
+        if (sf > st) { const tmp = sf; sf = st; st = tmp; }
+        sf = Math.max(1, Math.min(45, sf));
+        st = Math.max(1, Math.min(45, st));
+
+        // 1. 슬라이더 + 라벨 동기화
+        const fromEl = document.getElementById('rankSliceFrom');
+        const toEl   = document.getElementById('rankSliceTo');
+        const fromVal = document.getElementById('rankSliceFromVal');
+        const toVal   = document.getElementById('rankSliceToVal');
+        if (fromEl) fromEl.value = sf;
+        if (toEl)   toEl.value   = st;
+        if (fromVal) fromVal.textContent = sf;
+        if (toVal)   toVal.textContent   = st;
+
+        // 2. 5분할 chip active toggle
+        const activeKey = `${sf}-${st}`;
+        document.querySelectorAll('button[data-slice]').forEach(btn => {
+            const k = btn.getAttribute('data-slice');
+            if (k === activeKey) btn.classList.add('is-active');
+            else btn.classList.remove('is-active');
+        });
+
+        // 3. matrixData 재렌더 (캐시 우선, 없으면 무시)
+        if (this._lastMatrixData && this._lastMatrixData.length) {
+            this.renderModelRanking(this._lastMatrixData, sf, st);
+        } else {
+            // 캐시 없음 — 다음 데이터 로드 시 적용되도록 상태만 저장
+            this._rankSliceFrom = sf;
+            this._rankSliceTo   = st;
+        }
     },
 
     renderPipelineInfo(pipeline) {
