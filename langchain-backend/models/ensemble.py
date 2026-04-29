@@ -204,6 +204,13 @@ class LottoEnsemble:
         self.meta_learner  = MetaLearner(self.save_dir)
         self._meta_loaded  = False  # 최초 predict 때 한 번만 로드 시도
 
+        # ── Master Plan Stage 1-4-D-1: predictor_pipeline 통합 ──
+        # 사용자 결정 #23: T-1 결정 A 폐기. INPUT_DIM 동결 해제 (config.INPUT_DIM_FROZEN=False).
+        # 메인 모델 학습 인터페이스 변경은 D-2 (별도 PR — 11 base 신규 학습 8~12h 소요).
+        # 본 D-1은 추론 시점 evidence 합류만 — saved_models 재학습 X.
+        self.predictor_pipeline = None  # lazy init (predict 호출 시점에 생성)
+        self._predictor_pipeline_loaded = False
+
     @property
     def meta_alpha(self) -> float:
         """M-1-C: alpha를 meta_learner의 learnable property로 위임."""
@@ -588,6 +595,23 @@ class LottoEnsemble:
         with open(os.path.join(self.save_dir, "markov.json"), "w") as f:
             json.dump(markov_matrix.tolist(), f)
 
+    def _get_predictor_pipeline(self):
+        """Master Plan Stage 1-4-D-1: predictor_pipeline lazy init.
+
+        실패 시 None 반환 (graceful fallback — 기존 7 base 추론 그대로).
+        """
+        if self._predictor_pipeline_loaded:
+            return self.predictor_pipeline
+        self._predictor_pipeline_loaded = True
+        try:
+            from predictors.predictor_pipeline import PredictorPipeline
+            self.predictor_pipeline = PredictorPipeline(feature_dim=24)
+            return self.predictor_pipeline
+        except Exception as e:
+            print(f"⚠️ [Stage 1-4-D] predictor_pipeline init fail (graceful): {e}")
+            self.predictor_pipeline = None
+            return None
+
     def predict(self, draws, human_rules=None):
         if len(draws) < self.seq_len:
             return {"probabilities": {}, "model_contributions": {}, "evidence": {}}
@@ -696,6 +720,19 @@ class LottoEnsemble:
             if meta_active and meta_importance else
             "P7 메타러너 대기 중 (로그 누적 필요)"
         )
+        # ── Master Plan Stage 1-4-D-1: predictor_pipeline evidence 합류 ──
+        # Phase 1~4 22 predictor + 회귀 4 Tier 출력 — 4 Pillar Pillar 2/3 입력 제공.
+        # final_probs는 변경 X (메인 7 base 결과 그대로). evidence로만 노출.
+        # 학습된 predictor_pipeline 가용 시 추론, 미가용 시 graceful skip.
+        predictor_outputs = None
+        pp = self._get_predictor_pipeline()
+        if pp is not None and pp._is_trained:
+            try:
+                predictor_outputs = pp.predict_all(draws)
+            except Exception as _pe:
+                print(f"⚠️ [Stage 1-4-D] predictor_pipeline.predict_all fail (graceful): {_pe}")
+                predictor_outputs = None
+
         evidence = {
             "model_weights": self.weights,
             "meta_active":   meta_active,
@@ -707,7 +744,10 @@ class LottoEnsemble:
                 {"model": "Ensemble",
                  "signal": "메타 러닝을 통한 동적 가중치 앙상블 적용 완료"},
                 {"model": "MetaLearner", "signal": _meta_signal},
-            ]
+            ],
+            # Stage 1-4-D-1 신규: 22 predictor + 회귀 4 Tier evidence
+            "predictor_pipeline_outputs": predictor_outputs,
+            "predictor_pipeline_active": predictor_outputs is not None,
         }
 
         return {
@@ -716,7 +756,9 @@ class LottoEnsemble:
             "xai_contributions": self.compute_xai_contributions(
                 contributions, self.weights, memo_excl
             ),
-            "evidence": evidence
+            "evidence": evidence,
+            # Stage 1-4-D-1 신규: 4 Pillar/NumberRecommender 입력으로 직접 전달 가능
+            "predictor_pipeline_outputs": predictor_outputs,
         }
 
     def compute_xai_contributions(
