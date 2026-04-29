@@ -188,6 +188,23 @@ const DeepLearning = {
                 panel.classList.add('hidden');
             }
         });
+
+        // [Stage 1-4-D-2-fix-13] 탭 전환 시 hidden→visible된 chart resize
+        // (ECharts는 hidden 영역에서 init되면 0×0이라 첫 활성화 시 resize 필요)
+        setTimeout(() => {
+            if (this._consensusChart) {
+                try { this._consensusChart.resize(); } catch (e) { /* noop */ }
+            }
+            // 다른 ECharts 인스턴스가 있으면 함께 resize
+            if (typeof echarts !== 'undefined' && typeof echarts.getInstanceByDom === 'function') {
+                document.querySelectorAll('.dl-chart, .dl-spark').forEach(el => {
+                    const inst = echarts.getInstanceByDom(el);
+                    if (inst) {
+                        try { inst.resize(); } catch (e) { /* noop */ }
+                    }
+                });
+            }
+        }, 50);
     },
 
     async _loadExpertMemos() {
@@ -2242,6 +2259,9 @@ const DeepLearning = {
 
         // [Stage 1-4-D-2-fix-12] 표를 처음 그릴 때 그룹 분석도 default(현재 슬라이스)로 채움
         this.renderRankSliceGroups();
+
+        // [Stage 1-4-D-2-fix-13] 합의 매트릭스 (10×10) — 동일 matrixData 사용
+        this.renderConsensusMatrix(matrixData, 10);
     },
 
     /**
@@ -2357,6 +2377,147 @@ const DeepLearning = {
     },
 
     /**
+     * [Stage 1-4-D-2-fix-13] ConsensusMatrix — 10×10 합의 매트릭스
+     *
+     * 각 모델별 상위 N (default top10) 추천 집합을 만들고,
+     * 두 모델 간 교집합 비율(jaccard 유사도)을 ECharts heatmap으로 표시.
+     *
+     * 셀 값 = |A ∩ B| / N  (0~1, 진할수록 합의 높음)
+     * 대각선은 1.0 (자기 자신과 100% 일치)
+     */
+    renderConsensusMatrix(matrixData, topN) {
+        const container = document.getElementById('chartConsensusMatrix');
+        if (!container) return;
+        if (!matrixData || !matrixData.length) {
+            container.innerHTML = '<p class="muted dl-empty-desc" style="text-align:center;padding:48px 0;">분석 데이터가 아직 로드되지 않았습니다.</p>';
+            return;
+        }
+        if (typeof echarts === 'undefined') {
+            container.innerHTML = '<p class="muted dl-empty-desc" style="text-align:center;padding:48px 0;">ECharts 라이브러리 미로드.</p>';
+            return;
+        }
+
+        const N = parseInt(topN, 10) > 0 ? parseInt(topN, 10) : 10;
+
+        const MODEL_ORDER  = MAIN_45_MODELS.slice();
+        const MODEL_LABELS = {
+            xgboost: 'XGB', catboost: 'CAT', tabnet: 'TAB',
+            cnn: 'CNN', gnn: 'GNN',
+            markov: 'MKV', autoencoder: 'AE',
+            tft: 'TFT', nbeats: 'NBT',
+            mhn: 'MHN', bayesian_nn: 'BAY'
+        };
+
+        // 모델별 상위 N 집합
+        const modelSets = {};
+        MODEL_ORDER.forEach(m => {
+            const sorted = [...matrixData]
+                .sort((a, b) => {
+                    const sa = ((a.models || {})[m] || {}).score || 0;
+                    const sb = ((b.models || {})[m] || {}).score || 0;
+                    return sb - sa;
+                })
+                .map(d => d.num);
+            modelSets[m] = new Set(sorted.slice(0, N));
+        });
+
+        // [i, j, ratio] 데이터 — ECharts heatmap 형식
+        const data = [];
+        let maxRatio = 0;
+        for (let i = 0; i < MODEL_ORDER.length; i++) {
+            for (let j = 0; j < MODEL_ORDER.length; j++) {
+                const A = modelSets[MODEL_ORDER[i]];
+                const B = modelSets[MODEL_ORDER[j]];
+                let inter = 0;
+                A.forEach(n => { if (B.has(n)) inter++; });
+                const ratio = N > 0 ? inter / N : 0;
+                data.push([j, i, parseFloat(ratio.toFixed(3))]);
+                if (ratio > maxRatio && i !== j) maxRatio = ratio;
+            }
+        }
+
+        const labels = MODEL_ORDER.map(m => MODEL_LABELS[m] || m.slice(0, 3).toUpperCase());
+
+        // 기존 인스턴스 dispose
+        if (this._consensusChart) {
+            try { this._consensusChart.dispose(); } catch (e) { /* noop */ }
+        }
+
+        const chart = echarts.init(container, null, { renderer: 'svg' });
+        this._consensusChart = chart;
+
+        chart.setOption({
+            tooltip: {
+                position: 'top',
+                formatter: (p) => {
+                    const a = labels[p.data[1]];
+                    const b = labels[p.data[0]];
+                    return `<b>${a}</b> vs <b>${b}</b><br/>교집합 비율: <b>${(p.data[2] * 100).toFixed(1)}%</b><br/>(상위 ${N} 추천 기준)`;
+                }
+            },
+            grid: { left: 56, right: 24, top: 24, bottom: 56 },
+            xAxis: {
+                type: 'category',
+                data: labels,
+                splitArea: { show: true },
+                axisLabel: { fontSize: 11, fontWeight: 700, color: '#475569' },
+                axisLine: { show: false },
+                axisTick: { show: false }
+            },
+            yAxis: {
+                type: 'category',
+                data: labels,
+                splitArea: { show: true },
+                axisLabel: { fontSize: 11, fontWeight: 700, color: '#475569' },
+                axisLine: { show: false },
+                axisTick: { show: false }
+            },
+            visualMap: {
+                min: 0,
+                max: 1,
+                calculable: true,
+                orient: 'horizontal',
+                left: 'center',
+                bottom: 4,
+                itemHeight: 80,
+                itemWidth: 14,
+                textStyle: { fontSize: 10, color: '#64748b' },
+                inRange: {
+                    color: ['#f1f5f9', '#c7d2fe', '#818cf8', '#4f46e5', '#312e81']
+                }
+            },
+            series: [{
+                name: '합의 비율',
+                type: 'heatmap',
+                data: data,
+                label: {
+                    show: true,
+                    formatter: (p) => p.data[2] >= 0.05 ? (p.data[2] * 100).toFixed(0) : '',
+                    fontSize: 10,
+                    fontWeight: 700,
+                    color: (p) => p.data[2] >= 0.5 ? '#fff' : '#1e293b'
+                },
+                emphasis: {
+                    itemStyle: {
+                        shadowBlur: 8,
+                        shadowColor: 'rgba(79, 70, 229, 0.4)'
+                    }
+                }
+            }]
+        });
+
+        // 반응형
+        if (!this._consensusResizeBound) {
+            window.addEventListener('resize', () => {
+                if (this._consensusChart) {
+                    try { this._consensusChart.resize(); } catch (e) { /* noop */ }
+                }
+            });
+            this._consensusResizeBound = true;
+        }
+    },
+
+    /**
      * [Stage 1-4-D-2-fix-12] RankSliceSelector 핸들러
      *
      * 5분할 chip / 슬라이더에서 호출:
@@ -2412,6 +2573,16 @@ const DeepLearning = {
 
     renderPipelineInfo(pipeline) {
         if (!pipeline) return;
+
+        // [Stage 1-4-D-2-fix-13] 모델 컨디션 헤더 — 갱신 시각 라벨
+        const updatedEl = document.getElementById('modelConditionUpdated');
+        if (updatedEl) {
+            const now = new Date();
+            const hh = String(now.getHours()).padStart(2, '0');
+            const mm = String(now.getMinutes()).padStart(2, '0');
+            updatedEl.textContent = `갱신 ${hh}:${mm}`;
+        }
+
         const condContainer = document.getElementById('modelConditionContainer');
         if (condContainer && pipeline.modelWeights) {
             // 11 base 토폴로지 (사용자 결정 #24)
