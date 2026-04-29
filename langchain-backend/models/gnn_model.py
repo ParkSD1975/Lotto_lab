@@ -113,7 +113,9 @@ class GraphAttentionLayer(nn.Module):
 
         self.dropout    = nn.Dropout(dropout)
         self.leaky_relu = nn.LeakyReLU(negative_slope=0.2)
-        self.layer_norm = nn.LayerNorm(out_dim)
+        # fix-9: LayerNorm의 학습 가능 affine(gamma/beta) 가 0으로 죽는 현상 발견
+        #        elementwise_affine=False 로 normalize만 적용 (학습 파라미터 없음)
+        self.layer_norm = nn.LayerNorm(out_dim, elementwise_affine=False)
 
     def forward(self, h: torch.Tensor, adj: torch.Tensor,
                 return_attention: bool = False):
@@ -166,7 +168,17 @@ class GraphAttentionLayer(nn.Module):
 
 # ── GNN 모델 ──────────────────────────────────────────────────────────────────
 class LottoGNNModel(nn.Module):
-    """2-layer Graph Attention Network + per-node 분류기 (G-7 적용)"""
+    """2-layer Graph Attention Network + per-node 분류기 (G-7 / fix-9 적용).
+
+    fix-9: 기존 모델은 GAT 두 layer 가중치가 0으로 죽고 classifier bias만 학습되어
+           모든 노드가 동일 logit을 출력하는 mode collapse 발생 →
+           (a) raw node feature skip connection 을 classifier 에 추가
+           (b) 1~45 번호별 고유 identity embedding (8-dim) 추가
+                — GNN이 그래프 구조 외에 번호별 prior 를 직접 학습 가능
+           (c) GraphAttentionLayer 의 LayerNorm을 elementwise_affine=False 로 변경
+    """
+
+    NODE_EMB_DIM = 8
 
     def __init__(self):
         super().__init__()
@@ -176,12 +188,26 @@ class LottoGNNModel(nn.Module):
         self.gat2 = GraphAttentionLayer(
             HIDDEN_DIM,    HEAD_DIM_2,  N_HEADS_2, DROPOUT * 0.7
         )
+        # fix-9: 1~45 번호별 학습 가능 임베딩 (그래프-비의존 prior)
+        self.node_embedding = nn.Embedding(45, self.NODE_EMB_DIM)
+        nn.init.normal_(self.node_embedding.weight, mean=0.0, std=0.1)
+        self.register_buffer(
+            "_node_idx", torch.arange(45, dtype=torch.long), persistent=False
+        )
+
+        cls_in = HEAD_DIM_2 + NODE_FEAT_DIM + self.NODE_EMB_DIM
         self.classifier = nn.Sequential(
-            nn.Linear(HEAD_DIM_2, 32),
+            nn.Linear(cls_in, 32),
             nn.ReLU(),
             nn.Dropout(0.2),
             nn.Linear(32, 1),
         )
+
+    def _classify(self, h: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+        """GAT 출력 h, raw feature x → per-node logit. node_embedding skip 포함."""
+        emb = self.node_embedding(self._node_idx.to(h.device))     # [45, EMB_DIM]
+        h_cat = torch.cat([h, x, emb], dim=-1)
+        return self.classifier(h_cat).squeeze(-1)
 
     def forward(self, x: torch.Tensor, adj: torch.Tensor,
                 return_attention: bool = False):
@@ -198,11 +224,10 @@ class LottoGNNModel(nn.Module):
         if return_attention:
             h, attn1 = self.gat1(x, adj, return_attention=True)
             h = self.gat2(h, adj)
-            logits = self.classifier(h).squeeze(-1)
-            return logits, attn1
+            return self._classify(h, x), attn1
         h = self.gat1(x, adj)
         h = self.gat2(h, adj)
-        return self.classifier(h).squeeze(-1)
+        return self._classify(h, x)
 
 
 # ── GNNTrainer ────────────────────────────────────────────────────────────────
@@ -494,8 +519,10 @@ class GNNTrainer:
         optimizer = optim.Adam(
             self.model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY
         )
+        # fix-9: scheduler patience 8 → 20 (loss plateau 단계에서 LR 너무 빨리 감소
+        #        → GAT 가중치 학습이 멈추던 문제 해결)
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="min", patience=8, factor=0.5, min_lr=1e-5
+            optimizer, mode="min", patience=20, factor=0.5, min_lr=1e-5
         )
 
         best_loss    = float("inf")
@@ -531,10 +558,15 @@ class GNNTrainer:
 
             if (epoch + 1) % 25 == 0:
                 lr_now = optimizer.param_groups[0]["lr"]
+                # fix-9: GAT W weight norm을 함께 출력해 dead neuron 진단
+                with torch.no_grad():
+                    w1_norm = self.model.gat1.W.weight.detach().abs().mean().item()
+                    w2_norm = self.model.gat2.W.weight.detach().abs().mean().item()
                 print(
                     f"  [GNN] Epoch {epoch+1:3d}/{MAX_EPOCHS}  "
                     f"loss={avg_loss:.4f}  lr={lr_now:.1e}  "
-                    f"patience={patience_cnt}/{PATIENCE}"
+                    f"patience={patience_cnt}/{PATIENCE}  "
+                    f"|W1|={w1_norm:.4f}  |W2|={w2_norm:.4f}"
                 )
 
             if patience_cnt >= PATIENCE:

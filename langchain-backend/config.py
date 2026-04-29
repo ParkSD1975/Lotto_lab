@@ -88,21 +88,23 @@ CNN_LR = 0.001
 CNN_WEIGHT_DECAY = 1e-5
 CNN_EARLY_STOP_PATIENCE = 15
 
-# ── GNN 모델 설정 (G-7) ──
+# ── GNN 모델 설정 (G-7 / Stage 1-4-D-2-fix-9) ──
 # 이전: gnn_model.py 24~33줄 내부 하드코딩 → config.py로 통합
+# fix-9: GAT layer-1/2의 W·a·LayerNorm 가중치가 0으로 죽는 mode collapse 잔존
+#        → LayerNorm 제거(elementwise_affine=False) + WD 0 + LR 상향 + BCE 비중 강화
 GNN_NODE_FEAT_DIM = 10
 GNN_HIDDEN_DIM = 64               # GAT layer 1 출력
 GNN_HEAD_DIM_2 = 32               # GAT layer 2 출력
 GNN_HEADS = [4, 2]                # [layer1_heads, layer2_heads]
-GNN_DROPOUT = 0.25                # G-7-B: 0.3 → 0.25
-GNN_LR = 0.0008                   # G-7-B: 0.001 → 0.0008 (BCE 보조 추가로 미세 감소)
-GNN_WEIGHT_DECAY = 1e-4
-GNN_EPOCHS = 80                   # G-7-B: 300 → 80 (1,100회차에 과대)
-GNN_PATIENCE = 15                 # G-7-B: 30 → 15
+GNN_DROPOUT = 0.20                # fix-9: 0.25 → 0.20 (mode collapse 방지)
+GNN_LR = 0.002                    # fix-9: 0.0008 → 0.002 (강한 학습)
+GNN_WEIGHT_DECAY = 0.0            # fix-9: 1e-4 → 0 (W가 0으로 죽는 현상 방지)
+GNN_EPOCHS = 250                  # fix-9: 80 → 250 (epoch 150에서 아직 학습 진행 중)
+GNN_PATIENCE = 30                 # fix-9: 15 → 30
 GNN_MIN_HIST = 50                 # 학습 샘플 생성 최소 이력 회차
 GNN_TOPK = 15                     # G-7-C: 10 → 15 (dense graph 정보 손실 방지)
 GNN_POS_WEIGHT = 6.5              # BCE 보조 손실 (G-1과 동일 정책)
-GNN_BCE_AUX_WEIGHT = 0.3          # G-7-A: total = SoftmaxRanking + 0.3 × BCE
+GNN_BCE_AUX_WEIGHT = 0.6          # fix-9: 0.3 → 0.6 (BCE 비중 강화 — multi-label 강화)
 GNN_FEATURE_NORMALIZE = True      # G-7-D: PowerTransformer (Yeo-Johnson) 적용
 GNN_FEATURE_NORMALIZE_INDICES = [0, 1, 2, 3, 4, 6]  # freq×3, gap×2, hot_streak (long-tail)
 
