@@ -122,6 +122,15 @@ TASK_WEIGHTS = {
     },
 }
 
+# Stage 1-4-D-2-fix-8 (사용자 결정 #24): TASK_WEIGHTS 8 task에 5 신규 base
+# 키 default 0 자동 추가. predict_with_task에서 task_w[name] KeyError 방지.
+# D-3 학습 후 가중치 활성화는 _update_meta_weights/load_task_weights에서 처리.
+_NEW_BASE_KEYS = ("catboost", "tabnet", "tft", "mhn", "bayesian_nn")
+for _task_w in TASK_WEIGHTS.values():
+    for _k in _NEW_BASE_KEYS:
+        _task_w.setdefault(_k, 0.0)
+del _task_w, _k
+
 # 하위 호환 aliases (기존 3종 task명 → 새 task명)
 # "exclude"는 이름 동일하므로 alias 불필요
 TASK_ALIASES: dict = {
