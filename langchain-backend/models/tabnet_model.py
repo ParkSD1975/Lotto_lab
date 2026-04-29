@@ -134,12 +134,32 @@ class LottoTabNet:
 
     def train(
         self,
+        X: Any,
+        y: np.ndarray | None = None,
+        X_val: np.ndarray | None = None,
+        y_val: np.ndarray | None = None,
+        fine_tune: bool = False,
+    ) -> dict:
+        """학습.
+
+        오버로드:
+          - train(X: ndarray, y: ndarray, ...) - 기존 TabNet fit.
+          - train(draws: list[dict], fine_tune: bool=False) - ensemble.train_all
+            호환 어댑터. binary_45 시 TabNetRegressor 멀티 아웃풋 + sigmoid 후처리.
+        """
+        # ensemble.train_all 어댑터 분기
+        if isinstance(X, list) and (len(X) == 0 or isinstance(X[0], dict)):
+            return self._train_from_draws(X, fine_tune=fine_tune)
+        return self._train_main(X, y, X_val=X_val, y_val=y_val)
+
+    def _train_main(
+        self,
         X: np.ndarray,
         y: np.ndarray,
         X_val: np.ndarray | None = None,
         y_val: np.ndarray | None = None,
     ) -> dict:
-        """학습. early stopping은 patience 사용."""
+        """기존 TabNet fit. early stopping은 patience 사용."""
         X_arr = np.asarray(X, dtype=np.float32)
         y_arr = self._prep_y(y)
 
@@ -180,6 +200,87 @@ class LottoTabNet:
             "best_epoch": int(getattr(self.model, "best_epoch", self.max_epochs)),
             "best_cost": float(getattr(self.model, "best_cost", 0.0)),
         }
+
+    def _train_from_draws(self, draws: list, fine_tune: bool = False) -> dict:
+        """ensemble.train_all 호환 어댑터.
+
+        binary_45: TabNetRegressor 45-output regression -> sigmoid 후처리.
+        라이브러리 미설치 시 graceful skip.
+        """
+        if not TABNET_AVAILABLE:
+            print("[tabnet_model] skip: pytorch-tabnet missing")
+            return {"success": False, "skipped": "library_missing"}
+        if self.task_type != "binary_45":
+            return {"success": False, "error": f"task_type must be binary_45 for adapter, got {self.task_type}"}
+
+        try:
+            from models._draws_adapter import draws_to_xy
+            input_dim = self.input_dim if self.input_dim else 65
+            X, y = draws_to_xy(draws, seq_len=30, input_dim=input_dim)
+            if X.shape[0] < 50:
+                return {"success": False, "error": f"too few samples after conversion: {X.shape[0]}"}
+
+            split = int(X.shape[0] * 0.85)
+            X_tr, X_val = X[:split].astype(np.float32), X[split:].astype(np.float32)
+            y_tr, y_val = y[:split].astype(np.float32), y[split:].astype(np.float32)
+
+            common_kwargs = {
+                "n_d": self.n_d,
+                "n_a": self.n_a,
+                "n_steps": self.n_steps,
+                "gamma": self.gamma,
+                "lambda_sparse": self.lambda_sparse,
+                "optimizer_fn": torch.optim.Adam,
+                "optimizer_params": {"lr": self.learning_rate},
+                "scheduler_fn": torch.optim.lr_scheduler.StepLR,
+                "scheduler_params": {"step_size": 30, "gamma": 0.9},
+                "seed": self.random_seed,
+                "verbose": 0,
+                "device_name": self.device,
+            }
+
+            save_base = os.path.join(config.MODEL_DIR, "tabnet_main45")
+            self.model = TabNetRegressor(**common_kwargs)
+            if fine_tune and os.path.exists(save_base + ".zip"):
+                try:
+                    self.model.load_model(save_base + ".zip")
+                    print("[tabnet_model] fine_tune: prior weights loaded")
+                except Exception as e:
+                    print(f"[tabnet_model] fine_tune load fail (from scratch): {e}")
+                    self.model = TabNetRegressor(**common_kwargs)
+
+            vbs = min(self.virtual_batch_size, max(1, len(X_tr) // 2))
+            bs = min(self.batch_size, max(2, len(X_tr)))
+
+            self.model.fit(
+                X_train=X_tr,
+                y_train=y_tr,
+                eval_set=[(X_val, y_val)],
+                eval_name=["val"],
+                eval_metric=["rmse"],
+                max_epochs=min(30, self.max_epochs),
+                patience=self.patience,
+                batch_size=bs,
+                virtual_batch_size=vbs,
+                num_workers=0,
+                drop_last=False,
+            )
+
+            try:
+                os.makedirs(os.path.dirname(save_base) or ".", exist_ok=True)
+                self.model.save_model(save_base)
+            except Exception as e:
+                print(f"[tabnet_model] save fail: {e}")
+
+            return {
+                "success": True,
+                "task_type": "binary_45",
+                "samples": int(X.shape[0]),
+                "best_epoch": int(getattr(self.model, "best_epoch", 0) or 0),
+                "saved_to": save_base + ".zip",
+            }
+        except Exception as e:
+            return {"success": False, "error": f"{type(e).__name__}: {e}"}
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         """예측.

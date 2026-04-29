@@ -138,6 +138,33 @@ class LottoBayesianNN:
 
     def train(
         self,
+        X: Any,
+        y: np.ndarray | None = None,
+        X_val: np.ndarray | None = None,
+        y_val: np.ndarray | None = None,
+        max_epochs: int = 50,
+        batch_size: int = 64,
+        verbose: bool = False,
+        fine_tune: bool = False,
+    ) -> dict:
+        """학습.
+
+        오버로드:
+          - train(X: ndarray, y: ndarray, ...) - 기존 supervised 학습.
+          - train(draws: list[dict], fine_tune: bool=False) - ensemble.train_all
+            호환 어댑터. draws -> (X, y) 변환 후 위임.
+        """
+        # ensemble.train_all 어댑터 분기 — 첫 인자가 draws 리스트인지 검사
+        if isinstance(X, list) and (len(X) == 0 or isinstance(X[0], dict)):
+            return self._train_from_draws(X, fine_tune=fine_tune, verbose=verbose)
+
+        return self._train_main(
+            X, y, X_val=X_val, y_val=y_val,
+            max_epochs=max_epochs, batch_size=batch_size, verbose=verbose,
+        )
+
+    def _train_main(
+        self,
         X: np.ndarray,
         y: np.ndarray,
         X_val: np.ndarray | None = None,
@@ -209,6 +236,58 @@ class LottoBayesianNN:
             logits = self.model(xb)
             loss = criterion(logits, yb)
         return float(loss.detach().cpu().item())
+
+    def _train_from_draws(
+        self, draws: list, fine_tune: bool = False, verbose: bool = False
+    ) -> dict:
+        """ensemble.train_all 호환 어댑터. draws -> (X, y) -> _train_main."""
+        if not TORCH_AVAILABLE:
+            print("[bayesian_nn_model] skip: torch missing")
+            return {"success": False, "skipped": "library_missing"}
+        if self.task_type != "binary_45":
+            return {"success": False, "error": f"task_type must be binary_45 for adapter, got {self.task_type}"}
+
+        try:
+            from models._draws_adapter import draws_to_xy
+            X, y = draws_to_xy(draws, seq_len=30, input_dim=self.input_dim)
+            if X.shape[0] < 50:
+                return {"success": False, "error": f"too few samples after conversion: {X.shape[0]}"}
+
+            split = int(X.shape[0] * 0.85)
+            X_tr, X_val = X[:split], X[split:]
+            y_tr, y_val = y[:split], y[split:]
+
+            if fine_tune:
+                ckpt_path = os.path.join(config.MODEL_DIR, "bayesian_nn_main45.pt")
+                if os.path.exists(ckpt_path):
+                    try:
+                        self.load(ckpt_path)
+                        print("[bayesian_nn_model] fine_tune: prior weights loaded")
+                    except Exception as e:
+                        print(f"[bayesian_nn_model] fine_tune load fail (from scratch): {e}")
+                        out_dim = self._resolve_out_dim()
+                        self.model = _MCDropoutMLP(
+                            self.input_dim, self.hidden_dim, self.num_layers, out_dim, self.dropout
+                        ).to(self.device)
+            else:
+                out_dim = self._resolve_out_dim()
+                self.model = _MCDropoutMLP(
+                    self.input_dim, self.hidden_dim, self.num_layers, out_dim, self.dropout
+                ).to(self.device)
+
+            info = self._train_main(
+                X_tr, y_tr, X_val=X_val, y_val=y_val,
+                max_epochs=20, batch_size=64, verbose=verbose,
+            )
+            try:
+                save_path = os.path.join(config.MODEL_DIR, "bayesian_nn_main45.pt")
+                self.save(save_path)
+                info["saved_to"] = save_path
+            except Exception as e:
+                info["save_error"] = str(e)
+            return info
+        except Exception as e:
+            return {"success": False, "error": f"{type(e).__name__}: {e}"}
 
     # ---------- inference ----------
 

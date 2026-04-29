@@ -114,12 +114,32 @@ class LottoCatBoost:
 
     def train(
         self,
+        X: Any,
+        y: np.ndarray | None = None,
+        X_val: np.ndarray | None = None,
+        y_val: np.ndarray | None = None,
+        fine_tune: bool = False,
+    ) -> dict:
+        """학습.
+
+        오버로드:
+          - train(X: ndarray, y: ndarray, ...) - 기존 catboost fit.
+          - train(draws: list[dict], fine_tune: bool=False) - ensemble.train_all
+            호환 어댑터. binary_45 시 45 multi-output 회귀로 학습.
+        """
+        # ensemble.train_all 어댑터 분기
+        if isinstance(X, list) and (len(X) == 0 or isinstance(X[0], dict)):
+            return self._train_from_draws(X, fine_tune=fine_tune)
+        return self._train_main(X, y, X_val=X_val, y_val=y_val)
+
+    def _train_main(
+        self,
         X: np.ndarray,
         y: np.ndarray,
         X_val: np.ndarray | None = None,
         y_val: np.ndarray | None = None,
     ) -> dict:
-        """학습 수행. early_stopping_rounds 활용."""
+        """기존 catboost fit. early_stopping_rounds 활용."""
         train_pool = Pool(X, y, cat_features=self.cat_features)
         eval_pool = None
         if X_val is not None and y_val is not None:
@@ -142,6 +162,78 @@ class LottoCatBoost:
             best_score = self.model.get_best_score()
             result["best_score"] = best_score
         return result
+
+    def _train_from_draws(self, draws: list, fine_tune: bool = False) -> dict:
+        """ensemble.train_all 호환 어댑터.
+
+        binary_45: 45 multi-output regression(MultiRMSE) -> sigmoid 후처리로 확률 근사.
+        라이브러리 미설치 시 graceful skip.
+        """
+        if not CATBOOST_AVAILABLE:
+            print("[catboost_model] skip: catboost missing")
+            return {"success": False, "skipped": "library_missing"}
+        if self.task_type != "binary_45":
+            return {"success": False, "error": f"task_type must be binary_45 for adapter, got {self.task_type}"}
+
+        try:
+            from models._draws_adapter import draws_to_xy
+            input_dim = self.input_dim if self.input_dim else 65
+            X, y = draws_to_xy(draws, seq_len=30, input_dim=input_dim)
+            if X.shape[0] < 50:
+                return {"success": False, "error": f"too few samples after conversion: {X.shape[0]}"}
+
+            split = int(X.shape[0] * 0.85)
+            X_tr, X_val = X[:split], X[split:]
+            y_tr, y_val = y[:split], y[split:]
+
+            common = {
+                "iterations": min(200, self.iterations),
+                "learning_rate": self.learning_rate,
+                "depth": self.depth,
+                "l2_leaf_reg": self.l2_leaf_reg,
+                "random_seed": self.random_seed,
+                "verbose": self.verbose,
+                "allow_writing_files": False,
+            }
+
+            save_path = os.path.join(config.MODEL_DIR, "catboost_main45.cbm")
+            if fine_tune and os.path.exists(save_path):
+                try:
+                    reg = CatBoostRegressor(loss_function="MultiRMSE", **common)
+                    reg.load_model(save_path, format="cbm")
+                    self.model = reg
+                    print("[catboost_model] fine_tune: prior weights loaded")
+                except Exception as e:
+                    print(f"[catboost_model] fine_tune load fail (from scratch): {e}")
+                    self.model = CatBoostRegressor(loss_function="MultiRMSE", **common)
+            else:
+                self.model = CatBoostRegressor(loss_function="MultiRMSE", **common)
+
+            train_pool = Pool(X_tr, y_tr, cat_features=self.cat_features)
+            eval_pool = Pool(X_val, y_val, cat_features=self.cat_features)
+            self.model.fit(
+                train_pool,
+                eval_set=eval_pool,
+                early_stopping_rounds=self.early_stopping_rounds,
+                use_best_model=True,
+                verbose=self.verbose,
+            )
+
+            try:
+                os.makedirs(os.path.dirname(save_path), exist_ok=True)
+                self.model.save_model(save_path, format="cbm")
+            except Exception as e:
+                print(f"[catboost_model] save fail: {e}")
+
+            return {
+                "success": True,
+                "task_type": "binary_45",
+                "samples": int(X.shape[0]),
+                "best_iteration": int(self.model.get_best_iteration() or 0),
+                "saved_to": save_path,
+            }
+        except Exception as e:
+            return {"success": False, "error": f"{type(e).__name__}: {e}"}
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         """예측. multiclass면 (N, num_classes), 그 외 (N,)."""

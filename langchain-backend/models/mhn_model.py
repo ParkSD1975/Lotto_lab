@@ -214,16 +214,39 @@ class LottoMHN:
 
     def train(
         self,
+        features: Any,
+        labels: np.ndarray | None = None,
+        max_epochs: int = 30,
+        learning_rate: float = 1e-3,
+        batch_size: int = 64,
+        fine_tune: bool = False,
+    ) -> dict:
+        """선택적 discriminative head 학습.
+
+        오버로드:
+          - train(features: ndarray, labels: ndarray, ...) - 기존 supervised.
+          - train(draws: list[dict], fine_tune: bool=False) - ensemble.train_all
+            호환 어댑터.
+
+        task_type == "none" 이면 단순 store_patterns 만 수행.
+        """
+        # ensemble.train_all 어댑터 분기
+        if isinstance(features, list) and (len(features) == 0 or isinstance(features[0], dict)):
+            return self._train_from_draws(features, fine_tune=fine_tune)
+        return self._train_main(
+            features, labels,
+            max_epochs=max_epochs, learning_rate=learning_rate, batch_size=batch_size,
+        )
+
+    def _train_main(
+        self,
         features: np.ndarray,
         labels: np.ndarray,
         max_epochs: int = 30,
         learning_rate: float = 1e-3,
         batch_size: int = 64,
     ) -> dict:
-        """선택적 discriminative head 학습.
-
-        task_type == "none" 이면 단순 store_patterns 만 수행.
-        """
+        """기존 supervised loop. features(N,D) + labels(N,...)."""
         X = np.asarray(features, dtype=np.float32)
         y = np.asarray(labels)
 
@@ -282,6 +305,53 @@ class LottoMHN:
             "final_loss": float(history[-1]) if history else 0.0,
             "loss_history": history,
         }
+
+    def _train_from_draws(self, draws: list, fine_tune: bool = False) -> dict:
+        """ensemble.train_all 호환 어댑터.
+
+        draws -> (X, y) 변환 후 store_patterns + discriminative head BCE 학습.
+        """
+        if not TORCH_AVAILABLE:
+            print("[mhn_model] skip: torch missing")
+            return {"success": False, "skipped": "library_missing"}
+        if self.task_type != "binary_45":
+            return {"success": False, "error": f"task_type must be binary_45 for adapter, got {self.task_type}"}
+
+        try:
+            from models._draws_adapter import draws_to_xy
+            X, y = draws_to_xy(draws, seq_len=30, input_dim=self.input_dim)
+            if X.shape[0] < 50:
+                return {"success": False, "error": f"too few samples after conversion: {X.shape[0]}"}
+
+            if fine_tune:
+                ckpt_path = os.path.join(config.MODEL_DIR, "mhn_main45.pt")
+                if os.path.exists(ckpt_path):
+                    try:
+                        self.load(ckpt_path)
+                        print("[mhn_model] fine_tune: prior weights loaded")
+                    except Exception as e:
+                        print(f"[mhn_model] fine_tune load fail (from scratch): {e}")
+                        if self._head is None:
+                            head_out = self.num_classes if self.task_type != "regression" else 1
+                            self._head = _SelfImplHopfieldHead(
+                                self.input_dim, head_out, self.dropout
+                            ).to(self.device)
+            else:
+                head_out = self.num_classes if self.task_type != "regression" else 1
+                self._head = _SelfImplHopfieldHead(
+                    self.input_dim, head_out, self.dropout
+                ).to(self.device)
+
+            info = self._train_main(X, y, max_epochs=15, learning_rate=1e-3, batch_size=64)
+            try:
+                save_path = os.path.join(config.MODEL_DIR, "mhn_main45.pt")
+                self.save(save_path)
+                info["saved_to"] = save_path
+            except Exception as e:
+                info["save_error"] = str(e)
+            return info
+        except Exception as e:
+            return {"success": False, "error": f"{type(e).__name__}: {e}"}
 
     def predict(self, query: np.ndarray, top_k: int = 5) -> np.ndarray:
         """top-K retrieval 기반 weighted voting 예측.

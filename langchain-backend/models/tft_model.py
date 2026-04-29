@@ -173,12 +173,24 @@ class LottoTFT:
         batch_size: int = 64,
         max_encoder_length: int = 30,
         max_prediction_length: int = 1,
+        fine_tune: bool = False,
     ) -> dict:
         """학습 수행.
 
-        time_series_data: pandas DataFrame (또는 TimeSeriesDataSet)
+        오버로드:
+          - train(df: DataFrame, val_data: DataFrame, ...) - 기존 시계열 학습.
+          - train(draws: list[dict], fine_tune: bool=False) - ensemble.train_all
+            호환 어댑터. draws -> DataFrame 변환 후 위임.
+
+        time_series_data: pandas DataFrame (또는 TimeSeriesDataSet) 또는 draws 리스트
         val_data: 동일 형식 (optional)
         """
+        # ensemble.train_all 어댑터 분기
+        if isinstance(time_series_data, list) and (
+            len(time_series_data) == 0 or isinstance(time_series_data[0], dict)
+        ):
+            return self._train_from_draws(time_series_data, fine_tune=fine_tune)
+
         if not PYTORCH_FORECASTING_AVAILABLE:
             raise ImportError(
                 "[tft_model] requires pytorch-forecasting library, "
@@ -246,6 +258,49 @@ class LottoTFT:
             "max_epochs": int(max_epochs),
             "device": self.device,
         }
+
+    def _train_from_draws(self, draws: list, fine_tune: bool = False) -> dict:
+        """ensemble.train_all 호환 어댑터.
+
+        draws -> DataFrame 변환 후 단일 group 시계열로 fit.
+        라이브러리 미설치 시 graceful skip.
+        """
+        if not PYTORCH_FORECASTING_AVAILABLE:
+            print("[tft_model] skip: pytorch-forecasting missing")
+            return {"success": False, "skipped": "library_missing"}
+
+        try:
+            from models._draws_adapter import draws_to_tft_dataframe
+            df = draws_to_tft_dataframe(draws, seq_len=30, input_dim=self.input_dim)
+            if df is None or len(df) < 60:
+                return {"success": False, "error": f"too few samples for TFT: {0 if df is None else len(df)}"}
+
+            split = int(len(df) * 0.85)
+            df_tr = df[df["time_idx"] < split].reset_index(drop=True)
+            df_val = df[df["time_idx"] >= split - 30].reset_index(drop=True)
+
+            save_path = os.path.join(config.MODEL_DIR, "tft_main45.pt")
+            if fine_tune and os.path.exists(save_path):
+                print("[tft_model] fine_tune: TFT raw load before fit not natively supported — train from scratch with prior dataset")
+
+            info = self.train(
+                df_tr,
+                val_data=df_val,
+                max_epochs=10,
+                batch_size=32,
+                max_encoder_length=20,
+                max_prediction_length=1,
+            )
+
+            try:
+                self.save(save_path)
+                info["saved_to"] = save_path
+            except Exception as e:
+                info["save_error"] = str(e)
+            info["samples"] = int(len(df))
+            return info
+        except Exception as e:
+            return {"success": False, "error": f"{type(e).__name__}: {e}"}
 
     def predict(self, X) -> np.ndarray:
         """예측. X는 DataFrame 또는 TimeSeriesDataSet."""
