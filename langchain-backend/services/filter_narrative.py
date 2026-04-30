@@ -40,29 +40,19 @@ _MODEL_KO = {
 }
 
 
-_FILTER_PROMPT = """
-당신은 로또 AI 필터 분석가입니다. 필터 '{filter_label}({filter_key})'에 대한 분석을 한국어로만 작성해주세요.
+_FILTER_PROMPT = """다음 필터 분석을 한국어 3문장으로만 답해주세요. 영어 단어 사용 금지 (모델명 XGBoost/CNN/Bayesian 등은 예외).
 
-[AI 분석 데이터]
-- AI 예측 범위: {ens_min} ~ {ens_max} (6번호 기준 카운트 또는 합계)
-- 80% 신뢰구간: {ci_band}
-- 사용자 설정 범위: {user_range}
-- 주도 모델: {primary_model} (가중치 {primary_weight}%)
-- 상위 기여 모델: {top_models}
+[입력]
+필터: {filter_label}
+AI 예측 범위: {ens_min} ~ {ens_max}
+신뢰구간 80%: {ci_band}
+사용자 설정: {user_range}
+주도 모델: {primary_model} ({primary_weight}%)
 
-[엄격한 작성 규칙]
-- 한국어 자연 문장으로만 작성. 영어 번역 금지.
-- 모델명은 영어 그대로 사용 ({primary_model} 등). 한글 음역 금지.
-- LSTM, Transformer 언급 금지 (폐기됨).
-- "Sentence", "Conclusion", "Draft" 같은 메타 라벨 금지.
-- 마크다운 강조(**, *), bullet 금지.
-- 정확히 3문장으로 작성. 그 외 텍스트 일체 추가 금지.
-- 첫 문장: 추천 범위 + 주도 모델 명시.
-- 두 번째 문장: 신뢰구간 / 사용자 설정과 비교.
-- 세 번째 문장: 종합 결론 (사용자 설정 적합 여부 또는 권장 조정).
-- 답변만 출력. 사고과정/번역/마크다운 출력 금지.
+[답변 예시 (이 형식대로 한국어로 작성)]
+끝수합은 22 ~ 33 범위로 예측되며 XGBoost가 31% 비중으로 주도하고 있습니다. 80% 신뢰구간 21 ~ 32에 사용자 설정 21 ~ 32가 포함되어 정합성이 높게 나타납니다. 종합적으로 사용자 설정 범위가 AI 예측과 일치하므로 그대로 사용해도 무리가 없습니다.
 
-[답변 시작]
+[답변 (위 예시처럼 정확히 한국어 3문장)]
 """
 
 
@@ -82,8 +72,10 @@ async def _generate_one(
         from langchain_core.output_parsers import StrOutputParser
         import config
 
-        # 주도 모델 추출 (task_weights 가장 큰 모델, 또는 model_expectations에서)
-        sorted_w = sorted(task_weights.items(), key=lambda x: x[1], reverse=True)
+        # [Stage 1-4-D-2-fix-58] 주도 모델 추출 — DEPRECATED(lstm/transformer) 제외
+        DEPRECATED = {"lstm", "transformer"}
+        active_w = {k: v for k, v in (task_weights or {}).items() if k not in DEPRECATED}
+        sorted_w = sorted(active_w.items(), key=lambda x: x[1], reverse=True)
         primary = sorted_w[0][0] if sorted_w else "xgboost"
         primary_w = sorted_w[0][1] * 100 if sorted_w else 0
         top3 = ", ".join(
@@ -121,24 +113,89 @@ async def _generate_one(
 
 
 def _clean_response(text: str) -> str:
-    """LLM 응답 후처리 — 한국어 자연 문장만 추출."""
+    """LLM 응답 후처리 — 한국어 자연 문장만 추출.
+
+    [fix-57] Gemma가 영어 prompt-echo로 시작하는 경우 강화 처리:
+    - '번호 N번' 또는 '필터 X번/X 분석' 같은 한국어 시작점부터 채택
+    - 한국어 80자 이상 paragraph만 통과
+    """
     if not text:
         return ""
     text = text.strip()
-    # 마크다운 강조
+
+    # [fix-57] evidence_builder의 extract_final_answer 재사용 시도
+    try:
+        from services.evidence_builder import extract_final_answer, _clean_md
+        candidate = extract_final_answer(text)
+        if candidate and len(re.findall(r"[가-힣]", candidate)) >= 30:
+            return _clean_md(candidate)
+    except Exception:
+        pass
+
+    # 1) 마크다운/LaTeX 정리
     text = re.sub(r"\*{1,2}([^*]+)\*{1,2}", r"\1", text)
-    # LaTeX
     text = re.sub(r"\$\\?\w+\$|\$.*?\$", "", text)
-    # 영어 prompt-echo 괄호
-    text = re.sub(r"\(\s*[A-Z][\s\S]*?\)", "", text)
-    # 한국어 사이 끼어든 영어 sentence
-    text = re.sub(r"(?:^|\s)[A-Za-z][A-Za-z\s,;:'.\-]{30,}\.\s*", " ", text)
-    # Sentence/Conclusion 메타
-    text = re.sub(r"(?:Sentence|Conclusion|Draft|Final|Reasoning)[^:]*?:\s*", "", text, flags=re.IGNORECASE)
-    # bullet
+    # 2) 영어 괄호 안 텍스트 제거
+    text = re.sub(r"\(\s*[A-Za-z][\s\S]*?\)", "", text)
+    # 3) [fix-58] '1:', '2:', '3:' 메타 라벨 제거
+    text = re.sub(r"\d+\s*:\s*", " ", text)
+    # 4) [fix-58] '[1, 3]', '[0, 2]' 같은 array 메타 제거
+    text = re.sub(r"\[\s*\d+\s*,\s*\d+\s*\]", " ", text)
+    # 5) [fix-58] '(35.0%)', '(30.0%)' 같은 percent 메타 제거 (앞뒤 한글 문장 보존)
+    text = re.sub(r"\(\s*\d+\.?\d*\s*%\s*\)", " ", text)
+    # 6) [fix-58] '80%:' 메타 라벨 제거
+    text = re.sub(r"\d+%\s*:\s*", " ", text)
+    # 7) DEPRECATED 모델 멘션 제거 (lstm, transformer 폐기)
+    text = re.sub(r"\b(?:lstm|transformer|LSTM|Transformer)\b\s*", "", text)
+    # 8) 영어 단어 시퀀스 5자 이상 연속 제거 (Lotto, AI, Prediction Range 등)
+    text = re.sub(r"[A-Za-z][A-Za-z\s,;:'.\-/_~]{4,}", " ", text)
+    # 9) 한국어 사이 단독 영어 단어 정리 (3자 이하 모델명은 보존: AE)
+    # text = re.sub(r"\s[A-Za-z]{2,4}\s", " ", text)
+    # 10) bullet/대시 정리
     text = re.sub(r"^\s*[\-*•]\s*", "", text, flags=re.MULTILINE)
     text = re.sub(r"\s+[*\-•]\s+", " ", text)
+    # 11) 잔여 양 끝 영어/공백 정리
+    text = text.strip(" .,:;-_~/")
+    # 12) [fix-58 강화 v2] 마침표 split 후 각 문장 시작이 한국어인 것만 채택
+    sentences = re.split(r"[.!?]\s*", text)
+    ko_sentences = []
+    for s in sentences:
+        s = s.strip()
+        if not s:
+            continue
+        s = re.sub(r'["“”]', "", s)
+        s = re.sub(r"\s+", " ", s).strip()
+        # 한국어로 시작 + 한글 10+ → 자연 문장
+        if re.match(r"^[가-힣]", s) and len(re.findall(r"[가-힣]", s)) >= 10:
+            ko_sentences.append(s + ".")
+    if ko_sentences:
+        text = " ".join(ko_sentences)
+    else:
+        # fallback: 한국어 시작점부터
+        ko_match = re.search(r"[가-힣].+", text, re.DOTALL)
+        text = ko_match.group(0) if ko_match else ""
+    # 13) [fix-58 추가] 'S1:', 'S2:', 'S3:' 라벨 제거
+    text = re.sub(r"S\d+\s*:\s*", "", text)
+    # 14) 공백 정리
     text = re.sub(r"\s+", " ", text)
+    # 15) 잔여 마침표 중복 제거
+    text = re.sub(r"\s+\.\s+", ". ", text)
+    text = re.sub(r"\.{2,}", ".", text)
+    # 16) [fix-58 추가] 반복 sentence dedup (LLM이 답을 두번 출력하는 케이스)
+    final_sents = re.split(r"(?<=[다요죠음까네])\.\s*", text)
+    seen = set()
+    deduped = []
+    for s in final_sents:
+        s = s.strip()
+        if not s:
+            continue
+        # 정규화 키 (공백/숫자 제거 후 한글만)
+        key = re.sub(r"[^가-힣]", "", s)[:30]
+        if key and key not in seen:
+            seen.add(key)
+            deduped.append(s + ".")
+    if deduped:
+        text = " ".join(deduped)
     return text.strip()
 
 
