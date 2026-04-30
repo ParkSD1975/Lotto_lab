@@ -17,20 +17,31 @@ def get_ensemble():
 EXPLAIN_PROMPT = """
 당신은 로또 AI 분석가입니다. 번호 {target_number}에 대한 분석을 한국어로만 작성해주세요.
 
-[AI 분석 데이터]
+[AI 분석 데이터 — 활성 10 base 모델]
 - 종합 예측 확률: {total_prob:.2f}% (전체 {rank}위)
-- LSTM(시계열 흐름): {lstm_prob:.2f}%
-- XGBoost(패턴 매칭): {xgb_prob:.2f}%
-- Markov(미출현 회귀): {markov_prob:.2f}%
+- XGBoost (트리 기반 패턴 매칭): {xgb_prob:.2f}%
+- CatBoost (카테고리 부스팅): {catboost_prob:.2f}%
+- TabNet (Sparsemax attention): {tabnet_prob:.2f}%
+- CNN (로또용지 공간 패턴): {cnn_prob:.2f}%
+- GNN (동반출현 그래프): {gnn_prob:.2f}%
+- Markov (전이 회귀): {markov_prob:.2f}%
+- AE (이상치 감지): {ae_prob:.2f}%
+- TFT (시계열 융합 attention): {tft_prob:.2f}%
+- MHN (패턴 메모리): {mhn_prob:.2f}%
+- Bayesian (불확실성 추정): {bayesian_prob:.2f}%
 - 핵심 근거: {xai_reasoning}
 
 [엄격한 작성 규칙]
 - 한국어 자연 문장으로만 작성. 영어 번역, 영어 문장, 영어 메모 일체 금지.
+- 모델명은 반드시 영어 그대로 사용: XGBoost, CatBoost, TabNet, CNN, GNN, Markov, AE, TFT, MHN, Bayesian.
+- 절대 한글 음역 금지: "엘에스티엠", "엑스지부스트", "마르코프", "캣부스트" 등 사용 금지.
+- LSTM, Transformer 모델은 본 시스템에서 폐기되었으므로 절대 언급 금지.
 - "Sentence 1", "Conclusion", "Draft", "Final" 같은 메타 라벨 금지.
 - 마크다운 강조(**, *), bullet point(-, *), LaTeX 명령 금지.
 - 첫 문장에서 "추천" 또는 "제외"를 결론으로 명시.
 - 정확히 3~4문장으로 작성. 그 외 텍스트 일체 추가 금지.
 - 수치(확률, 순위, 모델 기여도 %)는 본문에 자연스럽게 포함.
+- 가장 높은 기여도 모델 1~2개를 본문에 영어 모델명으로 인용.
 - 답변만 출력. 설명/번역/사고과정 출력 금지.
 
 [답변 시작]
@@ -48,7 +59,13 @@ def create_explain_chain():
 
     prompt = PromptTemplate(
         template=EXPLAIN_PROMPT,
-        input_variables=["target_number", "total_prob", "rank", "lstm_prob", "xgb_prob", "markov_prob", "xai_reasoning", "user_query"]
+        input_variables=[
+            "target_number", "total_prob", "rank",
+            "xgb_prob", "catboost_prob", "tabnet_prob",
+            "cnn_prob", "gnn_prob", "markov_prob",
+            "ae_prob", "tft_prob", "mhn_prob", "bayesian_prob",
+            "xai_reasoning", "user_query"
+        ]
     )
 
     return prompt | llm | StrOutputParser()
@@ -132,10 +149,19 @@ async def explain_number(number: int, user_query: str, target_round: int = None,
             val = group[m_name].get(str(num), group[m_name].get(num, 0))
             return float(val)
 
-        lstm_p = safe_get(model_contribs, 'lstm', number) * 100
-        xgb_p = safe_get(model_contribs, 'xgboost', number) * 100
-        markov_p = safe_get(model_contribs, 'markov', number) * 100
-        total_p = probs_float.get(number, 0) * 100
+        # [Stage 1-4-D-2-fix-43] 11 base 활성 10 모델만 추출 (LSTM/Transformer 폐기 #24)
+        # cached model_contribs가 옛 schema (lstm 포함) 일 수 있어도 활성 모델만 사용.
+        xgb_p       = safe_get(model_contribs, 'xgboost',     number) * 100
+        catboost_p  = safe_get(model_contribs, 'catboost',    number) * 100
+        tabnet_p    = safe_get(model_contribs, 'tabnet',      number) * 100
+        cnn_p       = safe_get(model_contribs, 'cnn',         number) * 100
+        gnn_p       = safe_get(model_contribs, 'gnn',         number) * 100
+        markov_p    = safe_get(model_contribs, 'markov',      number) * 100
+        ae_p        = safe_get(model_contribs, 'autoencoder', number) * 100
+        tft_p       = safe_get(model_contribs, 'tft',         number) * 100
+        mhn_p       = safe_get(model_contribs, 'mhn',         number) * 100
+        bayesian_p  = safe_get(model_contribs, 'bayesian_nn', number) * 100
+        total_p     = probs_float.get(number, 0) * 100
 
         # 2. 설명 생성 (try/except 안에서)
         chain = create_explain_chain()
@@ -143,11 +169,18 @@ async def explain_number(number: int, user_query: str, target_round: int = None,
             "target_number": number,
             "total_prob": total_p,
             "rank": rank,
-            "lstm_prob": lstm_p,
-            "xgb_prob": xgb_p,
-            "markov_prob": markov_p,
+            "xgb_prob":      xgb_p,
+            "catboost_prob": catboost_p,
+            "tabnet_prob":   tabnet_p,
+            "cnn_prob":      cnn_p,
+            "gnn_prob":      gnn_p,
+            "markov_prob":   markov_p,
+            "ae_prob":       ae_p,
+            "tft_prob":      tft_p,
+            "mhn_prob":      mhn_p,
+            "bayesian_prob": bayesian_p,
             "xai_reasoning": xai_text,
-            "user_query": user_query
+            "user_query":    user_query
         })
         return response
 

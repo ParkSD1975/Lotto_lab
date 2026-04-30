@@ -1116,15 +1116,15 @@ const DeepLearning = {
     },
 
     /**
-     * [Stage 1-4-D-2-fix-33] XAI reasons HTML 렌더
+     * [Stage 1-4-D-2-fix-33/44] XAI reasons HTML 렌더
      *
-     * 사용자 결정: 박스화 X, 줄 간격 더, 중요 수치 색상 강조.
-     * - 자연 문장(LLM 응답): paragraph 형태, 박스 없음
-     * - 수치/순위/모델명: inline 색상 강조
-     * - leading-loose (line-height ~2.0)로 가독성 확보
+     * - LLM 응답만 표시 (frontend 합성 폐기, fix-44)
+     * - 박스화 X, 줄 간격, 수치/순위/모델명 색상 강조
      */
     _renderXaiReasons(evidenceText) {
-        if (!evidenceText) return '<p class="text-xs text-slate-400">분석 데이터 없음</p>';
+        if (!evidenceText) {
+            return '<p class="text-xs text-slate-400" style="line-height:1.7;"><span class="inline-block w-2.5 h-2.5 border-2 border-blue-200 border-t-blue-500 rounded-full animate-spin mr-1.5 align-[-2px]"></span>LLM 심층 분석 생성 중 — 새로고침하면 갱신됩니다.</p>';
+        }
         const segments = String(evidenceText).split('|').map(s => s.trim()).filter(Boolean);
         if (!segments.length) return '<p class="text-xs text-slate-400">분석 데이터 없음</p>';
 
@@ -2265,12 +2265,12 @@ const DeepLearning = {
             });
             html += `</div>`;
 
-            // [Stage 1-4-D-2-fix-29] XAI 분석 박스 — 백엔드 evidence_text 우선, 없으면 frontend 합성
-            // 백엔드 weekly_number_xai.evidence_text가 채워지면 그 값 사용.
-            // 없을 때도 항상 matrixData(item) 데이터로 즉석 합성하여 빈 박스 절대 노출 안 함.
+            // [Stage 1-4-D-2-fix-44] XAI 분석 박스 — LLM 응답만 표시 (frontend 합성 제거)
+            // 사용자 결정: "LLM으로 xai 값을 표현해달라고 했는데 왜 예전으로 돌아갔어?"
+            // → frontend 합성 fallback 폐기. evidence_text가 NULL이면 LLM 호출 진행 중 placeholder.
             const _cachedEv = (self.state && self.state.analysisData && self.state.analysisData.evidence)
                 ? self.state.analysisData.evidence[num] : null;
-            const _evidence = _cachedEv || self._synthesizeEvidence(item, isExcluded);
+            const _evidence = _cachedEv;
 
             html += `<aside data-evidence-num="${num}" style="border-left: 1px solid #f3f4f6; padding-left: 16px;">`;
             html += `<h5 class="flex items-center gap-1.5 font-bold text-slate-700 text-xs mb-3"><span class="material-symbols-outlined text-blue-600" style="font-size:16px;">psychology</span>${num}번 XAI 심층 분석</h5>`;
