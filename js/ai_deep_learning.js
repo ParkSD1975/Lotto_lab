@@ -2019,10 +2019,9 @@ const DeepLearning = {
                 const boostLabel = boost >= 1.45 ? '⚡ 출현임박' : boost >= 1.25 ? '🔔 주기초과' : '📈 주기근접';
                 corrBadges += `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-100">${boostLabel}</span>`;
             }
-            // [Stage 1-4-D-2-fix-22] 본문 카드 — XAI 번호별 분석 텍스트를 모델별 행에 inline 적용
-            // 사용자 결정: "모델별 설명하는 란에 xai에 대한 번호별 설명을 적용"
-            // → 별도 모달/펼침 영역 없이, 모델 행 옆 reason 자리에 _modelReason()이 만든
-            //   번호 컨텍스트 반영 텍스트 (gap·빈도 기반)를 그대로 표시.
+            // [Stage 1-4-D-2-fix-23] 사용자 결정: 모델 행 옆 일반 reason 제거 + 번호별 evidence를 본문에 표시
+            // - (A) evidence reasons (번호별 다른 분석) → 카드 본문에 박스로 표시
+            // - (B) 10 모델별 기여도 → 본문 카드에 이미 존재 (중복 제거)
             html += `<div class="${isExcluded ? 'bg-gray-50 opacity-50' : 'bg-white'} rounded-2xl border ${isExcluded ? 'border-gray-200' : 'border-gray-200'} overflow-hidden shadow-sm hover:shadow-md transition-all">`;
             html += `<div class="flex items-center gap-5 px-6 py-4 bg-white border-b border-gray-50">`;
             html += `<span class="ball-common ${colorClass} w-10 h-10 text-base shadow-lg flex-shrink-0 ${isExcluded ? 'grayscale' : ''}">${num}</span>`;
@@ -2034,21 +2033,45 @@ const DeepLearning = {
             html += `</div>`;
             html += `<div style="text-align:right;flex-shrink:0"><span class="font-black text-xl tracking-tight" style="color:${isExcluded ? '#9CA3AF' : scoreColor}">${total}%</span><div style="font-size:9px;color:#9CA3AF;margin-top:1px">앙상블확률</div></div>`;
             html += `</div>`;
+
+            // 10 모델 기여도 (모델 행) — 짧은 reason 텍스트 제거
             html += `<div class="grid grid-cols-1 divide-y divide-gray-50 px-6 py-2 ${isExcluded ? 'grayscale opacity-70' : ''}">`;
             models.forEach(m => {
                 const cfg = MODEL_CONFIG[m];
                 const mData = (item.models || {})[m] || {};
                 const score = mData.score != null ? mData.score : '-';
-                const reason = mData.reason || mData.reasoning || '-';
                 const isActive = key === m;
                 html += `<div class="flex items-center gap-4 py-2.5 text-xs">`;
                 html += `<span class="font-bold w-24 flex-shrink-0${isActive ? ' text-blue-600' : ' text-gray-500'}">${cfg.label}</span>`;
-                html += `<div class="flex-1 bg-gray-100 h-2 rounded-full overflow-hidden max-w-[200px]"><div class="h-full rounded-full" style="width:${Math.min(score === '-' ? 0 : score, 100)}%;background:${cfg.color}"></div></div>`;
+                html += `<div class="flex-1 bg-gray-100 h-2 rounded-full overflow-hidden"><div class="h-full rounded-full" style="width:${Math.min(score === '-' ? 0 : score, 100)}%;background:${cfg.color}"></div></div>`;
                 html += `<span class="font-bold w-12 text-right text-gray-700">${score}</span>`;
-                html += `<span class="text-gray-500 flex-1 ml-3 leading-relaxed" title="${reason}">${reason}</span>`;
                 html += `</div>`;
             });
-            html += `</div></div>`;
+            html += `</div>`;
+
+            // [fix-23] 번호별 evidence reasons 박스 — 캐시(`d.evidence[num]`)에 있으면 표시
+            const _evidence = (self.state && self.state.analysisData && self.state.analysisData.evidence)
+                ? self.state.analysisData.evidence[num] : null;
+            if (_evidence) {
+                const _reasons = String(_evidence).split(' | ').filter(r => r && r.trim());
+                if (_reasons.length) {
+                    let _items = '';
+                    _reasons.forEach(r => {
+                        const isWarning = /\[경고\]|제외|부족|높음/.test(r);
+                        const isPositive = /추천|유력|매우|적합|강신호/.test(r);
+                        const iconColor = isWarning ? 'text-rose-500' : isPositive ? 'text-blue-500' : 'text-emerald-500';
+                        const icon = isWarning ? 'warning' : isPositive ? 'auto_awesome' : 'check_circle';
+                        const textColor = isWarning ? 'text-rose-700' : isPositive ? 'text-blue-700' : 'text-slate-600';
+                        _items += `<li class="flex items-start gap-2 py-1"><span class="material-symbols-outlined ${iconColor}" style="font-size:16px;line-height:1.4;">${icon}</span><span class="${textColor} text-xs leading-relaxed">${r}</span></li>`;
+                    });
+                    html += `<div class="px-6 py-4 border-t border-gray-100 bg-blue-50/30">`;
+                    html += `<h5 class="flex items-center gap-1.5 font-bold text-slate-700 text-xs mb-2"><span class="material-symbols-outlined text-blue-600" style="font-size:16px;">psychology</span>${num}번 AI 심층 분석</h5>`;
+                    html += `<ul class="space-y-0.5">${_items}</ul>`;
+                    html += `</div>`;
+                }
+            }
+
+            html += `</div>`;
         });
         html += '</div>';
         container.innerHTML = html;
