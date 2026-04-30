@@ -523,6 +523,8 @@ const DeepLearning = {
             const freqMap = {};
             if (drawsResult.status === 'fulfilled' && drawsResult.value.data) {
                 const recentDraws = drawsResult.value.data;
+                // [fix-42a] streak 계산용 — round desc 정렬 보장 (직전부터 역순)
+                window.__recentDraws = [...recentDraws].sort((a, b) => (b.round || 0) - (a.round || 0));
                 for (let n = 1; n <= 45; n++) {
                     freqMap[n] = recentDraws.filter(d => (d.numbers || []).includes(n)).length;
                 }
@@ -626,16 +628,16 @@ const DeepLearning = {
             // freq는 0~1 비율로 저장 (sortMatrix가 *100 해서 표시)
             const freqFrac = freqCount !== null ? parseFloat((freqCount / 20).toFixed(4)) : null;
             const numInfo  = { gap: gapVal, hot_cold: f.hot_cold };
-            // [Stage 1-4-D-2-fix-41] Str(streak) 계산
-            // Hot 분류 = 최근 윈도우 내 출현 빈도 높음, gap 작으면 streak 활성
-            // freqCount(최근 20회 등장)와 gap을 활용해 단순 점수화 (1~5 scale)
+            // [Stage 1-4-D-2-fix-42a] Str(streak) = 연속 출현 횟수
+            // 정의: 현재 회차 기준 직전부터 거꾸로 몇 회차 연속 출현했는지.
+            // gap > 0 (미출현 상태) → streak 끊김 → 0
+            // gap === 0 (직전 출현) → drawsResult 최근 N회차에서 거꾸로 연속 카운트
             let strVal = 0;
-            if (gapVal != null && freqCount != null) {
-                if (gapVal === 0 && freqCount >= 5) strVal = 5;          // 직전출현 + 고빈도
-                else if (gapVal <= 2 && freqCount >= 4) strVal = 4;
-                else if (gapVal <= 5 && freqCount >= 3) strVal = 3;
-                else if (gapVal <= 10 && freqCount >= 2) strVal = 2;
-                else if (freqCount >= 1) strVal = 1;
+            if (gapVal === 0 && Array.isArray(window.__recentDraws)) {
+                for (const d of window.__recentDraws) {
+                    if ((d.numbers || []).includes(n)) strVal++;
+                    else break;
+                }
             }
 
             matrixData.push({
@@ -2234,8 +2236,8 @@ const DeepLearning = {
             html += `<div class="flex-1 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-gray-500">`;
             html += `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold border ${_statusClass}">${_statusText}</span>`;
             html += `<span>Gap <strong class="text-gray-900">${gap}</strong></span>`;
-            // [fix-41] Str(streak) — Gap 우측에 표시
-            const strDisp = item.str != null ? item.str : '-';
+            // [fix-42a] Str(streak) — gap 0 + 연속 출현이면 N, 아니면 '-'
+            const strDisp = (item.str != null && item.str > 0) ? item.str : '-';
             html += `<span>Str <strong class="text-gray-900">${strDisp}</strong></span>`;
             html += `<span>빈도 <strong class="text-gray-900">${freq}%</strong></span>`;
             if (rawTotal !== total) html += `<span class="text-gray-400 text-xs">원점수 <s class="text-gray-300">${rawTotal}%</s>→<strong class="text-gray-500">${total}%</strong></span>`;
