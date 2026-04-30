@@ -2019,9 +2019,12 @@ const DeepLearning = {
                 const boostLabel = boost >= 1.45 ? '⚡ 출현임박' : boost >= 1.25 ? '🔔 주기초과' : '📈 주기근접';
                 corrBadges += `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-100">${boostLabel}</span>`;
             }
+            // [Stage 1-4-D-2-fix-21] 본문 카드 — XAI 심층 분석 inline 통합
+            // 기존: 모델 행 끝에 짧은 reason 텍스트 표시 + 별도 모달로 심층 분석 띄움
+            // 변경: 짧은 reason 제거 + 카드에 collapsible XAI 영역 (모달 콘텐츠 inline 표시)
             html += `<div class="${isExcluded ? 'bg-gray-50 opacity-50' : 'bg-white'} rounded-2xl border ${isExcluded ? 'border-gray-200' : 'border-gray-200'} overflow-hidden shadow-sm hover:shadow-md transition-all">`;
-            html += `<div class="flex items-center gap-5 px-6 py-4 bg-white border-b border-gray-50">`;
-            html += `<span class="ball-common ${colorClass} w-10 h-10 text-base shadow-lg cursor-pointer hover:scale-110 transition-transform flex-shrink-0 ${isExcluded ? 'grayscale' : ''}" onclick="window.DeepLearning.explainNumber(${num})">${num}</span>`;
+            html += `<div class="flex items-center gap-5 px-6 py-4 bg-white border-b border-gray-50 cursor-pointer" onclick="window.DeepLearning.toggleNumberXai(${num})" title="클릭하면 XAI 심층 분석을 확인할 수 있습니다">`;
+            html += `<span class="ball-common ${colorClass} w-10 h-10 text-base shadow-lg flex-shrink-0 ${isExcluded ? 'grayscale' : ''}">${num}</span>`;
             html += `<div class="flex-1 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-gray-500">`;
             html += `<span>Gap <strong class="text-gray-900">${gap}</strong></span>`;
             html += `<span>빈도 <strong class="text-gray-900">${freq}%</strong></span>`;
@@ -2029,22 +2032,24 @@ const DeepLearning = {
             if (corrBadges) html += corrBadges;
             html += `</div>`;
             html += `<div style="text-align:right;flex-shrink:0"><span class="font-black text-xl tracking-tight" style="color:${isExcluded ? '#9CA3AF' : scoreColor}">${total}%</span><div style="font-size:9px;color:#9CA3AF;margin-top:1px">앙상블확률</div></div>`;
+            html += `<span id="xaiArrow-${num}" class="material-symbols-outlined text-gray-300 transition-transform" style="font-size:20px;">expand_more</span>`;
             html += `</div>`;
             html += `<div class="grid grid-cols-1 divide-y divide-gray-50 px-6 py-2 ${isExcluded ? 'grayscale opacity-70' : ''}">`;
             models.forEach(m => {
                 const cfg = MODEL_CONFIG[m];
                 const mData = (item.models || {})[m] || {};
                 const score = mData.score != null ? mData.score : '-';
-                const reason = mData.reason || mData.reasoning || '-';
                 const isActive = key === m;
                 html += `<div class="flex items-center gap-4 py-2.5 text-xs">`;
                 html += `<span class="font-bold w-24 flex-shrink-0${isActive ? ' text-blue-600' : ' text-gray-500'}">${cfg.label}</span>`;
                 html += `<div class="flex-1 bg-gray-100 h-2 rounded-full overflow-hidden"><div class="h-full rounded-full" style="width:${Math.min(score === '-' ? 0 : score, 100)}%;background:${cfg.color}"></div></div>`;
-                html += `<span class="font-bold w-8 text-right text-gray-700">${score}</span>`;
-                html += `<span class="text-gray-400 flex-1 truncate ml-3" title="${reason}">${reason}</span>`;
+                html += `<span class="font-bold w-12 text-right text-gray-700">${score}</span>`;
                 html += `</div>`;
             });
-            html += `</div></div>`;
+            html += `</div>`;
+            // [Stage 1-4-D-2-fix-21] 펼침형 XAI 심층 분석 영역 (default hidden, 클릭 시 lazy fetch)
+            html += `<div id="xaiInline-${num}" class="hidden border-t border-gray-100"></div>`;
+            html += `</div>`;
         });
         html += '</div>';
         container.innerHTML = html;
@@ -3873,14 +3878,36 @@ const DeepLearning = {
         }
     },
 
+    /**
+     * [Stage 1-4-D-2-fix-21] 카드 inline 토글 — 모달 대신 본문 카드 안 펼침
+     */
+    toggleNumberXai(number) {
+        const inlineEl = document.getElementById('xaiInline-' + number);
+        const arrowEl  = document.getElementById('xaiArrow-' + number);
+        if (!inlineEl) return;
+        if (inlineEl.classList.contains('hidden')) {
+            inlineEl.classList.remove('hidden');
+            if (arrowEl) arrowEl.style.transform = 'rotate(180deg)';
+            // 비어있을 때만 fetch — 한 번 채우면 재사용
+            if (!inlineEl.dataset.loaded) {
+                this.explainNumber(number);
+                inlineEl.dataset.loaded = '1';
+            }
+        } else {
+            inlineEl.classList.add('hidden');
+            if (arrowEl) arrowEl.style.transform = 'rotate(0deg)';
+        }
+    },
+
+    /**
+     * [Stage 1-4-D-2-fix-21] 모달 → inline 영역으로 출력 변경
+     * 기존 모달 HTML(#xaiModal)은 더 이상 호출되지 않음
+     */
     async explainNumber(number) {
-        var modal = document.getElementById('xaiModal');
-        var content = document.getElementById('xaiContent');
-        var title = document.getElementById('xaiTitle');
-        if (!modal || !content) return;
-        modal.classList.remove('hidden');
-        if (title) title.textContent = number + '번 XAI 심층 분석';
-        content.innerHTML = '<div class="text-center text-slate-400 py-8"><div class="w-10 h-10 border-3 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-3"></div><p>' + number + '번 분석 중...</p></div>';
+        const inlineEl = document.getElementById('xaiInline-' + number);
+        if (!inlineEl) return;
+        inlineEl.innerHTML = '<div class="text-center text-slate-400 py-6"><div class="inline-block w-8 h-8 border-2 border-blue-200 border-t-blue-600 rounded-full animate-spin mr-2 align-middle"></div><span class="align-middle text-xs">' + number + '번 심층 분석 중...</span></div>';
+        const content = inlineEl;  // 이하 로직에서 동일 변수명 사용
         var localInfo = '';
         if (this.state.analysisData) {
             var d = this.state.analysisData;
@@ -4016,7 +4043,8 @@ const DeepLearning = {
     },
 
     closeXaiModal() {
-        var modal = document.getElementById('xaiModal');
+        // [Stage 1-4-D-2-fix-21] 모달 폐기 — 호환용 noop (외부에서 호출되어도 안전)
+        const modal = document.getElementById('xaiModal');
         if (modal) modal.classList.add('hidden');
     },
 
