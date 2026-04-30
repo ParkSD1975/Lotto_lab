@@ -134,6 +134,67 @@ def synthesize_evidence(
     return " | ".join(reasons) if reasons else None
 
 
+def extract_final_answer(text: str) -> str:
+    """
+    [Stage 1-4-D-2-fix-32] LLM 응답에서 thinking/reasoning 제거 후
+    한국어 최종 답변만 추출.
+
+    Gemma 모델은 reasoning process(영어 draft)을 노출하는 경향이 있어
+    "Final Polish (Korean):" 또는 마지막 한국어 단락을 우선 추출.
+    """
+    if not text:
+        return ""
+    import re
+    text = text.strip()
+
+    # 패턴 1: "Final Polish (Korean):" 또는 "Final (Korean):" 이후
+    m = re.search(
+        r'(?:Final Polish|Final|Final Answer|최종)[^:]*?\(?(?:Korean|한국어)?\)?:?\s*\n+\s*(번호\s*\d+[^\n]*[가-힣].+?)(?:\n\n|\*\s|$)',
+        text, re.DOTALL
+    )
+    if m:
+        return _clean_md(m.group(1))
+
+    # 패턴 2: "Draft 2 ... Korean" 또는 마지막 *...:* 블록의 한국어
+    m = re.search(
+        r'(?:Draft 2|Refin\w+)[^:]*?:?\s*\n+\s*(?:[\-*]\s*)?(번호\s*\d+[^\n]*[가-힣].+?)(?:\n\n|\*\s|$)',
+        text, re.DOTALL
+    )
+    if m:
+        return _clean_md(m.group(1))
+
+    # 패턴 3: 한국어 최소 80자 이상의 마지막 paragraph
+    paragraphs = re.split(r'\n\s*\n', text)
+    for p in reversed(paragraphs):
+        p = p.strip()
+        # 마크다운 메타 라인 제외
+        if p.startswith(('*', '-', '#', '`')):
+            continue
+        ko_count = len(re.findall(r'[가-힣]', p))
+        if ko_count >= 80:
+            return _clean_md(p)
+
+    # 패턴 4: "번호 NN번" 으로 시작하는 첫 paragraph
+    m = re.search(r'(번호\s*\d+번[^\n]+(?:\n[^\*\n][^\n]+)*)', text)
+    if m:
+        return _clean_md(m.group(1))
+
+    # 패턴 5: 영어 prompt-echo만 있는 케이스 — 한국어 답변 못 찾음 → 빈 문자열 반환
+    # (frontend가 합성 fallback 사용하도록)
+    return ""
+
+
+def _clean_md(text: str) -> str:
+    """마크다운 강조(**, *)와 LaTeX 제거."""
+    import re
+    text = re.sub(r'\*{1,2}([^*]+)\*{1,2}', r'\1', text)
+    text = re.sub(r'\$\\?\w+\$|\$.*?\$', '', text)
+    text = re.sub(r'\\rightarrow', '→', text)
+    text = re.sub(r'\\\w+', '', text)
+    text = re.sub(r'\s+', ' ', text)
+    return text.strip()
+
+
 async def build_all_evidence_llm(target_round: int, draws_data=None) -> dict:
     """
     [Stage 1-4-D-2-fix-30] LLM(Gemma) 기반 evidence 생성 — 모달과 동일 응답.
@@ -169,7 +230,8 @@ async def build_all_evidence_llm(target_round: int, draws_data=None) -> dict:
                     draws_data=draws_data,
                 )
                 if text and not text.startswith("죄송"):
-                    result[n] = text.strip()
+                    # [fix-32] reasoning process 제거, 한국어 최종 답변만 추출
+                    result[n] = extract_final_answer(text)
             except Exception as e:
                 logger.warning(f"  evidence LLM {n}번 실패: {e}")
 
