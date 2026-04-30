@@ -185,12 +185,34 @@ def extract_final_answer(text: str) -> str:
 
 
 def _clean_md(text: str) -> str:
-    """마크다운 강조(**, *)와 LaTeX 제거."""
+    """마크다운, LaTeX, 영어 번역 괄호, Sentence 메타 라벨 제거."""
     import re
+    # 마크다운 강조
     text = re.sub(r'\*{1,2}([^*]+)\*{1,2}', r'\1', text)
+    # LaTeX
     text = re.sub(r'\$\\?\w+\$|\$.*?\$', '', text)
     text = re.sub(r'\\rightarrow', '→', text)
     text = re.sub(r'\\\w+', '', text)
+    # [fix-35] Sentence X (...) 메타 라벨 제거 ('Sentence 2 (LSTM explanation):')
+    text = re.sub(r'Sentence\s*\d+\s*\([^)]*\)\s*:?', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'Sentence\s*\d+\s*:', '', text, flags=re.IGNORECASE)
+    # [fix-35] Conclusion / Reasoning / Draft 등 메타 라벨 제거
+    text = re.sub(r'(?:Conclusion|Reasoning|Draft\s*\d+|Final[^:]*?|Refining[^:]*?)\s*:\s*', '', text, flags=re.IGNORECASE)
+    # [fix-35/38] 영어로 시작하는 괄호 안 텍스트 제거 (multi-line 포함)
+    # 예: (Number 6 is...) / (Pattern matching\nand non-appearance...)
+    text = re.sub(r'\(\s*[A-Z][\s\S]*?\)', '', text)
+    # [fix-38] 닫는 괄호만 잔존하는 영어 잔재 + 그 앞 영어 sentence 제거
+    # 예: 'and non-appearance regression are very low... were found.)'
+    text = re.sub(r'(?:^|\s)[a-z][A-Za-z\s,;:\'.\-]{20,}\)\s*', ' ', text)
+    # [fix-38] 한국어 사이 끼어든 5단어 이상 연속 영어 sentence 제거
+    text = re.sub(r'(?:^|\s)[A-Za-z][A-Za-z\s,;:\'.\-]{30,}\.\s*', ' ', text)
+    # 잔존 라벨 dash/bullet (line 시작)
+    text = re.sub(r'^\s*[\-*•]\s*', '', text, flags=re.MULTILINE)
+    # [fix-36] 문장 중간의 ' * ', ' - ' bullet 잔존 제거
+    text = re.sub(r'\s+[*\-•]\s+', ' ', text)
+    # 닫는 괄호 단독 잔재
+    text = re.sub(r'(?<=[.다요죠음])\s*\)\s*', ' ', text)
+    # 공백 정리
     text = re.sub(r'\s+', ' ', text)
     return text.strip()
 

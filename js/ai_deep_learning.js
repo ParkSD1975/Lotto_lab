@@ -920,10 +920,11 @@ const DeepLearning = {
             .filter(([, w]) => w > 0.03)
             .sort((a, b) => b[1] - a[1])
             .map(([m]) => MODEL_ABBR_KW[m] || m);
-        // [Stage 1-4-D-2-fix-18] 사용자 결정 — 메타α / pipeline_version(v2) 키워드 노출 제거
+        // [Stage 1-4-D-2-fix-18] 메타α / pipeline_version(v2) 키워드 노출 제거
+        // [Stage 1-4-D-2-fix-39] 활성 모델 (weight > 0.03) 전부 표시 (.slice 제거)
         const keywords = [
             `${preds.target_round}회차`,
-            activeModelNames.length > 0 ? activeModelNames.slice(0, 3).join('+') : '앙상블'
+            activeModelNames.length > 0 ? activeModelNames.join('+') : '앙상블'
         ].filter(Boolean);
 
         // ── overall_strategy: 핵심 공략 — 번호별 주도 모델 + gap 구조화 ──
@@ -1124,9 +1125,9 @@ const DeepLearning = {
                     '<b style="color:#0f172a;font-weight:700">$1</b>');
         };
 
-        // paragraph 렌더 — 박스 없음, leading 넉넉
+        // paragraph 렌더 — 박스 없음, leading 넉넉, 좌우 맞춤(justify)
         return segments.map(s =>
-            `<p class="text-sm text-slate-700" style="line-height:1.9; margin-bottom:10px;">${highlight(s)}</p>`
+            `<p class="text-sm text-slate-700" style="line-height:1.9; margin-bottom:10px; text-align:justify; word-break:keep-all;">${highlight(s)}</p>`
         ).join('');
     },
 
