@@ -1093,6 +1093,92 @@ const DeepLearning = {
         };
     },
 
+    /**
+     * [Stage 1-4-D-2-fix-25] frontend evidence 합성
+     *
+     * 백엔드 evidence 캐시가 비어 있을 때 matrixItem 데이터로 즉시 합성.
+     * 입력: item = { num, total, gap, freq, models, penalty, boost }
+     * 출력: '|'-separated reasons string (사용자 결정 #fix-25 - (C) 영역 항상 표시 보장)
+     */
+    _synthesizeEvidence(item, isExcluded) {
+        if (!item) return null;
+        const num = item.num;
+        const total = item.total || 0;
+        const gap = item.gap;
+        const freq = item.freq || 0;
+        const models = item.models || {};
+        const penalty = item.penalty != null ? item.penalty : 1.0;
+        const boost = item.boost != null ? item.boost : 1.0;
+
+        // 모델 score 분포로 주도 모델 + 약신호 모델 추출
+        const _modelScores = Object.entries(models).map(([m, v]) => ({
+            m, score: (v && v.score != null) ? v.score : 0
+        })).sort((a, b) => b.score - a.score);
+        const _MODEL_KO = {
+            xgboost: 'XGBoost', catboost: 'CatBoost', tabnet: 'TabNet',
+            cnn: 'CNN', gnn: 'GNN', markov: 'Markov', autoencoder: 'AE',
+            tft: 'TFT', nbeats: 'N-BEATS', mhn: 'MHN', bayesian_nn: 'Bayesian'
+        };
+        const top1 = _modelScores[0];
+        const top2 = _modelScores[1];
+        const reasons = [];
+
+        // 1. 사용자 메모 제외
+        if (isExcluded) {
+            reasons.push('[경고] 사용자 메모 — 강제 제외 대상');
+        }
+
+        // 2. 추천/제외 상태
+        const _ad = (this.state && this.state.analysisData) || {};
+        if (((_ad.top_5 || []).indexOf(num) >= 0) || ((_ad.recommended || []).indexOf(num) >= 0)) {
+            reasons.push(`매우 유력 — 앙상블 추천 ${total}% 강신호`);
+        } else if (((_ad.exclude_10 || []).indexOf(num) >= 0) || ((_ad.excluded || []).indexOf(num) >= 0)) {
+            reasons.push(`[경고] 제외 후보 — 앙상블 ${total}% 약신호`);
+        }
+
+        // 3. 주도 모델
+        if (top1 && top1.score >= 50) {
+            reasons.push(`${_MODEL_KO[top1.m] || top1.m} ${top1.score}% 압도적 주도 — 단독 강신호`);
+        } else if (top1 && top1.score >= 20 && top2 && top2.score >= 10) {
+            reasons.push(`${_MODEL_KO[top1.m] || top1.m} ${top1.score}% + ${_MODEL_KO[top2.m] || top2.m} ${top2.score}% 합의`);
+        } else if (top1 && top1.score < 5) {
+            reasons.push('전 모델 약신호 — 모델 합의 부족');
+        }
+
+        // 4. Gap 분석
+        if (gap != null && gap !== '-') {
+            const gapN = parseInt(gap, 10);
+            if (gapN === 0) reasons.push('직전 회차 출현 — 단기 모멘텀 활성');
+            else if (gapN <= 5) reasons.push(`${gapN}회 미출현 — 단기 반등 영역`);
+            else if (gapN <= 15) reasons.push(`${gapN}회 미출현 — 평균 주기 내 복귀 신호`);
+            else if (gapN <= 30) reasons.push(`${gapN}회 미출현 — 중장기 반등 적합`);
+            else reasons.push(`[경고] ${gapN}회 미출현 — 장기 데드콜드 우려`);
+        }
+
+        // 5. 빈도
+        if (freq > 0) {
+            const freqPct = (freq * 100).toFixed(1);
+            if (freq >= 0.15) reasons.push(`최근 빈도 ${freqPct}% 높음 — 활성 영역`);
+            else if (freq < 0.05) reasons.push(`[경고] 빈도 ${freqPct}% 부족 — 출현 약세`);
+        }
+
+        // 6. 보정
+        if (penalty < 1.0) {
+            const penPct = Math.round((1 - penalty) * 100);
+            if (penalty <= 0.35) reasons.push(`[경고] 극심 과출현 ${penPct}% 차감 — 평균 회귀 압력`);
+            else if (penalty <= 0.5) reasons.push(`[경고] 강 과출현 ${penPct}% 차감`);
+            else reasons.push(`과출현 ${penPct}% 차감 — 보정 진행`);
+        }
+        if (boost > 1.0) {
+            const boostPct = Math.round((boost - 1) * 100);
+            if (boost >= 1.45) reasons.push(`출현 임박 +${boostPct}% — 주기 한계 초과`);
+            else if (boost >= 1.25) reasons.push(`주기 초과 +${boostPct}% — 복귀 신호`);
+            else reasons.push(`주기 근접 +${boostPct}% — 출현 적합`);
+        }
+
+        return reasons.length ? reasons.join(' | ') : null;
+    },
+
     // ── 모델별 번호 분석 이유 생성 (실데이터 기반) ──
     _modelReason(modelName, score, numInfo = {}) {
         const gap = numInfo.gap != null ? numInfo.gap : null;
@@ -2019,13 +2105,35 @@ const DeepLearning = {
                 const boostLabel = boost >= 1.45 ? '⚡ 출현임박' : boost >= 1.25 ? '🔔 주기초과' : '📈 주기근접';
                 corrBadges += `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-100">${boostLabel}</span>`;
             }
-            // [Stage 1-4-D-2-fix-23] 사용자 결정: 모델 행 옆 일반 reason 제거 + 번호별 evidence를 본문에 표시
-            // - (A) evidence reasons (번호별 다른 분석) → 카드 본문에 박스로 표시
-            // - (B) 10 모델별 기여도 → 본문 카드에 이미 존재 (중복 제거)
+            // [Stage 1-4-D-2-fix-25] 사용자 결정 (4차 명확화):
+            // > "(A)+(B)+(C) 수정 전 모델별 설명이 있는 자리에 적용"
+            // → 카드 본문(10 모델 행 영역) 통째 제거 → 모달의 (A)+(B)+(C) 콘텐츠 inline 적용
+            //   (D) 10 모델 기여도 차트는 모달에서 빼라고 한 부분이므로 본문에서도 제거.
+            //
+            // 카드 = [헤더(번호/Gap/빈도/앙상블%)]
+            //      + [(A) 분석결과 박스: 강력추천/제외예상/일반 + 앙상블 확률]
+            //      + [(B) 보정 정보: 과출현·주기임박]
+            //      + [(C) AI 심층 분석 reasons]
+
+            // (A)+(B) 통합 — 카드 헤더에 상태 배지 + 보정 정보 추가
+            const _isRecommended = self.state && self.state.analysisData
+                ? ((self.state.analysisData.top_5 || []).indexOf(num) >= 0
+                   || (self.state.analysisData.recommended || []).indexOf(num) >= 0)
+                : false;
+            const _isExcluded2 = self.state && self.state.analysisData
+                ? ((self.state.analysisData.exclude_10 || []).indexOf(num) >= 0
+                   || (self.state.analysisData.excluded || []).indexOf(num) >= 0)
+                : false;
+            const _statusClass = _isRecommended ? 'bg-emerald-50 text-emerald-600 border-emerald-200'
+                : _isExcluded2 ? 'bg-rose-50 text-rose-600 border-rose-200'
+                : 'bg-slate-50 text-slate-500 border-slate-200';
+            const _statusText = _isRecommended ? '강력추천' : _isExcluded2 ? '제외예상' : '일반';
+
             html += `<div class="${isExcluded ? 'bg-gray-50 opacity-50' : 'bg-white'} rounded-2xl border ${isExcluded ? 'border-gray-200' : 'border-gray-200'} overflow-hidden shadow-sm hover:shadow-md transition-all">`;
             html += `<div class="flex items-center gap-5 px-6 py-4 bg-white border-b border-gray-50">`;
             html += `<span class="ball-common ${colorClass} w-10 h-10 text-base shadow-lg flex-shrink-0 ${isExcluded ? 'grayscale' : ''}">${num}</span>`;
             html += `<div class="flex-1 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-gray-500">`;
+            html += `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold border ${_statusClass}">${_statusText}</span>`;
             html += `<span>Gap <strong class="text-gray-900">${gap}</strong></span>`;
             html += `<span>빈도 <strong class="text-gray-900">${freq}%</strong></span>`;
             if (rawTotal !== total) html += `<span class="text-gray-400 text-xs">원점수 <s class="text-gray-300">${rawTotal}%</s>→<strong class="text-gray-500">${total}%</strong></span>`;
@@ -2034,41 +2142,31 @@ const DeepLearning = {
             html += `<div style="text-align:right;flex-shrink:0"><span class="font-black text-xl tracking-tight" style="color:${isExcluded ? '#9CA3AF' : scoreColor}">${total}%</span><div style="font-size:9px;color:#9CA3AF;margin-top:1px">앙상블확률</div></div>`;
             html += `</div>`;
 
-            // 10 모델 기여도 (모델 행) — 짧은 reason 텍스트 제거
-            html += `<div class="grid grid-cols-1 divide-y divide-gray-50 px-6 py-2 ${isExcluded ? 'grayscale opacity-70' : ''}">`;
-            models.forEach(m => {
-                const cfg = MODEL_CONFIG[m];
-                const mData = (item.models || {})[m] || {};
-                const score = mData.score != null ? mData.score : '-';
-                const isActive = key === m;
-                html += `<div class="flex items-center gap-4 py-2.5 text-xs">`;
-                html += `<span class="font-bold w-24 flex-shrink-0${isActive ? ' text-blue-600' : ' text-gray-500'}">${cfg.label}</span>`;
-                html += `<div class="flex-1 bg-gray-100 h-2 rounded-full overflow-hidden"><div class="h-full rounded-full" style="width:${Math.min(score === '-' ? 0 : score, 100)}%;background:${cfg.color}"></div></div>`;
-                html += `<span class="font-bold w-12 text-right text-gray-700">${score}</span>`;
-                html += `</div>`;
-            });
-            html += `</div>`;
-
-            // [fix-23] 번호별 evidence reasons 박스 — 캐시(`d.evidence[num]`)에 있으면 표시
-            const _evidence = (self.state && self.state.analysisData && self.state.analysisData.evidence)
+            // (C) AI 심층 분석 리포트 — evidence reasons (캐시 우선, 없으면 frontend 합성)
+            const _cachedEv = (self.state && self.state.analysisData && self.state.analysisData.evidence)
                 ? self.state.analysisData.evidence[num] : null;
-            if (_evidence) {
-                const _reasons = String(_evidence).split(' | ').filter(r => r && r.trim());
-                if (_reasons.length) {
-                    let _items = '';
-                    _reasons.forEach(r => {
-                        const isWarning = /\[경고\]|제외|부족|높음/.test(r);
-                        const isPositive = /추천|유력|매우|적합|강신호/.test(r);
-                        const iconColor = isWarning ? 'text-rose-500' : isPositive ? 'text-blue-500' : 'text-emerald-500';
-                        const icon = isWarning ? 'warning' : isPositive ? 'auto_awesome' : 'check_circle';
-                        const textColor = isWarning ? 'text-rose-700' : isPositive ? 'text-blue-700' : 'text-slate-600';
-                        _items += `<li class="flex items-start gap-2 py-1"><span class="material-symbols-outlined ${iconColor}" style="font-size:16px;line-height:1.4;">${icon}</span><span class="${textColor} text-xs leading-relaxed">${r}</span></li>`;
-                    });
-                    html += `<div class="px-6 py-4 border-t border-gray-100 bg-blue-50/30">`;
-                    html += `<h5 class="flex items-center gap-1.5 font-bold text-slate-700 text-xs mb-2"><span class="material-symbols-outlined text-blue-600" style="font-size:16px;">psychology</span>${num}번 AI 심층 분석</h5>`;
-                    html += `<ul class="space-y-0.5">${_items}</ul>`;
-                    html += `</div>`;
-                }
+            const _evidence = _cachedEv || self._synthesizeEvidence(item, isExcluded);
+            const _reasons = _evidence
+                ? String(_evidence).split(' | ').filter(r => r && r.trim())
+                : [];
+
+            if (_reasons.length) {
+                let _items = '';
+                _reasons.forEach(r => {
+                    const isWarning = /\[경고\]|제외|부족|높음|약신호|미출현/.test(r);
+                    const isPositive = /추천|유력|매우|적합|강신호|압도|주도/.test(r);
+                    const iconColor = isWarning ? 'text-rose-500' : isPositive ? 'text-blue-500' : 'text-emerald-500';
+                    const icon = isWarning ? 'warning' : isPositive ? 'auto_awesome' : 'check_circle';
+                    const textColor = isWarning ? 'text-rose-700' : isPositive ? 'text-blue-700' : 'text-slate-600';
+                    _items += `<li class="flex items-start gap-2 py-1"><span class="material-symbols-outlined ${iconColor}" style="font-size:18px;line-height:1.3;">${icon}</span><span class="${textColor} text-sm leading-relaxed">${r}</span></li>`;
+                });
+                const _src = _cachedEv ? '백엔드 분석' : '실시간 합성';
+                html += `<div class="px-6 py-4 ${isExcluded ? 'grayscale opacity-70' : ''}" data-evidence-num="${num}">`;
+                html += `<h5 class="flex items-center gap-1.5 font-bold text-slate-700 text-xs mb-3"><span class="material-symbols-outlined text-blue-600" style="font-size:16px;">psychology</span>${num}번 AI 심층 분석<span class="ml-auto text-[10px] font-normal text-slate-400">${_src}</span></h5>`;
+                html += `<ul class="space-y-1">${_items}</ul>`;
+                html += `</div>`;
+            } else {
+                html += `<div class="px-6 py-3 text-xs text-slate-400">심층 분석 데이터 준비 중...</div>`;
             }
 
             html += `</div>`;
