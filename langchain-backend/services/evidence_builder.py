@@ -134,6 +134,49 @@ def synthesize_evidence(
     return " | ".join(reasons) if reasons else None
 
 
+async def build_all_evidence_llm(target_round: int, draws_data=None) -> dict:
+    """
+    [Stage 1-4-D-2-fix-30] LLM(Gemma) 기반 evidence 생성 — 모달과 동일 응답.
+
+    chains.explain_chain.explain_number()를 45회 호출하여 자연 문장 응답을
+    weekly_number_xai.evidence_text에 저장할 수 있는 형태로 반환.
+
+    매주 1회 weekly_pipeline_v2 실행 시 호출되며, 45 × 1~2초 = 1~2분 소요.
+
+    Returns:
+        {n: 자연 문장 (LLM 응답) or None}
+    """
+    import asyncio
+    import logging
+    logger = logging.getLogger(__name__)
+    try:
+        from chains.explain_chain import explain_number
+    except Exception as e:
+        logger.warning(f"explain_chain import 실패: {e}")
+        return {}
+
+    result = {}
+    # 동시 호출 3개 제한 (LLM rate limit 보호)
+    sem = asyncio.Semaphore(3)
+
+    async def _one(n: int):
+        async with sem:
+            try:
+                text = await explain_number(
+                    number=n,
+                    user_query="이 번호에 대한 심층 분석을 해줘",
+                    target_round=target_round,
+                    draws_data=draws_data,
+                )
+                if text and not text.startswith("죄송"):
+                    result[n] = text.strip()
+            except Exception as e:
+                logger.warning(f"  evidence LLM {n}번 실패: {e}")
+
+    await asyncio.gather(*[_one(n) for n in range(1, 46)])
+    return result
+
+
 def build_all_evidence(
     target_round: int,
     xai: dict,

@@ -341,31 +341,41 @@ class WeeklyPipelineV2:
             )
             gnn_is_uniform = gnn_xai_total < 0.5  # 전체 합 0.5% 미만 → uniform 판정
 
-            # [Stage 1-4-D-2-fix-28] evidence_text 일괄 생성 (1회 deterministic 합성)
+            # [Stage 1-4-D-2-fix-30] evidence_text 일괄 생성 — LLM(Gemma) 자연 문장
+            # 모달이 보여주던 /api/explain/ 응답과 동일. 매주 1회 45 호출 (1~2분).
             try:
-                from services.evidence_builder import build_all_evidence
-                feature_map = (analysis.get("features", {})
-                               or analysis.get("feature_map", {})
-                               or {})
-                # top_5 / exclude_10 — analysis dict (Phase B에서 'top_5' / 'excl_10' 키로 저장됨)
-                top5 = list(analysis.get("top_5") or [])
-                exclude10 = list(analysis.get("excl_10") or analysis.get("exclude_10") or [])
-                evidence_map = build_all_evidence(
-                    target_round=target_round,
-                    xai=xai,
-                    final_probs=final_probs,
-                    feature_map=feature_map,
-                    top5=top5,
-                    exclude10=exclude10,
-                )
+                import asyncio
+                from services.evidence_builder import build_all_evidence_llm
+                logger.info(f"  [C2] LLM evidence 생성 시작 (45회 호출)...")
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        # nested loop (드물지만 안전 처리) — 새 thread로 실행
+                        import threading
+                        evidence_map_holder = {}
+                        def _runner():
+                            evidence_map_holder["v"] = asyncio.run(
+                                build_all_evidence_llm(target_round=target_round)
+                            )
+                        t = threading.Thread(target=_runner)
+                        t.start()
+                        t.join()
+                        evidence_map = evidence_map_holder.get("v", {})
+                    else:
+                        evidence_map = asyncio.run(
+                            build_all_evidence_llm(target_round=target_round)
+                        )
+                except RuntimeError:
+                    evidence_map = asyncio.run(
+                        build_all_evidence_llm(target_round=target_round)
+                    )
                 logger.info(
-                    f"  [C2] evidence_text 합성: "
-                    f"{sum(1 for v in evidence_map.values() if v)}/45개 "
-                    f"(top5={top5}, excl={exclude10})"
+                    f"  [C2] LLM evidence 생성 완료: "
+                    f"{sum(1 for v in evidence_map.values() if v)}/45개"
                 )
             except Exception as ev_e:
                 evidence_map = {}
-                logger.warning(f"  [C2] evidence 합성 실패 (무시): {ev_e}")
+                logger.warning(f"  [C2] evidence 생성 실패 (무시): {ev_e}")
 
             rows = []
             for n in range(1, 46):
