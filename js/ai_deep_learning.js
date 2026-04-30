@@ -623,20 +623,35 @@ const DeepLearning = {
             const x = xaiMap[n] || {};
             const f = featMap[n] || {};
             const prob = x.probability || 0;
-            const gapVal = f.missing_count !== undefined ? f.missing_count : null;
+            // [Stage 1-4-D-2-fix-52] Gap = 1222회차 예측 시점에서 본 미출현 회차 수
+            // featMap.missing_count는 "1221 시점의 1220까지 미출현"이라 사용자 직관과 다름
+            // → lotto_draws 직접 검사: 1221부터 거꾸로 미출현 카운트 (1221 출현 → Gap 0)
+            let gapVal = null;
+            if (Array.isArray(window.__recentDraws)) {
+                gapVal = 0;
+                let found = false;
+                for (const d of window.__recentDraws) {
+                    if ((d.numbers || []).includes(n)) { found = true; break; }
+                    gapVal++;
+                }
+                // 최근 20회 모두 미출현 → featMap.missing_count fallback
+                if (!found) gapVal = (f.missing_count != null) ? f.missing_count : null;
+            } else if (f.missing_count != null) {
+                gapVal = f.missing_count;
+            }
             const freqCount = freqMap[n] !== undefined ? freqMap[n] : null;
             // freq는 0~1 비율로 저장 (sortMatrix가 *100 해서 표시)
             const freqFrac = freqCount !== null ? parseFloat((freqCount / 20).toFixed(4)) : null;
             const numInfo  = { gap: gapVal, hot_cold: f.hot_cold };
-            // [Stage 1-4-D-2-fix-50-revert] Str = 직전회차 기준 연속 출현 횟수
+            // [Stage 1-4-D-2-fix-51] Str = 직전회차 기준 연속 출현 (lotto_draws 직접 확인)
             // 사용자 정의: "직전회차 기준으로 몇번 연속 출현했냐"
-            // → 1221(직전) 출현 → +1 → 1220 출현하면 +1 → ... 미출현 시 break
-            // → 직전회차에 안 나왔으면 (gap > 0) 연속 끊김 → 0 → '-'
+            // featMap의 gap이 다른 시점 기준일 수 있어 lotto_draws 직접 검증.
+            // window.__recentDraws[0] = 가장 최신 회차 (target_round - 1)
             let strVal = 0;
-            if (gapVal === 0 && Array.isArray(window.__recentDraws)) {
+            if (Array.isArray(window.__recentDraws) && window.__recentDraws.length > 0) {
                 for (const d of window.__recentDraws) {
                     if ((d.numbers || []).includes(n)) strVal++;
-                    else break;
+                    else break;  // 첫 미출현에서 break (직전회차 미출현이면 strVal=0)
                 }
             }
 
