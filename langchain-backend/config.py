@@ -108,6 +108,14 @@ GNN_BCE_AUX_WEIGHT = 0.6          # fix-9: 0.3 → 0.6 (BCE 비중 강화 — mu
 GNN_FEATURE_NORMALIZE = True      # G-7-D: PowerTransformer (Yeo-Johnson) 적용
 GNN_FEATURE_NORMALIZE_INDICES = [0, 1, 2, 3, 4, 6]  # freq×3, gap×2, hot_streak (long-tail)
 
+# ── [Stage 1-4-D-2-fix-41] 가중치 floor + epoch 증가 + categorical feature ──
+# 사용자 결정: TabNet/CatBoost/MHN 가중치 ≤ 0.03 → ensemble 비활성 문제 해소
+TASK_WEIGHT_FLOOR = 0.05         # 활성 모델 최소 가중치 (DEPRECATED 제외)
+TABNET_MAX_EPOCHS = 200          # 100 -> 200 (수렴 부족 보강)
+CATBOOST_ITERATIONS = 1000       # 500 -> 1000
+MHN_MAX_EPOCHS = 60              # 30 -> 60
+ENABLE_CATEGORICAL_FEATURES = True  # TabNet/CatBoost endings/decade/odd_even/high_low 인코딩
+
 # ── 앙상블 설정 ──
 ENSEMBLE_INITIAL_WEIGHTS = {
     "transformer": 0.30,

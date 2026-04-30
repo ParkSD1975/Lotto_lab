@@ -294,11 +294,53 @@ class LottoEnsemble:
         except Exception:
             return os.path.join(self.save_dir, "task_weights.json")
 
+    def _apply_weight_floor(self, weights: dict, floor: float = None) -> dict:
+        """
+        [Stage 1-4-D-2-fix-41] 활성 모델 최소 가중치 floor 보장.
+
+        사용자 결정: 신규 base (TabNet/CatBoost/MHN)가 1100회차 학습으로
+        충분한 신호 못 잡아 가중치 ≤ 0.03 → ensemble 비활성. 학습이 부족해도
+        모든 활성 모델이 최소 floor 비중을 가지도록 보장.
+        """
+        if floor is None:
+            try:
+                import config
+                floor = float(getattr(config, "TASK_WEIGHT_FLOOR", 0.05))
+            except Exception:
+                floor = 0.05
+
+        # DEPRECATED + DISABLED 모델 제외
+        active = {
+            k: float(v) for k, v in weights.items()
+            if k not in DEPRECATED_MODELS and k not in DISABLED_MODELS and isinstance(v, (int, float))
+        }
+        if not active:
+            return dict(weights)
+
+        # 1) floor 미만 활성 모델 → floor로 boost
+        boosted = {k: max(v, floor) for k, v in active.items()}
+        total = sum(boosted.values())
+        if total <= 0:
+            return dict(weights)
+
+        # 2) 정규화 (sum=1)
+        normalized = {k: v / total for k, v in boosted.items()}
+
+        # 3) 결과 dict 재구성 (DEPRECATED는 0으로 유지)
+        final = dict(weights)
+        for k, v in normalized.items():
+            final[k] = round(v, 4)
+        for k in DEPRECATED_MODELS:
+            if k in final:
+                final[k] = 0.0
+        return final
+
     def load_task_weights(self) -> dict:
         """M-1-F: saved_models/task_weights.json 로드.
 
         파일 없거나 부분 누락 시 본 모듈의 TASK_WEIGHTS 하드코딩 default로 보완.
-        return: 8 task × 7 model 매트릭스 (최종 사용용)
+        [fix-41] 로드 후 _apply_weight_floor로 모든 활성 모델 최소 0.05 보장.
+        return: 8 task × 11 model 매트릭스 (최종 사용용)
         """
         try:
             import config
@@ -330,7 +372,8 @@ class LottoEnsemble:
         except Exception as e:
             print(f"  [Ensemble] task_weights.json 로드 실패 (default 사용): {e}")
 
-        return merged
+        # [Stage 1-4-D-2-fix-41] 모든 task에 가중치 floor 적용
+        return {task: self._apply_weight_floor(w) for task, w in merged.items()}
 
     def save_task_weights(self, task_weights: dict) -> None:
         """M-1-F: 학습된 task 가중치 매트릭스를 외부 파일에 영속화."""

@@ -51,7 +51,7 @@ class LottoTabNet:
         gamma: float = 1.3,
         lambda_sparse: float = 1e-3,
         learning_rate: float = 2e-2,
-        max_epochs: int = 100,
+        max_epochs: int = None,  # None → config.TABNET_MAX_EPOCHS (default 200, fix-41)
         patience: int = 15,
         batch_size: int = 256,
         virtual_batch_size: int = 128,
@@ -72,6 +72,13 @@ class LottoTabNet:
         self.gamma = gamma
         self.lambda_sparse = lambda_sparse
         self.learning_rate = learning_rate
+        # [fix-41] config 값 fallback
+        if max_epochs is None:
+            try:
+                import config
+                max_epochs = int(getattr(config, "TABNET_MAX_EPOCHS", 200))
+            except Exception:
+                max_epochs = 200
         self.max_epochs = max_epochs
         self.patience = patience
         self.batch_size = batch_size

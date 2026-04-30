@@ -42,7 +42,7 @@ class LottoCatBoost:
         task_type: str = "multiclass",
         num_classes: int = 7,
         input_dim: int | None = None,
-        iterations: int = 500,
+        iterations: int = None,  # None → config.CATBOOST_ITERATIONS (default 1000, fix-41)
         learning_rate: float = 0.05,
         depth: int = 6,
         l2_leaf_reg: float = 3.0,
@@ -59,6 +59,12 @@ class LottoCatBoost:
         self.task_type = task_type
         self.num_classes = int(num_classes)
         self.input_dim = int(input_dim) if input_dim is not None else None
+        # [fix-41] config 값 fallback
+        if iterations is None:
+            try:
+                iterations = int(getattr(config, "CATBOOST_ITERATIONS", 1000))
+            except Exception:
+                iterations = 1000
         self.iterations = iterations
         self.learning_rate = learning_rate
         self.depth = depth
