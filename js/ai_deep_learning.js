@@ -2255,8 +2255,8 @@ const DeepLearning = {
             html += `<div class="flex-1 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-gray-500">`;
             html += `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold border ${_statusClass}">${_statusText}</span>`;
             html += `<span>Gap <strong class="text-gray-900">${gap}</strong></span>`;
-            // [fix-50] Str = 최근 20회차 중 가장 길었던 연속 출현 streak
-            const strDisp = (item.str != null && item.str > 0) ? item.str : '-';
+            // [fix-53] Str = 연속 출현 횟수 (0은 연속 없음 명시 표시)
+            const strDisp = (item.str != null) ? item.str : 0;
             html += `<span>Str <strong class="text-gray-900">${strDisp}</strong></span>`;
             html += `<span>빈도 <strong class="text-gray-900">${freq}%</strong></span>`;
             // [fix-46] Hot/Cold/Neutral 배지 — 최근 20회차 출현 횟수 기준
