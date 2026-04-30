@@ -1697,8 +1697,9 @@ const DeepLearning = {
         if (summaryEl) summaryEl.textContent = strategy.summary || '분석 결과가 없습니다.';
         const tagEl = document.getElementById('keywordTags');
         if (tagEl && strategy.keywords) {
+            // [Stage 1-4-D-2-fix-49] 박스 제거 + 다크그레이 글씨 + 빨간 언더바 하이라이트
             tagEl.innerHTML = strategy.keywords.map(function (k) {
-                return '<span class="px-3 py-1 bg-white text-blue-700 text-xs font-bold rounded-lg border border-blue-100 shadow-sm">' + k + '</span>';
+                return '<span class="text-sm font-bold" style="color:#1f2937; border-bottom:2px solid #dc2626; padding-bottom:2px; margin-right:14px;">' + k + '</span>';
             }).join('');
         }
         const elapsedEl = document.getElementById('elapsedTime');

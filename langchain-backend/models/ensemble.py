@@ -294,20 +294,26 @@ class LottoEnsemble:
         except Exception:
             return os.path.join(self.save_dir, "task_weights.json")
 
-    def _apply_weight_floor(self, weights: dict, floor: float = None) -> dict:
+    def _apply_weight_floor(self, weights: dict, floor: float = None, cap: float = None) -> dict:
         """
-        [Stage 1-4-D-2-fix-41] 활성 모델 최소 가중치 floor 보장.
+        [Stage 1-4-D-2-fix-41/48] 활성 모델 최소 floor + 최대 cap 보장.
 
-        사용자 결정: 신규 base (TabNet/CatBoost/MHN)가 1100회차 학습으로
-        충분한 신호 못 잡아 가중치 ≤ 0.03 → ensemble 비활성. 학습이 부족해도
-        모든 활성 모델이 최소 floor 비중을 가지도록 보장.
+        사용자 결정 #48: 'XGBoost 압도적(37%), Bayesian 무시당함(3%) → cold 편향'
+        → floor 0.05→0.10 (Bayesian 등 정확 모델 영향 보장)
+        → cap 0.25 신규 (XGBoost 독식 방지)
         """
         if floor is None:
             try:
                 import config
-                floor = float(getattr(config, "TASK_WEIGHT_FLOOR", 0.05))
+                floor = float(getattr(config, "TASK_WEIGHT_FLOOR", 0.10))
             except Exception:
-                floor = 0.05
+                floor = 0.10
+        if cap is None:
+            try:
+                import config
+                cap = float(getattr(config, "TASK_WEIGHT_CAP", 0.25))
+            except Exception:
+                cap = 0.25
 
         # DEPRECATED + DISABLED 모델 제외
         active = {
@@ -317,16 +323,32 @@ class LottoEnsemble:
         if not active:
             return dict(weights)
 
-        # 1) floor 미만 활성 모델 → floor로 boost
-        boosted = {k: max(v, floor) for k, v in active.items()}
-        total = sum(boosted.values())
-        if total <= 0:
-            return dict(weights)
+        # 1) floor 미만 → floor로 boost / cap 초과 → cap으로 clip
+        clipped = {k: max(floor, min(cap, v)) for k, v in active.items()}
 
         # 2) 정규화 (sum=1)
-        normalized = {k: v / total for k, v in boosted.items()}
+        total = sum(clipped.values())
+        if total <= 0:
+            return dict(weights)
+        normalized = {k: v / total for k, v in clipped.items()}
 
-        # 3) 결과 dict 재구성 (DEPRECATED는 0으로 유지)
+        # 3) 정규화 후 cap 다시 검증 (cap × n_active < 1이면 무한 분배 가능, 안전)
+        # 만약 정규화 후에도 cap 초과한 모델이 있으면 그 차이만큼 다른 모델에 분배
+        for _ in range(3):  # 최대 3번 반복으로 수렴
+            over = {k: v - cap for k, v in normalized.items() if v > cap}
+            if not over:
+                break
+            excess = sum(over.values())
+            under = {k: v for k, v in normalized.items() if v < cap and k not in over}
+            if not under:
+                break
+            under_total = sum(under.values())
+            for k, v in over.items():
+                normalized[k] = cap
+            for k, v in under.items():
+                normalized[k] = v + excess * (v / under_total)
+
+        # 4) 결과 dict 재구성
         final = dict(weights)
         for k, v in normalized.items():
             final[k] = round(v, 4)

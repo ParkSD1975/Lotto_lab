@@ -268,6 +268,75 @@ class WeeklyPipelineV2:
         logger.info("  [B5] 조합 생성...")
         top_5   = [e["number"] for e in top5_result.get("top_numbers", [])][:5]
         excl_10 = [e["number"] for e in excl_result.get("exclusions", [])][:10]
+
+        # [Stage 1-4-D-2-fix-48] Hot/Cold 균형 룰 적용
+        # 사용자 결정: '추천 5가 cold만 → 결함. Hot 최소 2 / Cold 최대 2'
+        try:
+            from db.supabase_client import get_client
+            client = get_client()
+            recent_res = client.table("lotto_draws") \
+                .select("round, numbers") \
+                .lte("round", target_round - 1) \
+                .order("round", desc=True) \
+                .limit(20).execute()
+            recent_draws = recent_res.data or []
+            freq_count = {n: 0 for n in range(1, 46)}
+            for d in recent_draws:
+                for n in (d.get("numbers") or []):
+                    if 1 <= n <= 45:
+                        freq_count[n] += 1
+
+            def _classify(n):
+                fc = freq_count.get(n, 0)
+                if fc >= 5: return "hot"
+                if fc >= 3: return "neutral"
+                return "cold"
+
+            # 후보 풀 — 상위 15개 (top_5 외 보충 후보)
+            top_candidates = [e["number"] for e in top5_result.get("top_numbers", [])][:15]
+            top_candidates = [n for n in top_candidates if n not in excl_10]
+
+            balanced = list(top_5)
+            cur_hot = sum(1 for n in balanced if _classify(n) == "hot")
+            cur_cold = sum(1 for n in balanced if _classify(n) == "cold")
+
+            # 룰: Hot 최소 2, Cold 최대 2
+            # 1) Hot 부족 → Hot 후보로 cold 교체
+            if cur_hot < 2:
+                hot_pool = [n for n in top_candidates if _classify(n) == "hot" and n not in balanced]
+                cold_in_top = [n for n in balanced if _classify(n) == "cold"]
+                # 가장 prob 낮은 cold부터 교체
+                cold_in_top.sort(key=lambda n: corrected_probs.get(n, 0))
+                for new_n in hot_pool:
+                    if cur_hot >= 2 or not cold_in_top:
+                        break
+                    old_n = cold_in_top.pop(0)
+                    idx = balanced.index(old_n)
+                    balanced[idx] = new_n
+                    cur_hot += 1
+                    cur_cold -= 1
+
+            # 2) Cold 초과 → Cold 후보 일부를 Neutral/Hot 후보로 교체
+            if cur_cold > 2:
+                non_cold_pool = [n for n in top_candidates if _classify(n) != "cold" and n not in balanced]
+                cold_in_top = [n for n in balanced if _classify(n) == "cold"]
+                cold_in_top.sort(key=lambda n: corrected_probs.get(n, 0))
+                while cur_cold > 2 and non_cold_pool and cold_in_top:
+                    new_n = non_cold_pool.pop(0)
+                    old_n = cold_in_top.pop(0)
+                    idx = balanced.index(old_n)
+                    balanced[idx] = new_n
+                    cur_cold -= 1
+
+            if balanced != top_5:
+                logger.info(f"  [B5/fix-48] Hot/Cold 균형 적용: {top_5} → {balanced}")
+                logger.info(f"             Hot/Neutral/Cold = "
+                            f"{sum(1 for n in balanced if _classify(n)=='hot')}/"
+                            f"{sum(1 for n in balanced if _classify(n)=='neutral')}/"
+                            f"{sum(1 for n in balanced if _classify(n)=='cold')}")
+                top_5 = balanced
+        except Exception as e:
+            logger.warning(f"  [B5/fix-48] Hot/Cold 균형 룰 실패 (무시): {e}")
         gen_probs = corrected_probs.copy()
         for n in excl_10:
             gen_probs[n] = 0

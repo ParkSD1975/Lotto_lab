@@ -108,9 +108,11 @@ GNN_BCE_AUX_WEIGHT = 0.6          # fix-9: 0.3 → 0.6 (BCE 비중 강화 — mu
 GNN_FEATURE_NORMALIZE = True      # G-7-D: PowerTransformer (Yeo-Johnson) 적용
 GNN_FEATURE_NORMALIZE_INDICES = [0, 1, 2, 3, 4, 6]  # freq×3, gap×2, hot_streak (long-tail)
 
-# ── [Stage 1-4-D-2-fix-41] 가중치 floor + epoch 증가 + categorical feature ──
-# 사용자 결정: TabNet/CatBoost/MHN 가중치 ≤ 0.03 → ensemble 비활성 문제 해소
-TASK_WEIGHT_FLOOR = 0.05         # 활성 모델 최소 가중치 (DEPRECATED 제외)
+# ── [Stage 1-4-D-2-fix-41/48] 가중치 floor + cap + epoch 증가 + categorical feature ──
+# 사용자 결정 #48: '추천수가 cold만, 제외수에 당첨번호 1-3개 나오는 결함'
+# → XGBoost/CNN 압도(0.37/0.13)로 cold 편향, Bayesian(0.03) 무시 → cap + floor 강화
+TASK_WEIGHT_FLOOR = 0.10         # fix-48: 0.05 → 0.10 (Bayesian 등 정확 모델 영향 보장)
+TASK_WEIGHT_CAP = 0.25           # fix-48 신규: 단일 모델 최대 25% (XGBoost 독식 방지)
 TABNET_MAX_EPOCHS = 200          # 100 -> 200 (수렴 부족 보강)
 CATBOOST_ITERATIONS = 1000       # 500 -> 1000
 MHN_MAX_EPOCHS = 60              # 30 -> 60
