@@ -2046,7 +2046,8 @@ const DeepLearning = {
         };
         // [Stage 1-4-D-2-fix-10] 메인 1~45 영역 — N-BEATS 제외 (10 base)
         const models = MAIN_45_MODELS.slice();
-        let html = '<div class="overflow-x-auto rounded-2xl border border-gray-100 shadow-sm bg-white">';
+        // [Stage 1-4-D-2-fix-59] 사용자 결정: 큰 테이블 삭제 → 카드 한 줄 1개로
+        let html = '<div style="display:none;" class="overflow-x-auto rounded-2xl border border-gray-100 shadow-sm bg-white">';
         // 10 모델 컬럼은 가로 스크롤이 필요 — table-fixed + 최소 폭 확보
         html += '<table class="text-xs table-fixed" style="min-width:1100px; width:100%;">';
         // 지표 130 / 현재 80 / 앙상블 80 / 모델 10 × 80 (총 ~1090)
@@ -2148,8 +2149,13 @@ const DeepLearning = {
         html += '</tbody></table></div>';
 
         // ────────────────────────────────────────────────────────────────────
-        // [Stage 1-4-D-2-fix-56] 필터별 카드 + LLM narrative (사용자 결정)
-        // 사용자: "지표별로 다른 모델 구성을 했으니 지표별로 분석한 결과 + LLM 자연어"
+        // [Stage 1-4-D-2-fix-59] 카드 한 줄 1개 + 풍부한 본문 (사용자 결정)
+        // - 큰 테이블 제거 (상단 display:none)
+        // - 한 줄 1개 카드 (전체 폭)
+        // - 모델별 분석값 (가중치 큰 순 정렬)
+        // - 필터 분석 방식 간단 설명
+        // - 특이사항 자연어 (LLM evidence)
+        // - 종합 분석 자연어 (수치 합산 비교)
         // ────────────────────────────────────────────────────────────────────
         const _highlight = (s) => {
             if (!s) return '';
@@ -2169,7 +2175,37 @@ const DeepLearning = {
             return best || 'xgboost';
         };
 
-        let cardsHtml = '<div class="mt-8" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 16px;">';
+        // 필터별 짧은 설명 (분석 방식)
+        const FILTER_DESC = {
+            sum: '6번호의 합계. 물리 범위 21~255, 역사 평균 약 135. 전이(Markov)·패턴(XGBoost)·시계열(TFT)로 예측.',
+            tail_sum: '6번호 끝수합 (각 번호 % 10의 합). 범위 0~54, 평균 27. 끝수 분포 학습.',
+            ac: '산술 복잡도(AC값). 6번호 차이의 고유 값 수 - 5. 0~10 범위. 조합 다양성 측정.',
+            odd: '홀수 개수 (0~6). 평균 3 (홀짝 균등).',
+            high: '고영역(23~45) 출현 개수. 평균 3.',
+            prime: '소수(2,3,5,7,11,...,43) 개수. 평균 2.',
+            composite: '합성수 개수. 평균 3.',
+            consecutive: '연속 번호 쌍 수 (예: 7,8). 평균 0~1.',
+            twin: '동형수(11,22,33,44) 개수. 평균 0~1.',
+            square: '제곱수(1,4,9,16,25,36) 개수. 평균 1.',
+            triangular: '삼각수(1,3,6,10,15,21,28,36,45) 개수. 평균 1.',
+            mul3: '3배수 개수. 평균 2.',
+            mul4: '4배수 개수. 평균 1.5.',
+            mul5: '5배수 개수. 평균 1.2.',
+            mul7: '7배수 개수. 평균 0.8.',
+            mul8: '8배수 개수. 평균 0.7.',
+            mul34: '3·4배수 교집합(12,24,36) 개수.',
+            mul35: '3·5배수 교집합(15,30,45) 개수.',
+            mul45: '4·5배수 교집합(20,40) 개수.',
+            non_multiple: '배수 외(어떤 작은 배수에도 안 속하는) 개수.',
+            neighbor: '직전 회차 번호 ±1 (이웃수) 개수. 직전 6 + 이웃 12 풀에서 추출.',
+            carryover: '직전 회차 그대로 출현(이월수) 개수. 평균 1.',
+            hot10: '최근 10회 3회 이상 출현(hot) 개수.',
+            neutral10: '최근 10회 1~2회 출현(중립) 개수.',
+            cold10: '최근 10회 0회 출현(cold) 개수.',
+            missing: '10회 이상 미출현(장기 미출현) 개수.',
+        };
+
+        let cardsHtml = '<div class="mt-8" style="display:flex; flex-direction:column; gap:18px;">';
         for (const [key, val] of orderedEntries) {
             const label = FILTER_LABELS[key] || key;
             const ens_min = val.ensemble_min;
@@ -2182,46 +2218,88 @@ const DeepLearning = {
             const topCfg = MODEL_CONFIG[topM] || { label: topM, color: '#64748b' };
             const evidence = val.evidence_text;
             const task = val.primary_task || '-';
+            const filterDesc = FILTER_DESC[key] || '필터별 분석 방식.';
 
-            cardsHtml += `<div style="border:1px solid #e5e7eb; border-radius:12px; background:#fff; overflow:hidden;">`;
+            // 모델별 정렬 (가중치 큰 순) — DEPRECATED 제외
+            const DEPRECATED = new Set(['lstm', 'transformer']);
+            const modelRows = Object.entries(modelExp)
+                .filter(([m]) => m !== '__ensemble__' && !DEPRECATED.has(m))
+                .map(([m, e]) => ({
+                    key: m,
+                    name: (MODEL_CONFIG[m] && MODEL_CONFIG[m].label) || m,
+                    color: (MODEL_CONFIG[m] && MODEL_CONFIG[m].color) || '#64748b',
+                    weight: ((e && e.weight) || 0) * 100,
+                    min: (e && e.min) ?? '-',
+                    max: (e && e.max) ?? '-',
+                    representative: (typeof e?.min === 'number' && typeof e?.max === 'number')
+                        ? Math.round((e.min + e.max) / 2) : '-',
+                }))
+                .sort((a, b) => b.weight - a.weight);
+
+            cardsHtml += `<div style="border:1px solid #e5e7eb; border-radius:14px; background:#fff; overflow:hidden;">`;
+
             // 헤더
-            cardsHtml += `<div style="display:flex; align-items:center; gap:10px; padding:14px 16px; border-bottom:1px solid #f3f4f6;">`;
-            cardsHtml += `<span style="font-size:14px; font-weight:700; color:#1f2937;">${label}</span>`;
-            cardsHtml += `<span style="font-size:10px; color:#94a3b8; font-family:monospace;">${key}</span>`;
-            cardsHtml += `<span style="margin-left:auto; font-size:11px; font-weight:700; padding:3px 10px; border-radius:999px; background:${topCfg.color}1a; color:${topCfg.color};">${topCfg.label} 주도</span>`;
-            cardsHtml += `</div>`;
-            // 본문 — 좌(범위) | 우(LLM)
-            cardsHtml += `<div style="display:grid; grid-template-columns: 180px minmax(0,1fr); gap:14px; padding:14px 16px;">`;
-
-            // 좌: 범위 비교
-            cardsHtml += `<div style="display:flex; flex-direction:column; gap:8px;">`;
-            cardsHtml += `<div><div style="font-size:10px; color:#94a3b8; font-weight:600; margin-bottom:2px;">AI 추천</div>`;
-            cardsHtml += `<div style="font-size:18px; font-weight:800; color:#2563eb;">${ens_min ?? '-'} ~ ${ens_max ?? '-'}</div></div>`;
-            if (ciBand) {
-                cardsHtml += `<div><div style="font-size:10px; color:#94a3b8; font-weight:600; margin-bottom:2px;">80% CI</div>`;
-                cardsHtml += `<div style="font-size:12px; font-weight:700; color:#7c3aed;">${ciBand}</div></div>`;
-            }
-            if (userSet) {
-                cardsHtml += `<div><div style="font-size:10px; color:#94a3b8; font-weight:600; margin-bottom:2px;">사용자 설정</div>`;
-                cardsHtml += `<div style="font-size:12px; font-weight:700; color:#10b981;">${userSet}</div></div>`;
-            }
-            cardsHtml += `<div style="font-size:9px; color:#cbd5e1; font-family:monospace;">task: ${task}</div>`;
+            cardsHtml += `<div style="display:flex; align-items:center; gap:12px; padding:18px 22px; border-bottom:1px solid #f3f4f6; background:linear-gradient(to right, #fafbfc, #fff);">`;
+            cardsHtml += `<span style="font-size:18px; font-weight:800; color:#1f2937;">${label}</span>`;
+            cardsHtml += `<span style="font-size:11px; color:#94a3b8; font-family:monospace; padding-top:4px;">${key}</span>`;
+            cardsHtml += `<span style="margin-left:auto; font-size:12px; font-weight:700; padding:4px 12px; border-radius:999px; background:${topCfg.color}18; color:${topCfg.color};">${topCfg.label} 주도</span>`;
             cardsHtml += `</div>`;
 
-            // 우: LLM narrative
-            cardsHtml += `<div style="border-left:1px solid #f3f4f6; padding-left:14px;">`;
+            // 본문
+            cardsHtml += `<div style="padding:20px 22px; display:flex; flex-direction:column; gap:18px;">`;
+
+            // 1. 분석 방식
+            cardsHtml += `<div style="display:flex; gap:10px; align-items:flex-start; padding:12px 14px; background:#f8fafc; border-radius:8px;">`;
+            cardsHtml += `<span class="material-symbols-outlined" style="font-size:16px; color:#64748b; padding-top:1px;">info</span>`;
+            cardsHtml += `<div><div style="font-size:11px; font-weight:700; color:#475569; margin-bottom:3px;">분석 방식</div>`;
+            cardsHtml += `<div style="font-size:13px; color:#334155; line-height:1.6;">${filterDesc}</div></div>`;
+            cardsHtml += `</div>`;
+
+            // 2. 핵심 수치 3개 (AI 추천 / CI / 사용자)
+            cardsHtml += `<div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:10px;">`;
+            cardsHtml += `<div style="padding:12px 14px; background:#eff6ff; border:1px solid #dbeafe; border-radius:8px;"><div style="font-size:10px; color:#3b82f6; font-weight:700; margin-bottom:4px;">AI 추천</div><div style="font-size:18px; font-weight:800; color:#1e40af;">${ens_min ?? '-'} ~ ${ens_max ?? '-'}</div></div>`;
+            cardsHtml += `<div style="padding:12px 14px; background:#faf5ff; border:1px solid #e9d5ff; border-radius:8px;"><div style="font-size:10px; color:#a855f7; font-weight:700; margin-bottom:4px;">80% 신뢰구간</div><div style="font-size:18px; font-weight:800; color:#6b21a8;">${ciBand || '-'}</div></div>`;
+            cardsHtml += `<div style="padding:12px 14px; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px;"><div style="font-size:10px; color:#10b981; font-weight:700; margin-bottom:4px;">사용자 설정</div><div style="font-size:18px; font-weight:800; color:#047857;">${userSet || '미설정'}</div></div>`;
+            cardsHtml += `</div>`;
+
+            // 3. 모델별 표 (가중치 큰 순)
+            cardsHtml += `<div>`;
+            cardsHtml += `<div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">`;
+            cardsHtml += `<span class="material-symbols-outlined" style="font-size:16px; color:#4f46e5;">network_intelligence</span>`;
+            cardsHtml += `<span style="font-size:12px; font-weight:700; color:#475569;">모델별 예측 (가중치 큰 순)</span>`;
+            cardsHtml += `</div>`;
+            cardsHtml += `<table style="width:100%; border-collapse:separate; border-spacing:0; font-size:12px;">`;
+            cardsHtml += `<thead><tr style="background:#f8fafc;"><th style="text-align:left; padding:8px 10px; font-weight:700; color:#64748b; border-bottom:1px solid #e5e7eb;">모델</th><th style="text-align:right; padding:8px 10px; font-weight:700; color:#64748b; border-bottom:1px solid #e5e7eb;">가중치</th><th style="text-align:center; padding:8px 10px; font-weight:700; color:#64748b; border-bottom:1px solid #e5e7eb;">예측 범위</th><th style="text-align:center; padding:8px 10px; font-weight:700; color:#64748b; border-bottom:1px solid #e5e7eb;">대표값</th></tr></thead>`;
+            cardsHtml += `<tbody>`;
+            modelRows.forEach((row, i) => {
+                const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '';
+                const isActive = row.weight > 0;
+                const opacity = isActive ? 1 : 0.45;
+                const bg = i % 2 === 0 ? '#fff' : '#fafafa';
+                cardsHtml += `<tr style="background:${bg}; opacity:${opacity};">`;
+                cardsHtml += `<td style="padding:8px 10px; border-bottom:1px solid #f3f4f6;"><span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${row.color}; margin-right:8px;"></span><b style="color:#0f172a;">${row.name}</b> ${medal}</td>`;
+                cardsHtml += `<td style="text-align:right; padding:8px 10px; font-family:monospace; color:${isActive ? '#1f2937' : '#94a3b8'}; font-weight:${isActive ? '700' : '500'}; border-bottom:1px solid #f3f4f6;">${row.weight.toFixed(1)}%</td>`;
+                cardsHtml += `<td style="text-align:center; padding:8px 10px; font-family:monospace; color:#475569; border-bottom:1px solid #f3f4f6;">${row.min} ~ ${row.max}</td>`;
+                cardsHtml += `<td style="text-align:center; padding:8px 10px; font-family:monospace; color:#2563eb; font-weight:700; border-bottom:1px solid #f3f4f6;">${row.representative}</td>`;
+                cardsHtml += `</tr>`;
+            });
+            cardsHtml += `</tbody></table></div>`;
+
+            // 4. 특이사항 + 종합 분석 (LLM evidence)
+            cardsHtml += `<div style="padding:14px 16px; background:#f8fafc; border-left:3px solid #4f46e5; border-radius:6px;">`;
             cardsHtml += `<div style="display:flex; align-items:center; gap:6px; margin-bottom:8px;">`;
-            cardsHtml += `<span class="material-symbols-outlined" style="font-size:14px; color:#4f46e5;">psychology</span>`;
-            cardsHtml += `<span style="font-size:11px; font-weight:700; color:#475569;">AI 자연어 분석</span>`;
+            cardsHtml += `<span class="material-symbols-outlined" style="font-size:16px; color:#4f46e5;">psychology</span>`;
+            cardsHtml += `<span style="font-size:12px; font-weight:700; color:#475569;">AI 종합 분석 + 특이사항</span>`;
             cardsHtml += `</div>`;
             if (evidence) {
-                cardsHtml += `<p style="font-size:13px; color:#334155; line-height:1.8; text-align:justify; word-break:keep-all;">${_highlight(evidence)}</p>`;
+                cardsHtml += `<p style="font-size:13px; color:#334155; line-height:1.9; text-align:justify; word-break:keep-all;">${_highlight(evidence)}</p>`;
             } else {
-                cardsHtml += `<p style="font-size:11px; color:#94a3b8;"><span class="inline-block w-2 h-2 border-2 border-blue-200 border-t-blue-500 rounded-full animate-spin mr-1.5 align-[-1px]"></span>LLM 분석 생성 중 — 다음 회차 갱신 시 표시</p>`;
+                cardsHtml += `<p style="font-size:12px; color:#94a3b8;">분석 데이터 준비 중.</p>`;
             }
             cardsHtml += `</div>`;
 
-            cardsHtml += `</div>`;  // 본문 grid
+            cardsHtml += `<div style="font-size:10px; color:#cbd5e1; font-family:monospace; text-align:right;">task: ${task}</div>`;
+            cardsHtml += `</div>`;  // 본문
             cardsHtml += `</div>`;  // 카드
         }
         cardsHtml += '</div>';
