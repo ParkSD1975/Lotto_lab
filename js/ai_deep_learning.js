@@ -1117,8 +1117,8 @@ const DeepLearning = {
             return s
                 // 확률 % — 파랑 + 굵게
                 .replace(/(\d+\.?\d*\s*%)/g, '<b style="color:#2563eb;font-weight:700">$1</b>')
-                // 순위 — 보라 + 굵게
-                .replace(/(\d+\s*위)/g, '<b style="color:#7c3aed;font-weight:700">$1</b>')
+                // 순위 — 핑크 + 굵게
+                .replace(/(\d+\s*위)/g, '<b style="color:#ec4899;font-weight:700">$1</b>')
                 // 모델명 (XGBoost / CatBoost / TabNet / LSTM / TFT / Markov / N-BEATS / MHN / Bayesian / CNN / GNN / AutoEncoder / AE)
                 .replace(/\b(XGBoost|CatBoost|TabNet|LSTM|TFT|Markov|N-BEATS|MHN|Bayesian|CNN|GNN|AutoEncoder|AE)\b/g,
                     '<b style="color:#0f172a;font-weight:700">$1</b>');
