@@ -628,9 +628,10 @@ const DeepLearning = {
             // freq는 0~1 비율로 저장 (sortMatrix가 *100 해서 표시)
             const freqFrac = freqCount !== null ? parseFloat((freqCount / 20).toFixed(4)) : null;
             const numInfo  = { gap: gapVal, hot_cold: f.hot_cold };
-            // [Stage 1-4-D-2-fix-45-revert] Str = 연속 출현 수 (사용자 정의 재확인)
-            // gap === 0 → drawsResult 거꾸로 연속 출현 회차 카운트
-            // gap > 0  → streak 끊김 → 0 (표시는 '-')
+            // [Stage 1-4-D-2-fix-50-revert] Str = 직전회차 기준 연속 출현 횟수
+            // 사용자 정의: "직전회차 기준으로 몇번 연속 출현했냐"
+            // → 1221(직전) 출현 → +1 → 1220 출현하면 +1 → ... 미출현 시 break
+            // → 직전회차에 안 나왔으면 (gap > 0) 연속 끊김 → 0 → '-'
             let strVal = 0;
             if (gapVal === 0 && Array.isArray(window.__recentDraws)) {
                 for (const d of window.__recentDraws) {
@@ -2239,7 +2240,7 @@ const DeepLearning = {
             html += `<div class="flex-1 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-gray-500">`;
             html += `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold border ${_statusClass}">${_statusText}</span>`;
             html += `<span>Gap <strong class="text-gray-900">${gap}</strong></span>`;
-            // [fix-45-revert] Str = 연속 출현 수 (gap=0일 때만 N, 외 '-')
+            // [fix-50] Str = 최근 20회차 중 가장 길었던 연속 출현 streak
             const strDisp = (item.str != null && item.str > 0) ? item.str : '-';
             html += `<span>Str <strong class="text-gray-900">${strDisp}</strong></span>`;
             html += `<span>빈도 <strong class="text-gray-900">${freq}%</strong></span>`;
