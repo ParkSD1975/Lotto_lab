@@ -494,18 +494,63 @@ class WeeklyPipelineV2:
             logger.error(f"  [C2] weekly_number_xai 실패: {e}")
 
         # ── C3. weekly_filter_predictions ────────────────────────────────────
+        # [Stage 1-4-D-2-fix-54-B/C] filter_value 형식 통일 [min, max] array + ±1 패딩
         try:
             ra = analysis.get("range_analysis", {})
             rows = []
+
+            # filter별 물리적 클램프 (C와 동일)
+            FILTER_CLAMP = {
+                "sum": (21, 255), "tail_sum": (0, 54), "ac": (0, 10),
+                "odd": (0, 6), "high": (0, 6), "prime": (0, 6), "composite": (0, 6),
+                "consecutive": (0, 5), "square": (0, 6), "triangular": (0, 6), "twin": (0, 6),
+                "mul3": (0, 6), "mul4": (0, 6), "mul5": (0, 6), "mul7": (0, 6), "mul8": (0, 5),
+                "mul34": (0, 3), "mul35": (0, 3), "mul45": (0, 2),
+                "non_multiple": (0, 6), "hot10": (0, 6), "neutral10": (0, 6),
+                "cold10": (0, 6), "missing": (0, 6), "neighbor": (0, 6), "carryover": (0, 6),
+            }
+
             for fk, fdata in ra.items():
                 ens_ci = fdata.get("ensemble_ci")
+                ens_min = fdata.get("ensemble_min")
+                ens_max = fdata.get("ensemble_max")
+
+                # [fix-54-C] AI 추천 범위가 너무 좁으면 ±1 패딩
+                if ens_min is not None and ens_max is not None:
+                    rng = ens_max - ens_min
+                    # 좁은 기준: range ≤ 1 (즉 0~1, 1~2 같은 매우 협소)
+                    # → ±1 확장
+                    if rng <= 1:
+                        ens_min = ens_min - 1
+                        ens_max = ens_max + 1
+                    clamp = FILTER_CLAMP.get(fk)
+                    if clamp:
+                        ens_min = max(clamp[0], ens_min)
+                        ens_max = min(clamp[1], ens_max)
+
+                # [fix-54-B] filter_value 형식 통일 [min, max] array
+                raw_range = fdata.get("range")
+                if isinstance(raw_range, str):
+                    # "0~2" 같은 string → [0, 2] array
+                    try:
+                        parts = [int(p.strip()) for p in raw_range.split("~")]
+                        normalized_range = parts if len(parts) == 2 else [parts[0], parts[0]]
+                    except Exception:
+                        normalized_range = [0, 6]
+                elif isinstance(raw_range, (list, tuple)) and len(raw_range) == 2:
+                    normalized_range = [int(raw_range[0]), int(raw_range[1])]
+                elif isinstance(raw_range, dict) and "min" in raw_range and "max" in raw_range:
+                    normalized_range = [int(raw_range["min"]), int(raw_range["max"])]
+                else:
+                    normalized_range = [ens_min or 0, ens_max or 6]
+
                 rows.append({
                     "target_round":       target_round,
                     "filter_key":         fk,
-                    "filter_value":       json.dumps(fdata.get("range"), ensure_ascii=False),
+                    "filter_value":       json.dumps(normalized_range, ensure_ascii=False),
                     "primary_task":       fdata.get("primary_task"),
-                    "ensemble_min":       fdata.get("ensemble_min"),
-                    "ensemble_max":       fdata.get("ensemble_max"),
+                    "ensemble_min":       ens_min,
+                    "ensemble_max":       ens_max,
                     "ensemble_ci":        ens_ci,
                     "model_expectations": {
                         k: v for k, v in (fdata.get("model_expectations") or {}).items()

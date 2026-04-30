@@ -706,12 +706,10 @@ def get_model_filter_expectations(filter_name: str, history_draws: list,
                     "consecutive_probs": dict(list(_gnn_edge_result.get("consecutive_probs", {}).items())[:10]),
                     "edge_density":      _gnn_edge_result.get("edge_density", 0.0),
                 }
-            # ── P8: Bootstrap CI (sum/tail_sum/ac + filter_range task) ──────
-            # 이미 계산된 per-model [min, max]를 재사용해 가중치 지터링으로 CI 산출.
-            # MC 재실행 없이 가중합 재계산만 하므로 O(N_BOOT × 7) 로 매우 빠름.
-            _CI_FILTERS = {"sum", "tail_sum", "ac"}
-            _CI_TASKS   = {"filter_range"}
-            if (filter_name in _CI_FILTERS or task in _CI_TASKS) and len(expectations) >= 2:
+            # ── P8: Bootstrap CI — [Stage 1-4-D-2-fix-54-A] 모든 필터로 확장
+            # 사용자 결정: 26개 중 3개만 CI 있는 결함 → 전체 필터 CI 생성
+            # MC 재실행 없이 가중합 재계산만 → O(N_BOOT × 11) 매우 빠름
+            if len(expectations) >= 2:
                 _N_BOOT = 50
                 _rng    = np.random.default_rng(12345)
                 _m_list = [m for m in models if m in expectations]
