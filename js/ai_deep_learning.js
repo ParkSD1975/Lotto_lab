@@ -540,10 +540,13 @@ const DeepLearning = {
                 try { parsedRange = JSON.parse(row.filter_value); } catch(e) {}
                 rangeAnalysis[row.filter_key] = {
                     range: parsedRange,
+                    primary_task: row.primary_task,
                     ensemble_min: row.ensemble_min,
                     ensemble_max: row.ensemble_max,
                     ensemble_ci: row.ensemble_ci,
-                    model_expectations: row.model_expectations || {}
+                    model_expectations: row.model_expectations || {},
+                    // [Stage 1-4-D-2-fix-55] LLM 자연어 분석 (필터별)
+                    evidence_text: row.evidence_text || null
                 };
             });
 
@@ -2143,7 +2146,86 @@ const DeepLearning = {
             html += '</tr>';
         }
         html += '</tbody></table></div>';
-        container.innerHTML = html;
+
+        // ────────────────────────────────────────────────────────────────────
+        // [Stage 1-4-D-2-fix-56] 필터별 카드 + LLM narrative (사용자 결정)
+        // 사용자: "지표별로 다른 모델 구성을 했으니 지표별로 분석한 결과 + LLM 자연어"
+        // ────────────────────────────────────────────────────────────────────
+        const _highlight = (s) => {
+            if (!s) return '';
+            return String(s)
+                .replace(/(\d+\.?\d*\s*~\s*\d+\.?\d*)/g, '<b style="color:#2563eb;font-weight:700">$1</b>')
+                .replace(/(\d+\.?\d*\s*%)/g, '<b style="color:#2563eb;font-weight:700">$1</b>')
+                .replace(/\b(XGBoost|CatBoost|TabNet|LSTM|TFT|Markov|N-BEATS|MHN|Bayesian|CNN|GNN|AutoEncoder|AE)\b/g,
+                    '<b style="color:#0f172a;font-weight:700">$1</b>');
+        };
+        const _topModelKey = (modelExp) => {
+            let best = null, bestW = 0;
+            for (const [m, e] of Object.entries(modelExp || {})) {
+                if (m === '__ensemble__') continue;
+                const w = (e && e.weight) || 0;
+                if (w > bestW) { bestW = w; best = m; }
+            }
+            return best || 'xgboost';
+        };
+
+        let cardsHtml = '<div class="mt-8" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 16px;">';
+        for (const [key, val] of orderedEntries) {
+            const label = FILTER_LABELS[key] || key;
+            const ens_min = val.ensemble_min;
+            const ens_max = val.ensemble_max;
+            const ci = val.ensemble_ci || {};
+            const ciBand = (ci && ci.band) ? ci.band : null;
+            const userSet = _getCurrentSetting(key);
+            const modelExp = val.model_expectations || {};
+            const topM = _topModelKey(modelExp);
+            const topCfg = MODEL_CONFIG[topM] || { label: topM, color: '#64748b' };
+            const evidence = val.evidence_text;
+            const task = val.primary_task || '-';
+
+            cardsHtml += `<div style="border:1px solid #e5e7eb; border-radius:12px; background:#fff; overflow:hidden;">`;
+            // 헤더
+            cardsHtml += `<div style="display:flex; align-items:center; gap:10px; padding:14px 16px; border-bottom:1px solid #f3f4f6;">`;
+            cardsHtml += `<span style="font-size:14px; font-weight:700; color:#1f2937;">${label}</span>`;
+            cardsHtml += `<span style="font-size:10px; color:#94a3b8; font-family:monospace;">${key}</span>`;
+            cardsHtml += `<span style="margin-left:auto; font-size:11px; font-weight:700; padding:3px 10px; border-radius:999px; background:${topCfg.color}1a; color:${topCfg.color};">${topCfg.label} 주도</span>`;
+            cardsHtml += `</div>`;
+            // 본문 — 좌(범위) | 우(LLM)
+            cardsHtml += `<div style="display:grid; grid-template-columns: 180px minmax(0,1fr); gap:14px; padding:14px 16px;">`;
+
+            // 좌: 범위 비교
+            cardsHtml += `<div style="display:flex; flex-direction:column; gap:8px;">`;
+            cardsHtml += `<div><div style="font-size:10px; color:#94a3b8; font-weight:600; margin-bottom:2px;">AI 추천</div>`;
+            cardsHtml += `<div style="font-size:18px; font-weight:800; color:#2563eb;">${ens_min ?? '-'} ~ ${ens_max ?? '-'}</div></div>`;
+            if (ciBand) {
+                cardsHtml += `<div><div style="font-size:10px; color:#94a3b8; font-weight:600; margin-bottom:2px;">80% CI</div>`;
+                cardsHtml += `<div style="font-size:12px; font-weight:700; color:#7c3aed;">${ciBand}</div></div>`;
+            }
+            if (userSet) {
+                cardsHtml += `<div><div style="font-size:10px; color:#94a3b8; font-weight:600; margin-bottom:2px;">사용자 설정</div>`;
+                cardsHtml += `<div style="font-size:12px; font-weight:700; color:#10b981;">${userSet}</div></div>`;
+            }
+            cardsHtml += `<div style="font-size:9px; color:#cbd5e1; font-family:monospace;">task: ${task}</div>`;
+            cardsHtml += `</div>`;
+
+            // 우: LLM narrative
+            cardsHtml += `<div style="border-left:1px solid #f3f4f6; padding-left:14px;">`;
+            cardsHtml += `<div style="display:flex; align-items:center; gap:6px; margin-bottom:8px;">`;
+            cardsHtml += `<span class="material-symbols-outlined" style="font-size:14px; color:#4f46e5;">psychology</span>`;
+            cardsHtml += `<span style="font-size:11px; font-weight:700; color:#475569;">AI 자연어 분석</span>`;
+            cardsHtml += `</div>`;
+            if (evidence) {
+                cardsHtml += `<p style="font-size:13px; color:#334155; line-height:1.8; text-align:justify; word-break:keep-all;">${_highlight(evidence)}</p>`;
+            } else {
+                cardsHtml += `<p style="font-size:11px; color:#94a3b8;"><span class="inline-block w-2 h-2 border-2 border-blue-200 border-t-blue-500 rounded-full animate-spin mr-1.5 align-[-1px]"></span>LLM 분석 생성 중 — 다음 회차 갱신 시 표시</p>`;
+            }
+            cardsHtml += `</div>`;
+
+            cardsHtml += `</div>`;  // 본문 grid
+            cardsHtml += `</div>`;  // 카드
+        }
+        cardsHtml += '</div>';
+        container.innerHTML = html + cardsHtml;
     },
 
     renderMatrixData(matrixData) {

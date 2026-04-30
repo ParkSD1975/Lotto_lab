@@ -495,8 +495,42 @@ class WeeklyPipelineV2:
 
         # ── C3. weekly_filter_predictions ────────────────────────────────────
         # [Stage 1-4-D-2-fix-54-B/C] filter_value 형식 통일 [min, max] array + ±1 패딩
+        # [Stage 1-4-D-2-fix-55] LLM 자연어 분석 evidence_text 생성
         try:
             ra = analysis.get("range_analysis", {})
+
+            # [fix-55] 26개 필터 LLM evidence 일괄 생성
+            try:
+                import asyncio
+                from services.filter_narrative import build_all_filter_narratives
+                logger.info(f"  [C3] LLM filter_narrative 생성 시작 ({len(ra)} 필터)...")
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        import threading
+                        holder = {}
+                        def _run():
+                            holder["v"] = asyncio.run(
+                                build_all_filter_narratives(ra, self.ensemble)
+                            )
+                        t = threading.Thread(target=_run); t.start(); t.join()
+                        filter_narratives = holder.get("v", {})
+                    else:
+                        filter_narratives = asyncio.run(
+                            build_all_filter_narratives(ra, self.ensemble)
+                        )
+                except RuntimeError:
+                    filter_narratives = asyncio.run(
+                        build_all_filter_narratives(ra, self.ensemble)
+                    )
+                logger.info(
+                    f"  [C3] LLM filter_narrative 완료: "
+                    f"{sum(1 for v in filter_narratives.values() if v)}/{len(ra)} 필터"
+                )
+            except Exception as ev_e:
+                filter_narratives = {}
+                logger.warning(f"  [C3] filter_narrative 생성 실패 (무시): {ev_e}")
+
             rows = []
 
             # filter별 물리적 클램프 (C와 동일)
@@ -556,6 +590,8 @@ class WeeklyPipelineV2:
                         k: v for k, v in (fdata.get("model_expectations") or {}).items()
                         if k != "__ensemble__"  # __ensemble__은 위에서 분리 저장
                     },
+                    # [fix-55] LLM 자연어 분석 (필터별 evidence)
+                    "evidence_text":      filter_narratives.get(fk),
                 })
             self.supabase.table("weekly_filter_predictions") \
                 .delete().eq("target_round", target_round).execute()
