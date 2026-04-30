@@ -628,10 +628,9 @@ const DeepLearning = {
             // freq는 0~1 비율로 저장 (sortMatrix가 *100 해서 표시)
             const freqFrac = freqCount !== null ? parseFloat((freqCount / 20).toFixed(4)) : null;
             const numInfo  = { gap: gapVal, hot_cold: f.hot_cold };
-            // [Stage 1-4-D-2-fix-42a] Str(streak) = 연속 출현 횟수
-            // 정의: 현재 회차 기준 직전부터 거꾸로 몇 회차 연속 출현했는지.
-            // gap > 0 (미출현 상태) → streak 끊김 → 0
-            // gap === 0 (직전 출현) → drawsResult 최근 N회차에서 거꾸로 연속 카운트
+            // [Stage 1-4-D-2-fix-45-revert] Str = 연속 출현 수 (사용자 정의 재확인)
+            // gap === 0 → drawsResult 거꾸로 연속 출현 회차 카운트
+            // gap > 0  → streak 끊김 → 0 (표시는 '-')
             let strVal = 0;
             if (gapVal === 0 && Array.isArray(window.__recentDraws)) {
                 for (const d of window.__recentDraws) {
@@ -646,6 +645,7 @@ const DeepLearning = {
                 gap:  gapVal,
                 str:  strVal,
                 freq: freqFrac,
+                freq_count: freqCount,  // [fix-46] hot/cold/neutral 배지용
                 hot_cold: f.hot_cold || null,
                 models: {
                     // 11 base 토폴로지 (사용자 결정 #24) — lstm/transformer 폐기, TFT 흡수
@@ -1203,12 +1203,14 @@ const DeepLearning = {
     },
 
     /**
-     * [Stage 1-4-D-2-fix-29] frontend evidence 합성 부활
-     * 백엔드 evidence_text가 있으면 그것 우선, 없으면 matrixItem 데이터로 즉석 합성하여
-     * '분석 데이터 없음' placeholder를 사용자에게 보이지 않도록 보장.
-     * (백엔드 합성과 동일 로직 — services/evidence_builder.py 와 일치)
+     * [Stage 1-4-D-2-fix-47 폐기] frontend evidence 합성 영구 폐기
+     * 사용자 결정: "fallback 하지 말라. 진짜/가짜 구분 안 되잖아"
+     * → 항상 null 반환. 카드 렌더는 LLM 응답만 사용.
      */
     _synthesizeEvidence(item, isExcluded) {
+        return null;
+        // 아래 dead path 보존 (참조용, 호출되지 않음)
+        // eslint-disable-next-line no-unreachable
         if (!item) return null;
         const num = item.num;
         const total = item.total || 0;
@@ -2236,10 +2238,18 @@ const DeepLearning = {
             html += `<div class="flex-1 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-gray-500">`;
             html += `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold border ${_statusClass}">${_statusText}</span>`;
             html += `<span>Gap <strong class="text-gray-900">${gap}</strong></span>`;
-            // [fix-42a] Str(streak) — gap 0 + 연속 출현이면 N, 아니면 '-'
+            // [fix-45-revert] Str = 연속 출현 수 (gap=0일 때만 N, 외 '-')
             const strDisp = (item.str != null && item.str > 0) ? item.str : '-';
             html += `<span>Str <strong class="text-gray-900">${strDisp}</strong></span>`;
             html += `<span>빈도 <strong class="text-gray-900">${freq}%</strong></span>`;
+            // [fix-46] Hot/Cold/Neutral 배지 — 최근 20회차 출현 횟수 기준
+            // 평균 6번호 × 20회 / 45 = 2.67. 임계값: 5+ Hot / 3~4 Neutral / 0~2 Cold
+            const fc = (item.freq_count != null) ? item.freq_count : 0;
+            let hcLabel, hcColor, hcBg;
+            if (fc >= 5)      { hcLabel = 'Hot';     hcColor = '#dc2626'; hcBg = '#fee2e2'; }
+            else if (fc >= 3) { hcLabel = 'Neutral'; hcColor = '#475569'; hcBg = '#f1f5f9'; }
+            else              { hcLabel = 'Cold';    hcColor = '#2563eb'; hcBg = '#dbeafe'; }
+            html += `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold" style="color:${hcColor};background:${hcBg};">${hcLabel}</span>`;
             if (rawTotal !== total) html += `<span class="text-gray-400 text-xs">원점수 <s class="text-gray-300">${rawTotal}%</s>→<strong class="text-gray-500">${total}%</strong></span>`;
             if (corrBadges) html += corrBadges;
             html += `</div>`;
@@ -2265,9 +2275,9 @@ const DeepLearning = {
             });
             html += `</div>`;
 
-            // [Stage 1-4-D-2-fix-44] XAI 분석 박스 — LLM 응답만 표시 (frontend 합성 제거)
-            // 사용자 결정: "LLM으로 xai 값을 표현해달라고 했는데 왜 예전으로 돌아갔어?"
-            // → frontend 합성 fallback 폐기. evidence_text가 NULL이면 LLM 호출 진행 중 placeholder.
+            // [Stage 1-4-D-2-fix-47] frontend 합성 fallback 영구 폐기
+            // 사용자 결정: "fallback 하지 말라니깐. 진짜/가짜 구분 안 되잖아"
+            // → LLM 응답 (DB evidence_text) 만 표시. NULL이면 placeholder.
             const _cachedEv = (self.state && self.state.analysisData && self.state.analysisData.evidence)
                 ? self.state.analysisData.evidence[num] : null;
             const _evidence = _cachedEv;
