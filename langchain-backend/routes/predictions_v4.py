@@ -158,11 +158,12 @@ async def get_xai(round_num: int = 0):
             return _err("데이터 없음", 404)
 
         # Stage 1-4-D-2-fix-6: 11 base 통일 SELECT (catboost/tabnet/tft/mhn/bayesian_nn 추가)
+        # Stage 1-4-D-2-fix-28: evidence_text 추가 (lazy fetch 폐기)
         res = client.table("weekly_number_xai") \
             .select("number, xgboost_pct, lstm_pct, cnn_pct, transformer_pct, "
                     "gnn_pct, markov_pct, autoencoder_pct, "
                     "catboost_pct, tabnet_pct, tft_pct, mhn_pct, bayesian_nn_pct, "
-                    "top_model, veto, probability") \
+                    "top_model, veto, probability, evidence_text") \
             .eq("target_round", r) \
             .order("number").execute()
 
@@ -191,6 +192,8 @@ async def get_xai(round_num: int = 0):
                 "top_model":   row.get("top_model"),
                 "veto":        row.get("veto"),
                 "probability": row.get("probability"),
+                # [Stage 1-4-D-2-fix-28] 사전 합성된 evidence reasons
+                "evidence_text": row.get("evidence_text"),
             }
 
         return _ok({"target_round": r, "xai": xai_map})

@@ -341,6 +341,32 @@ class WeeklyPipelineV2:
             )
             gnn_is_uniform = gnn_xai_total < 0.5  # 전체 합 0.5% 미만 → uniform 판정
 
+            # [Stage 1-4-D-2-fix-28] evidence_text 일괄 생성 (1회 deterministic 합성)
+            try:
+                from services.evidence_builder import build_all_evidence
+                feature_map = (analysis.get("features", {})
+                               or analysis.get("feature_map", {})
+                               or {})
+                # top_5 / exclude_10 — analysis dict (Phase B에서 'top_5' / 'excl_10' 키로 저장됨)
+                top5 = list(analysis.get("top_5") or [])
+                exclude10 = list(analysis.get("excl_10") or analysis.get("exclude_10") or [])
+                evidence_map = build_all_evidence(
+                    target_round=target_round,
+                    xai=xai,
+                    final_probs=final_probs,
+                    feature_map=feature_map,
+                    top5=top5,
+                    exclude10=exclude10,
+                )
+                logger.info(
+                    f"  [C2] evidence_text 합성: "
+                    f"{sum(1 for v in evidence_map.values() if v)}/45개 "
+                    f"(top5={top5}, excl={exclude10})"
+                )
+            except Exception as ev_e:
+                evidence_map = {}
+                logger.warning(f"  [C2] evidence 합성 실패 (무시): {ev_e}")
+
             rows = []
             for n in range(1, 46):
                 x = xai.get(n) or xai.get(str(n)) or {}
@@ -375,6 +401,8 @@ class WeeklyPipelineV2:
                     "top_model":       x.get("top_model"),
                     "veto":            x.get("veto"),
                     "probability":     float(final_probs.get(n, 0)),
+                    # [Stage 1-4-D-2-fix-28] 번호별 XAI evidence (lazy fetch 폐기, 사전 저장)
+                    "evidence_text":   evidence_map.get(n),
                 })
             # 기존 행 삭제 후 일괄 insert (upsert conflict 방지)
             self.supabase.table("weekly_number_xai") \

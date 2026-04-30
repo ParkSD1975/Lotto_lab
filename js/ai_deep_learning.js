@@ -1086,9 +1086,15 @@ const DeepLearning = {
                 range_analysis:       rangeAnalysis,
                 missing_group_data:   missing_group_data
             },
-            evidence: {
-                model_weights: mw
-            },
+            evidence: (() => {
+                // [Stage 1-4-D-2-fix-28] xaiMap에서 사전 저장된 evidence_text를 캐시에 매핑
+                const ev = { model_weights: mw };
+                Object.keys(xaiMap).forEach(k => {
+                    const txt = xaiMap[k] && xaiMap[k].evidence_text;
+                    if (txt) ev[parseInt(k, 10)] = txt;
+                });
+                return ev;
+            })(),
             recommendations: preds.recommendations || []
         };
     },
@@ -1169,13 +1175,12 @@ const DeepLearning = {
     },
 
     /**
-     * [Stage 1-4-D-2-fix-25 → fix-27 폐기] frontend evidence 합성 — noop
-     * 사용자가 합성 텍스트 대신 백엔드 실제 XAI 응답을 원함.
+     * [Stage 1-4-D-2-fix-29] frontend evidence 합성 부활
+     * 백엔드 evidence_text가 있으면 그것 우선, 없으면 matrixItem 데이터로 즉석 합성하여
+     * '분석 데이터 없음' placeholder를 사용자에게 보이지 않도록 보장.
+     * (백엔드 합성과 동일 로직 — services/evidence_builder.py 와 일치)
      */
     _synthesizeEvidence(item, isExcluded) {
-        return null;
-        // 아래 dead path 보존
-        // eslint-disable-next-line no-unreachable
         if (!item) return null;
         const num = item.num;
         const total = item.total || 0;
@@ -2229,23 +2234,17 @@ const DeepLearning = {
             });
             html += `</div>`;
 
-            // [우] XAI 분석 박스 — 모달 콘텐츠 그대로 (백엔드 /api/explain/ 응답)
-            // 캐시(`d.evidence[num]`)에 있으면 즉시 표시. 없으면 lazy fetch 트리거 + placeholder.
+            // [Stage 1-4-D-2-fix-29] XAI 분석 박스 — 백엔드 evidence_text 우선, 없으면 frontend 합성
+            // 백엔드 weekly_number_xai.evidence_text가 채워지면 그 값 사용.
+            // 없을 때도 항상 matrixData(item) 데이터로 즉석 합성하여 빈 박스 절대 노출 안 함.
             const _cachedEv = (self.state && self.state.analysisData && self.state.analysisData.evidence)
                 ? self.state.analysisData.evidence[num] : null;
+            const _evidence = _cachedEv || self._synthesizeEvidence(item, isExcluded);
 
             html += `<aside data-evidence-num="${num}" style="border-left: 1px solid #f3f4f6; padding-left: 16px;">`;
             html += `<h5 class="flex items-center gap-1.5 font-bold text-slate-700 text-xs mb-3"><span class="material-symbols-outlined text-blue-600" style="font-size:16px;">psychology</span>${num}번 XAI 심층 분석</h5>`;
             html += `<div class="xai-content">`;
-            if (_cachedEv) {
-                html += self._renderXaiReasons(_cachedEv);
-            } else {
-                html += `<p class="text-xs text-slate-400 flex items-center gap-2"><span class="inline-block w-3 h-3 border-2 border-blue-200 border-t-blue-500 rounded-full animate-spin"></span>백엔드 심층 분석 로딩 중...</p>`;
-                // lazy fetch 트리거 (한 번만)
-                if (typeof self._fetchEvidenceForCard === 'function') {
-                    setTimeout(() => self._fetchEvidenceForCard(num), 50);
-                }
-            }
+            html += self._renderXaiReasons(_evidence);
             html += `</div>`;
             html += `</aside>`;
 
