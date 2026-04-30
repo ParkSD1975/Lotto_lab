@@ -2105,17 +2105,9 @@ const DeepLearning = {
                 const boostLabel = boost >= 1.45 ? '⚡ 출현임박' : boost >= 1.25 ? '🔔 주기초과' : '📈 주기근접';
                 corrBadges += `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-100">${boostLabel}</span>`;
             }
-            // [Stage 1-4-D-2-fix-25] 사용자 결정 (4차 명확화):
-            // > "(A)+(B)+(C) 수정 전 모델별 설명이 있는 자리에 적용"
-            // → 카드 본문(10 모델 행 영역) 통째 제거 → 모달의 (A)+(B)+(C) 콘텐츠 inline 적용
-            //   (D) 10 모델 기여도 차트는 모달에서 빼라고 한 부분이므로 본문에서도 제거.
-            //
-            // 카드 = [헤더(번호/Gap/빈도/앙상블%)]
-            //      + [(A) 분석결과 박스: 강력추천/제외예상/일반 + 앙상블 확률]
-            //      + [(B) 보정 정보: 과출현·주기임박]
-            //      + [(C) AI 심층 분석 reasons]
-
-            // (A)+(B) 통합 — 카드 헤더에 상태 배지 + 보정 정보 추가
+            // [Stage 1-4-D-2-fix-26] 사용자 결정 (5차 명확화):
+            // > "그래프는 그대로 놔두고, 그래프 옆에 xai 분석을 적용해달라고"
+            // → 10 모델 그래프 (좌측) + XAI 분석 박스 (우측) 좌우 2-column 레이아웃
             const _isRecommended = self.state && self.state.analysisData
                 ? ((self.state.analysisData.top_5 || []).indexOf(num) >= 0
                    || (self.state.analysisData.recommended || []).indexOf(num) >= 0)
@@ -2130,6 +2122,7 @@ const DeepLearning = {
             const _statusText = _isRecommended ? '강력추천' : _isExcluded2 ? '제외예상' : '일반';
 
             html += `<div class="${isExcluded ? 'bg-gray-50 opacity-50' : 'bg-white'} rounded-2xl border ${isExcluded ? 'border-gray-200' : 'border-gray-200'} overflow-hidden shadow-sm hover:shadow-md transition-all">`;
+            // 카드 헤더
             html += `<div class="flex items-center gap-5 px-6 py-4 bg-white border-b border-gray-50">`;
             html += `<span class="ball-common ${colorClass} w-10 h-10 text-base shadow-lg flex-shrink-0 ${isExcluded ? 'grayscale' : ''}">${num}</span>`;
             html += `<div class="flex-1 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-gray-500">`;
@@ -2142,7 +2135,26 @@ const DeepLearning = {
             html += `<div style="text-align:right;flex-shrink:0"><span class="font-black text-xl tracking-tight" style="color:${isExcluded ? '#9CA3AF' : scoreColor}">${total}%</span><div style="font-size:9px;color:#9CA3AF;margin-top:1px">앙상블확률</div></div>`;
             html += `</div>`;
 
-            // (C) AI 심층 분석 리포트 — evidence reasons (캐시 우선, 없으면 frontend 합성)
+            // 본문 — 좌우 2-column (좌: 10 모델 그래프, 우: XAI 분석 박스)
+            // Tailwind arbitrary value 대신 inline style로 강제 (JIT 미적용 환경 대비)
+            html += `<div class="px-6 py-4 ${isExcluded ? 'grayscale opacity-70' : ''}" style="display:grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start;">`;
+
+            // [좌] 10 모델 그래프 (이전 행 그대로 복원)
+            html += `<div class="divide-y divide-gray-50">`;
+            models.forEach(m => {
+                const cfg = MODEL_CONFIG[m];
+                const mData = (item.models || {})[m] || {};
+                const score = mData.score != null ? mData.score : '-';
+                const isActive = key === m;
+                html += `<div class="flex items-center gap-4 py-2.5 text-xs">`;
+                html += `<span class="font-bold w-24 flex-shrink-0${isActive ? ' text-blue-600' : ' text-gray-500'}">${cfg.label}</span>`;
+                html += `<div class="flex-1 bg-gray-100 h-2 rounded-full overflow-hidden"><div class="h-full rounded-full" style="width:${Math.min(score === '-' ? 0 : score, 100)}%;background:${cfg.color}"></div></div>`;
+                html += `<span class="font-bold w-12 text-right text-gray-700">${score}</span>`;
+                html += `</div>`;
+            });
+            html += `</div>`;
+
+            // [우] XAI 분석 박스 (이전 모달 콘텐츠 그대로 — evidence reasons)
             const _cachedEv = (self.state && self.state.analysisData && self.state.analysisData.evidence)
                 ? self.state.analysisData.evidence[num] : null;
             const _evidence = _cachedEv || self._synthesizeEvidence(item, isExcluded);
@@ -2150,6 +2162,8 @@ const DeepLearning = {
                 ? String(_evidence).split(' | ').filter(r => r && r.trim())
                 : [];
 
+            html += `<aside data-evidence-num="${num}" style="border-left: 1px solid #f3f4f6; padding-left: 16px;">`;
+            html += `<h5 class="flex items-center gap-1.5 font-bold text-slate-700 text-xs mb-3"><span class="material-symbols-outlined text-blue-600" style="font-size:16px;">psychology</span>${num}번 XAI 심층 분석<span class="ml-auto text-[10px] font-normal text-slate-400">${_cachedEv ? '백엔드' : '실시간'}</span></h5>`;
             if (_reasons.length) {
                 let _items = '';
                 _reasons.forEach(r => {
@@ -2158,18 +2172,16 @@ const DeepLearning = {
                     const iconColor = isWarning ? 'text-rose-500' : isPositive ? 'text-blue-500' : 'text-emerald-500';
                     const icon = isWarning ? 'warning' : isPositive ? 'auto_awesome' : 'check_circle';
                     const textColor = isWarning ? 'text-rose-700' : isPositive ? 'text-blue-700' : 'text-slate-600';
-                    _items += `<li class="flex items-start gap-2 py-1"><span class="material-symbols-outlined ${iconColor}" style="font-size:18px;line-height:1.3;">${icon}</span><span class="${textColor} text-sm leading-relaxed">${r}</span></li>`;
+                    _items += `<li class="flex items-start gap-2 py-1"><span class="material-symbols-outlined ${iconColor} flex-shrink-0" style="font-size:16px;line-height:1.4;">${icon}</span><span class="${textColor} text-xs leading-relaxed">${r}</span></li>`;
                 });
-                const _src = _cachedEv ? '백엔드 분석' : '실시간 합성';
-                html += `<div class="px-6 py-4 ${isExcluded ? 'grayscale opacity-70' : ''}" data-evidence-num="${num}">`;
-                html += `<h5 class="flex items-center gap-1.5 font-bold text-slate-700 text-xs mb-3"><span class="material-symbols-outlined text-blue-600" style="font-size:16px;">psychology</span>${num}번 AI 심층 분석<span class="ml-auto text-[10px] font-normal text-slate-400">${_src}</span></h5>`;
-                html += `<ul class="space-y-1">${_items}</ul>`;
-                html += `</div>`;
+                html += `<ul class="space-y-0.5">${_items}</ul>`;
             } else {
-                html += `<div class="px-6 py-3 text-xs text-slate-400">심층 분석 데이터 준비 중...</div>`;
+                html += `<p class="text-xs text-slate-400">심층 분석 데이터 준비 중...</p>`;
             }
+            html += `</aside>`;
 
-            html += `</div>`;
+            html += `</div>`;  // 본문 grid
+            html += `</div>`;  // 카드
         });
         html += '</div>';
         container.innerHTML = html;
