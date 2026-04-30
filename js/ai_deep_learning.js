@@ -1094,13 +1094,88 @@ const DeepLearning = {
     },
 
     /**
-     * [Stage 1-4-D-2-fix-25] frontend evidence 합성
+     * [Stage 1-4-D-2-fix-27] XAI reasons HTML 렌더 (모달과 동일 포맷)
+     */
+    _renderXaiReasons(evidenceText) {
+        if (!evidenceText) return '<p class="text-xs text-slate-400">분석 데이터 없음</p>';
+        const reasons = String(evidenceText).split(' | ').filter(r => r && r.trim());
+        if (!reasons.length) return '<p class="text-xs text-slate-400">분석 데이터 없음</p>';
+        let items = '';
+        reasons.forEach(r => {
+            const isWarning = /\[경고\]|제외|부족|높음|약신호|미출현/.test(r);
+            const isPositive = /추천|유력|매우|적합|강신호|압도|주도/.test(r);
+            const iconColor = isWarning ? 'text-rose-500' : isPositive ? 'text-blue-500' : 'text-emerald-500';
+            const icon = isWarning ? 'warning' : isPositive ? 'auto_awesome' : 'check_circle';
+            const textColor = isWarning ? 'text-rose-700' : isPositive ? 'text-blue-700' : 'text-slate-600';
+            items += `<li class="flex items-start gap-2 py-1"><span class="material-symbols-outlined ${iconColor} flex-shrink-0" style="font-size:16px;line-height:1.4;">${icon}</span><span class="${textColor} text-xs leading-relaxed">${r}</span></li>`;
+        });
+        return `<ul class="space-y-0.5">${items}</ul>`;
+    },
+
+    /**
+     * [Stage 1-4-D-2-fix-27] 카드별 lazy evidence fetch
      *
-     * 백엔드 evidence 캐시가 비어 있을 때 matrixItem 데이터로 즉시 합성.
-     * 입력: item = { num, total, gap, freq, models, penalty, boost }
-     * 출력: '|'-separated reasons string (사용자 결정 #fix-25 - (C) 영역 항상 표시 보장)
+     * 카드 렌더 시 호출 — 백엔드 /api/explain/ 에서 evidence 받아
+     * 해당 카드의 #data-evidence-num aside 안 .xai-content를 즉시 inject.
+     * 중복 호출 방지: _fetchingEvidence Set으로 진행 중 추적.
+     */
+    async _fetchEvidenceForCard(number) {
+        const d = this.state && this.state.analysisData;
+        if (!d) return;
+        if (!d.evidence) d.evidence = {};
+        if (d.evidence[number]) {
+            // 이미 캐시 있음 → DOM에 즉시 반영
+            this._injectEvidenceIntoCard(number, d.evidence[number]);
+            return;
+        }
+        if (!this._fetchingEvidence) this._fetchingEvidence = new Set();
+        if (this._fetchingEvidence.has(number)) return;
+        if (this.state && this.state.isConnected === false) return;  // 백엔드 미연결 시 스팸 방지
+        this._fetchingEvidence.add(number);
+
+        try {
+            const url = this._getBaseUrl();
+            const reqBody = { number, user_query: '이 번호에 대한 심층 분석을 해줘' };
+            if (d.target_round) reqBody.target_round = d.target_round;
+            const res = await fetch(url + '/api/explain/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(reqBody),
+                signal: AbortSignal.timeout(15000)
+            });
+            if (res.ok) {
+                const xaiData = await res.json();
+                if (xaiData && xaiData.explanation) {
+                    d.evidence[number] = xaiData.explanation;
+                    this._injectEvidenceIntoCard(number, xaiData.explanation);
+                }
+            }
+        } catch (e) {
+            // 백엔드 미연결/타임아웃 → 카드에 에러 표시
+            const aside = document.querySelector('aside[data-evidence-num="' + number + '"] .xai-content');
+            if (aside) aside.innerHTML = '<p class="text-xs text-slate-400">분석 데이터를 가져올 수 없습니다.</p>';
+        } finally {
+            this._fetchingEvidence.delete(number);
+        }
+    },
+
+    /**
+     * [Stage 1-4-D-2-fix-27] evidence를 해당 카드 aside에 inject
+     */
+    _injectEvidenceIntoCard(number, evidenceText) {
+        const aside = document.querySelector('aside[data-evidence-num="' + number + '"] .xai-content');
+        if (!aside) return;
+        aside.innerHTML = this._renderXaiReasons(evidenceText);
+    },
+
+    /**
+     * [Stage 1-4-D-2-fix-25 → fix-27 폐기] frontend evidence 합성 — noop
+     * 사용자가 합성 텍스트 대신 백엔드 실제 XAI 응답을 원함.
      */
     _synthesizeEvidence(item, isExcluded) {
+        return null;
+        // 아래 dead path 보존
+        // eslint-disable-next-line no-unreachable
         if (!item) return null;
         const num = item.num;
         const total = item.total || 0;
@@ -2154,30 +2229,24 @@ const DeepLearning = {
             });
             html += `</div>`;
 
-            // [우] XAI 분석 박스 (이전 모달 콘텐츠 그대로 — evidence reasons)
+            // [우] XAI 분석 박스 — 모달 콘텐츠 그대로 (백엔드 /api/explain/ 응답)
+            // 캐시(`d.evidence[num]`)에 있으면 즉시 표시. 없으면 lazy fetch 트리거 + placeholder.
             const _cachedEv = (self.state && self.state.analysisData && self.state.analysisData.evidence)
                 ? self.state.analysisData.evidence[num] : null;
-            const _evidence = _cachedEv || self._synthesizeEvidence(item, isExcluded);
-            const _reasons = _evidence
-                ? String(_evidence).split(' | ').filter(r => r && r.trim())
-                : [];
 
             html += `<aside data-evidence-num="${num}" style="border-left: 1px solid #f3f4f6; padding-left: 16px;">`;
-            html += `<h5 class="flex items-center gap-1.5 font-bold text-slate-700 text-xs mb-3"><span class="material-symbols-outlined text-blue-600" style="font-size:16px;">psychology</span>${num}번 XAI 심층 분석<span class="ml-auto text-[10px] font-normal text-slate-400">${_cachedEv ? '백엔드' : '실시간'}</span></h5>`;
-            if (_reasons.length) {
-                let _items = '';
-                _reasons.forEach(r => {
-                    const isWarning = /\[경고\]|제외|부족|높음|약신호|미출현/.test(r);
-                    const isPositive = /추천|유력|매우|적합|강신호|압도|주도/.test(r);
-                    const iconColor = isWarning ? 'text-rose-500' : isPositive ? 'text-blue-500' : 'text-emerald-500';
-                    const icon = isWarning ? 'warning' : isPositive ? 'auto_awesome' : 'check_circle';
-                    const textColor = isWarning ? 'text-rose-700' : isPositive ? 'text-blue-700' : 'text-slate-600';
-                    _items += `<li class="flex items-start gap-2 py-1"><span class="material-symbols-outlined ${iconColor} flex-shrink-0" style="font-size:16px;line-height:1.4;">${icon}</span><span class="${textColor} text-xs leading-relaxed">${r}</span></li>`;
-                });
-                html += `<ul class="space-y-0.5">${_items}</ul>`;
+            html += `<h5 class="flex items-center gap-1.5 font-bold text-slate-700 text-xs mb-3"><span class="material-symbols-outlined text-blue-600" style="font-size:16px;">psychology</span>${num}번 XAI 심층 분석</h5>`;
+            html += `<div class="xai-content">`;
+            if (_cachedEv) {
+                html += self._renderXaiReasons(_cachedEv);
             } else {
-                html += `<p class="text-xs text-slate-400">심층 분석 데이터 준비 중...</p>`;
+                html += `<p class="text-xs text-slate-400 flex items-center gap-2"><span class="inline-block w-3 h-3 border-2 border-blue-200 border-t-blue-500 rounded-full animate-spin"></span>백엔드 심층 분석 로딩 중...</p>`;
+                // lazy fetch 트리거 (한 번만)
+                if (typeof self._fetchEvidenceForCard === 'function') {
+                    setTimeout(() => self._fetchEvidenceForCard(num), 50);
+                }
             }
+            html += `</div>`;
             html += `</aside>`;
 
             html += `</div>`;  // 본문 grid
@@ -3984,6 +4053,10 @@ const DeepLearning = {
                     const xaiData = await res.json();
                     if (xaiData.explanation) {
                         d.evidence[number] = xaiData.explanation;
+                        // [fix-27] prefetch가 evidence를 받으면 해당 카드에 즉시 inject
+                        if (typeof this._injectEvidenceIntoCard === 'function') {
+                            this._injectEvidenceIntoCard(number, xaiData.explanation);
+                        }
                         console.log(`[XAI Prefetch] ${number}번 캐시 완료`);
                     }
                     // 서버 응답 성공 → 연결 상태 업데이트 (콜드스타트 후 복구)
