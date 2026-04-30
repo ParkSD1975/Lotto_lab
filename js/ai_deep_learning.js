@@ -1100,22 +1100,34 @@ const DeepLearning = {
     },
 
     /**
-     * [Stage 1-4-D-2-fix-27] XAI reasons HTML 렌더 (모달과 동일 포맷)
+     * [Stage 1-4-D-2-fix-33] XAI reasons HTML 렌더
+     *
+     * 사용자 결정: 박스화 X, 줄 간격 더, 중요 수치 색상 강조.
+     * - 자연 문장(LLM 응답): paragraph 형태, 박스 없음
+     * - 수치/순위/모델명: inline 색상 강조
+     * - leading-loose (line-height ~2.0)로 가독성 확보
      */
     _renderXaiReasons(evidenceText) {
         if (!evidenceText) return '<p class="text-xs text-slate-400">분석 데이터 없음</p>';
-        const reasons = String(evidenceText).split(' | ').filter(r => r && r.trim());
-        if (!reasons.length) return '<p class="text-xs text-slate-400">분석 데이터 없음</p>';
-        let items = '';
-        reasons.forEach(r => {
-            const isWarning = /\[경고\]|제외|부족|높음|약신호|미출현/.test(r);
-            const isPositive = /추천|유력|매우|적합|강신호|압도|주도/.test(r);
-            const iconColor = isWarning ? 'text-rose-500' : isPositive ? 'text-blue-500' : 'text-emerald-500';
-            const icon = isWarning ? 'warning' : isPositive ? 'auto_awesome' : 'check_circle';
-            const textColor = isWarning ? 'text-rose-700' : isPositive ? 'text-blue-700' : 'text-slate-600';
-            items += `<li class="flex items-start gap-2 py-1"><span class="material-symbols-outlined ${iconColor} flex-shrink-0" style="font-size:16px;line-height:1.4;">${icon}</span><span class="${textColor} text-xs leading-relaxed">${r}</span></li>`;
-        });
-        return `<ul class="space-y-0.5">${items}</ul>`;
+        const segments = String(evidenceText).split('|').map(s => s.trim()).filter(Boolean);
+        if (!segments.length) return '<p class="text-xs text-slate-400">분석 데이터 없음</p>';
+
+        // 수치 / 순위 / 모델명 강조
+        const highlight = (s) => {
+            return s
+                // 확률 % — 파랑 + 굵게
+                .replace(/(\d+\.?\d*\s*%)/g, '<b style="color:#2563eb;font-weight:700">$1</b>')
+                // 순위 — 보라 + 굵게
+                .replace(/(\d+\s*위)/g, '<b style="color:#7c3aed;font-weight:700">$1</b>')
+                // 모델명 (XGBoost / CatBoost / TabNet / LSTM / TFT / Markov / N-BEATS / MHN / Bayesian / CNN / GNN / AutoEncoder / AE)
+                .replace(/\b(XGBoost|CatBoost|TabNet|LSTM|TFT|Markov|N-BEATS|MHN|Bayesian|CNN|GNN|AutoEncoder|AE)\b/g,
+                    '<b style="color:#0f172a;font-weight:700">$1</b>');
+        };
+
+        // paragraph 렌더 — 박스 없음, leading 넉넉
+        return segments.map(s =>
+            `<p class="text-sm text-slate-700" style="line-height:1.9; margin-bottom:10px;">${highlight(s)}</p>`
+        ).join('');
     },
 
     /**
