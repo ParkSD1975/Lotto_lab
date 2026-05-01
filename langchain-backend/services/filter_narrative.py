@@ -40,26 +40,30 @@ _MODEL_KO = {
 }
 
 
-_FILTER_PROMPT = """다음 필터 분석을 한국어 정확히 3문장으로 작성하세요.
+_FILTER_PROMPT = """You are a Korean lottery analyst. Write exactly 3 natural Korean sentences analyzing the filter below. Output only the 3 sentences in Korean — no preamble, no English explanation, no bullet points, no labels.
 
-[엄격한 규칙]
-1. 오직 "{filter_label}" 필터에 대해서만 작성하세요. 다른 필터(끝수합/총합/AC값/홀짝/이월수 등) 이름을 절대 언급하지 마세요.
-2. 영어 단어 사용 금지 (모델명 XGBoost/CatBoost/TabNet/CNN/GNN/Markov/AE/TFT/N-BEATS/MHN/Bayesian 만 예외).
-3. 모든 숫자 뒤에 반드시 단위(%, 점, 회, 개)를 붙이세요. "Markov가 25" 처럼 단위 누락 금지.
-4. 결론 문장은 정확히 1번만 작성. "종합적으로" 또는 "결론적으로"로 시작하는 문장을 두 번 이상 쓰지 마세요.
-5. 정확히 3문장 — 1문장: 예측 범위+주도 모델 / 2문장: 신뢰구간+사용자 비교 / 3문장: 결론.
+Filter data:
+- Filter name: {filter_label}
+- Predicted range: {ens_min} to {ens_max}
+- 80% confidence interval: {ci_band}
+- User setting: {user_range}
+- Dominant model: {primary_model} (weight {primary_weight}%)
 
-[입력]
-필터: {filter_label}
-AI 예측 범위: {ens_min} ~ {ens_max}
-신뢰구간 80%: {ci_band}
-사용자 설정: {user_range}
-주도 모델: {primary_model} ({primary_weight}%)
+Required sentence structure:
+S1 (Korean): State that {filter_label} is predicted in the range, mention {primary_model} with {primary_weight}% weight (always include the percent sign).
+S2 (Korean): Compare the 80% confidence interval with the user setting.
+S3 (Korean): A single conclusion sentence starting with "종합적으로".
 
-[형식 (정확히 한국어 3문장)]
-{filter_label}은(는) {ens_min} ~ {ens_max} 범위로 예측되며 {primary_model}이(가) {primary_weight}% 비중으로 주도하고 있습니다. (신뢰구간과 사용자 설정 비교 1문장). (종합적으로 시작하는 결론 1문장).
+Constraints:
+- Korean only. Allowed English tokens: model names XGBoost/CatBoost/TabNet/CNN/GNN/Markov/AE/TFT/N-BEATS/MHN/Bayesian.
+- Every number must carry a unit (%, 점, 개, 회). Never end a clause like "Markov가 25." without a unit.
+- Do not mention any other filter name except "{filter_label}".
+- Do not echo these instructions back. Output only S1 + S2 + S3, separated by spaces.
 
-[답변]
+Example tone (do not copy values, only style):
+"{filter_label}은 X ~ Y 범위로 예측되며 XGBoost가 30.0% 비중으로 주도하고 있습니다. 80% 신뢰구간 X ~ Y에 사용자 설정 A ~ B가 포함되어 정합성이 높게 나타납니다. 종합적으로 사용자 설정 범위가 AI 예측과 일치하므로 그대로 사용해도 무리가 없습니다."
+
+Output (3 Korean sentences only):
 """
 
 
@@ -233,10 +237,36 @@ def _clean_response(text: str, current_filter_key: Optional[str] = None) -> str:
     _MODEL_NAMES_ALL = ["XGBoost", "CatBoost", "TabNet", "TFT", "Markov", "N-BEATS",
                         "MHN", "Bayesian", "CNN", "GNN", "AutoEncoder", "AE"]
     _model_alt = "|".join(re.escape(m) for m in _MODEL_NAMES_ALL)
-    _truncated_pat = re.compile(rf"(?:{_model_alt})(?:가|이)\s*\d+\s*$")
+    # [fix-76] 강화: 모델명 + (이|가|모델이)? + 숫자 + (% 없이 sentence 끝)
+    _truncated_pat = re.compile(rf"(?:{_model_alt})(?:이|가|\s*모델이)?\s*\d+(?:\.\d+)?\s*$")
+    # [fix-76 추가] prompt-echo 검출 패턴
+    _PROMPT_ECHO_PATTERNS = [
+        # 메타 라벨/규칙 echo
+        re.compile(r"^종합적으로\s*or\s*결론적으로"),
+        re.compile(r"^결론적으로\s*or"),
+        re.compile(r"모든\s*숫자\s*뒤에\s*반드시"),
+        re.compile(r"뒤에\s*반드시\s*단위"),
+        re.compile(r"필터에\s*대해서만\s*작성"),
+        re.compile(r"이름을\s*절대\s*언급"),
+        re.compile(r"영어\s*단어\s*사용\s*금지"),
+        re.compile(r"결론\s*문장은\s*정확히"),
+        re.compile(r"\[형식|\[입력|\[답변|\[엄격"),
+        re.compile(r"^(만\s*예외|예외\)|예외\s*\))"),
+        re.compile(r"종합적으로\s*\d+\s*종합적으로"),
+        re.compile(r"^S\d+\s*\("),  # "S1 (Korean):" 같은 영어 형식 라벨
+    ]
+    # [fix-76] placeholder echo 패턴 ("필터명은(는)", "모델이(가)") — 자연 조사로 변환
+    _placeholder_josa_pat = re.compile(r"([가-힣A-Za-z0-9]+)은\(는\)")
+    _placeholder_josa_pat2 = re.compile(r"([가-힣A-Za-z0-9]+)이\(가\)")
     for s in final_sents:
         s = s.strip()
         if not s:
+            continue
+        # [fix-76 a] placeholder 조사 정리 — "필터명은(는)" → "필터명은", "모델이(가)" → "모델이"
+        s = _placeholder_josa_pat.sub(r"\1은", s)
+        s = _placeholder_josa_pat2.sub(r"\1이", s)
+        # [fix-76 b] prompt-echo sentence 폐기
+        if any(p.search(s) for p in _PROMPT_ECHO_PATTERNS):
             continue
         # [fix-73 a] 다른 필터 라벨 침투 검출 → sentence 폐기
         if _other_labels:
@@ -251,7 +281,7 @@ def _clean_response(text: str, current_filter_key: Optional[str] = None) -> str:
                     break
             if hit_other:
                 continue
-        # [fix-73 b] 어절 잘림 검출 — "Markov가 25" (단위 없이 끝남) → 폐기
+        # [fix-73 b / fix-76 강화] 어절 잘림 검출 — "Markov가 25." 단위 누락 → 폐기
         if _truncated_pat.search(s):
             continue
         # [fix-73 c] 결론 문장은 첫 1개만
@@ -260,6 +290,10 @@ def _clean_response(text: str, current_filter_key: Optional[str] = None) -> str:
             if conclusion_count >= 1:
                 continue
             conclusion_count += 1
+        # [fix-76] 너무 짧은 단편(한글 8자 미만)은 폐기 — 의미 없는 토막 차단
+        ko_chars = len(re.findall(r"[가-힣]", s))
+        if ko_chars < 8:
+            continue
         # 정규화 키 (공백/숫자/특수문자 제거 후 한글만, 첫 25자)
         key = re.sub(r"[^가-힣]", "", s)[:25]
         if key and key not in seen:
