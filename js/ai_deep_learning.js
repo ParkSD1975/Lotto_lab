@@ -3349,10 +3349,8 @@ const DeepLearning = {
         }
     },
 
-    renderTailAnalysis(tailData) {
-        const tbody = document.getElementById('tail-body');
-        if (!tbody || !tailData) return;
-
+    // [Stage 1-4-D-2-fix-86] 공통 카드+heatmap 빌더 (4 섹션 공유)
+    _buildAnalysisCard(item, label, opts = {}) {
         const _fmtRange = (prob) => {
             if (prob == null || isNaN(prob)) return '-';
             if (prob < 0.30)  return '0~0';
@@ -3362,267 +3360,149 @@ const DeepLearning = {
             if (prob < 1.80)  return '1~3';
             return '2~3';
         };
-        // 11 base 토폴로지 (사용자 결정 #24)
         const MODEL_ORDER = ['xgboost', 'catboost', 'tabnet', 'cnn', 'gnn', 'markov', 'autoencoder', 'tft', 'mhn', 'bayesian_nn'];
+        const MODEL_ABBR = {
+            xgboost: 'XGB', catboost: 'CAT', tabnet: 'TAB', cnn: 'CNN', gnn: 'GNN',
+            markov: 'MKV', autoencoder: 'AE', tft: 'TFT', mhn: 'MHN', bayesian_nn: 'BAY'
+        };
         const MODEL_COLORS = {
             xgboost: '#3B82F6', catboost: '#14B8A6', tabnet: '#A855F7',
             cnn: '#EC4899', gnn: '#EF4444',
             markov: '#10B981', autoencoder: '#8B5CF6',
-            tft: '#F97316', nbeats: '#06B6D4',
-            mhn: '#84CC16', bayesian_nn: '#F59E0B'
+            tft: '#F97316', mhn: '#84CC16', bayesian_nn: '#F59E0B'
         };
 
-        tbody.innerHTML = tailData.map(item => {
-            const exp = typeof item.exp === 'number' ? item.exp : 0;
-            const str = item.str != null ? item.str : '-';
-            const isHot = exp >= 1.2;
-            const rangeColor = isHot ? '#0F766E' : exp < 0.3 ? '#9CA3AF' : '#374151';
+        const exp = typeof item.exp === 'number' ? item.exp : 0;
+        const isHot = exp >= 1.2;
+        const isCold = exp < 0.3;
+        const ensembleRange = _fmtRange(exp);
+        // 색상 토큰: hot=emerald, neutral=indigo, cold=slate
+        const accentColor = isHot ? '#10B981' : isCold ? '#94a3b8' : '#6366f1';
+        const accentBg    = isHot ? '#ecfdf5' : isCold ? '#f8fafc' : '#eef2ff';
+        const accentBorder = isHot ? '#a7f3d0' : isCold ? '#e2e8f0' : '#c7d2fe';
 
-            const ensembleRange = _fmtRange(exp);
+        // heatmap intensity (0~1) — _fmtRange의 prob을 0~1.8 normalize
+        const _intensity = (p) => {
+            if (p == null || isNaN(p)) return 0;
+            return Math.max(0, Math.min(1, p / 1.8));
+        };
 
-            const modelCells = MODEL_ORDER.map(m => {
-                const val = item.model_exp ? parseFloat(item.model_exp[m]) : null;
-                const label = _fmtRange(isNaN(val) ? null : val);
-                const color = MODEL_COLORS[m];
-                const displayHtml = label === '-'
-                    ? `<span style="color:#D1D5DB;font-size:12px">-</span>`
-                    : `<span style="font-family:monospace;font-size:13px;font-weight:700;color:${color}">${label}</span>`;
-                return `<td class="px-2 py-3 text-center">${displayHtml}</td>`;
-            }).join('');
-
-            return `<tr class="hover:bg-gray-50 border-b border-gray-100 last:border-0 transition-colors${isHot ? ' bg-emerald-50/40' : ''}">
-                <td class="px-4 py-3 text-center text-gray-800 text-base">${item.tail}끝</td>
-                <td class="px-3 py-3 text-center font-mono text-sm text-gray-500">${exp.toFixed(2)}</td>
-                <td class="px-2 py-3 text-center">
-                    <span style="font-family:monospace;font-size:13px;font-weight:800;color:${rangeColor}">${ensembleRange}</span>
-                </td>
-                ${modelCells}
-                <td class="px-4 py-3 text-center font-mono text-sm text-gray-500">${item.gap ?? '-'}</td>
-                <td class="px-4 py-3 text-center font-mono text-sm text-gray-500">${str}</td>
-            </tr>`;
+        // 모델 chip + heatmap (mini progress bar)
+        const modelChips = MODEL_ORDER.map(m => {
+            const val = item.model_exp ? parseFloat(item.model_exp[m]) : NaN;
+            const range = isNaN(val) ? '-' : _fmtRange(val);
+            const color = MODEL_COLORS[m];
+            const intensity = _intensity(val);
+            const opacity = isNaN(val) ? 0.15 : (0.20 + intensity * 0.75);  // 0.20~0.95
+            return `
+                <div title="${MODEL_ABBR[m]} ${range}" style="display:flex; flex-direction:column; align-items:stretch; gap:2px;">
+                    <div style="font-size:9px; font-weight:700; color:${color}; text-align:center; letter-spacing:0.3px;">${MODEL_ABBR[m]}</div>
+                    <div style="height:14px; background:${color}; opacity:${opacity}; border-radius:3px; display:flex; align-items:center; justify-content:center;">
+                        <span style="font-size:9px; font-weight:800; color:white; font-family:monospace; text-shadow:0 1px 1px rgba(0,0,0,0.2);">${range}</span>
+                    </div>
+                </div>`;
         }).join('');
+
+        const gap = item.gap != null ? item.gap : '-';
+        const str = item.str != null ? item.str : '-';
+
+        return `
+            <div style="background:${accentBg}; border:1px solid ${accentBorder}; border-radius:12px; padding:14px 16px; transition:all 0.15s; cursor:default;"
+                 onmouseover="this.style.boxShadow='0 4px 12px rgba(0,0,0,0.08)'; this.style.transform='translateY(-1px)';"
+                 onmouseout="this.style.boxShadow=''; this.style.transform='';">
+                <!-- 헤더: 라벨 + AI 종합 범위 -->
+                <div style="display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:10px; gap:8px;">
+                    <div>
+                        <div style="font-size:14px; font-weight:800; color:#0f172a;">${label}</div>
+                        <div style="font-size:10px; color:#64748b; margin-top:2px;">평균 <span style="font-weight:700; color:#475569;">${exp.toFixed(2)}</span></div>
+                    </div>
+                    <div style="text-align:right;">
+                        <div style="font-size:9px; color:${accentColor}; font-weight:700; letter-spacing:0.5px;">AI 종합</div>
+                        <div style="font-size:18px; font-weight:900; color:${accentColor}; font-family:monospace; line-height:1;">${ensembleRange}</div>
+                    </div>
+                </div>
+                <!-- 모델별 heatmap chip grid (10 모델) -->
+                <div style="display:grid; grid-template-columns:repeat(10, 1fr); gap:3px; margin-bottom:10px;">
+                    ${modelChips}
+                </div>
+                <!-- 보조 메트릭: Gap / STR -->
+                <div style="display:flex; gap:10px; padding-top:8px; border-top:1px dashed ${accentBorder};">
+                    <div style="flex:1; font-size:10px; color:#64748b;">
+                        Gap <span style="font-weight:700; color:#334155; font-family:monospace; margin-left:4px;">${gap}</span>
+                    </div>
+                    <div style="flex:1; font-size:10px; color:#64748b;">
+                        STR <span style="font-weight:700; color:#334155; font-family:monospace; margin-left:4px;">${str}</span>
+                    </div>
+                </div>
+            </div>`;
+    },
+
+    renderTailAnalysis(tailData) {
+        // [fix-86] 표 → 카드 grid + heatmap (10개 끝수)
+        const tbody = document.getElementById('tail-body');
+        if (!tailData) return;
+        // 기존 tbody 사용 X — section 자체를 카드 grid로 대체
+        const tailSection = tbody ? tbody.closest('.dl-section') : null;
+        if (!tailSection) return;
+        const cards = tailData.map(item => this._buildAnalysisCard(item, `${item.tail}끝`)).join('');
+        // 기존 table 영역 교체
+        const tableWrap = tailSection.querySelector('div[style*="overflow-x"]');
+        if (tableWrap) {
+            tableWrap.outerHTML = `<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:12px;">${cards}</div>`;
+        }
     },
 
     renderLottoPaperAnalysis(paperData) {
+        // [fix-86] 표 → 카드 grid (가로/세로 각 7개 카드)
         const container = document.getElementById('lottoPaperContainer');
         if (!container || !paperData) return;
 
-        const _fmtRange = (prob) => {
-            if (prob == null || isNaN(prob)) return '-';
-            if (prob < 0.30)  return '0~0';
-            if (prob < 0.55)  return '0~1';
-            if (prob < 0.72)  return '1~1';
-            if (prob < 1.20)  return '1~2';
-            if (prob < 1.80)  return '1~3';
-            return '2~3';
-        };
-        // 11 base 토폴로지 (사용자 결정 #24)
-        const MODEL_ORDER = ['xgboost', 'catboost', 'tabnet', 'cnn', 'gnn', 'markov', 'autoencoder', 'tft', 'mhn', 'bayesian_nn'];
-        const MODEL_ABBR = {
-            xgboost: 'XGB', catboost: 'CAT', tabnet: 'TAB',
-            cnn: 'CNN', gnn: 'GNN',
-            markov: 'MKV', autoencoder: 'AE',
-            tft: 'TFT', nbeats: 'NBT',
-            mhn: 'MHN', bayesian_nn: 'BAY'
-        };
-        const MODEL_COLORS = {
-            xgboost: '#3B82F6', catboost: '#14B8A6', tabnet: '#A855F7',
-            cnn: '#EC4899', gnn: '#EF4444',
-            markov: '#10B981', autoencoder: '#8B5CF6',
-            tft: '#F97316', nbeats: '#06B6D4',
-            mhn: '#84CC16', bayesian_nn: '#F59E0B'
-        };
-
-        const _modelHeader = () => MODEL_ORDER.map(m =>
-            `<th class="px-2 py-3 text-center font-semibold" style="color:${MODEL_COLORS[m]}">${MODEL_ABBR[m]}</th>`
-        ).join('');
-
-        const _modelCells = (item) => {
-            const exp = typeof item.exp === 'number' ? item.exp : 0;
-            return MODEL_ORDER.map(m => {
-                const p = item.model_exp ? (parseFloat(item.model_exp[m]) || 0) : exp;
-                const label = _fmtRange(p);
-                return `<td class="px-2 py-3 text-center"><span style="font-family:monospace;font-size:13px;font-weight:700;color:${MODEL_COLORS[m]}">${label}</span></td>`;
-            }).join('');
-        };
-
-        const buildTable = (title, items) => {
-            let html = `<div class="mb-8">`;
-            html += `<div class="flex items-center gap-2 mb-4 px-1"><span class="w-1 h-4 bg-gray-800 rounded-full"></span><span class="text-sm font-bold text-gray-800 uppercase tracking-wide">${title}</span></div>`;
-            html += '<div class="overflow-x-auto rounded-2xl border border-gray-200 shadow-sm bg-white">';
-            html += '<table class="w-full text-xs">';
-            html += '<thead><tr class="bg-gray-50/50 border-b border-gray-200">';
-            html += '<th class="px-4 py-3 text-left font-bold text-gray-700">구분</th>';
-            html += '<th class="px-3 py-3 text-center font-bold text-gray-500">평균</th>';
-            html += '<th class="px-4 py-3 text-center font-bold text-blue-600">AI 종합</th>';
-            html += _modelHeader();
-            html += '<th class="px-4 py-3 text-center font-bold text-gray-600">Gap</th>';
-            html += '<th class="px-4 py-3 text-center font-bold text-gray-600">STR</th>';
-            html += '</tr></thead><tbody>';
-
-            items.forEach(item => {
-                const exp = typeof item.exp === 'number' ? item.exp : 0;
-                const isHot = exp >= 1.2;
-                const rangeColor = isHot ? '#0F766E' : exp < 0.3 ? '#9CA3AF' : '#374151';
-                const ensembleRange = _fmtRange(exp);
-
-                html += `<tr class="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors${isHot ? ' bg-emerald-50/30' : ''}">`;
-                html += `<td class="px-4 py-3 font-bold text-gray-700 text-sm">${item.label}</td>`;
-                html += `<td class="px-3 py-3 text-center font-mono text-sm text-gray-500">${exp.toFixed(2)}</td>`;
-                html += `<td class="px-4 py-3 text-center"><span style="font-family:monospace;font-size:13px;font-weight:800;color:${rangeColor}">${ensembleRange}</span></td>`;
-                html += _modelCells(item);
-                html += `<td class="px-4 py-3 text-center font-mono text-sm text-gray-500">${item.gap != null ? item.gap : '-'}</td>`;
-                html += `<td class="px-4 py-3 text-center font-mono text-sm text-gray-500">${item.str != null ? item.str : '-'}</td>`;
-                html += '</tr>';
-            });
-            html += '</tbody></table></div></div>';
-            return html;
+        const buildGroup = (title, items) => {
+            if (!items || !items.length) return '';
+            const cards = items.map(item => this._buildAnalysisCard(item, item.label)).join('');
+            return `
+                <div style="margin-bottom:18px;">
+                    <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px; padding:0 4px;">
+                        <span style="width:4px; height:16px; background:#1f2937; border-radius:2px;"></span>
+                        <span style="font-size:12px; font-weight:800; color:#1f2937; letter-spacing:0.5px; text-transform:uppercase;">${title}</span>
+                    </div>
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:12px;">${cards}</div>
+                </div>`;
         };
 
         let html = '';
-        if (paperData.rows) html += buildTable('가로 라인 분포', paperData.rows);
-        if (paperData.cols) html += buildTable('세로 라인 분포', paperData.cols);
-        container.innerHTML = html || '<p class="text-sm text-gray-400 text-center py-4">데이터 없음</p>';
+        if (paperData.rows) html += buildGroup('가로 라인 분포', paperData.rows);
+        if (paperData.cols) html += buildGroup('세로 라인 분포', paperData.cols);
+        container.innerHTML = html || '<p style="text-align:center; padding:24px; color:#94a3b8; font-size:13px;">데이터 없음</p>';
     },
 
     renderNumberBandAnalysis(bandData) {
+        // [fix-86] 표 → 카드 grid (5 번호대 카드)
         const container = document.getElementById('numberBandContainer');
         if (!container || !bandData || !bandData.length) return;
 
-        const _fmtRange = (prob) => {
-            if (prob == null || isNaN(prob)) return '-';
-            if (prob < 0.30)  return '0~0';
-            if (prob < 0.55)  return '0~1';
-            if (prob < 0.72)  return '1~1';
-            if (prob < 1.20)  return '1~2';
-            if (prob < 1.80)  return '1~3';
-            return '2~3';
-        };
         const BAND_LABEL_MAP = {
-            '01~10': '단번대', '1~10': '단번대',
-            '11~20': '10번대', '21~30': '20번대',
-            '31~40': '30번대', '41~45': '40번대'
-        };
-        // 11 base 토폴로지 (사용자 결정 #24)
-        const MODEL_ORDER = ['xgboost', 'catboost', 'tabnet', 'cnn', 'gnn', 'markov', 'autoencoder', 'tft', 'mhn', 'bayesian_nn'];
-        const MODEL_ABBR = {
-            xgboost: 'XGB', catboost: 'CAT', tabnet: 'TAB',
-            cnn: 'CNN', gnn: 'GNN',
-            markov: 'MKV', autoencoder: 'AE',
-            tft: 'TFT', nbeats: 'NBT',
-            mhn: 'MHN', bayesian_nn: 'BAY'
-        };
-        const MODEL_COLORS = {
-            xgboost: '#3B82F6', catboost: '#14B8A6', tabnet: '#A855F7',
-            cnn: '#EC4899', gnn: '#EF4444',
-            markov: '#10B981', autoencoder: '#8B5CF6',
-            tft: '#F97316', nbeats: '#06B6D4',
-            mhn: '#84CC16', bayesian_nn: '#F59E0B'
+            '01~10': '단번대 (1~10)', '1~10': '단번대 (1~10)',
+            '11~20': '10번대 (11~20)', '21~30': '20번대 (21~30)',
+            '31~40': '30번대 (31~40)', '41~45': '40번대 (41~45)'
         };
 
-        let html = '<div class="overflow-x-auto rounded-2xl border border-gray-200 shadow-sm bg-white">';
-        html += '<table class="w-full text-xs">';
-        html += '<thead><tr class="bg-gray-50/50 border-b border-gray-200">';
-        html += '<th class="px-4 py-3 text-left font-bold text-gray-700">번호대</th>';
-        html += '<th class="px-3 py-3 text-center font-bold text-gray-500">평균</th>';
-        html += '<th class="px-4 py-3 text-center font-bold text-blue-600">AI 종합</th>';
-        MODEL_ORDER.forEach(m => {
-            html += `<th class="px-2 py-3 text-center font-semibold" style="color:${MODEL_COLORS[m]}">${MODEL_ABBR[m]}</th>`;
-        });
-        html += '<th class="px-4 py-3 text-center font-bold text-gray-600">Gap</th>';
-        html += '<th class="px-4 py-3 text-center font-bold text-gray-600">STR</th>';
-        html += '</tr></thead><tbody>';
-
-        bandData.forEach(item => {
-            const exp = typeof item.exp === 'number' ? item.exp : 0;
+        const cards = bandData.map(item => {
             const displayLabel = BAND_LABEL_MAP[item.label] || item.label;
-            const isHot = exp >= 1.2;
-            const rangeColor = isHot ? '#0F766E' : exp < 0.3 ? '#9CA3AF' : '#374151';
+            return this._buildAnalysisCard(item, displayLabel);
+        }).join('');
 
-            const modelCells = MODEL_ORDER.map(m => {
-                const p = item.model_exp ? (parseFloat(item.model_exp[m]) || 0) : exp;
-                const lbl = _fmtRange(p);
-                return `<td class="px-2 py-3 text-center"><span style="font-family:monospace;font-size:13px;font-weight:700;color:${MODEL_COLORS[m]}">${lbl}</span></td>`;
-            }).join('');
-
-            html += `<tr class="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors${isHot ? ' bg-emerald-50/30' : ''}">`;
-            html += `<td class="px-4 py-3 font-bold text-gray-700 text-sm">${displayLabel}</td>`;
-            html += `<td class="px-3 py-3 text-center font-mono text-sm text-gray-500">${exp.toFixed(2)}</td>`;
-            html += `<td class="px-4 py-3 text-center"><span style="font-family:monospace;font-size:13px;font-weight:800;color:${rangeColor}">${_fmtRange(exp)}</span></td>`;
-            html += modelCells;
-            html += `<td class="px-4 py-3 text-center font-mono text-sm text-gray-500">${item.gap != null ? item.gap : '-'}</td>`;
-            html += `<td class="px-4 py-3 text-center font-mono text-sm text-gray-500">${item.str != null ? item.str : '-'}</td>`;
-            html += '</tr>';
-        });
-        html += '</tbody></table></div>';
-        container.innerHTML = html;
+        container.innerHTML = `<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:12px;">${cards}</div>`;
     },
 
     renderMagicSquareAnalysis(squareData) {
+        // [fix-86] 표 → 3×3 grid 카드 (9궁)
         const container = document.getElementById('magicSquareContainer');
         if (!container || !squareData || !squareData.length) return;
 
-        const _fmtRange = (prob) => {
-            if (prob == null || isNaN(prob)) return '-';
-            if (prob < 0.30)  return '0~0';
-            if (prob < 0.55)  return '0~1';
-            if (prob < 0.72)  return '1~1';
-            if (prob < 1.20)  return '1~2';
-            if (prob < 1.80)  return '1~3';
-            return '2~3';
-        };
-        // 11 base 토폴로지 (사용자 결정 #24)
-        const MODEL_ORDER = ['xgboost', 'catboost', 'tabnet', 'cnn', 'gnn', 'markov', 'autoencoder', 'tft', 'mhn', 'bayesian_nn'];
-        const MODEL_ABBR = {
-            xgboost: 'XGB', catboost: 'CAT', tabnet: 'TAB',
-            cnn: 'CNN', gnn: 'GNN',
-            markov: 'MKV', autoencoder: 'AE',
-            tft: 'TFT', nbeats: 'NBT',
-            mhn: 'MHN', bayesian_nn: 'BAY'
-        };
-        const MODEL_COLORS = {
-            xgboost: '#3B82F6', catboost: '#14B8A6', tabnet: '#A855F7',
-            cnn: '#EC4899', gnn: '#EF4444',
-            markov: '#10B981', autoencoder: '#8B5CF6',
-            tft: '#F97316', nbeats: '#06B6D4',
-            mhn: '#84CC16', bayesian_nn: '#F59E0B'
-        };
-
-        let html = '<div class="overflow-x-auto rounded-2xl border border-gray-200 shadow-sm bg-white">';
-        html += '<table class="w-full text-xs">';
-        html += '<thead><tr class="bg-gray-50/50 border-b border-gray-200">';
-        html += '<th class="px-4 py-3 text-left font-bold text-gray-700">궁</th>';
-        html += '<th class="px-3 py-3 text-center font-bold text-gray-500">평균</th>';
-        html += '<th class="px-4 py-3 text-center font-bold text-blue-600">AI 종합</th>';
-        MODEL_ORDER.forEach(m => {
-            html += `<th class="px-2 py-3 text-center font-semibold" style="color:${MODEL_COLORS[m]}">${MODEL_ABBR[m]}</th>`;
-        });
-        html += '<th class="px-4 py-3 text-center font-bold text-gray-600">Gap</th>';
-        html += '<th class="px-4 py-3 text-center font-bold text-gray-600">STR</th>';
-        html += '</tr></thead><tbody>';
-
-        squareData.forEach(item => {
-            const exp = typeof item.exp === 'number' ? item.exp : 0;
-            const isHot = exp >= 1.2;
-            const rangeColor = isHot ? '#0F766E' : exp < 0.3 ? '#9CA3AF' : '#374151';
-
-            const modelCells = MODEL_ORDER.map(m => {
-                const p = item.model_exp ? (parseFloat(item.model_exp[m]) || 0) : exp;
-                const label = _fmtRange(p);
-                return `<td class="px-2 py-3 text-center"><span style="font-family:monospace;font-size:13px;font-weight:700;color:${MODEL_COLORS[m]}">${label}</span></td>`;
-            }).join('');
-
-            html += `<tr class="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors${isHot ? ' bg-emerald-50/30' : ''}">`;
-            html += `<td class="px-4 py-3 font-bold text-gray-700 text-sm">${item.label}</td>`;
-            html += `<td class="px-3 py-3 text-center font-mono text-sm text-gray-500">${exp.toFixed(2)}</td>`;
-            html += `<td class="px-4 py-3 text-center"><span style="font-family:monospace;font-size:13px;font-weight:800;color:${rangeColor}">${_fmtRange(exp)}</span></td>`;
-            html += modelCells;
-            html += `<td class="px-4 py-3 text-center font-mono text-sm text-gray-500">${item.gap != null ? item.gap : '-'}</td>`;
-            html += `<td class="px-4 py-3 text-center font-mono text-sm text-gray-500">${item.str != null ? item.str : '-'}</td>`;
-            html += '</tr>';
-        });
-        html += '</tbody></table></div>';
-        container.innerHTML = html;
+        const cards = squareData.map(item => this._buildAnalysisCard(item, item.label)).join('');
+        // 9궁은 3×3 grid (반응형: lg=3, md=2, sm=1)
+        container.innerHTML = `<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:12px;">${cards}</div>`;
     },
 
     renderMissingGroupAnalysis(groupData) {
