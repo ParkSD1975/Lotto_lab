@@ -367,7 +367,7 @@
                                             회차
                                         </th>
                                         <th class="py-4 px-4 w-[350px] text-sm text-white">당첨번호 + 보너스</th>
-                                        <th class="py-4 px-4 text-sm text-white">이웃수</th>
+                                        <th class="py-4 px-4 text-sm text-white">이웃수 대상번호</th>
                                         <th class="py-4 px-4 w-24 font-medium text-sm text-white">대상개수</th>
                                         <th class="py-4 px-4 w-24 text-sm text-white">당첨개수</th>
                                         <th class="py-4 px-4 w-24 text-sm text-white">보볼이웃수</th>
@@ -421,7 +421,7 @@
 
                 // 하이라이트 해제
                 highlightStartRound = null;
-                
+
                 // 필요 시 리스트 갱신 (이미 렌더링 중이면 생략 가능)
                 const displayData = allDrawData.slice(0, currentRange);
                 renderDrawsList(displayData);
@@ -479,67 +479,67 @@
             window.isLoadingSettings = true;
             let saved = null;
             try {
-            const latestRound = allDrawData && allDrawData.length > 0 ? allDrawData[0].round : 0;
-            const currentTargetRound = latestRound + 1;
+                const latestRound = allDrawData && allDrawData.length > 0 ? allDrawData[0].round : 0;
+                const currentTargetRound = latestRound + 1;
 
-            // 1. DB 우선 (filterService, round-specific 행)
-            if (window.filterService && window.filterService.initialized) {
-                const dbData = await window.filterService.loadSetting('neighbor_number_patterns', currentTargetRound);
-                if (dbData) {
-                    const s = dbData.settings || {};
-                    const r = s.ranges || s;
-                    saved = {
-                        min: s.min ?? r.min ?? 0,
-                        max: s.max ?? r.max ?? 6,
-                        enabled: dbData.enabled !== false,
-                        recent10FilterActive: s.recent10FilterActive || false
-                    };
-                }
-            }
-
-            // 2. Fallback: Utils.loadFilter (localStorage + null DB 행)
-            if (!saved && window.Utils && window.Utils.loadFilter) {
-                const data = await window.Utils.loadFilter('neighbor_number_patterns');
-                if (data) {
-                    const r = data.ranges || data;
-                    saved = {
-                        min: data.min ?? r.min ?? 0,
-                        max: data.max ?? r.max ?? 6,
-                        enabled: data.enabled !== false,
-                        recent10FilterActive: data.recent10FilterActive || false
-                    };
-                }
-            }
-
-            if (saved) {
-                const minInput = document.getElementById('filterMin');
-                const maxInput = document.getElementById('filterMax');
-                const toggle = document.getElementById('applyFilterCheck');
-                const btn = document.getElementById('recent10FilterBtn');
-                const btnText = document.getElementById('recent10BtnText');
-
-                if (minInput) minInput.value = saved.min;
-                if (maxInput) maxInput.value = saved.max;
-                if (toggle) toggle.checked = saved.enabled;
-
-                filterState = { min: saved.min, max: saved.max };
-
-                // 버튼 상태 복원
-                if (btn && btnText) {
-                    isRecentTenFilter = !!saved.recent10FilterActive;
-                    if (isRecentTenFilter) {
-                        btn.classList.remove('from-blue-500', 'to-blue-600');
-                        btn.classList.add('from-purple-500', 'to-purple-700');
-                        btnText.textContent = '필터 해제';
-                    } else {
-                        btn.classList.remove('from-purple-500', 'to-purple-700');
-                        btn.classList.add('from-blue-500', 'to-blue-600');
-                        btnText.textContent = '최근 10회차 기준 설정';
+                // 1. DB 우선 (filterService, round-specific 행)
+                if (window.filterService && window.filterService.initialized) {
+                    const dbData = await window.filterService.loadSetting('neighbor_number_patterns', currentTargetRound);
+                    if (dbData) {
+                        const s = dbData.settings || {};
+                        const r = s.ranges || s;
+                        saved = {
+                            min: s.min ?? r.min ?? 0,
+                            max: s.max ?? r.max ?? 6,
+                            enabled: dbData.enabled !== false,
+                            recent10FilterActive: s.recent10FilterActive || false
+                        };
                     }
                 }
-                return true;
-            }
-            return false;
+
+                // 2. Fallback: Utils.loadFilter (localStorage + null DB 행)
+                if (!saved && window.Utils && window.Utils.loadFilter) {
+                    const data = await window.Utils.loadFilter('neighbor_number_patterns');
+                    if (data) {
+                        const r = data.ranges || data;
+                        saved = {
+                            min: data.min ?? r.min ?? 0,
+                            max: data.max ?? r.max ?? 6,
+                            enabled: data.enabled !== false,
+                            recent10FilterActive: data.recent10FilterActive || false
+                        };
+                    }
+                }
+
+                if (saved) {
+                    const minInput = document.getElementById('filterMin');
+                    const maxInput = document.getElementById('filterMax');
+                    const toggle = document.getElementById('applyFilterCheck');
+                    const btn = document.getElementById('recent10FilterBtn');
+                    const btnText = document.getElementById('recent10BtnText');
+
+                    if (minInput) minInput.value = saved.min;
+                    if (maxInput) maxInput.value = saved.max;
+                    if (toggle) toggle.checked = saved.enabled;
+
+                    filterState = { min: saved.min, max: saved.max };
+
+                    // 버튼 상태 복원
+                    if (btn && btnText) {
+                        isRecentTenFilter = !!saved.recent10FilterActive;
+                        if (isRecentTenFilter) {
+                            btn.classList.remove('from-blue-500', 'to-blue-600');
+                            btn.classList.add('from-purple-500', 'to-purple-700');
+                            btnText.textContent = '필터 해제';
+                        } else {
+                            btn.classList.remove('from-purple-500', 'to-purple-700');
+                            btn.classList.add('from-blue-500', 'to-blue-600');
+                            btnText.textContent = '최근 10회차 기준 설정';
+                        }
+                    }
+                    return true;
+                }
+                return false;
             } finally {
                 window.isLoadingSettings = false;
             }
@@ -588,7 +588,7 @@
                         if (_p.enabled === false && !_p.settings && _p.min === undefined) {
                             resetFilterUI(); return;
                         }
-                    } catch(_) {}
+                    } catch (_) { }
                 }
                 console.log(`[neighbor_number] 실시간 필터 변경 감지 (${e.key}): UI 갱신`);
                 const loaded = await loadFilterSettings();
@@ -1156,7 +1156,7 @@
         // [Fix] 수동 입력 변경 시 recent10 비활성화 + 하이라이트 해제 + 디바운스 저장
         function applyFilterManual() {
             markManual(); // 수동 조작 마킹
-            
+
             applyFilter(); // 즉시 렌더 (매끄러운 반응)
 
             // 저장은 디바운스 300ms — 연속 입력 중 StorageEvent 폭발 방지
@@ -1482,7 +1482,9 @@ ${contextData}
         </div>
         <div id="aiQnaContent" class="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50 custom-scrollbar">
             <div class="flex mb-4">
-                <div class="w-7 h-7 rounded-full bg-blue-500 flex items-center justify-center text-white text-[10px] mr-2 flex-shrink-0">AI</div>
+                <div
+                    class="w-7 h-7 rounded-full bg-blue-500 flex items-center justify-center text-white text-[10px] mr-2 flex-shrink-0">
+                    AI</div>
                 <div class="bg-white border text-gray-800 px-4 py-2 rounded-2xl shadow-sm text-sm">
                     안녕하세요! 이웃수 분석에 대해 궁금한 점을 물어보세요.
                 </div>
@@ -1502,4 +1504,5 @@ ${contextData}
     </div>
 
 </body>
+
 </html>
