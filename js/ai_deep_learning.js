@@ -2363,16 +2363,10 @@ const DeepLearning = {
             cardsHtml += `<span style="font-size:12px; font-weight:700; color:#475569;">${_tableTitle}</span>`;
             cardsHtml += `</div>`;
             cardsHtml += `<table style="width:100%; border-collapse:separate; border-spacing:0; font-size:12px;">`;
-            if (isRatio) {
-                // 3컬럼: 모델(가중치 인라인) | 예측 비율 (모든 패턴) | 대표 비율
-                cardsHtml += `<thead><tr style="background:#f8fafc;">`;
-                cardsHtml += `<th style="text-align:left; padding:8px 10px; font-weight:700; color:#64748b; border-bottom:1px solid #e5e7eb; width:40%;">모델 <span style="color:#94a3b8;font-weight:500;">(가중치)</span></th>`;
-                cardsHtml += `<th style="text-align:center; padding:8px 10px; font-weight:700; color:#64748b; border-bottom:1px solid #e5e7eb;">예측 비율</th>`;
-                cardsHtml += `<th style="text-align:center; padding:8px 10px; font-weight:700; color:#64748b; border-bottom:1px solid #e5e7eb; width:90px;">대표 비율</th>`;
-                cardsHtml += `</tr></thead>`;
-            } else {
-                cardsHtml += `<thead><tr style="background:#f8fafc;"><th style="text-align:left; padding:8px 10px; font-weight:700; color:#64748b; border-bottom:1px solid #e5e7eb;">모델</th><th style="text-align:right; padding:8px 10px; font-weight:700; color:#64748b; border-bottom:1px solid #e5e7eb;">가중치</th><th style="text-align:center; padding:8px 10px; font-weight:700; color:#64748b; border-bottom:1px solid #e5e7eb;">예측 범위</th><th style="text-align:center; padding:8px 10px; font-weight:700; color:#64748b; border-bottom:1px solid #e5e7eb;">대표값</th></tr></thead>`;
-            }
+            // [fix-74-r2] 모든 필터 4컬럼 통일 — 가중치 별도 열 유지, isRatio면 셀 내용만 비율로
+            const _hPred = isRatio ? '예측 비율' : '예측 범위';
+            const _hRep  = isRatio ? '대표 비율' : '대표값';
+            cardsHtml += `<thead><tr style="background:#f8fafc;"><th style="text-align:left; padding:8px 10px; font-weight:700; color:#64748b; border-bottom:1px solid #e5e7eb;">모델</th><th style="text-align:right; padding:8px 10px; font-weight:700; color:#64748b; border-bottom:1px solid #e5e7eb; width:80px;">가중치</th><th style="text-align:center; padding:8px 10px; font-weight:700; color:#64748b; border-bottom:1px solid #e5e7eb;">${_hPred}</th><th style="text-align:center; padding:8px 10px; font-weight:700; color:#64748b; border-bottom:1px solid #e5e7eb; width:100px;">${_hRep}</th></tr></thead>`;
             cardsHtml += `<tbody>`;
             modelRows.forEach((row, i) => {
                 const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '';
@@ -2382,7 +2376,7 @@ const DeepLearning = {
                 const opacity = isActive || isAE ? 1 : 0.45;
                 const bg = isAE ? '#fafbff' : (i % 2 === 0 ? '#fff' : '#fafafa');
                 const borderTop = isAE ? 'border-top:2px dashed #c7d2fe;' : '';
-                // 비율 변환 (isRatio 일때만)
+                // [fix-74-r2] 비율 변환 (isRatio일 때만 셀 내용만)
                 const _predText = isRatio
                     ? ((typeof row.min === 'number' && typeof row.max === 'number') ? _toRatioStr(row.min, row.max) : '-')
                     : `${row.min} ~ ${row.max}`;
@@ -2391,44 +2385,23 @@ const DeepLearning = {
                     : row.representative;
                 cardsHtml += `<tr style="background:${bg}; opacity:${opacity}; ${borderTop}">`;
                 if (isAE) {
-                    if (isRatio) {
-                        // AE 행 (3컬럼): 모델+가중치 인라인 / 예측 비율 / 이상 감지 라벨
-                        cardsHtml += `<td style="padding:10px; border-bottom:1px solid #f3f4f6;"><span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${row.color}; margin-right:8px;"></span><b style="color:#6366f1;">${row.name}</b> <span style="font-family:monospace; color:#94a3b8; font-weight:600; margin-left:4px;">(0.0%)</span> <span style="font-size:10px; color:#94a3b8; font-weight:600; margin-left:4px;">이상 감지 보조</span></td>`;
-                        cardsHtml += `<td style="text-align:center; padding:10px; font-family:monospace; color:#475569; border-bottom:1px solid #f3f4f6;">${_predText}</td>`;
-                        cardsHtml += `<td style="text-align:center; padding:10px; border-bottom:1px solid #f3f4f6;">`;
-                        if (aeSignLabel) {
-                            cardsHtml += `<span style="font-size:11px; font-weight:800; padding:3px 10px; border-radius:999px; background:${aeSignBg}; color:${aeSignColor};">${aeSignLabel}</span>`;
-                            cardsHtml += `<div style="font-size:10px; color:#94a3b8; font-weight:600; margin-top:3px;">노이즈 ${(aeDeviation * 100).toFixed(1)}%</div>`;
-                        } else {
-                            cardsHtml += `<span style="font-size:10px; color:#94a3b8;">-</span>`;
-                        }
-                        cardsHtml += `</td>`;
+                    // AE 행 (4컬럼): 모델+이상감지보조라벨 colspan=2 / 예측(범위/비율) / 이상 감지 사인
+                    cardsHtml += `<td style="padding:10px; border-bottom:1px solid #f3f4f6;" colspan="2"><span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${row.color}; margin-right:8px;"></span><b style="color:#6366f1;">${row.name}</b> <span style="font-size:10px; color:#94a3b8; font-weight:600; margin-left:4px;">이상 감지 보조 (가중치 0%, exclude task에서 30% 주도)</span></td>`;
+                    cardsHtml += `<td style="text-align:center; padding:10px; font-family:monospace; color:#475569; border-bottom:1px solid #f3f4f6;">${_predText}</td>`;
+                    cardsHtml += `<td style="text-align:center; padding:10px; border-bottom:1px solid #f3f4f6;">`;
+                    if (aeSignLabel) {
+                        cardsHtml += `<span style="font-size:11px; font-weight:800; padding:3px 10px; border-radius:999px; background:${aeSignBg}; color:${aeSignColor};">${aeSignLabel}</span>`;
+                        cardsHtml += `<div style="font-size:10px; color:#94a3b8; font-weight:600; margin-top:3px;">노이즈 ${(aeDeviation * 100).toFixed(1)}%</div>`;
                     } else {
-                        // AE 행 (4컬럼) — 기존 그대로
-                        cardsHtml += `<td style="padding:10px; border-bottom:1px solid #f3f4f6;" colspan="2"><span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${row.color}; margin-right:8px;"></span><b style="color:#6366f1;">${row.name}</b> <span style="font-size:10px; color:#94a3b8; font-weight:600; margin-left:4px;">이상 감지 보조 (가중치 0%, exclude task에서 30% 주도)</span></td>`;
-                        cardsHtml += `<td style="text-align:center; padding:10px; font-family:monospace; color:#475569; border-bottom:1px solid #f3f4f6;">${row.min} ~ ${row.max}</td>`;
-                        cardsHtml += `<td style="text-align:center; padding:10px; border-bottom:1px solid #f3f4f6;">`;
-                        if (aeSignLabel) {
-                            cardsHtml += `<span style="font-size:11px; font-weight:800; padding:3px 10px; border-radius:999px; background:${aeSignBg}; color:${aeSignColor};">${aeSignLabel}</span>`;
-                            cardsHtml += `<div style="font-size:10px; color:#94a3b8; font-weight:600; margin-top:3px;">노이즈 ${(aeDeviation * 100).toFixed(1)}%</div>`;
-                        } else {
-                            cardsHtml += `<span style="font-size:10px; color:#94a3b8;">-</span>`;
-                        }
-                        cardsHtml += `</td>`;
+                        cardsHtml += `<span style="font-size:10px; color:#94a3b8;">-</span>`;
                     }
+                    cardsHtml += `</td>`;
                 } else {
-                    if (isRatio) {
-                        // 일반 행 (3컬럼): 모델 + 가중치 인라인 / 예측 비율 / 대표 비율
-                        cardsHtml += `<td style="padding:8px 10px; border-bottom:1px solid #f3f4f6;"><span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${row.color}; margin-right:8px;"></span><b style="color:#0f172a;">${row.name}</b> <span style="font-family:monospace; color:${isActive ? '#1f2937' : '#94a3b8'}; font-weight:${isActive ? '700' : '500'}; margin-left:6px;">(${row.weight.toFixed(1)}%)</span> ${medal}</td>`;
-                        cardsHtml += `<td style="text-align:center; padding:8px 10px; font-family:monospace; color:#475569; border-bottom:1px solid #f3f4f6;">${_predText}</td>`;
-                        cardsHtml += `<td style="text-align:center; padding:8px 10px; font-family:monospace; color:#2563eb; font-weight:700; border-bottom:1px solid #f3f4f6;">${_repText}</td>`;
-                    } else {
-                        // 일반 행 (4컬럼) — 기존 그대로
-                        cardsHtml += `<td style="padding:8px 10px; border-bottom:1px solid #f3f4f6;"><span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${row.color}; margin-right:8px;"></span><b style="color:#0f172a;">${row.name}</b> ${medal}</td>`;
-                        cardsHtml += `<td style="text-align:right; padding:8px 10px; font-family:monospace; color:${isActive ? '#1f2937' : '#94a3b8'}; font-weight:${isActive ? '700' : '500'}; border-bottom:1px solid #f3f4f6;">${row.weight.toFixed(1)}%</td>`;
-                        cardsHtml += `<td style="text-align:center; padding:8px 10px; font-family:monospace; color:#475569; border-bottom:1px solid #f3f4f6;">${row.min} ~ ${row.max}</td>`;
-                        cardsHtml += `<td style="text-align:center; padding:8px 10px; font-family:monospace; color:#2563eb; font-weight:700; border-bottom:1px solid #f3f4f6;">${row.representative}</td>`;
-                    }
+                    // 일반 행 (4컬럼): 모델 / 가중치 / 예측 / 대표
+                    cardsHtml += `<td style="padding:8px 10px; border-bottom:1px solid #f3f4f6;"><span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${row.color}; margin-right:8px;"></span><b style="color:#0f172a;">${row.name}</b> ${medal}</td>`;
+                    cardsHtml += `<td style="text-align:right; padding:8px 10px; font-family:monospace; color:${isActive ? '#1f2937' : '#94a3b8'}; font-weight:${isActive ? '700' : '500'}; border-bottom:1px solid #f3f4f6;">${row.weight.toFixed(1)}%</td>`;
+                    cardsHtml += `<td style="text-align:center; padding:8px 10px; font-family:monospace; color:#475569; border-bottom:1px solid #f3f4f6;">${_predText}</td>`;
+                    cardsHtml += `<td style="text-align:center; padding:8px 10px; font-family:monospace; color:#2563eb; font-weight:700; border-bottom:1px solid #f3f4f6;">${_repText}</td>`;
                 }
                 cardsHtml += `</tr>`;
             });
