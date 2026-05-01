@@ -47,17 +47,21 @@ window.FilterDashboard = {
                 'prime_number_patterns', 'composite_count', 'square_number_patterns',
                 'triangular_number_patterns', 'twin_number_patterns', 'neighbor_number_patterns',
                 'carryover_count', 'consecutive_count', 'multiple_3_count',
-                'multiple_7_count', 'multiple_8_count', 'number_range_patterns',
+                'multiple_4_count', 'multiple_5_count',
+                'multiple_7_count', 'multiple_8_count', 'no_multiple_count',
+                'number_range_patterns',
                 'magic_square_pattern', 'lotto_paper_pattern', 'hot_cold_5', 'hot_cold_10',
                 'hot_cold_15', 'hot_cold_20', 'missing_period', 'missing_custom_filter',
-                'regression_analysis', 'lotto_basket', 'tail_digit_patterns'
+                'regression_analysis', 'lotto_basket', 'tail_digit_patterns',
+                'combination_filter', 'combination_settings'
             ]);
 
             const isCustomFilter = e.key.startsWith('custom_filter_');
             const isAnalysisRefresh = e.key === 'custom_analysis_refresh';
             const isLnbOrderChange = e.key === 'lnbOrder_custom';
+            const isEndDigitFilter = /^end_digit_\d_count$/.test(e.key);
 
-            const isWatched = watchedKeys.has(e.key) || e.key.endsWith('_filter') || isCustomFilter || isAnalysisRefresh || isLnbOrderChange;
+            const isWatched = watchedKeys.has(e.key) || e.key.endsWith('_filter') || isCustomFilter || isAnalysisRefresh || isLnbOrderChange || isEndDigitFilter;
             if (!isWatched) return;
 
             // [Phase 4] BroadcastChannel 중복 방지: 처리 시각 기록

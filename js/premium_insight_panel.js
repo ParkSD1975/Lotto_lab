@@ -218,14 +218,31 @@
     }
 
     const _digitResolver = (payload, filterKey) => {
-        const ta = payload?.analysis?.tail_analysis;
-        if (!Array.isArray(ta)) return null;
+        // [fix-80 Bug 1] v4 weekly API에는 tail_analysis가 없음 → range_analysis[digitN]에서 합성
         const idx = parseInt(String(filterKey).replace('digit', ''), 10);
-        const raw = ta[idx];
-        if (!raw || !raw.model_exp) return null;
-        const modelExp = {};
-        Object.entries(raw.model_exp).forEach(([m, p]) => { modelExp[m] = _probToRange(p); });
-        return { modelExp, targetRound: payload?.target_round || '' };
+        // (a) v3 deep_analysis가 있으면 우선 사용
+        const ta = payload?.analysis?.tail_analysis;
+        if (Array.isArray(ta) && ta[idx] && ta[idx].model_exp) {
+            const modelExp = {};
+            Object.entries(ta[idx].model_exp).forEach(([m, p]) => { modelExp[m] = _probToRange(p); });
+            return { modelExp, targetRound: payload?.target_round || '' };
+        }
+        // (b) v4 fallback — range_analysis[`digit${idx}`] 사용
+        const ra = payload?.analysis?.range_analysis;
+        if (ra && ra[filterKey] && ra[filterKey].model_expectations) {
+            const me = ra[filterKey].model_expectations;
+            const modelExp = {};
+            Object.entries(me).forEach(([m, e]) => {
+                if (m === '__ensemble__') return;
+                if (e && typeof e.min === 'number' && typeof e.max === 'number') {
+                    modelExp[m] = { min: e.min, max: e.max, weight: e.weight };
+                }
+            });
+            if (Object.keys(modelExp).length > 0) {
+                return { modelExp, targetRound: payload?.target_round || '' };
+            }
+        }
+        return null;
     };
 
     // 비율형(홀짝/고저) 리졸버 — backend ratio_analysis 우선, 없으면 range_analysis로 합성

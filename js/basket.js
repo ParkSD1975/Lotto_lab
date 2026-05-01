@@ -154,25 +154,32 @@
 
             // 로컬에 이전 회차가 기록되어 있고, 최신 회차보다 작다면 (새 회차가 업데이트 되었다면)
             if (savedRound && savedRound < latestRound) {
-                console.log(`[Basket] 새로운 회차 감지 (${savedRound} -> ${latestRound}). 바스켓을 비웁니다.`);
-                // localStorage 초기화
-                save({ fixed: [], exclude: [], current_round: latestRound });
+                // [Stage 1-4-D-2-fix-80] Bug 4 — 회차 변경 시 exclude(제외수)는 보존
+                // 사용자 보고: '조작도 안했는데 제외수가 사라짐' (데이터 손실)
+                // 정책: 고정수(fixed)는 회차마다 의미 변화하므로 reset, 제외수(exclude)는 영구 의도이므로 보존
+                const preservedExclude = Array.isArray(currentData.exclude) ? currentData.exclude : [];
+                console.log(`[Basket] 새로운 회차 감지 (${savedRound} -> ${latestRound}). 고정수만 비우고 제외수 ${preservedExclude.length}개는 보존.`);
+                // localStorage 초기화 (exclude 보존)
+                save({ fixed: [], exclude: preservedExclude, current_round: latestRound });
                 _wasCleared = true;
                 // ── FilterLifecycle 에 NEW_ROUND 통보 ──────────────────
                 if (window.FilterLifecycle && typeof window.FilterLifecycle.onNewRound === 'function') {
                     window.FilterLifecycle.onNewRound(savedRound, latestRound);
                 }
-                // Supabase DB도 함께 초기화 (재로드 시 DB sync로 복원되는 것 방지)
+                // Supabase DB도 함께 초기화 (fixed만, exclude는 그대로 유지)
                 if (window.filterService?.initialized) {
                     try {
                         await window.filterService.saveSetting('fixed_numbers', { numbers: [] }, false);
-                        await window.filterService.saveSetting('excluded_numbers', { numbers: [] }, false);
-                        console.log('[Basket] Supabase 고정수/제외수 초기화 완료');
+                        // [fix-80] excluded_numbers는 보존 — 사용자가 명시적으로 비울 때만 비움
+                        console.log('[Basket] Supabase 고정수 초기화 완료 (제외수 보존)');
                     } catch (dbErr) {
                         console.warn('[Basket] Supabase 초기화 실패:', dbErr);
                     }
                 }
-                window.BasketUI.showToast('새로운 로또 회차가 업데이트되어 번호 바구니를 비웠습니다.', 'info');
+                const msg = preservedExclude.length > 0
+                    ? `새 회차 업데이트 — 고정수는 비우고 제외수 ${preservedExclude.length}개는 그대로 유지합니다.`
+                    : '새로운 로또 회차가 업데이트되어 고정수 바구니를 비웠습니다.';
+                window.BasketUI.showToast(msg, 'info');
             }
             // 기록된 회차가 없거나, 같거나 크다면 현재 최신 회차로 기록만 갱신
             else if (!savedRound || savedRound !== latestRound) {
