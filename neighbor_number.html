@@ -891,7 +891,9 @@
                     : '<span class="text-gray-400">-</span>';
 
                 // 보볼이웃수 컬럼 스타일링 (당첨개수와 동일한 색상 로직 적용)
-                const bobolCount = draw.bobolNeighborMatchCount !== undefined ? draw.bobolNeighborMatchCount : 0;
+                // [Stage 1-4-D-2-fix-83] 필드명 불일치 수정 — processData가 bobol_neighbor_count(snake)로 저장
+                // bobolNeighborMatchCount(camel)는 항상 undefined → bobolCount=0 고정 버그
+                const bobolCount = draw.bobol_neighbor_count !== undefined ? draw.bobol_neighbor_count : 0;
                 let bobolClass = 'bg-gray-100 text-gray-600'; // 기본 회색
 
                 if (bobolCount === 1) bobolClass = 'bg-green-100 text-green-700';
