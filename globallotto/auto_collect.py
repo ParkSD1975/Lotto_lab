@@ -107,490 +107,141 @@ def generate_draw_dates(last_date: date | None, draw_weekdays: list[int]) -> lis
         d += timedelta(days=1)
     return result
 
-# ─────────────── lotteryextreme displayball 파싱 ───────────────
+# ─────────────── 수집 함수: 공통 Guru 파서 (Austria, Australia, Philippines, Croatia 등) ───────────────
 
-def parse_displayball(html: str):
-    """반환: (main_nums, bonus_nums) or ([], [])"""
-    ul_match = re.search(
-        r"<ul[^>]*class=['\"]displayball['\"][^>]*>(.*?)</ul>",
-        html, re.DOTALL | re.IGNORECASE
-    )
-    if not ul_match:
-        return [], []
-    ul_html = ul_match.group(1)
-    parts = re.split(r'<li[^>]*class=["\'][^"\']*dbx[^"\']*["\'][^>]*>', ul_html, maxsplit=1)
-    main_nums = [int(x) for x in re.findall(r'<li[^>]*>(\d+)', parts[0])]
-    bonus_nums = [int(x) for x in re.findall(r'<li[^>]*>(\d+)', parts[1])] if len(parts)>1 else []
-    return main_nums, bonus_nums
-
-def fetch_lotteryextreme_date(slug: str, draw_date: date) -> dict | None:
-    """lotteryextreme.com/{slug}/lotto-results_details({date}) 파싱"""
-    url = f"https://www.lotteryextreme.com/{slug}/lotto-results_details({draw_date.isoformat()})"
-    try:
-        r = requests.get(url, headers=HEADERS, timeout=15)
-    except Exception as e:
-        print(f"    [ERR] {draw_date}: {e}")
-        return None
-    if r.status_code != 200:
-        return None
-    main_nums, bonus_nums = parse_displayball(r.text)
-    if len(main_nums) < 6:
-        return None
-    d = {"draw_date": draw_date.isoformat(),
-         "n1": main_nums[0], "n2": main_nums[1], "n3": main_nums[2],
-         "n4": main_nums[3], "n5": main_nums[4], "n6": main_nums[5]}
-    if bonus_nums:
-        d["b1"] = bonus_nums[0]
-    return d
-
-# ─────────────── 수집 함수: Austria ───────────────
-
-def collect_austria(lottery_id: str, last_date: date | None) -> int:
-    # Wed=2, Sun=6
-    dates = generate_draw_dates(last_date, [2, 6])
-    print(f"  Austria: {len(dates)}개 날짜 수집 예정")
+def collect_via_guru(lottery_id: str, last_date: date | None, 
+                    country_path: str, slug: str, 
+                    filter_weekday: int | None = None) -> int:
+    """lotteryguru.com 기반 공통 수집 함수"""
     draws = []
-    for i, d in enumerate(dates):
-        row = fetch_lotteryextreme_date("austria", d)
-        if row:
-            draws.append(row)
-        if i < len(dates)-1:
-            time.sleep(random.uniform(0.8, 1.5))
-    return upsert_draws(lottery_id, draws)
-
-# ─────────────── 수집 함수: Belgium ───────────────
-
-def collect_belgium(lottery_id: str, last_date: date | None, filter_weekday: int | None = None) -> int:
-    # Wed=2, Sat=5
-    dates = generate_draw_dates(last_date, [2, 5])
-    print(f"  Belgium: {len(dates)}개 날짜 수집 예정")
-    draws = []
-    for i, d in enumerate(dates):
-        if filter_weekday is not None and d.weekday() != filter_weekday:
-            continue
-        row = fetch_lotteryextreme_date("belgium", d)
-        if row:
-            draws.append(row)
-        if i < len(dates)-1:
-            time.sleep(random.uniform(0.8, 1.5))
-    return upsert_draws(lottery_id, draws)
-
-# ─────────────── 수집 함수: Australia ───────────────
-
-def parse_au_date(txt: str) -> date | None:
-    txt = txt.strip()
-    parts = re.split(r"[\s,]+", txt)
-    day_n = month_n = year_n = None
-    for p in parts:
-        p_c = re.sub(r"(st|nd|rd|th)$", "", p.lower())
-        if p_c in MONTH_MAP:
-            month_n = MONTH_MAP[p_c]
-        elif p_c.isdigit():
-            n = int(p_c)
-            if n > 1900:
-                year_n = n
-            elif 1 <= n <= 31 and day_n is None:
-                day_n = n
-    if day_n and month_n and year_n:
+    # 보통 최신 데이터는 1~2페이지 내에 있음
+    for page in range(1, 3): 
+        url = f"https://lotteryguru.com/{country_path}/{slug}/{slug}-results-history?page={page}"
         try:
-            return date(year_n, month_n, day_n)
-        except ValueError:
-            pass
-    return None
+            r = requests.get(url, headers=HEADERS, timeout=15)
+            if r.status_code != 200: break
+            soup = BeautifulSoup(r.text, "lxml")
+            
+            blocks = soup.select("div.lg-line")
+            if not blocks: break
+            
+            page_new = 0
+            stop_page = False
+            for block in blocks:
+                # 날짜 파싱 (요일과 날짜가 별도 태그일 수 있으므로 전체 텍스트 사용)
+                try:
+                    # "Wednesday 29 Apr 2026" 등 전체 텍스트 추출
+                    raw_date_text = block.get_text(separator=" ", strip=True)
+                    clean_text = raw_date_text.replace(",", " ").strip()
+                    parts = clean_text.split()
+                    
+                    day = month = year = None
+                    # 1. 월 찾기 (문자열 부분에서)
+                    for p in parts:
+                        p_l = p.lower()
+                        if p_l[:3] in MONTH_MAP:
+                            month = MONTH_MAP[p_l[:3]]
+                            break
+                    
+                    # 2. 숫자(일, 년) 찾기 - 정규식으로 안전하게 추출
+                    nums_in_text = re.findall(r'\d+', clean_text)
+                    for n_str in nums_in_text:
+                        val = int(n_str)
+                        if val > 1900: 
+                            year = val
+                        elif 1 <= val <= 31 and day is None:
+                            day = val
+                    
+                    if not (day and month and year): continue
+                    draw_date = date(year, month, day)
+                except:
+                    continue
+                
+                if last_date and draw_date <= last_date:
+                    stop_page = True
+                    break
+                if filter_weekday is not None and draw_date.weekday() != filter_weekday:
+                    continue
+                if draw_date >= TODAY: # 오늘 추첨분은 아직 안나왔을 수 있으므로 안전하게 패스
+                    continue
 
-def scrape_au_year(slug: str, year: int, filter_weekday: int | None = None) -> list[dict]:
-    url = f"https://au.lottonumbers.com/{slug}/results/{year}-archive"
-    try:
-        r = requests.get(url, headers=HEADERS, timeout=20)
-    except Exception as e:
-        return []
-    if r.status_code != 200:
-        return []
-
-    soup = BeautifulSoup(r.text, "lxml")
-    rows = []
-    for tr in soup.select("tr.winnerRow"):
-        date_td = tr.select_one("td.date-row")
-        if not date_td:
-            continue
-        date_text = ""
-        for content in date_td.children:
-            if getattr(content, "name", None) == "br":
-                for s in list(date_td.children)[list(date_td.children).index(content)+1:]:
-                    t = str(s).strip()
-                    if t:
-                        date_text += t
-                break
-        draw_date = parse_au_date(date_text)
-        if not draw_date:
-            continue
-        if filter_weekday is not None and draw_date.weekday() != filter_weekday:
-            continue
-
-        main_ul = tr.select_one("ul.balls[style*='margin-right']")
-        if not main_ul:
-            continue
-        main_nums = [int(li.get_text(strip=True))
-                     for li in main_ul.find_all("li")
-                     if li.get_text(strip=True).isdigit()]
-        supp_lis = tr.select("li.supplementary")
-        supps = [int(li.get_text(strip=True)) for li in supp_lis
-                 if li.get_text(strip=True).isdigit()]
-        if len(main_nums) < 6:
-            continue
-        rows.append({
-            "draw_date": draw_date.isoformat(),
-            "n1": main_nums[0], "n2": main_nums[1], "n3": main_nums[2],
-            "n4": main_nums[3], "n5": main_nums[4], "n6": main_nums[5],
-            "b1": supps[0] if supps else None,
-            "b2": supps[1] if len(supps)>1 else None,
-        })
-    return rows
-
-def collect_australia(lottery_id: str, last_date: date | None,
-                      slug: str, filter_weekday: int | None = None) -> int:
-    """올해(+작년까지) 페이지만 파싱해 last_date 이후 데이터 upsert"""
-    years = [TODAY.year]
-    if last_date and last_date.year < TODAY.year:
-        years = list(range(last_date.year, TODAY.year+1))
-    years = years[-2:]  # 최근 2년만 (효율)
-
-    draws = []
-    for year in years:
-        rows = scrape_au_year(slug, year, filter_weekday)
-        for row in rows:
-            if last_date and date.fromisoformat(row["draw_date"]) <= last_date:
-                continue
-            draws.append(row)
-        time.sleep(random.uniform(0.8, 1.3))
-
-    print(f"  Australia {slug}: {len(draws)}건 신규")
+                # 번호 파싱 (ul.lg-numbers-small 또는 ul.lg-numbers)
+                lis = block.select("li.lg-number")
+                if not lis: continue
+                
+                main_nums = []
+                bonus = None
+                for li in lis:
+                    val_txt = li.get_text(strip=True)
+                    if not val_txt.isdigit(): continue
+                    n = int(val_txt)
+                    # lg-reversed 클래스가 있으면 보너스 번호
+                    if "lg-reversed" in li.get("class", []):
+                        bonus = n
+                    else:
+                        main_nums.append(n)
+                
+                if len(main_nums) < 6: continue
+                
+                draws.append({
+                    "draw_date": draw_date.isoformat(),
+                    "n1": main_nums[0], "n2": main_nums[1], "n3": main_nums[2],
+                    "n4": main_nums[3], "n5": main_nums[4], "n6": main_nums[5],
+                    "b1": bonus
+                })
+                page_new += 1
+            
+            if stop_page or page_new == 0: break
+            time.sleep(random.uniform(0.8, 1.5))
+            
+        except Exception as e:
+            print(f"    [ERR] Guru 파싱 중 오류 ({slug}): {e}")
+            break
+            
     return upsert_draws(lottery_id, draws)
 
-# ─────────────── 수집 함수: Hungary ───────────────
+# ─────────────── 수집 함수: Hungary (CSV 기반 유지) ───────────────
 
 def collect_hungary(lottery_id: str, last_date: date | None, filter_weekday: int | None = None) -> int:
-    r = requests.get("https://bet.szerencsejatek.hu/cmsfiles/hatos.csv",
-                     headers=HEADERS, timeout=30)
-    r.raise_for_status()
-    text = r.content.decode("utf-8-sig", errors="replace")
-
-    draws = []
-    reader = csv.reader(io.StringIO(text), delimiter=";")
-    for row in reader:
-        if len(row) < 20:
-            continue
-        date_str = row[3].strip().rstrip(".")
-        parts = date_str.split(".")
-        if len(parts) != 3:
-            continue
-        try:
-            draw_date = date(int(parts[0]), int(parts[1]), int(parts[2]))
-        except ValueError:
-            continue
-        if filter_weekday is not None and draw_date.weekday() != filter_weekday:
-            continue
-        if last_date and draw_date <= last_date:
-            continue
-        if draw_date >= TODAY:
-            continue
-        try:
-            nums = [int(row[14]),int(row[15]),int(row[16]),
-                    int(row[17]),int(row[18]),int(row[19])]
-        except (ValueError, IndexError):
-            continue
-        draws.append({
-            "draw_date": draw_date.isoformat(),
-            "n1":nums[0],"n2":nums[1],"n3":nums[2],
-            "n4":nums[3],"n5":nums[4],"n6":nums[5],
-        })
-
-    print(f"  Hungary: {len(draws)}건 신규")
-    return upsert_draws(lottery_id, draws)
-
-# ─────────────── 수집 함수: Netherlands ───────────────
-
-def collect_netherlands(lottery_id: str, last_date: date | None) -> int:
-    r = requests.get("https://www.lotteryextreme.com/netherlands/lotto-results",
-                     headers=HEADERS, timeout=15)
-    if r.status_code != 200:
-        print(f"  Netherlands: HTTP {r.status_code}")
-        return 0
-
-    soup = BeautifulSoup(r.text, "lxml")
-    tables = soup.find_all("table")
-    if len(tables) < 2:
-        return 0
-
-    draws = []
-    current_date_str = None
-    for tr in tables[1].find_all("tr"):
-        text = tr.get_text(separator="|", strip=True)
-        if re.match(r"^\d{2}-\d{2}-\d{4}$", text.strip()):
-            m = re.match(r"(\d{2})-(\d{2})-(\d{4})", text.strip())
-            current_date_str = f"{m.group(3)}-{m.group(2)}-{m.group(1)}"
-        elif current_date_str and text.startswith("Lotto|") and not text.startswith("Lotto XL"):
-            d = date.fromisoformat(current_date_str)
-            if last_date and d <= last_date:
-                current_date_str = None
-                continue
-            parts = text.split("|")
-            nums = [int(p) for p in parts[1:] if p.isdigit()]
-            if len(nums) >= 6:
-                draws.append({
-                    "draw_date": current_date_str,
-                    "n1":nums[0],"n2":nums[1],"n3":nums[2],
-                    "n4":nums[3],"n5":nums[4],"n6":nums[5],
-                    "b1": nums[6] if len(nums)>6 else None,
-                })
-            current_date_str = None
-
-    # lotteryguru page 1 보완
     try:
-        r2 = requests.get(
-            "https://lotteryguru.com/netherlands-lottery-results/nl-lotto/nl-lotto-results-history?page=1",
-            headers=HEADERS, timeout=15)
-        if r2.status_code == 200:
-            soup2 = BeautifulSoup(r2.text, "lxml")
-            for block in soup2.select("div.lg-line"):
-                date_div = block.select_one("div.lg-date.has-text-right")
-                if not date_div:
-                    continue
-                try:
-                    txt = date_div.get_text(separator=" ", strip=True).split()
-                    draw_date = date(int(txt[2]), MONTH_MAP[txt[1].lower()[:3]], int(txt[0]))
-                except:
-                    continue
-                if last_date and draw_date <= last_date:
-                    continue
-                lis = block.select("li.lg-number")
-                main_nums, bonus = [], None
-                for li in lis:
-                    n_txt = li.get_text(strip=True)
-                    if not n_txt.isdigit():
-                        continue
-                    n = int(n_txt)
-                    if "lg-reversed" in li.get("class", []):
-                        bonus = n
-                    else:
-                        main_nums.append(n)
-                if len(main_nums) < 6:
-                    continue
-                row = {"draw_date": draw_date.isoformat(),
-                       "n1":main_nums[0],"n2":main_nums[1],"n3":main_nums[2],
-                       "n4":main_nums[3],"n5":main_nums[4],"n6":main_nums[5],
-                       "b1": bonus}
-                # 중복 제거
-                if not any(x["draw_date"] == row["draw_date"] for x in draws):
-                    draws.append(row)
-    except Exception as e:
-        print(f"  Netherlands guru fallback err: {e}")
+        r = requests.get("https://bet.szerencsejatek.hu/cmsfiles/hatos.csv",
+                         headers=HEADERS, timeout=30)
+        r.raise_for_status()
+        text = r.content.decode("utf-8-sig", errors="replace")
 
-    print(f"  Netherlands: {len(draws)}건 신규")
-    return upsert_draws(lottery_id, draws)
-
-# ─────────────── 수집 함수: Netherlands Lotto XL ───────────────
-
-def collect_netherlands_xl(lottery_id: str, last_date: date | None) -> int:
-    draws = {}
-
-    # Source 1: lotteryextreme.com — "Lotto XL|..." 행 파싱
-    try:
-        r = requests.get("https://www.lotteryextreme.com/netherlands/lotto-results",
-                         headers=HEADERS, timeout=15)
-        if r.status_code == 200:
-            soup = BeautifulSoup(r.text, "lxml")
-            tables = soup.find_all("table")
-            if len(tables) >= 2:
-                current_date_str = None
-                for tr in tables[1].find_all("tr"):
-                    text = tr.get_text(separator="|", strip=True)
-                    if re.match(r"^\d{2}-\d{2}-\d{4}$", text.strip()):
-                        m = re.match(r"(\d{2})-(\d{2})-(\d{4})", text.strip())
-                        current_date_str = f"{m.group(3)}-{m.group(2)}-{m.group(1)}"
-                    elif current_date_str and text.startswith("Lotto XL|"):
-                        d = date.fromisoformat(current_date_str)
-                        if not (last_date and d <= last_date):
-                            parts = text.split("|")
-                            nums = [int(p) for p in parts[1:] if p.isdigit()]
-                            if len(nums) >= 6:
-                                draws[current_date_str] = {
-                                    "draw_date": current_date_str,
-                                    "n1":nums[0],"n2":nums[1],"n3":nums[2],
-                                    "n4":nums[3],"n5":nums[4],"n6":nums[5],
-                                    "b1": nums[6] if len(nums)>6 else None,
-                                }
-                        current_date_str = None
-    except Exception as e:
-        print(f"  NL XL lotteryextreme err: {e}")
-
-    # Source 2: lotteryguru — nl-lotto-xl 페이지
-    try:
-        for page in range(1, 8):
-            r2 = requests.get(
-                f"https://lotteryguru.com/netherlands-lottery-results/nl-lotto-xl/nl-lotto-xl-results-history?page={page}",
-                headers=HEADERS, timeout=15)
-            if r2.status_code != 200:
-                break
-            soup2 = BeautifulSoup(r2.text, "lxml")
-            blocks = soup2.select("div.lg-line")
-            if not blocks:
-                break
-            page_new = 0
-            for block in blocks:
-                date_div = block.select_one("div.lg-date.has-text-right")
-                if not date_div:
-                    continue
-                try:
-                    txt = date_div.get_text(separator=" ", strip=True).split()
-                    draw_date = date(int(txt[2]), MONTH_MAP[txt[1].lower()[:3]], int(txt[0]))
-                except:
-                    continue
-                if last_date and draw_date <= last_date:
-                    continue
-                lis = block.select("li.lg-number")
-                main_nums, bonus = [], None
-                for li in lis:
-                    n_txt = li.get_text(strip=True)
-                    if not n_txt.isdigit():
-                        continue
-                    n = int(n_txt)
-                    if "lg-reversed" in li.get("class", []):
-                        bonus = n
-                    else:
-                        main_nums.append(n)
-                if len(main_nums) < 6:
-                    continue
-                ds = draw_date.isoformat()
-                if ds not in draws:
-                    draws[ds] = {
-                        "draw_date": ds,
-                        "n1":main_nums[0],"n2":main_nums[1],"n3":main_nums[2],
-                        "n4":main_nums[3],"n5":main_nums[4],"n6":main_nums[5],
-                        "b1": bonus,
-                    }
-                page_new += 1
-            time.sleep(random.uniform(0.8, 1.3))
-            if page_new == 0:
-                break
-    except Exception as e:
-        print(f"  NL XL guru err: {e}")
-
-    result = list(draws.values())
-    print(f"  Netherlands XL: {len(result)}건 신규")
-    return upsert_draws(lottery_id, result)
-
-# ─────────────── 수집 함수: Croatia ───────────────
-
-def collect_croatia(lottery_id: str, last_date: date | None, filter_weekday: int | None = None) -> int:
-    draws = []
-    for page in range(1, 4):  # 최신 2~3 페이지만
-        url = (f"https://lotteryguru.com/croatia-lottery-results"
-               f"/hr-loto-6/hr-loto-6-results-history?page={page}")
-        try:
-            r = requests.get(url, headers=HEADERS, timeout=15)
-        except Exception:
-            break
-        if r.status_code != 200:
-            break
-
-        soup = BeautifulSoup(r.text, "lxml")
-        if "Page not found" in soup.get_text():
-            break
-
-        page_new = 0
-        stop_page = False
-        for block in soup.select("div.lg-line"):
-            date_div = block.select_one("div.lg-date.has-text-right")
-            if not date_div:
-                continue
+        draws = []
+        reader = csv.reader(io.StringIO(text), delimiter=";")
+        for row in reader:
+            if len(row) < 20: continue
+            date_str = row[3].strip().rstrip(".")
+            parts = date_str.split(".")
+            if len(parts) != 3: continue
             try:
-                txt = date_div.get_text(separator=" ", strip=True).split()
-                draw_date = date(int(txt[2]), MONTH_MAP[txt[1].lower()[:3]], int(txt[0]))
-            except:
-                continue
-            if last_date and draw_date <= last_date:
-                stop_page = True
-                break
+                draw_date = date(int(parts[0]), int(parts[1]), int(parts[2]))
+            except ValueError: continue
+            
             if filter_weekday is not None and draw_date.weekday() != filter_weekday:
                 continue
-
-            lis = block.select("li.lg-number")
-            main_nums, bonus = [], None
-            for li in lis:
-                n_txt = li.get_text(strip=True)
-                if not n_txt.isdigit():
-                    continue
-                n = int(n_txt)
-                if "lg-reversed" in li.get("class", []):
-                    bonus = n
-                else:
-                    main_nums.append(n)
-            if len(main_nums) < 6:
+            if last_date and draw_date <= last_date:
                 continue
-            draws.append({"draw_date": draw_date.isoformat(),
-                          "n1":main_nums[0],"n2":main_nums[1],"n3":main_nums[2],
-                          "n4":main_nums[3],"n5":main_nums[4],"n6":main_nums[5],
-                          "b1": bonus})
-            page_new += 1
-
-        if stop_page or page_new == 0:
-            break
-        time.sleep(random.uniform(0.8, 1.3))
-
-    print(f"  Croatia: {len(draws)}건 신규")
-    return upsert_draws(lottery_id, draws)
-# ─────────────── 수집 함수: Philippines ───────────────
-
-def collect_philippines(lottery_id: str, last_date: date | None, filter_weekday: int | None = None) -> int:
-    draws = []
-    for page in range(1, 4):
-        url = f"https://lotteryguru.com/philippines-lottery-results/ph-mega-lotto-6-45/ph-mega-lotto-6-45-results-history?page={page}"
-        try:
-            r = requests.get(url, headers=HEADERS, timeout=15)
-        except Exception:
-            break
-        if r.status_code != 200:
-            break
-
-        soup = BeautifulSoup(r.text, "lxml")
-        page_new = 0
-        stop_page = False
-        for block in soup.select("div.lg-line"):
-            date_div = block.select_one("div.lg-date.has-text-right")
-            if not date_div:
+            if draw_date >= TODAY:
                 continue
             try:
-                txt = date_div.get_text(separator=" ", strip=True).split()
-                draw_date = date(int(txt[2]), MONTH_MAP[txt[1].lower()[:3]], int(txt[0]))
-            except:
-                continue
-            if last_date and draw_date <= last_date:
-                stop_page = True
-                break
-            if filter_weekday is not None and draw_date.weekday() != filter_weekday:
-                continue
+                nums = [int(row[14]),int(row[15]),int(row[16]),
+                        int(row[17]),int(row[18]),int(row[19])]
+            except (ValueError, IndexError): continue
+            
+            draws.append({
+                "draw_date": draw_date.isoformat(),
+                "n1":nums[0],"n2":nums[1],"n3":nums[2],
+                "n4":nums[3],"n5":nums[4],"n6":nums[5],
+            })
 
-            lis = block.select("li.lg-number")
-            main_nums = []
-            for li in lis:
-                n_txt = li.get_text(strip=True)
-                if n_txt.isdigit():
-                    main_nums.append(int(n_txt))
-            if len(main_nums) < 6:
-                continue
-            draws.append({"draw_date": draw_date.isoformat(),
-                          "n1":main_nums[0],"n2":main_nums[1],"n3":main_nums[2],
-                          "n4":main_nums[3],"n5":main_nums[4],"n6":main_nums[5]})
-            page_new += 1
-
-        if stop_page or page_new == 0:
-            break
-        time.sleep(random.uniform(0.8, 1.3))
-
-    print(f"  Philippines: {len(draws)}건 신규")
-    return upsert_draws(lottery_id, draws)
-
+        print(f"  Hungary: {len(draws)}건 신규")
+        return upsert_draws(lottery_id, draws)
+    except Exception as e:
+        print(f"  [ERR] Hungary CSV 수집 실패: {e}")
+        return 0
 
 # ─────────────── 메인 ───────────────
 
@@ -600,7 +251,7 @@ def run_collector(name: str, fn):
     try:
         lottery_id = get_lottery_id(name)
         last_date  = get_latest_date(lottery_id)
-        print(f"  최신 날짜: {last_date}")
+        print(f"  최근 날짜: {last_date}")
         inserted = fn(lottery_id, last_date)
         print(f"  ✓ {inserted}건 upsert")
         return inserted
@@ -612,45 +263,51 @@ def main():
     print(f"=== 자동 수집 시작: {TODAY} ===\n")
     total = 0
 
-    total += run_collector("Austria Lotto 6/45",
-        lambda lid, ld: collect_austria(lid, ld))
+    # 1. Austria (수요일/일요일 분리)
+    total += run_collector("Austria Lotto (수)",
+        lambda lid, ld: collect_via_guru(lid, ld, "austria-lottery-results", "at-lotto", filter_weekday=2))
+    total += run_collector("Austria Lotto (일)",
+        lambda lid, ld: collect_via_guru(lid, ld, "austria-lottery-results", "at-lotto", filter_weekday=6))
 
+    # 2. Belgium (Guru로 변경 - 안정성 확보)
     total += run_collector("Belgium Lotto (수)",
-        lambda lid, ld: collect_belgium(lid, ld, filter_weekday=2))
+        lambda lid, ld: collect_via_guru(lid, ld, "belgium-lottery-results", "be-lotto", filter_weekday=2))
     total += run_collector("Belgium Lotto (토)",
-        lambda lid, ld: collect_belgium(lid, ld, filter_weekday=5))
+        lambda lid, ld: collect_via_guru(lid, ld, "belgium-lottery-results", "be-lotto", filter_weekday=5))
 
+    # 3. Australia (Guru로 변경 - 403 차단 우회)
     total += run_collector("Saturday Lotto",
-        lambda lid, ld: collect_australia(lid, ld, "saturday-lotto", filter_weekday=5))
-
+        lambda lid, ld: collect_via_guru(lid, ld, "australia-lottery-results", "au-saturday-lotto", filter_weekday=5))
     total += run_collector("Monday Lotto",
-        lambda lid, ld: collect_australia(lid, ld, "weekday-windfall", filter_weekday=0))
-
+        lambda lid, ld: collect_via_guru(lid, ld, "australia-lottery-results", "au-weekday-windfall", filter_weekday=0))
     total += run_collector("Wednesday Lotto",
-        lambda lid, ld: collect_australia(lid, ld, "weekday-windfall", filter_weekday=2))
+        lambda lid, ld: collect_via_guru(lid, ld, "australia-lottery-results", "au-weekday-windfall", filter_weekday=2))
 
+    # 4. Hungary (CSV 유지)
     total += run_collector("Hatoslottó (목)",
         lambda lid, ld: collect_hungary(lid, ld, filter_weekday=3))
     total += run_collector("Hatoslottó (일)",
         lambda lid, ld: collect_hungary(lid, ld, filter_weekday=6))
 
+    # 5. Netherlands (Guru로 통합 및 강화)
     total += run_collector("Netherlands Lotto",
-        lambda lid, ld: collect_netherlands(lid, ld))
-
+        lambda lid, ld: collect_via_guru(lid, ld, "netherlands-lottery-results", "nl-lotto"))
     total += run_collector("Netherlands Lotto XL",
-        lambda lid, ld: collect_netherlands_xl(lid, ld))
+        lambda lid, ld: collect_via_guru(lid, ld, "netherlands-lottery-results", "nl-lotto-xl"))
 
+    # 6. Croatia (Guru 기반 유지)
     total += run_collector("Loto 6/45 (목)",
-        lambda lid, ld: collect_croatia(lid, ld, filter_weekday=3))
+        lambda lid, ld: collect_via_guru(lid, ld, "croatia-lottery-results", "hr-loto-6", filter_weekday=3))
     total += run_collector("Loto 6/45 (일)",
-        lambda lid, ld: collect_croatia(lid, ld, filter_weekday=6))
+        lambda lid, ld: collect_via_guru(lid, ld, "croatia-lottery-results", "hr-loto-6", filter_weekday=6))
 
+    # 7. Philippines (Guru 기반 유지)
     total += run_collector("Mega 645 (월)",
-        lambda lid, ld: collect_philippines(lid, ld, filter_weekday=0))
+        lambda lid, ld: collect_via_guru(lid, ld, "philippines-lottery-results", "ph-mega-lotto-6-45", filter_weekday=0))
     total += run_collector("Mega 645 (수)",
-        lambda lid, ld: collect_philippines(lid, ld, filter_weekday=2))
+        lambda lid, ld: collect_via_guru(lid, ld, "philippines-lottery-results", "ph-mega-lotto-6-45", filter_weekday=2))
     total += run_collector("Mega 645 (금)",
-        lambda lid, ld: collect_philippines(lid, ld, filter_weekday=4))
+        lambda lid, ld: collect_via_guru(lid, ld, "philippines-lottery-results", "ph-mega-lotto-6-45", filter_weekday=4))
 
     print(f"\n{'='*40}")
     print(f"=== 완료: 총 {total}건 업데이트 ({TODAY}) ===")
