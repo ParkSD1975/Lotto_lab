@@ -2278,6 +2278,47 @@ const DeepLearning = {
                 }
             }
 
+            // [Stage 1-4-D-2-fix-74] odd/high는 비율형(홀:짝, 저:고) — 카운트 → 비율 변환
+            const isRatio = (key === 'odd' || key === 'high');
+            const _toRatioStr = (lo, hi) => {
+                if (lo == null || hi == null) return '-';
+                const [a, b] = _clampRange(key, lo, hi);
+                const patterns = [];
+                for (let v = a; v <= b; v++) {
+                    const other = 6 - v;
+                    patterns.push(key === 'odd' ? `${v}:${other}` : `${other}:${v}`);
+                }
+                if (patterns.length === 0) return '-';
+                if (patterns.length === 1) return patterns[0];
+                if (patterns.length > 4) return `${patterns[0]} ~ ${patterns[patterns.length-1]}`;
+                return patterns.join(', ');
+            };
+            const _midRatio = (lo, hi) => {
+                if (typeof lo !== 'number' || typeof hi !== 'number') return '-';
+                const mid = Math.round((lo + hi) / 2);
+                return key === 'odd' ? `${mid}:${6-mid}` : `${6-mid}:${mid}`;
+            };
+            const _parseRangeStr = (s) => {
+                if (typeof s !== 'string') return null;
+                const m = s.match(/(-?\d+)\s*~\s*(-?\d+)/);
+                return m ? [parseInt(m[1]), parseInt(m[2])] : null;
+            };
+            const _aiRecText = isRatio
+                ? _toRatioStr(ens_min, ens_max)
+                : `${ens_min ?? '-'} ~ ${ens_max ?? '-'}`;
+            const _ciText = (() => {
+                if (!ciBand) return '-';
+                if (!isRatio) return ciBand;
+                const p = _parseRangeStr(ciBand);
+                return p ? _toRatioStr(p[0], p[1]) : ciBand;
+            })();
+            const _userText = (() => {
+                if (!userSet) return '미설정';
+                if (!isRatio) return userSet;
+                const p = _parseRangeStr(userSet);
+                return p ? _toRatioStr(p[0], p[1]) : userSet;
+            })();
+
             cardsHtml += `<div id="filter-card-${key}" style="border:1px solid #e5e7eb; border-radius:14px; background:#fff; overflow:hidden; scroll-margin-top:80px;">`;
 
             // 헤더 — [fix-64] 필터 라벨 클릭 시 해당 분석 페이지로 이동
@@ -2304,21 +2345,34 @@ const DeepLearning = {
             cardsHtml += `</div>`;
             cardsHtml += `</div>`;
 
-            // 2. 핵심 수치 3개 (AI 추천 / CI / 사용자)
+            // 2. 핵심 수치 3개 (AI 추천 / CI / 사용자) — [fix-74] odd/high 비율 형식
+            const _boxValSize = isRatio ? '14px' : '18px';  // 비율은 길어서 폰트 약간 줄임
             cardsHtml += `<div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:10px;">`;
-            cardsHtml += `<div style="padding:12px 14px; background:#eff6ff; border:1px solid #dbeafe; border-radius:8px;"><div style="font-size:10px; color:#3b82f6; font-weight:700; margin-bottom:4px;">AI 추천</div><div style="font-size:18px; font-weight:800; color:#1e40af;">${ens_min ?? '-'} ~ ${ens_max ?? '-'}</div></div>`;
-            cardsHtml += `<div style="padding:12px 14px; background:#faf5ff; border:1px solid #e9d5ff; border-radius:8px;"><div style="font-size:10px; color:#a855f7; font-weight:700; margin-bottom:4px;">80% 신뢰구간</div><div style="font-size:18px; font-weight:800; color:#6b21a8;">${ciBand || '-'}</div></div>`;
-            cardsHtml += `<div style="padding:12px 14px; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px;"><div style="font-size:10px; color:#10b981; font-weight:700; margin-bottom:4px;">사용자 설정</div><div style="font-size:18px; font-weight:800; color:#047857;">${userSet || '미설정'}</div></div>`;
+            cardsHtml += `<div style="padding:12px 14px; background:#eff6ff; border:1px solid #dbeafe; border-radius:8px;"><div style="font-size:10px; color:#3b82f6; font-weight:700; margin-bottom:4px;">AI 추천${isRatio ? ' <span style="color:#94a3b8;font-weight:600;">(홀:짝 또는 저:고)</span>' : ''}</div><div style="font-size:${_boxValSize}; font-weight:800; color:#1e40af; line-height:1.4;">${_aiRecText}</div></div>`;
+            cardsHtml += `<div style="padding:12px 14px; background:#faf5ff; border:1px solid #e9d5ff; border-radius:8px;"><div style="font-size:10px; color:#a855f7; font-weight:700; margin-bottom:4px;">80% 신뢰구간</div><div style="font-size:${_boxValSize}; font-weight:800; color:#6b21a8; line-height:1.4;">${_ciText}</div></div>`;
+            cardsHtml += `<div style="padding:12px 14px; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px;"><div style="font-size:10px; color:#10b981; font-weight:700; margin-bottom:4px;">사용자 설정</div><div style="font-size:${_boxValSize}; font-weight:800; color:#047857; line-height:1.4;">${_userText}</div></div>`;
             cardsHtml += `</div>`;
 
-            // 3. 모델별 표 (가중치 큰 순) — [fix-65] 라벨 명확화
+            // 3. 모델별 표 (가중치 큰 순) — [fix-74] odd/high면 가중치 인라인 + 비율 표시
+            const _tableTitle = isRatio
+                ? `모델별 비율 분포 <span style="font-weight:400; color:#94a3b8;">(각 모델 1~45 확률 → MC 1000회 sample → 홀:짝 또는 저:고 비율)</span>`
+                : `모델별 sum/count 분포 <span style="font-weight:400; color:#94a3b8;">(각 모델 1~45 확률 → MC 1000회 sample → 20~80분위)</span>`;
             cardsHtml += `<div>`;
             cardsHtml += `<div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">`;
             cardsHtml += `<span class="material-symbols-outlined" style="font-size:16px; color:#4f46e5;">network_intelligence</span>`;
-            cardsHtml += `<span style="font-size:12px; font-weight:700; color:#475569;">모델별 sum/count 분포 <span style="font-weight:400; color:#94a3b8;">(각 모델 1~45 확률 → MC 1000회 sample → 20~80분위)</span></span>`;
+            cardsHtml += `<span style="font-size:12px; font-weight:700; color:#475569;">${_tableTitle}</span>`;
             cardsHtml += `</div>`;
             cardsHtml += `<table style="width:100%; border-collapse:separate; border-spacing:0; font-size:12px;">`;
-            cardsHtml += `<thead><tr style="background:#f8fafc;"><th style="text-align:left; padding:8px 10px; font-weight:700; color:#64748b; border-bottom:1px solid #e5e7eb;">모델</th><th style="text-align:right; padding:8px 10px; font-weight:700; color:#64748b; border-bottom:1px solid #e5e7eb;">가중치</th><th style="text-align:center; padding:8px 10px; font-weight:700; color:#64748b; border-bottom:1px solid #e5e7eb;">예측 범위</th><th style="text-align:center; padding:8px 10px; font-weight:700; color:#64748b; border-bottom:1px solid #e5e7eb;">대표값</th></tr></thead>`;
+            if (isRatio) {
+                // 3컬럼: 모델(가중치 인라인) | 예측 비율 (모든 패턴) | 대표 비율
+                cardsHtml += `<thead><tr style="background:#f8fafc;">`;
+                cardsHtml += `<th style="text-align:left; padding:8px 10px; font-weight:700; color:#64748b; border-bottom:1px solid #e5e7eb; width:40%;">모델 <span style="color:#94a3b8;font-weight:500;">(가중치)</span></th>`;
+                cardsHtml += `<th style="text-align:center; padding:8px 10px; font-weight:700; color:#64748b; border-bottom:1px solid #e5e7eb;">예측 비율</th>`;
+                cardsHtml += `<th style="text-align:center; padding:8px 10px; font-weight:700; color:#64748b; border-bottom:1px solid #e5e7eb; width:90px;">대표 비율</th>`;
+                cardsHtml += `</tr></thead>`;
+            } else {
+                cardsHtml += `<thead><tr style="background:#f8fafc;"><th style="text-align:left; padding:8px 10px; font-weight:700; color:#64748b; border-bottom:1px solid #e5e7eb;">모델</th><th style="text-align:right; padding:8px 10px; font-weight:700; color:#64748b; border-bottom:1px solid #e5e7eb;">가중치</th><th style="text-align:center; padding:8px 10px; font-weight:700; color:#64748b; border-bottom:1px solid #e5e7eb;">예측 범위</th><th style="text-align:center; padding:8px 10px; font-weight:700; color:#64748b; border-bottom:1px solid #e5e7eb;">대표값</th></tr></thead>`;
+            }
             cardsHtml += `<tbody>`;
             modelRows.forEach((row, i) => {
                 const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '';
@@ -2328,24 +2382,53 @@ const DeepLearning = {
                 const opacity = isActive || isAE ? 1 : 0.45;
                 const bg = isAE ? '#fafbff' : (i % 2 === 0 ? '#fff' : '#fafafa');
                 const borderTop = isAE ? 'border-top:2px dashed #c7d2fe;' : '';
+                // 비율 변환 (isRatio 일때만)
+                const _predText = isRatio
+                    ? ((typeof row.min === 'number' && typeof row.max === 'number') ? _toRatioStr(row.min, row.max) : '-')
+                    : `${row.min} ~ ${row.max}`;
+                const _repText = isRatio
+                    ? ((typeof row.min === 'number' && typeof row.max === 'number') ? _midRatio(row.min, row.max) : '-')
+                    : row.representative;
                 cardsHtml += `<tr style="background:${bg}; opacity:${opacity}; ${borderTop}">`;
                 if (isAE) {
-                    // AE 행: 이상 감지 사인 + 노이즈 % + 모델명에 'AutoEncoder 이상 감지' 라벨
-                    cardsHtml += `<td style="padding:10px; border-bottom:1px solid #f3f4f6;" colspan="2"><span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${row.color}; margin-right:8px;"></span><b style="color:#6366f1;">${row.name}</b> <span style="font-size:10px; color:#94a3b8; font-weight:600; margin-left:4px;">이상 감지 보조 (가중치 0%, exclude task에서 30% 주도)</span></td>`;
-                    cardsHtml += `<td style="text-align:center; padding:10px; font-family:monospace; color:#475569; border-bottom:1px solid #f3f4f6;">${row.min} ~ ${row.max}</td>`;
-                    cardsHtml += `<td style="text-align:center; padding:10px; border-bottom:1px solid #f3f4f6;">`;
-                    if (aeSignLabel) {
-                        cardsHtml += `<span style="font-size:11px; font-weight:800; padding:3px 10px; border-radius:999px; background:${aeSignBg}; color:${aeSignColor};">${aeSignLabel}</span>`;
-                        cardsHtml += `<div style="font-size:10px; color:#94a3b8; font-weight:600; margin-top:3px;">노이즈 ${(aeDeviation * 100).toFixed(1)}%</div>`;
+                    if (isRatio) {
+                        // AE 행 (3컬럼): 모델+가중치 인라인 / 예측 비율 / 이상 감지 라벨
+                        cardsHtml += `<td style="padding:10px; border-bottom:1px solid #f3f4f6;"><span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${row.color}; margin-right:8px;"></span><b style="color:#6366f1;">${row.name}</b> <span style="font-family:monospace; color:#94a3b8; font-weight:600; margin-left:4px;">(0.0%)</span> <span style="font-size:10px; color:#94a3b8; font-weight:600; margin-left:4px;">이상 감지 보조</span></td>`;
+                        cardsHtml += `<td style="text-align:center; padding:10px; font-family:monospace; color:#475569; border-bottom:1px solid #f3f4f6;">${_predText}</td>`;
+                        cardsHtml += `<td style="text-align:center; padding:10px; border-bottom:1px solid #f3f4f6;">`;
+                        if (aeSignLabel) {
+                            cardsHtml += `<span style="font-size:11px; font-weight:800; padding:3px 10px; border-radius:999px; background:${aeSignBg}; color:${aeSignColor};">${aeSignLabel}</span>`;
+                            cardsHtml += `<div style="font-size:10px; color:#94a3b8; font-weight:600; margin-top:3px;">노이즈 ${(aeDeviation * 100).toFixed(1)}%</div>`;
+                        } else {
+                            cardsHtml += `<span style="font-size:10px; color:#94a3b8;">-</span>`;
+                        }
+                        cardsHtml += `</td>`;
                     } else {
-                        cardsHtml += `<span style="font-size:10px; color:#94a3b8;">-</span>`;
+                        // AE 행 (4컬럼) — 기존 그대로
+                        cardsHtml += `<td style="padding:10px; border-bottom:1px solid #f3f4f6;" colspan="2"><span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${row.color}; margin-right:8px;"></span><b style="color:#6366f1;">${row.name}</b> <span style="font-size:10px; color:#94a3b8; font-weight:600; margin-left:4px;">이상 감지 보조 (가중치 0%, exclude task에서 30% 주도)</span></td>`;
+                        cardsHtml += `<td style="text-align:center; padding:10px; font-family:monospace; color:#475569; border-bottom:1px solid #f3f4f6;">${row.min} ~ ${row.max}</td>`;
+                        cardsHtml += `<td style="text-align:center; padding:10px; border-bottom:1px solid #f3f4f6;">`;
+                        if (aeSignLabel) {
+                            cardsHtml += `<span style="font-size:11px; font-weight:800; padding:3px 10px; border-radius:999px; background:${aeSignBg}; color:${aeSignColor};">${aeSignLabel}</span>`;
+                            cardsHtml += `<div style="font-size:10px; color:#94a3b8; font-weight:600; margin-top:3px;">노이즈 ${(aeDeviation * 100).toFixed(1)}%</div>`;
+                        } else {
+                            cardsHtml += `<span style="font-size:10px; color:#94a3b8;">-</span>`;
+                        }
+                        cardsHtml += `</td>`;
                     }
-                    cardsHtml += `</td>`;
                 } else {
-                    cardsHtml += `<td style="padding:8px 10px; border-bottom:1px solid #f3f4f6;"><span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${row.color}; margin-right:8px;"></span><b style="color:#0f172a;">${row.name}</b> ${medal}</td>`;
-                    cardsHtml += `<td style="text-align:right; padding:8px 10px; font-family:monospace; color:${isActive ? '#1f2937' : '#94a3b8'}; font-weight:${isActive ? '700' : '500'}; border-bottom:1px solid #f3f4f6;">${row.weight.toFixed(1)}%</td>`;
-                    cardsHtml += `<td style="text-align:center; padding:8px 10px; font-family:monospace; color:#475569; border-bottom:1px solid #f3f4f6;">${row.min} ~ ${row.max}</td>`;
-                    cardsHtml += `<td style="text-align:center; padding:8px 10px; font-family:monospace; color:#2563eb; font-weight:700; border-bottom:1px solid #f3f4f6;">${row.representative}</td>`;
+                    if (isRatio) {
+                        // 일반 행 (3컬럼): 모델 + 가중치 인라인 / 예측 비율 / 대표 비율
+                        cardsHtml += `<td style="padding:8px 10px; border-bottom:1px solid #f3f4f6;"><span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${row.color}; margin-right:8px;"></span><b style="color:#0f172a;">${row.name}</b> <span style="font-family:monospace; color:${isActive ? '#1f2937' : '#94a3b8'}; font-weight:${isActive ? '700' : '500'}; margin-left:6px;">(${row.weight.toFixed(1)}%)</span> ${medal}</td>`;
+                        cardsHtml += `<td style="text-align:center; padding:8px 10px; font-family:monospace; color:#475569; border-bottom:1px solid #f3f4f6;">${_predText}</td>`;
+                        cardsHtml += `<td style="text-align:center; padding:8px 10px; font-family:monospace; color:#2563eb; font-weight:700; border-bottom:1px solid #f3f4f6;">${_repText}</td>`;
+                    } else {
+                        // 일반 행 (4컬럼) — 기존 그대로
+                        cardsHtml += `<td style="padding:8px 10px; border-bottom:1px solid #f3f4f6;"><span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${row.color}; margin-right:8px;"></span><b style="color:#0f172a;">${row.name}</b> ${medal}</td>`;
+                        cardsHtml += `<td style="text-align:right; padding:8px 10px; font-family:monospace; color:${isActive ? '#1f2937' : '#94a3b8'}; font-weight:${isActive ? '700' : '500'}; border-bottom:1px solid #f3f4f6;">${row.weight.toFixed(1)}%</td>`;
+                        cardsHtml += `<td style="text-align:center; padding:8px 10px; font-family:monospace; color:#475569; border-bottom:1px solid #f3f4f6;">${row.min} ~ ${row.max}</td>`;
+                        cardsHtml += `<td style="text-align:center; padding:8px 10px; font-family:monospace; color:#2563eb; font-weight:700; border-bottom:1px solid #f3f4f6;">${row.representative}</td>`;
+                    }
                 }
                 cardsHtml += `</tr>`;
             });

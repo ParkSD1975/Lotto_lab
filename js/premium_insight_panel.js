@@ -17,7 +17,7 @@
     let _payloadCache = null;
     let _payloadInflight = null;
     const _CACHE_TTL = 10 * 60 * 1000; // 10분
-    const _SS_KEY = 'pi_payload_cache_v3'; // [fix-68] fix-61 새 가중치 / fix-67 DEPRECATED 제외 강제 갱신
+    const _SS_KEY = 'pi_payload_cache_v4'; // [fix-74] 비율형 모델 카드 모든 비율 표시 강제 갱신
     // 페이지 로드 시 sessionStorage에서 즉시 복원 (네비게이션 간 캐시 유지)
     try {
         const raw = sessionStorage.getItem(_SS_KEY);
@@ -747,9 +747,15 @@
             .map(m => {
                 const r = modelExp[m.key];
                 let val = r ? `${r.min}~${r.max}` : '-';
+                // [fix-74] 비율형(odd/high) — top[0] 1개 → 모든 비율 표시 (2:4, 3:3, 4:2)
                 if (ratioData && ratioData.model_expectations?.[m.key]) {
                     const rt = ratioData.model_expectations[m.key];
-                    if (Array.isArray(rt.top) && rt.top[0] && String(rt.top[0]).includes(':')) val = rt.top[0];
+                    if (Array.isArray(rt.top) && rt.top.length && String(rt.top[0]).includes(':')) {
+                        // 4개 초과면 첫~끝만 (가독성)
+                        val = rt.top.length > 4
+                            ? `${rt.top[0]} ~ ${rt.top[rt.top.length - 1]}`
+                            : rt.top.join(', ');
+                    }
                 }
                 // [fix-69] AE 보조 카드 — 이상 감지 사인 (anomaly score)
                 if (m.key === 'autoencoder' && r && r.weight === 0) {
