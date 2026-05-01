@@ -1639,6 +1639,8 @@ const DeepLearning = {
         if (matrixData && matrixData.length) this.renderModelRanking(matrixData);
         if (rangeAnalysis) this.renderRangeAnalysis(rangeAnalysis);
         if (matrixData) this.renderMatrixData(matrixData);
+        // [fix-87] 앙상블 신뢰구간 chart (matrix_data 기반)
+        if (matrixData && matrixData.length > 0) this.renderEnsembleCI(matrixData);
         if (analysisData.tail_analysis) this.renderTailAnalysis(analysisData.tail_analysis);
         if (analysisData.lotto_paper_analysis) this.renderLottoPaperAnalysis(analysisData.lotto_paper_analysis);
         if (analysisData.magic_square_analysis) this.renderMagicSquareAnalysis(analysisData.magic_square_analysis);
@@ -3503,6 +3505,152 @@ const DeepLearning = {
         const cards = squareData.map(item => this._buildAnalysisCard(item, item.label)).join('');
         // 9궁은 3×3 grid (반응형: lg=3, md=2, sm=1)
         container.innerHTML = `<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:12px;">${cards}</div>`;
+    },
+
+    // [Stage 1-4-D-2-fix-87] 앙상블 신뢰구간 chart — 1~45 번호별 평균 ± 1σ band
+    renderEnsembleCI(matrixData) {
+        const container = document.getElementById('chartEnsembleCI');
+        if (!container || !Array.isArray(matrixData) || matrixData.length === 0) return;
+        if (typeof echarts === 'undefined') {
+            container.innerHTML = '<p style="text-align:center; padding:48px; color:#94a3b8;">ECharts 라이브러리 미로드</p>';
+            return;
+        }
+
+        // matrixData 형식: [{number: 1, ensemble: 0.022, models: {xgboost: 0.020, ...}}, ...]
+        // 모델 키 자동 감지 (DEPRECATED 제외)
+        const DEPRECATED = new Set(['lstm', 'transformer']);
+        const sample = matrixData.find(r => r && r.models) || {};
+        const modelKeys = Object.keys(sample.models || {}).filter(k => !DEPRECATED.has(k));
+
+        if (modelKeys.length === 0) {
+            container.innerHTML = '<p style="text-align:center; padding:48px; color:#94a3b8;">모델별 분포 데이터 없음</p>';
+            return;
+        }
+
+        // 번호별 평균 / 표준편차 계산
+        const numbers = [];
+        const meanArr = [];
+        const upperArr = [];   // mean + 1σ
+        const lowerArr = [];   // mean - 1σ
+        const lowerBandArr = []; // band 시각화용 (mean - lower)
+        const ensembleArr = [];
+
+        for (let n = 1; n <= 45; n++) {
+            const row = matrixData.find(r => r && r.number === n);
+            numbers.push(String(n));
+            if (!row || !row.models) {
+                meanArr.push(0); upperArr.push(0); lowerArr.push(0); lowerBandArr.push(0); ensembleArr.push(0);
+                continue;
+            }
+            const vals = modelKeys.map(k => parseFloat(row.models[k]) || 0).filter(v => !isNaN(v));
+            const mean = vals.reduce((s, v) => s + v, 0) / (vals.length || 1);
+            const variance = vals.reduce((s, v) => s + (v - mean) ** 2, 0) / (vals.length || 1);
+            const sigma = Math.sqrt(variance);
+            const upper = mean + sigma;
+            const lower = Math.max(0, mean - sigma);
+            // ECharts area band: lowerBound 라인 + delta(upper - lower) stack
+            meanArr.push(+(mean * 100).toFixed(2));
+            upperArr.push(+((upper - lower) * 100).toFixed(2));  // band 두께 (stack용)
+            lowerArr.push(+(lower * 100).toFixed(2));            // 하단 라인
+            lowerBandArr.push(+(lower * 100).toFixed(2));
+            const ens = parseFloat(row.ensemble);
+            ensembleArr.push(isNaN(ens) ? +(mean * 100).toFixed(2) : +(ens * 100).toFixed(2));
+        }
+
+        // 기존 chart instance 정리 (재호출 시)
+        try { echarts.dispose(container); } catch (_) {}
+
+        const chart = echarts.init(container, null, { renderer: 'svg' });
+        this._ensembleCIChart = chart;
+
+        chart.setOption({
+            tooltip: {
+                trigger: 'axis',
+                formatter: (params) => {
+                    const idx = params[0].dataIndex;
+                    const num = idx + 1;
+                    const mean = meanArr[idx];
+                    const lower = lowerArr[idx];
+                    const upper = lower + upperArr[idx];
+                    const ens = ensembleArr[idx];
+                    return `<b>번호 ${num}</b><br/>
+                        앙상블: <b>${ens.toFixed(2)}%</b><br/>
+                        평균: ${mean.toFixed(2)}%<br/>
+                        ±1σ 구간: ${lower.toFixed(2)}% ~ ${upper.toFixed(2)}%`;
+                }
+            },
+            legend: {
+                data: ['앙상블', '평균', '±1σ 구간'],
+                top: 8,
+                textStyle: { fontSize: 11, color: '#475569' }
+            },
+            grid: { left: 48, right: 24, top: 40, bottom: 36 },
+            xAxis: {
+                type: 'category',
+                data: numbers,
+                axisLabel: { fontSize: 10, color: '#64748b' },
+                axisLine: { lineStyle: { color: '#e2e8f0' } },
+                axisTick: { show: false }
+            },
+            yAxis: {
+                type: 'value',
+                name: '확률 (%)',
+                nameLocation: 'middle',
+                nameGap: 36,
+                nameTextStyle: { fontSize: 11, color: '#94a3b8' },
+                axisLabel: { fontSize: 10, color: '#94a3b8', formatter: '{value}%' },
+                axisLine: { show: false },
+                axisTick: { show: false },
+                splitLine: { lineStyle: { color: '#f1f5f9' } }
+            },
+            series: [
+                {
+                    name: '하한선(stack base)',
+                    type: 'line',
+                    data: lowerBandArr,
+                    lineStyle: { opacity: 0 },
+                    stack: 'band',
+                    symbol: 'none',
+                    itemStyle: { color: 'transparent' }
+                },
+                {
+                    name: '±1σ 구간',
+                    type: 'line',
+                    data: upperArr,
+                    lineStyle: { opacity: 0 },
+                    areaStyle: { color: '#6366f1', opacity: 0.15 },
+                    stack: 'band',
+                    symbol: 'none'
+                },
+                {
+                    name: '평균',
+                    type: 'line',
+                    data: meanArr,
+                    smooth: true,
+                    lineStyle: { color: '#6366f1', width: 1.5, type: 'dashed' },
+                    symbol: 'none',
+                    itemStyle: { color: '#6366f1' }
+                },
+                {
+                    name: '앙상블',
+                    type: 'line',
+                    data: ensembleArr,
+                    smooth: true,
+                    lineStyle: { color: '#0f172a', width: 2.5 },
+                    symbol: 'circle',
+                    symbolSize: 5,
+                    itemStyle: { color: '#0f172a', borderColor: '#fff', borderWidth: 1.5 }
+                }
+            ]
+        });
+
+        // resize 핸들러
+        if (!this._ensembleCIResizeHandler) {
+            this._ensembleCIResizeHandler = () => {
+                if (this._ensembleCIChart) this._ensembleCIChart.resize();
+            };
+            window.addEventListener('resize', this._ensembleCIResizeHandler);
+        }
     },
 
     renderMissingGroupAnalysis(groupData) {
