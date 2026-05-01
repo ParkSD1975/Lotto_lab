@@ -123,14 +123,8 @@ def _clean_response(text: str) -> str:
         return ""
     text = text.strip()
 
-    # [fix-57] evidence_builder의 extract_final_answer 재사용 시도
-    try:
-        from services.evidence_builder import extract_final_answer, _clean_md
-        candidate = extract_final_answer(text)
-        if candidate and len(re.findall(r"[가-힣]", candidate)) >= 30:
-            return _clean_md(candidate)
-    except Exception:
-        pass
+    # [fix-63 v3] early return 제거 — 모든 정리 단계 일관 적용
+    # extract_final_answer가 fast-path로 반환하면 토큰/메타 잔재가 제거 안 됨
 
     # 1) 마크다운/LaTeX 정리
     text = re.sub(r"\*{1,2}([^*]+)\*{1,2}", r"\1", text)
@@ -147,8 +141,21 @@ def _clean_response(text: str) -> str:
     text = re.sub(r"\d+%\s*:\s*", " ", text)
     # 7) DEPRECATED 모델 멘션 제거 (lstm, transformer 폐기)
     text = re.sub(r"\b(?:lstm|transformer|LSTM|Transformer)\b\s*", "", text)
-    # 8) 영어 단어 시퀀스 5자 이상 연속 제거 (Lotto, AI, Prediction Range 등)
+    # 8) [fix-63 v2] 모델명 화이트리스트 보호 — 한글+숫자 토큰 (영어 정규식 안 잡음)
+    _MODEL_NAMES = ["XGBoost", "CatBoost", "TabNet", "TFT", "Markov", "N-BEATS",
+                    "MHN", "Bayesian", "CNN", "GNN", "AutoEncoder", "AE"]
+    _placeholders = {}
+    for i, m in enumerate(_MODEL_NAMES):
+        # 한글+숫자 토큰 (영어 알파벳 미포함 → 영어 제거 정규식 안 매칭)
+        token = f"모델{i:02d}이름"
+        if m in text:
+            text = text.replace(m, token)
+            _placeholders[token] = m
+    # 9) 영어 단어 시퀀스 5자 이상 연속 제거 (모델명은 한글 토큰으로 보호됨)
     text = re.sub(r"[A-Za-z][A-Za-z\s,;:'.\-/_~]{4,}", " ", text)
+    # 10) [fix-63 v2] 모델명 토큰 복원
+    for token, m in _placeholders.items():
+        text = text.replace(token, m)
     # 9) 한국어 사이 단독 영어 단어 정리 (3자 이하 모델명은 보존: AE)
     # text = re.sub(r"\s[A-Za-z]{2,4}\s", " ", text)
     # 10) bullet/대시 정리
@@ -156,44 +163,58 @@ def _clean_response(text: str) -> str:
     text = re.sub(r"\s+[*\-•]\s+", " ", text)
     # 11) 잔여 양 끝 영어/공백 정리
     text = text.strip(" .,:;-_~/")
-    # 12) [fix-58 강화 v2] 마침표 split 후 각 문장 시작이 한국어인 것만 채택
+    # 12) [fix-58/63 v4] 마침표 split + sentence 안 메타데이터 제거
     sentences = re.split(r"[.!?]\s*", text)
     ko_sentences = []
+    _start_pattern = re.compile(r"^([가-힣]|XGBoost|CatBoost|TabNet|TFT|Markov|N-BEATS|MHN|Bayesian|CNN|GNN|AutoEncoder|AE\b)")
+    # 진짜 sentence 시작점 패턴: 명사 + 조사 (한국어 자연 문장의 정형)
+    _real_start = re.compile(r"[가-힣]+(?:은|는|이|가|에|을|를|로|와|과|도|만)")
     for s in sentences:
         s = s.strip()
         if not s:
             continue
         s = re.sub(r'["“”]', "", s)
         s = re.sub(r"\s+", " ", s).strip()
-        # 한국어로 시작 + 한글 10+ → 자연 문장
-        if re.match(r"^[가-힣]", s) and len(re.findall(r"[가-힣]", s)) >= 10:
+        # [fix-63 v5] 앞부분 메타데이터 잘라냄 — 명사+조사 위치가 sentence 시작에서 6자 초과 멀때만
+        rs_match = _real_start.search(s)
+        if rs_match and rs_match.start() > 6:
+            # 6자 이내면 'AC값은', 'XGBoost가' 같은 자연 시작 — 보존
+            # 6자 초과 → '총합 116 ~ 165 80% ... 총합은' 같은 메타 + 자연 혼재 → 잘라냄
+            s = s[rs_match.start():].strip()
+        # 한국어/모델명 시작 + 한글 10+ → 자연 문장
+        if _start_pattern.match(s) and len(re.findall(r"[가-힣]", s)) >= 10:
             ko_sentences.append(s + ".")
     if ko_sentences:
         text = " ".join(ko_sentences)
     else:
-        # fallback: 한국어 시작점부터
         ko_match = re.search(r"[가-힣].+", text, re.DOTALL)
         text = ko_match.group(0) if ko_match else ""
     # 13) [fix-58 추가] 'S1:', 'S2:', 'S3:' 라벨 제거
     text = re.sub(r"S\d+\s*:\s*", "", text)
+    # 13-2) [fix-63 v3] 잔재 토큰 (`__03__`, `04__`, `00__`) 제거 — LLM이 echo한 placeholder 잔재
+    text = re.sub(r"_+\d+_+|\d+_{2,}|_{2,}\d+", " ", text)
+    text = re.sub(r"_{2,}", " ", text)
     # 14) 공백 정리
     text = re.sub(r"\s+", " ", text)
     # 15) 잔여 마침표 중복 제거
     text = re.sub(r"\s+\.\s+", ". ", text)
     text = re.sub(r"\.{2,}", ".", text)
-    # 16) [fix-58 추가] 반복 sentence dedup (LLM이 답을 두번 출력하는 케이스)
-    final_sents = re.split(r"(?<=[다요죠음까네])\.\s*", text)
+    # 16) [fix-58/63] 반복 sentence dedup — 단순 마침표 split
+    final_sents = re.split(r"\.\s+", text)
     seen = set()
     deduped = []
     for s in final_sents:
         s = s.strip()
         if not s:
             continue
-        # 정규화 키 (공백/숫자 제거 후 한글만)
-        key = re.sub(r"[^가-힣]", "", s)[:30]
+        # 정규화 키 (공백/숫자/특수문자 제거 후 한글만, 첫 25자)
+        key = re.sub(r"[^가-힣]", "", s)[:25]
         if key and key not in seen:
             seen.add(key)
-            deduped.append(s + ".")
+            # sentence 끝에 마침표 보장
+            if not s.endswith(("."  , "!", "?")):
+                s = s + "."
+            deduped.append(s)
     if deduped:
         text = " ".join(deduped)
     return text.strip()
