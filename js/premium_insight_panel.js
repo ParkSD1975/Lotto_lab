@@ -17,7 +17,7 @@
     let _payloadCache = null;
     let _payloadInflight = null;
     const _CACHE_TTL = 10 * 60 * 1000; // 10분
-    const _SS_KEY = 'pi_payload_cache_v2'; // [수정] 캐시 버전 증량하여 강제 갱신 유도
+    const _SS_KEY = 'pi_payload_cache_v3'; // [fix-68] fix-61 새 가중치 / fix-67 DEPRECATED 제외 강제 갱신
     // 페이지 로드 시 sessionStorage에서 즉시 복원 (네비게이션 간 캐시 유지)
     try {
         const raw = sessionStorage.getItem(_SS_KEY);
@@ -748,7 +748,15 @@
                 </div>`;
             }).join('');
 
-        const entries = Object.entries(modelExp);
+        // [Stage 1-4-D-2-fix-68] entries에서 DEPRECATED + weight 0 + __ensemble__ 제외
+        // (lstm 0~0이 'tightest'로 선택되어 잘못된 텍스트 생성하던 문제)
+        const entries = Object.entries(modelExp).filter(([k, r]) => {
+            if (k === '__ensemble__') return false;
+            if (DEPRECATED_MODEL_KEYS.has(k)) return false;
+            if (r && typeof r.weight === 'number' && r.weight === 0) return false;
+            if (!r || typeof r.min !== 'number' || typeof r.max !== 'number') return false;
+            return true;
+        });
         const labelOf = k => (MODEL_ORDER.find(m => m.key === k)?.label || k || '-');
         const maxModel = entries.slice().sort((a, b) => ((b[1]?.max || 0) - (a[1]?.max || 0)))[0];
         const minModel = entries.slice().sort((a, b) => ((a[1]?.min ?? 1e9) - (b[1]?.min ?? 1e9)))[0];
