@@ -63,9 +63,11 @@ MULTIPLE_ALL = MUL3 | MUL4 | MUL5 | MUL7 | MUL8
 
 # count-type 필터 이름 집합 (Poisson-Binomial 적용 대상)
 # [Stage 1-4-D-2-fix-77] prime_hot/prime_cold 신설 — 최근 3회차 기준 핫/콜드 소수 세분화
+# [Stage 1-4-D-2-fix-79] composite_hot/composite_cold 신설 — 동일 패턴 합성수 30개 분할
 COUNT_TYPE_FILTERS = {
     "odd", "high", "prime", "prime_hot", "prime_cold",
-    "composite", "square", "triangular", "twin",
+    "composite", "composite_hot", "composite_cold",
+    "square", "triangular", "twin",
     "mul3", "mul4", "mul5", "mul7", "mul8", "mul34", "mul35", "mul45", "non_multiple",
     "hot10", "neutral10", "cold10", "missing", "neighbor", "carryover",
     *{f"digit{i}" for i in range(10)},
@@ -136,7 +138,7 @@ def build_dynamic_attr_sets(history_draws: list) -> dict:
             "prime_cold_nums": set,# [fix-77] 최근 3회차 미등장 소수
         }
     """
-    # [fix-77] 최근 3회 핫/콜드 소수 (prime_number.html 정의와 동일)
+    # [fix-77/79] 최근 3회 핫/콜드 — 소수(PRIMES) + 합성수(COMPOSITES) 동일 패턴
     last_3 = [d.get("numbers", []) for d in history_draws[:3]]
     last_3_set: set = set()
     for draw_nums in last_3:
@@ -144,6 +146,8 @@ def build_dynamic_attr_sets(history_draws: list) -> dict:
             last_3_set.add(n)
     prime_hot_nums = PRIMES & last_3_set
     prime_cold_nums = PRIMES - last_3_set
+    composite_hot_nums = COMPOSITES & last_3_set      # [fix-79]
+    composite_cold_nums = COMPOSITES - last_3_set     # [fix-79]
 
     # 최근 10회 출현 빈도 (hot=3회이상 / neutral=1~2회 / cold=0회)
     last_10 = [d.get("numbers", []) for d in history_draws[:10]]
@@ -177,14 +181,16 @@ def build_dynamic_attr_sets(history_draws: list) -> dict:
                 neighbor_nums.add(nb)
 
     return {
-        "hot10_nums":      hot10_nums,
-        "neutral10_nums":  neutral10_nums,
-        "cold10_nums":     cold10_nums,
-        "missing_nums":    missing_nums,
-        "latest_nums":     latest_nums,
-        "neighbor_nums":   neighbor_nums,
-        "prime_hot_nums":  prime_hot_nums,   # [fix-77]
-        "prime_cold_nums": prime_cold_nums,  # [fix-77]
+        "hot10_nums":          hot10_nums,
+        "neutral10_nums":      neutral10_nums,
+        "cold10_nums":         cold10_nums,
+        "missing_nums":        missing_nums,
+        "latest_nums":         latest_nums,
+        "neighbor_nums":       neighbor_nums,
+        "prime_hot_nums":      prime_hot_nums,        # [fix-77]
+        "prime_cold_nums":     prime_cold_nums,       # [fix-77]
+        "composite_hot_nums":  composite_hot_nums,    # [fix-79]
+        "composite_cold_nums": composite_cold_nums,   # [fix-79]
     }
 
 
@@ -235,8 +241,11 @@ def get_attr_set(filter_name: str, dynamic_sets: dict):
         "neighbor":   dynamic_sets.get("neighbor_nums", set()),
         "carryover":  dynamic_sets.get("latest_nums", set()),
         # [fix-77] prime 핫/콜드 — 최근 3회차 등장/미등장 소수
-        "prime_hot":  dynamic_sets.get("prime_hot_nums", set()),
-        "prime_cold": dynamic_sets.get("prime_cold_nums", set()),
+        "prime_hot":      dynamic_sets.get("prime_hot_nums", set()),
+        "prime_cold":     dynamic_sets.get("prime_cold_nums", set()),
+        # [fix-79] composite 핫/콜드 — 동일 패턴 합성수 30개
+        "composite_hot":  dynamic_sets.get("composite_hot_nums", set()),
+        "composite_cold": dynamic_sets.get("composite_cold_nums", set()),
     }
 
     if filter_name in dynamic_map:

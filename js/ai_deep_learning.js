@@ -1967,7 +1967,10 @@ const DeepLearning = {
             odd: '홀짝', high: '저고', prime: '소수',
             // [fix-77] prime_hot/prime_cold — 최근 3회차 등장/미등장 소수 세분화
             prime_hot: '소수(핫)', prime_cold: '소수(콜드)',
-            composite: '합성수', consecutive: '연번', square: '제곱수',
+            composite: '합성수',
+            // [fix-79] composite_hot/composite_cold — 동일 패턴 합성수
+            composite_hot: '합성수(핫)', composite_cold: '합성수(콜드)',
+            consecutive: '연번', square: '제곱수',
             triangular: '삼각수', twin: '동형수', mul3: '3배수',
             mul4: '4배수', mul5: '5배수', mul7: '7배수', mul8: '8배수',
             non_multiple: '배수외',
@@ -1980,7 +1983,9 @@ const DeepLearning = {
             'odd', 'high', 'consecutive', 'twin',
             // [fix-77] prime 바로 아래에 prime_hot/prime_cold 세분화 카드 배치
             'prime', 'prime_hot', 'prime_cold',
-            'composite', 'square', 'triangular',
+            // [fix-79] composite 바로 아래에 composite_hot/composite_cold 배치
+            'composite', 'composite_hot', 'composite_cold',
+            'square', 'triangular',
             'mul3', 'mul4', 'mul5', 'mul7', 'mul8', 'non_multiple',
             'neighbor', 'carryover'
         ];
@@ -2004,6 +2009,8 @@ const DeepLearning = {
             odd: [0, 6], high: [0, 6], prime: [0, 6], composite: [0, 6],
             // [fix-77] prime 핫/콜드 — 풀 크기는 매주 변하지만 6번호 중 max 6
             prime_hot: [0, 6], prime_cold: [0, 6],
+            // [fix-79] composite 핫/콜드
+            composite_hot: [0, 6], composite_cold: [0, 6],
             consecutive: [0, 5], square: [0, 6], triangular: [0, 6], twin: [0, 6],
             mul3: [0, 6], mul4: [0, 6], mul5: [0, 6], mul7: [0, 6], mul8: [0, 5],
             mul34: [0, 3], mul35: [0, 3], mul45: [0, 2],
@@ -2196,6 +2203,8 @@ const DeepLearning = {
             // [fix-77] 핫/콜드 카드도 같은 prime_number.html 페이지로 (해당 페이지에 핫/콜드 시각화 있음)
             prime_hot: 'prime_number.html', prime_cold: 'prime_number.html',
             composite: 'composite_number.html',
+            // [fix-79] composite 핫/콜드도 composite_number.html로
+            composite_hot: 'composite_number.html', composite_cold: 'composite_number.html',
             consecutive: 'consecutive_number.html', twin: 'twin_number.html',
             square: 'square_number.html', triangular: 'triangular_number.html',
             mul3: 'multiple.html', mul4: 'multiple.html', mul5: 'multiple.html',
@@ -2218,7 +2227,9 @@ const DeepLearning = {
             prime: '소수 14개(2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43) 중 출현 개수. 평균 약 2.0개. 핫(최근 3회 등장)/콜드(최근 3회 미등장)로 세분화 분석 (prime_hot/prime_cold).',
             prime_hot: '최근 3회차에 등장한 소수(핫 소수) 중 6번호 안에 출현하는 개수. 평균 약 1.0개.',
             prime_cold: '최근 3회차에 미등장한 소수(콜드 소수) 중 6번호 안에 출현하는 개수. 평균 약 1.0개.',
-            composite: '합성수(4·6·8·9·10·12·14·15·16·18·20·21·22·24·25·26·27·28·30·32·33·34·35·36·38·39·40·42·44·45) 개수. 평균 약 3.0개.',
+            composite: '합성수(4·6·8·9·10·12·14·15·16·18·20·21·22·24·25·26·27·28·30·32·33·34·35·36·38·39·40·42·44·45) 30개 중 출현 개수. 평균 약 3.0개. 핫(최근 3회 등장)/콜드(최근 3회 미등장)로 세분화 분석 (composite_hot/composite_cold).',
+            composite_hot: '최근 3회차에 등장한 합성수(핫) 중 6번호 안에 출현하는 개수. 평균 약 1.5개.',
+            composite_cold: '최근 3회차에 미등장한 합성수(콜드) 중 6번호 안에 출현하는 개수. 평균 약 1.5개.',
             consecutive: '연속 번호 쌍 수 (예: 7,8 / 23,24). 평균 약 0.5~1.0개.',
             twin: '동형수(11, 22, 33, 44) 4개 중 출현 개수. 평균 약 0.5개.',
             square: '제곱수(1, 4, 9, 16, 25, 36) 6개 중 출현 개수. 평균 약 0.8개.',

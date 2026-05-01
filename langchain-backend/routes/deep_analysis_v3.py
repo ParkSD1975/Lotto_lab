@@ -101,8 +101,9 @@ def simulate_all_filters(model_probs, history_draws, n_sim=1000):
         return {}, {}
     norm_probs = [p/total_prob for p in probs]
 
-    # [Stage 1-4-D-2-fix-77] prime_hot/prime_cold 추가 (최근 3회차 등장/미등장 소수)
-    stats = {k: [] for k in ["sum", "ac", "odd", "high", "prime", "prime_hot", "prime_cold", "consecutive", "tail_sum", "composite", "square", "triangular", "twin", "mul3", "mul4", "mul5", "mul7", "mul8", "mul34", "mul35", "mul45", "non_multiple", "hot10", "neutral10", "cold10", "missing", "neighbor", "carryover"]}
+    # [Stage 1-4-D-2-fix-77] prime_hot/prime_cold 추가
+    # [Stage 1-4-D-2-fix-79] composite_hot/composite_cold 추가
+    stats = {k: [] for k in ["sum", "ac", "odd", "high", "prime", "prime_hot", "prime_cold", "consecutive", "tail_sum", "composite", "composite_hot", "composite_cold", "square", "triangular", "twin", "mul3", "mul4", "mul5", "mul7", "mul8", "mul34", "mul35", "mul45", "non_multiple", "hot10", "neutral10", "cold10", "missing", "neighbor", "carryover"]}
     PRIMES = {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43}
     SQUARES = {1, 4, 9, 16, 25, 36}
     TRIANGULARS = {1, 3, 6, 10, 15, 21, 28, 36, 45}
@@ -145,13 +146,17 @@ def simulate_all_filters(model_probs, history_draws, n_sim=1000):
             neighbor = n + offset
             if 1 <= neighbor <= 45: neighbor_nums.add(neighbor)
 
-    # [fix-77] 최근 3회차 등장/미등장 소수 (prime_number.html 정의와 동일)
+    # [fix-77/79] 최근 3회차 등장/미등장 소수 + 합성수 (prime_number.html 정의와 동일 패턴)
     last_3_set = set()
     for d in history_draws[:3]:
         for n in d.get("numbers", []):
             last_3_set.add(n)
     prime_hot_nums = PRIMES & last_3_set
     prime_cold_nums = PRIMES - last_3_set
+    # COMPOSITES는 simulate_all_filters 내부에서 정의됨 (line 105 인근)
+    COMPOSITES_LOCAL = {4, 6, 8, 9, 10, 12, 14, 15, 16, 18, 20, 21, 22, 24, 25, 26, 27, 28, 30, 32, 33, 34, 35, 36, 38, 39, 40, 42, 44, 45}
+    composite_hot_nums = COMPOSITES_LOCAL & last_3_set
+    composite_cold_nums = COMPOSITES_LOCAL - last_3_set
 
     for _ in range(n_sim):
         c = sorted(np.random.choice(nums, 6, replace=False, p=norm_probs))
@@ -170,6 +175,9 @@ def simulate_all_filters(model_probs, history_draws, n_sim=1000):
         stats["prime_hot"].append(sum(1 for x in c_int if x in prime_hot_nums))
         stats["prime_cold"].append(sum(1 for x in c_int if x in prime_cold_nums))
         stats["composite"].append(6 - sum(1 for x in c_int if x in PRIMES))
+        # [fix-79] composite_hot/composite_cold — 동일 패턴 합성수
+        stats["composite_hot"].append(sum(1 for x in c_int if x in composite_hot_nums))
+        stats["composite_cold"].append(sum(1 for x in c_int if x in composite_cold_nums))
         stats["square"].append(sum(1 for x in c_int if x in SQUARES))
         stats["triangular"].append(sum(1 for x in c_int if x in TRIANGULARS))
         stats["twin"].append(sum(1 for x in c_int if x in TWINS))
@@ -480,13 +488,15 @@ def get_model_filter_expectations(filter_name: str, history_draws: list,
             neighbor = n + offset
             if 1 <= neighbor <= 45: neighbor_nums.add(neighbor)
 
-    # [fix-77] 최근 3회차 등장/미등장 소수 (prime_number.html 정의와 동일)
+    # [fix-77/79] 최근 3회차 등장/미등장 소수 + 합성수 (동일 패턴)
     last_3_set = set()
     for d in history_draws[:3]:
         for n in d.get("numbers", []):
             last_3_set.add(n)
     prime_hot_nums = PRIMES & last_3_set
     prime_cold_nums = PRIMES - last_3_set
+    composite_hot_nums = COMPOSITES & last_3_set
+    composite_cold_nums = COMPOSITES - last_3_set
 
     # P2: 동적 속성 집합 사전 계산 (hot10/cold10/missing 등)
     dyn_sets = build_dynamic_attr_sets(history_draws)
@@ -545,6 +555,9 @@ def get_model_filter_expectations(filter_name: str, history_draws: list,
         "prime_hot":    lambda c: sum(1 for x in c if x in prime_hot_nums),
         "prime_cold":   lambda c: sum(1 for x in c if x in prime_cold_nums),
         "composite":    lambda c: sum(1 for x in c if x in COMPOSITES),
+        # [fix-79] composite_hot/composite_cold — 동일 패턴 합성수
+        "composite_hot":  lambda c: sum(1 for x in c if x in composite_hot_nums),
+        "composite_cold": lambda c: sum(1 for x in c if x in composite_cold_nums),
         "consecutive":  lambda c: sum(1 for i in range(5) if c[i+1] - c[i] == 1),
         "square":       lambda c: sum(1 for x in c if x in SQUARES),
         "triangular":   lambda c: sum(1 for x in c if x in TRIANGULARS),

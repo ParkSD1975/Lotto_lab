@@ -1,6 +1,6 @@
-"""[fix-77] 1222 회차에 prime_hot / prime_cold row 시드.
+"""[fix-77/79] 1222 회차에 prime_hot/prime_cold + composite_hot/composite_cold row 시드.
 
-weekly_pipeline 전체 재실행은 무거우므로, 기존 prime row의 model_expectations를
+weekly_pipeline 전체 재실행은 무거우므로, 기존 prime/composite row의 model_expectations를
 핫 풀(H개) / 콜드 풀(C개) 크기 비율로 분할한 임시값을 INSERT.
 다음 weekly run 시 정확값으로 자동 갱신됨.
 """
@@ -16,6 +16,8 @@ from db.supabase_client import get_client
 
 
 PRIMES = {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43}
+COMPOSITES = {4, 6, 8, 9, 10, 12, 14, 15, 16, 18, 20, 21, 22, 24, 25, 26, 27, 28,
+              30, 32, 33, 34, 35, 36, 38, 39, 40, 42, 44, 45}
 
 
 def _split(val, ratio):
@@ -24,10 +26,11 @@ def _split(val, ratio):
     return max(0, min(6, round(val * ratio)))
 
 
-def seed(target_round: int = 1222):
-    client = get_client()
+def _seed_one_pair(client, target_round: int, base_key: str, base_pool: set, label_base: str):
+    """공통 시드 함수 — base_key의 row를 핫/콜드 풀 비율로 분할하여 INSERT."""
+    pool_total = len(base_pool)
 
-    # 1) 최근 3회차 가져와서 prime_hot/prime_cold 풀 계산
+    # 1) 최근 3회차 가져와서 핫/콜드 풀 계산
     draws_res = client.table("lotto_draws") \
         .select("round, numbers") \
         .lt("round", target_round) \
@@ -39,34 +42,34 @@ def seed(target_round: int = 1222):
     for d in last_3:
         for n in d.get("numbers", []) or []:
             last_3_set.add(n)
-    hot_pool = PRIMES & last_3_set
-    cold_pool = PRIMES - hot_pool
+    hot_pool = base_pool & last_3_set
+    cold_pool = base_pool - hot_pool
     H = len(hot_pool)
     C = len(cold_pool)
-    print(f"[seed] target_round={target_round}, last_3 rounds={[d['round'] for d in last_3]}")
-    print(f"[seed] hot_pool({H}개)={sorted(hot_pool)}")
-    print(f"[seed] cold_pool({C}개)={sorted(cold_pool)}")
+    print(f"\n[seed:{base_key}] target_round={target_round}, last_3 rounds={[d['round'] for d in last_3]}")
+    print(f"[seed:{base_key}] hot_pool({H}개)={sorted(hot_pool)}")
+    print(f"[seed:{base_key}] cold_pool({C}개)={sorted(cold_pool)}")
 
-    if H + C != 14:
-        print(f"[seed] ERROR: H+C != 14")
+    if H + C != pool_total:
+        print(f"[seed:{base_key}] ERROR: H+C != {pool_total}")
         return
 
-    # 2) 기존 prime row 조회
-    prime_res = client.table("weekly_filter_predictions") \
+    # 2) 기존 base row 조회
+    base_res = client.table("weekly_filter_predictions") \
         .select("*") \
         .eq("target_round", target_round) \
-        .eq("filter_key", "prime") \
+        .eq("filter_key", base_key) \
         .execute()
-    prime_rows = prime_res.data or []
-    if not prime_rows:
-        print(f"[seed] ERROR: prime row 없음 ({target_round})")
+    base_rows = base_res.data or []
+    if not base_rows:
+        print(f"[seed:{base_key}] ERROR: {base_key} row 없음 ({target_round})")
         return
-    prime_row = prime_rows[0]
+    prime_row = base_rows[0]
 
     # 3) 핫/콜드 row 빌드 (비율 분할)
     for new_key, ratio, label_kr, pool_size in [
-        ("prime_hot", H / 14.0 if H else 0.0, "소수(핫)", H),
-        ("prime_cold", C / 14.0 if C else 0.0, "소수(콜드)", C),
+        (f"{base_key}_hot", H / float(pool_total) if H else 0.0, f"{label_base}(핫)", H),
+        (f"{base_key}_cold", C / float(pool_total) if C else 0.0, f"{label_base}(콜드)", C),
     ]:
         # model_expectations 분할
         new_me = {}
@@ -109,10 +112,17 @@ def seed(target_round: int = 1222):
             client.table("weekly_filter_predictions") \
                 .upsert(new_row, on_conflict="target_round,filter_key") \
                 .execute()
-            print(f"[seed] {new_key} OK ({label_kr}, 풀 {pool_size}개) → "
+            print(f"[seed:{base_key}] {new_key} OK ({label_kr}, 풀 {pool_size}개) → "
                   f"ensemble {new_min}~{new_max}")
         except Exception as e:
-            print(f"[seed] {new_key} FAIL: {e}")
+            print(f"[seed:{base_key}] {new_key} FAIL: {e}")
+
+
+def seed(target_round: int = 1222):
+    """[fix-77/79] prime_hot/cold + composite_hot/cold 둘 다 시드."""
+    client = get_client()
+    _seed_one_pair(client, target_round, "prime", PRIMES, "소수")
+    _seed_one_pair(client, target_round, "composite", COMPOSITES, "합성수")
 
 
 if __name__ == "__main__":
