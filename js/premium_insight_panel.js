@@ -589,7 +589,7 @@
                 </div>
             </div>
 
-            <div style="display:grid; grid-template-columns:repeat(7, 1fr); gap:10px; padding:1.25rem 2rem; background:#f8fafc;">
+            <div style="display:grid; grid-template-columns:repeat(5, 1fr); gap:10px; padding:1.25rem 2rem; background:#f8fafc;">
                 ${cards}
             </div>
 
@@ -631,6 +631,10 @@
         const mins = [], maxs = [];
         Object.entries(modelExp || {}).forEach(([k, r]) => {
             if (k === '__ensemble__') return;  // 앙상블 자체는 평균 계산에서 제외
+            // [Stage 1-4-D-2-fix-67] DEPRECATED(lstm/transformer) 제외 — 합집합/교집합/합의도 왜곡 방지
+            if (DEPRECATED_MODEL_KEYS.has(k)) return;
+            // weight 0 (해당 task 미사용) 모델 제외 — 합의도 왜곡 방지
+            if (r && typeof r.weight === 'number' && r.weight === 0) return;
             if (r && typeof r.min === 'number' && typeof r.max === 'number') {
                 mins.push(r.min); maxs.push(r.max);
             }
@@ -679,6 +683,10 @@
         if (!recentValues || !recentValues.length) return null;
         const rates = {};
         Object.entries(modelExp).forEach(([k, r]) => {
+            // [Stage 1-4-D-2-fix-67] DEPRECATED + weight 0 제외 — 적중률 통계 왜곡 방지
+            if (DEPRECATED_MODEL_KEYS.has(k)) return;
+            if (k === '__ensemble__') return;
+            if (r && typeof r.weight === 'number' && r.weight === 0) return;
             if (!r || typeof r.min !== 'number') return;
             const hits = recentValues.filter(v => v >= r.min && v <= r.max).length;
             rates[k] = { hits, total: recentValues.length, rate: hits / recentValues.length };
@@ -716,22 +724,29 @@
         const flow = _flowStats(recentValues);
         const hitRates = _modelHitRates(modelExp, recentValues);
 
-        // [추가] 비율형 분석 시 카드 표시값 오버라이드
-        const cards = MODEL_ORDER.map(m => {
-            const r = modelExp[m.key];
-            let val = r ? `${r.min}~${r.max}` : '-';
-
-            if (ratioData && ratioData.model_expectations?.[m.key]) {
-                const rt = ratioData.model_expectations[m.key];
-                if (Array.isArray(rt.top) && rt.top[0] && String(rt.top[0]).includes(':')) val = rt.top[0];
-            }
-
-            return `
-            <div style="background:white; border:1px solid #e2e8f0; border-radius:10px; padding:10px 4px; text-align:center; min-width:0;">
-                <div style="font-size:0.6rem; color:#64748b; font-weight:800; letter-spacing:0.3px; margin-bottom:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${m.label}</div>
-                <div style="font-size:0.95rem; color:#1e293b; font-weight:500; letter-spacing:-0.3px; white-space:nowrap;">${val}</div>
-            </div>`;
-        }).join('');
+        // [Stage 1-4-D-2-fix-67] 카드 표시 — weight 0 / DEPRECATED 모델 제외
+        const cards = MODEL_ORDER
+            .filter(m => {
+                const r = modelExp[m.key];
+                if (!r) return false;
+                if (DEPRECATED_MODEL_KEYS.has(m.key)) return false;
+                // weight 0 → 해당 task에서 미사용 → 제외
+                if (typeof r.weight === 'number' && r.weight === 0) return false;
+                return true;
+            })
+            .map(m => {
+                const r = modelExp[m.key];
+                let val = r ? `${r.min}~${r.max}` : '-';
+                if (ratioData && ratioData.model_expectations?.[m.key]) {
+                    const rt = ratioData.model_expectations[m.key];
+                    if (Array.isArray(rt.top) && rt.top[0] && String(rt.top[0]).includes(':')) val = rt.top[0];
+                }
+                return `
+                <div style="background:white; border:1px solid #e2e8f0; border-radius:10px; padding:10px 4px; text-align:center; min-width:0;">
+                    <div style="font-size:0.6rem; color:#64748b; font-weight:800; letter-spacing:0.3px; margin-bottom:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${m.label}</div>
+                    <div style="font-size:0.95rem; color:#1e293b; font-weight:500; letter-spacing:-0.3px; white-space:nowrap;">${val}</div>
+                </div>`;
+            }).join('');
 
         const entries = Object.entries(modelExp);
         const labelOf = k => (MODEL_ORDER.find(m => m.key === k)?.label || k || '-');
@@ -908,7 +923,7 @@
             </div>
 
 
-            <div style="display:grid; grid-template-columns:repeat(7, minmax(0,1fr)); gap:6px; padding:1rem 1.5rem; background:#f8fafc;">
+            <div style="display:grid; grid-template-columns:repeat(5, minmax(0,1fr)); gap:6px; padding:1rem 1.5rem; background:#f8fafc;">
                 ${cards}
             </div>
 
