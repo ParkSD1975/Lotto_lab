@@ -1965,6 +1965,8 @@ const DeepLearning = {
         const FILTER_LABELS = {
             sum: '총합', tail_sum: '끝수합', ac: 'AC값',
             odd: '홀짝', high: '저고', prime: '소수',
+            // [fix-77] prime_hot/prime_cold — 최근 3회차 등장/미등장 소수 세분화
+            prime_hot: '소수(핫)', prime_cold: '소수(콜드)',
             composite: '합성수', consecutive: '연번', square: '제곱수',
             triangular: '삼각수', twin: '동형수', mul3: '3배수',
             mul4: '4배수', mul5: '5배수', mul7: '7배수', mul8: '8배수',
@@ -1976,7 +1978,9 @@ const DeepLearning = {
         const FILTER_ORDER = [
             'sum', 'tail_sum', 'ac',
             'odd', 'high', 'consecutive', 'twin',
-            'prime', 'composite', 'square', 'triangular',
+            // [fix-77] prime 바로 아래에 prime_hot/prime_cold 세분화 카드 배치
+            'prime', 'prime_hot', 'prime_cold',
+            'composite', 'square', 'triangular',
             'mul3', 'mul4', 'mul5', 'mul7', 'mul8', 'non_multiple',
             'neighbor', 'carryover'
         ];
@@ -1998,6 +2002,8 @@ const DeepLearning = {
         const FILTER_CLAMP = {
             sum: [21, 255], tail_sum: [0, 54], ac: [0, 10],
             odd: [0, 6], high: [0, 6], prime: [0, 6], composite: [0, 6],
+            // [fix-77] prime 핫/콜드 — 풀 크기는 매주 변하지만 6번호 중 max 6
+            prime_hot: [0, 6], prime_cold: [0, 6],
             consecutive: [0, 5], square: [0, 6], triangular: [0, 6], twin: [0, 6],
             mul3: [0, 6], mul4: [0, 6], mul5: [0, 6], mul7: [0, 6], mul8: [0, 5],
             mul34: [0, 3], mul35: [0, 3], mul45: [0, 2],
@@ -2186,7 +2192,10 @@ const DeepLearning = {
         const FILTER_PAGE = {
             sum: 'total_sum.html', tail_sum: 'tail_sum.html', ac: 'ac_value.html',
             odd: 'odd_even.html', high: 'low_high.html',
-            prime: 'prime_number.html', composite: 'composite_number.html',
+            prime: 'prime_number.html',
+            // [fix-77] 핫/콜드 카드도 같은 prime_number.html 페이지로 (해당 페이지에 핫/콜드 시각화 있음)
+            prime_hot: 'prime_number.html', prime_cold: 'prime_number.html',
+            composite: 'composite_number.html',
             consecutive: 'consecutive_number.html', twin: 'twin_number.html',
             square: 'square_number.html', triangular: 'triangular_number.html',
             mul3: 'multiple.html', mul4: 'multiple.html', mul5: 'multiple.html',

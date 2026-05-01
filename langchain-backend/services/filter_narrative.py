@@ -24,6 +24,8 @@ _FILTER_LABELS = {
     "sum": "총합", "tail_sum": "끝수합", "ac": "AC값",
     "odd": "홀짝(홀수 개수)", "high": "저고(고 영역 개수)",
     "prime": "소수", "composite": "합성수",
+    # [fix-77] prime_hot/prime_cold — 최근 3회차 등장/미등장 소수 세분화
+    "prime_hot": "소수(핫·최근 3회 등장)", "prime_cold": "소수(콜드·최근 3회 미등장)",
     "consecutive": "연번", "square": "제곱수", "triangular": "삼각수", "twin": "동형수",
     "mul3": "3배수", "mul4": "4배수", "mul5": "5배수", "mul7": "7배수", "mul8": "8배수",
     "mul34": "3·4배수 교집합", "mul35": "3·5배수 교집합", "mul45": "4·5배수 교집합",

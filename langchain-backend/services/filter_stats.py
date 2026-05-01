@@ -62,8 +62,10 @@ MUL45 = MUL4 & MUL5
 MULTIPLE_ALL = MUL3 | MUL4 | MUL5 | MUL7 | MUL8
 
 # count-type 필터 이름 집합 (Poisson-Binomial 적용 대상)
+# [Stage 1-4-D-2-fix-77] prime_hot/prime_cold 신설 — 최근 3회차 기준 핫/콜드 소수 세분화
 COUNT_TYPE_FILTERS = {
-    "odd", "high", "prime", "composite", "square", "triangular", "twin",
+    "odd", "high", "prime", "prime_hot", "prime_cold",
+    "composite", "square", "triangular", "twin",
     "mul3", "mul4", "mul5", "mul7", "mul8", "mul34", "mul35", "mul45", "non_multiple",
     "hot10", "neutral10", "cold10", "missing", "neighbor", "carryover",
     *{f"digit{i}" for i in range(10)},
@@ -130,8 +132,19 @@ def build_dynamic_attr_sets(history_draws: list) -> dict:
             "missing_nums": set,   # 10회 이상 미출현
             "latest_nums": set,    # 직전 회차 당첨번호 (이월수)
             "neighbor_nums": set,  # latest_nums의 +/-1 번호
+            "prime_hot_nums": set, # [fix-77] 최근 3회차 등장 소수
+            "prime_cold_nums": set,# [fix-77] 최근 3회차 미등장 소수
         }
     """
+    # [fix-77] 최근 3회 핫/콜드 소수 (prime_number.html 정의와 동일)
+    last_3 = [d.get("numbers", []) for d in history_draws[:3]]
+    last_3_set: set = set()
+    for draw_nums in last_3:
+        for n in draw_nums:
+            last_3_set.add(n)
+    prime_hot_nums = PRIMES & last_3_set
+    prime_cold_nums = PRIMES - last_3_set
+
     # 최근 10회 출현 빈도 (hot=3회이상 / neutral=1~2회 / cold=0회)
     last_10 = [d.get("numbers", []) for d in history_draws[:10]]
     appear_count: dict = {}
@@ -164,12 +177,14 @@ def build_dynamic_attr_sets(history_draws: list) -> dict:
                 neighbor_nums.add(nb)
 
     return {
-        "hot10_nums":     hot10_nums,
-        "neutral10_nums": neutral10_nums,
-        "cold10_nums":    cold10_nums,
-        "missing_nums":   missing_nums,
-        "latest_nums":    latest_nums,
-        "neighbor_nums":  neighbor_nums,
+        "hot10_nums":      hot10_nums,
+        "neutral10_nums":  neutral10_nums,
+        "cold10_nums":     cold10_nums,
+        "missing_nums":    missing_nums,
+        "latest_nums":     latest_nums,
+        "neighbor_nums":   neighbor_nums,
+        "prime_hot_nums":  prime_hot_nums,   # [fix-77]
+        "prime_cold_nums": prime_cold_nums,  # [fix-77]
     }
 
 
@@ -213,12 +228,15 @@ def get_attr_set(filter_name: str, dynamic_sets: dict):
 
     # 동적 집합
     dynamic_map = {
-        "hot10":     dynamic_sets.get("hot10_nums", set()),
-        "neutral10": dynamic_sets.get("neutral10_nums", set()),
-        "cold10":    dynamic_sets.get("cold10_nums", set()),
-        "missing":   dynamic_sets.get("missing_nums", set()),
-        "neighbor":  dynamic_sets.get("neighbor_nums", set()),
-        "carryover": dynamic_sets.get("latest_nums", set()),
+        "hot10":      dynamic_sets.get("hot10_nums", set()),
+        "neutral10":  dynamic_sets.get("neutral10_nums", set()),
+        "cold10":     dynamic_sets.get("cold10_nums", set()),
+        "missing":    dynamic_sets.get("missing_nums", set()),
+        "neighbor":   dynamic_sets.get("neighbor_nums", set()),
+        "carryover":  dynamic_sets.get("latest_nums", set()),
+        # [fix-77] prime 핫/콜드 — 최근 3회차 등장/미등장 소수
+        "prime_hot":  dynamic_sets.get("prime_hot_nums", set()),
+        "prime_cold": dynamic_sets.get("prime_cold_nums", set()),
     }
 
     if filter_name in dynamic_map:

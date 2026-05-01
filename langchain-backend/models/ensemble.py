@@ -180,6 +180,8 @@ FILTER_KEY_TO_TASK: dict = {
     # 속성 개수형
     "odd": "filter_count_attr", "high": "filter_count_attr",
     "prime": "filter_count_attr", "composite": "filter_count_attr",
+    # [Stage 1-4-D-2-fix-77] prime_hot/prime_cold 신규 (filter_count_attr 동일 task)
+    "prime_hot": "filter_count_attr", "prime_cold": "filter_count_attr",
     "square": "filter_count_attr", "triangular": "filter_count_attr",
     "twin": "filter_count_attr",
     "mul3": "filter_count_attr", "mul4": "filter_count_attr",
