@@ -496,9 +496,10 @@ const DeepLearning = {
                     .order('round', { ascending: false })
                     .limit(20),
                 // weekly_filter_predictions (필터 분석탭용)
+                // [Stage 1-4-D-2-fix-60] evidence_text + primary_task 추가
                 window.supabaseClient
                     .from('weekly_filter_predictions')
-                    .select('filter_key, ensemble_min, ensemble_max, ensemble_ci, model_expectations, filter_value')
+                    .select('filter_key, ensemble_min, ensemble_max, ensemble_ci, model_expectations, filter_value, primary_task, evidence_text')
                     .eq('target_round', pred.target_round),
                 // weekly_regression_analysis (회귀분석탭용, 최근 50단계만)
                 window.supabaseClient
