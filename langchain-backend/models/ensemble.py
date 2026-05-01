@@ -39,97 +39,132 @@ DISABLED_MODELS: set = {"lstm", "transformer"}  # Stage 1-4-D-2 (사용자 결�
 # 하위 호환 aliases: TASK_ALIASES 참조 (recommend→recommend_top, filter→filter_count_attr)
 # 합계는 정규화로 항상 1.0이 되도록 predict_with_task()에서 처리.
 # ============================================================
+# [Stage 1-4-D-2-fix-61] TASK_WEIGHTS 11 base 재분배 (사용자 결정 옵션 A)
+# 사용자 지적: "MHN~Bayesian이 왜 0%? lstm/transformer 폐기 후 신규 5 base 무시당함"
+# → 8 task 모두 11 base에 의미 있는 가중치 부여. lstm/transformer DEPRECATED 0 유지.
+# 각 task는 합 = 1.00 정확히 맞춤.
 TASK_WEIGHTS = {
-    # ── A. 번호 추천 (precision 최우선) ─────────────────────────────────
+    # ── A. 번호 추천 (precision) ─ XGBoost+CatBoost(트리)+TFT(시계열) 주도 ──
     "recommend_top": {
-        "xgboost":     0.30,
-        "lstm":        0.20,
+        "xgboost":     0.20,
+        "catboost":    0.12,   # 신규: 카테고리 부스팅
+        "tabnet":      0.08,   # 신규: attention 특성 선택
         "cnn":         0.08,
-        "transformer": 0.15,
-        "gnn":         0.15,
+        "gnn":         0.12,
         "markov":      0.10,
         "autoencoder": 0.02,
+        "tft":         0.18,   # 신규: Transformer 흡수, 시계열
+        "mhn":         0.05,   # 신규: 패턴 메모리
+        "bayesian_nn": 0.05,   # 신규: 불확실성
+        "lstm":        0.0,    # DEPRECATED
+        "transformer": 0.0,    # DEPRECATED
     },
-    # ── B. 제외수 (recall/특이도 최우선) ────────────────────────────────
+    # ── B. 제외수 (recall) ─ AutoEncoder(이상 감지) 주도 ─────────────────
     "exclude": {
-        "xgboost":     0.15,
-        "lstm":        0.05,
+        "xgboost":     0.10,
+        "catboost":    0.05,
+        "tabnet":      0.02,
         "cnn":         0.05,
-        "transformer": 0.00,
-        "gnn":         0.20,
-        "markov":      0.15,
-        "autoencoder": 0.40,
+        "gnn":         0.18,
+        "markov":      0.12,
+        "autoencoder": 0.30,   # 주도: 이상치/비정상 패턴
+        "tft":         0.05,
+        "mhn":         0.05,
+        "bayesian_nn": 0.08,   # 신규: 분포 우려도
+        "lstm":        0.0,
+        "transformer": 0.0,
     },
-    # ── C. 범위형 필터: sum / tail_sum / ac ──────────────────────────────
+    # ── C. 범위형 필터 (sum/tail_sum/ac) ─ Markov(전이)+TFT(시계열) 주도 ─
     "filter_range": {
         "xgboost":     0.15,
-        "lstm":        0.15,
+        "catboost":    0.10,   # 신규
+        "tabnet":      0.05,   # 신규
         "cnn":         0.05,
-        "transformer": 0.25,
         "gnn":         0.10,
-        "markov":      0.30,
+        "markov":      0.25,   # 주도: 전이/분포
         "autoencoder": 0.00,
+        "tft":         0.20,   # 신규: Transformer 흡수, 시계열
+        "mhn":         0.05,   # 신규
+        "bayesian_nn": 0.05,   # 신규: 분포
+        "lstm":        0.0,
+        "transformer": 0.0,
     },
-    # ── D. 개수형 속성 필터: odd/high/prime/composite/배수/특수유형/커스텀
+    # ── D. 개수형 속성 필터 (odd/high/prime/...) ─ TFT/XGBoost/CatBoost ──
     "filter_count_attr": {
-        "xgboost":     0.20,
-        "lstm":        0.10,
-        "cnn":         0.10,
-        "transformer": 0.30,
-        "gnn":         0.10,
-        "markov":      0.15,
-        "autoencoder": 0.05,
+        "xgboost":     0.18,
+        "catboost":    0.15,   # 신규: 범주형 결합
+        "tabnet":      0.10,   # 신규
+        "cnn":         0.08,
+        "gnn":         0.08,
+        "markov":      0.12,
+        "autoencoder": 0.02,
+        "tft":         0.15,   # 신규: Transformer 흡수
+        "mhn":         0.07,   # 신규
+        "bayesian_nn": 0.05,   # 신규
+        "lstm":        0.0,
+        "transformer": 0.0,
     },
-    # ── E. 시간형 필터: hot10/cold10/neutral10/missing ───────────────────
+    # ── E. 시간형 필터 (hot10/cold10/missing) ─ TFT(LSTM 흡수)+Markov 주도
     "filter_count_temporal": {
-        "xgboost":     0.20,
-        "lstm":        0.30,
+        "xgboost":     0.15,
+        "catboost":    0.05,
+        "tabnet":      0.05,
         "cnn":         0.05,
-        "transformer": 0.10,
-        "gnn":         0.10,
-        "markov":      0.25,
+        "gnn":         0.05,
+        "markov":      0.25,   # 주도: 전이
         "autoencoder": 0.00,
+        "tft":         0.25,   # 주도: LSTM 흡수, 시계열
+        "mhn":         0.10,   # 신규: 시계열 패턴 메모리
+        "bayesian_nn": 0.05,
+        "lstm":        0.0,
+        "transformer": 0.0,
     },
-    # ── F. 관계형 필터: consecutive/neighbor/carryover ───────────────────
+    # ── F. 관계형 필터 (consecutive/neighbor) ─ GNN 주도 ─────────────────
     "filter_count_relation": {
         "xgboost":     0.10,
-        "lstm":        0.20,
-        "cnn":         0.15,
-        "transformer": 0.05,
-        "gnn":         0.35,
-        "markov":      0.15,
+        "catboost":    0.05,
+        "tabnet":      0.05,
+        "cnn":         0.10,
+        "gnn":         0.30,   # 주도: 동반출현 그래프
+        "markov":      0.10,
         "autoencoder": 0.00,
+        "tft":         0.15,
+        "mhn":         0.10,   # 신규: 패턴 메모리 (관계 패턴)
+        "bayesian_nn": 0.05,
+        "lstm":        0.0,
+        "transformer": 0.0,
     },
-    # ── G. 공간형 필터: 번호대/로또용지/9궁 ─────────────────────────────
+    # ── G. 공간형 필터 (번호대/로또용지/9궁) ─ CNN 주도 ──────────────────
     "filter_spatial": {
         "xgboost":     0.10,
-        "lstm":        0.10,
-        "cnn":         0.40,
-        "transformer": 0.15,
-        "gnn":         0.20,
+        "catboost":    0.05,
+        "tabnet":      0.05,
+        "cnn":         0.30,   # 주도: 그리드 공간 패턴
+        "gnn":         0.15,
         "markov":      0.05,
         "autoencoder": 0.00,
+        "tft":         0.10,
+        "mhn":         0.10,
+        "bayesian_nn": 0.10,
+        "lstm":        0.0,
+        "transformer": 0.0,
     },
-    # ── H. 회귀분석 (predict_regression() 별도 경로 우선, fallback용) ────
+    # ── H. 회귀분석 ─ TFT(LSTM 흡수)+Markov 주도 ──────────────────────────
     "regression": {
-        "xgboost":     0.20,
-        "lstm":        0.35,
+        "xgboost":     0.15,
+        "catboost":    0.05,
+        "tabnet":      0.05,
         "cnn":         0.00,
-        "transformer": 0.15,
         "gnn":         0.00,
-        "markov":      0.30,
+        "markov":      0.25,   # 주도: 전이/회귀
         "autoencoder": 0.00,
+        "tft":         0.30,   # 주도: LSTM 흡수, 시계열 회귀
+        "mhn":         0.10,
+        "bayesian_nn": 0.10,
+        "lstm":        0.0,
+        "transformer": 0.0,
     },
 }
-
-# Stage 1-4-D-2-fix-8 (사용자 결정 #24): TASK_WEIGHTS 8 task에 5 신규 base
-# 키 default 0 자동 추가. predict_with_task에서 task_w[name] KeyError 방지.
-# D-3 학습 후 가중치 활성화는 _update_meta_weights/load_task_weights에서 처리.
-_NEW_BASE_KEYS = ("catboost", "tabnet", "tft", "mhn", "bayesian_nn")
-for _task_w in TASK_WEIGHTS.values():
-    for _k in _NEW_BASE_KEYS:
-        _task_w.setdefault(_k, 0.0)
-del _task_w, _k
 
 # 하위 호환 aliases (기존 3종 task명 → 새 task명)
 # "exclude"는 이름 동일하므로 alias 불필요
