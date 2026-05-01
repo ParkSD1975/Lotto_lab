@@ -2237,7 +2237,8 @@ const DeepLearning = {
             const task = val.primary_task || '-';
             const filterDesc = FILTER_DESC[key] || '필터별 분석 방식.';
 
-            // 모델별 정렬 (가중치 큰 순) — DEPRECATED 제외 + 0% 모델 제거 (사용자 결정 fix-62)
+            // 모델별 정렬 (가중치 큰 순) — DEPRECATED 제외 + 0% 모델 제거 (fix-62)
+            // [fix-72] AE는 weight 0이어도 '이상 감지 보조' 행으로 항상 표시 (맨 아래)
             const DEPRECATED = new Set(['lstm', 'transformer']);
             const modelRows = Object.entries(modelExp)
                 .filter(([m]) => m !== '__ensemble__' && !DEPRECATED.has(m))
@@ -2250,9 +2251,32 @@ const DeepLearning = {
                     max: (e && e.max) ?? '-',
                     representative: (typeof e?.min === 'number' && typeof e?.max === 'number')
                         ? Math.round((e.min + e.max) / 2) : '-',
+                    isAE: m === 'autoencoder',
                 }))
-                .filter(row => row.weight > 0)  // [fix-62] 0% 모델 제거 — 해당 task에 사용 안 됨
-                .sort((a, b) => b.weight - a.weight);
+                .filter(row => row.weight > 0 || row.isAE)  // [fix-72] AE는 weight 0이어도 표시
+                .sort((a, b) => {
+                    // AE는 항상 맨 뒤
+                    if (a.isAE) return 1;
+                    if (b.isAE) return -1;
+                    return b.weight - a.weight;
+                });
+
+            // [fix-72] AE 이상 시그널 산출 (ensemble 중심 대비 편차)
+            const aeRow = modelRows.find(r => r.isAE);
+            let aeSignLabel = null, aeSignColor = null, aeSignBg = null, aeDeviation = 0;
+            if (aeRow && typeof aeRow.min === 'number' && typeof aeRow.max === 'number'
+                && typeof ens_min === 'number' && typeof ens_max === 'number') {
+                const aeMid = (aeRow.min + aeRow.max) / 2;
+                const ensMid = (ens_min + ens_max) / 2 || 1;
+                aeDeviation = Math.abs(aeMid - ensMid) / Math.max(1, Math.abs(ensMid));
+                if (aeDeviation < 0.05) {
+                    aeSignLabel = '정상'; aeSignColor = '#10b981'; aeSignBg = '#d1fae5';
+                } else if (aeDeviation < 0.12) {
+                    aeSignLabel = '주의'; aeSignColor = '#f59e0b'; aeSignBg = '#fef3c7';
+                } else {
+                    aeSignLabel = '이상 감지'; aeSignColor = '#dc2626'; aeSignBg = '#fee2e2';
+                }
+            }
 
             cardsHtml += `<div id="filter-card-${key}" style="border:1px solid #e5e7eb; border-radius:14px; background:#fff; overflow:hidden; scroll-margin-top:80px;">`;
 
@@ -2299,13 +2323,30 @@ const DeepLearning = {
             modelRows.forEach((row, i) => {
                 const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '';
                 const isActive = row.weight > 0;
-                const opacity = isActive ? 1 : 0.45;
-                const bg = i % 2 === 0 ? '#fff' : '#fafafa';
-                cardsHtml += `<tr style="background:${bg}; opacity:${opacity};">`;
-                cardsHtml += `<td style="padding:8px 10px; border-bottom:1px solid #f3f4f6;"><span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${row.color}; margin-right:8px;"></span><b style="color:#0f172a;">${row.name}</b> ${medal}</td>`;
-                cardsHtml += `<td style="text-align:right; padding:8px 10px; font-family:monospace; color:${isActive ? '#1f2937' : '#94a3b8'}; font-weight:${isActive ? '700' : '500'}; border-bottom:1px solid #f3f4f6;">${row.weight.toFixed(1)}%</td>`;
-                cardsHtml += `<td style="text-align:center; padding:8px 10px; font-family:monospace; color:#475569; border-bottom:1px solid #f3f4f6;">${row.min} ~ ${row.max}</td>`;
-                cardsHtml += `<td style="text-align:center; padding:8px 10px; font-family:monospace; color:#2563eb; font-weight:700; border-bottom:1px solid #f3f4f6;">${row.representative}</td>`;
+                // [fix-72] AE는 weight 0이지만 보조 행으로 차별화 (점선 + 보라 배경)
+                const isAE = row.isAE;
+                const opacity = isActive || isAE ? 1 : 0.45;
+                const bg = isAE ? '#fafbff' : (i % 2 === 0 ? '#fff' : '#fafafa');
+                const borderTop = isAE ? 'border-top:2px dashed #c7d2fe;' : '';
+                cardsHtml += `<tr style="background:${bg}; opacity:${opacity}; ${borderTop}">`;
+                if (isAE) {
+                    // AE 행: 이상 감지 사인 + 노이즈 % + 모델명에 'AutoEncoder 이상 감지' 라벨
+                    cardsHtml += `<td style="padding:10px; border-bottom:1px solid #f3f4f6;" colspan="2"><span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${row.color}; margin-right:8px;"></span><b style="color:#6366f1;">${row.name}</b> <span style="font-size:10px; color:#94a3b8; font-weight:600; margin-left:4px;">이상 감지 보조 (가중치 0%, exclude task에서 30% 주도)</span></td>`;
+                    cardsHtml += `<td style="text-align:center; padding:10px; font-family:monospace; color:#475569; border-bottom:1px solid #f3f4f6;">${row.min} ~ ${row.max}</td>`;
+                    cardsHtml += `<td style="text-align:center; padding:10px; border-bottom:1px solid #f3f4f6;">`;
+                    if (aeSignLabel) {
+                        cardsHtml += `<span style="font-size:11px; font-weight:800; padding:3px 10px; border-radius:999px; background:${aeSignBg}; color:${aeSignColor};">${aeSignLabel}</span>`;
+                        cardsHtml += `<div style="font-size:10px; color:#94a3b8; font-weight:600; margin-top:3px;">노이즈 ${(aeDeviation * 100).toFixed(1)}%</div>`;
+                    } else {
+                        cardsHtml += `<span style="font-size:10px; color:#94a3b8;">-</span>`;
+                    }
+                    cardsHtml += `</td>`;
+                } else {
+                    cardsHtml += `<td style="padding:8px 10px; border-bottom:1px solid #f3f4f6;"><span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${row.color}; margin-right:8px;"></span><b style="color:#0f172a;">${row.name}</b> ${medal}</td>`;
+                    cardsHtml += `<td style="text-align:right; padding:8px 10px; font-family:monospace; color:${isActive ? '#1f2937' : '#94a3b8'}; font-weight:${isActive ? '700' : '500'}; border-bottom:1px solid #f3f4f6;">${row.weight.toFixed(1)}%</td>`;
+                    cardsHtml += `<td style="text-align:center; padding:8px 10px; font-family:monospace; color:#475569; border-bottom:1px solid #f3f4f6;">${row.min} ~ ${row.max}</td>`;
+                    cardsHtml += `<td style="text-align:center; padding:8px 10px; font-family:monospace; color:#2563eb; font-weight:700; border-bottom:1px solid #f3f4f6;">${row.representative}</td>`;
+                }
                 cardsHtml += `</tr>`;
             });
             cardsHtml += `</tbody></table></div>`;
