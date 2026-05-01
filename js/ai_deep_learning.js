@@ -40,6 +40,10 @@ const DeepLearning = {
         // 3. V4 분석 즉시 시작 (백엔드 웜업과 무관)
         this.runAnalysis();
 
+        // [fix-89] deep link 즉시 처리 — section-* 정적 ID는 즉시 가능
+        // filter-card-* (동적)는 renderRangeAnalysis 후 자동 retry
+        this._handleDeepLink();
+
         console.log(`⏱️ [DeepLearning] 초기 렌더 시작 (${Date.now() - startTime}ms)`);
 
         // 4. 3초 후 V4 성공 여부 확인:
@@ -59,6 +63,70 @@ const DeepLearning = {
                 this.loadHistoryList();
             }
         }, 3000);
+    },
+
+    // [Stage 1-4-D-2-fix-88/89] Deep link 랜딩 (분석 페이지 → 딥러닝 탭+섹션)
+    // - 끝수(digit*)/9궁(N궁)/로또용지(가로|세로)/번호대(N번대) → 번호 분석 탭의 4 섹션
+    // - 그 외 (sum/odd/prime/etc) → 기초 분석 탭의 filter-card-*
+    // retry 패턴: filter-card-*는 동적 생성이라 element 없으면 200ms 후 재시도 (max 15회=3초)
+    _handleDeepLink(retryCount) {
+        retryCount = retryCount || 0;
+        try {
+            const params = new URLSearchParams(window.location.search);
+            const focus = params.get('focus') || (window.location.hash || '').replace(/^#filter-card-/, '');
+            if (!focus) return;
+
+            // 키 종류별 매핑
+            let targetTab = 'filters';
+            let targetEl = null;
+            let isStaticTarget = true;  // section-* (정적) vs filter-card-* (동적)
+
+            if (/^digit\d$/.test(focus)) {
+                targetTab = 'summary';
+                targetEl = document.getElementById('section-tail');
+            } else if (/^[1-9]궁$/.test(focus)) {
+                targetTab = 'summary';
+                targetEl = document.getElementById('section-magic');
+            } else if (/^(가로|세로)[1-7]$/.test(focus)) {
+                targetTab = 'summary';
+                targetEl = document.getElementById('section-paper');
+            } else if (/^(단번대|\d{1,2}번대|01~10|11~20|21~30|31~40|41~45)$/.test(focus)) {
+                targetTab = 'summary';
+                targetEl = document.getElementById('section-band');
+            } else {
+                // 기존 필터 카드 (동적 생성)
+                isStaticTarget = false;
+                targetEl = document.getElementById('filter-card-' + focus);
+            }
+
+            if (!targetEl) {
+                if (!isStaticTarget && retryCount < 15) {
+                    // filter-card-*는 renderRangeAnalysis 후 생성 — 200ms 간격 retry
+                    setTimeout(() => this._handleDeepLink(retryCount + 1), 200);
+                    return;
+                }
+                console.warn(`[deep-link] focus '${focus}' element not found (retry ${retryCount})`);
+                return;
+            }
+
+            // 탭 전환
+            if (typeof this.switchTab === 'function') {
+                this.switchTab(targetTab);
+            }
+            // 탭 전환 후 layout 안정화 위해 requestAnimationFrame + setTimeout
+            requestAnimationFrame(() => {
+                setTimeout(() => {
+                    targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    // 강조 효과 (3초간 indigo border)
+                    targetEl.style.boxShadow = '0 0 0 3px #818cf8';
+                    targetEl.style.transition = 'box-shadow 0.3s';
+                    setTimeout(() => { targetEl.style.boxShadow = ''; }, 3000);
+                    console.log(`[deep-link] focus='${focus}' → tab=${targetTab}, scrolled to`, targetEl.id);
+                }, 250);
+            });
+        } catch (e) {
+            console.warn('[deep-link] error:', e);
+        }
     },
 
     async setTargetRound() {
@@ -2458,60 +2526,8 @@ const DeepLearning = {
         cardsHtml += '</div>';
         container.innerHTML = html + cardsHtml;
 
-        // [Stage 1-4-D-2-fix-66/71/88] URL ?focus=KEY 또는 #filter-card-KEY 처리
-        // 분석 페이지 → 딥러닝 페이지 deep link 랜딩 (랜딩 위치 정확화)
-        try {
-            const params = new URLSearchParams(window.location.search);
-            const focus = params.get('focus') || (window.location.hash || '').replace(/^#filter-card-/, '');
-            if (focus) {
-                setTimeout(() => {
-                    // [fix-88] 키 종류별 랜딩 위치 분기
-                    // (a) 끝수(digit0~9) → 번호 분석 탭의 끝수 섹션
-                    // (b) 1궁~9궁 → 9궁 섹션
-                    // (c) 가로/세로N → 로또용지 섹션
-                    // (d) 단번대/10번대~40번대 → 번호대별 섹션
-                    // (e) 그 외 (sum/odd/prime/etc) → 기초 분석 탭의 해당 카드
-                    let targetTab = 'filters';
-                    let targetEl = null;
-
-                    if (/^digit\d$/.test(focus)) {
-                        // 끝수
-                        targetTab = 'summary';
-                        targetEl = document.getElementById('section-tail');
-                    } else if (/^[1-9]궁$/.test(focus)) {
-                        // 9궁
-                        targetTab = 'summary';
-                        targetEl = document.getElementById('section-magic');
-                    } else if (/^(가로|세로)[1-7]$/.test(focus)) {
-                        // 로또용지
-                        targetTab = 'summary';
-                        targetEl = document.getElementById('section-paper');
-                    } else if (/^(단번대|\d{1,2}번대|01~10|11~20|21~30|31~40|41~45)$/.test(focus)) {
-                        // 번호대별
-                        targetTab = 'summary';
-                        targetEl = document.getElementById('section-band');
-                    } else {
-                        // 기존 필터 카드
-                        targetEl = document.getElementById('filter-card-' + focus);
-                    }
-
-                    if (targetEl) {
-                        if (typeof this.switchTab === 'function') {
-                            this.switchTab(targetTab);
-                        }
-                        setTimeout(() => {
-                            targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                            // 강조 효과 (3초간 indigo border)
-                            targetEl.style.boxShadow = '0 0 0 3px #818cf8';
-                            targetEl.style.transition = 'box-shadow 0.3s';
-                            setTimeout(() => { targetEl.style.boxShadow = ''; }, 3000);
-                        }, 300);
-                    } else {
-                        console.warn(`[deep-link] focus '${focus}' element not found`);
-                    }
-                }, 200);
-            }
-        } catch (_) { /* noop */ }
+        // [fix-89] deep link 처리는 _handleDeepLink()에서 (init + renderRangeAnalysis 양쪽 호출 가능)
+        this._handleDeepLink();
     },
 
     renderMatrixData(matrixData) {
