@@ -17,7 +17,7 @@
     let _payloadCache = null;
     let _payloadInflight = null;
     const _CACHE_TTL = 10 * 60 * 1000; // 10분
-    const _SS_KEY = 'pi_payload_cache_v4'; // [fix-74] 비율형 모델 카드 모든 비율 표시 강제 갱신
+    const _SS_KEY = 'pi_payload_cache_v5'; // [fix-81] tail_analysis lazy merge 강제 갱신
     // 페이지 로드 시 sessionStorage에서 즉시 복원 (네비게이션 간 캐시 유지)
     try {
         const raw = sessionStorage.getItem(_SS_KEY);
@@ -63,6 +63,46 @@
         } catch (e) {
             return null;
         }
+    }
+
+    // [fix-81] v3 deep_analysis에서 tail_analysis만 추출 (digit0~9 끝수 분포)
+    // weekly_pipeline_v2가 digit*를 weekly_filter_predictions에 저장하지 않으므로
+    // tail_digit.html 같은 페이지에서는 v3 API의 analysis.tail_analysis 필요.
+    // 한 번 fetch 후 _payloadCache에 merge하여 재호출 방지.
+    let _tailFetchInflight = null;
+    async function _ensureTailAnalysis(payload) {
+        if (!payload || !payload.analysis) return payload;
+        if (Array.isArray(payload.analysis.tail_analysis) && payload.analysis.tail_analysis.length > 0) {
+            return payload;  // 이미 있음
+        }
+        if (_tailFetchInflight) {
+            await _tailFetchInflight;
+            return payload;  // 캐시에 merge됨
+        }
+        _tailFetchInflight = (async () => {
+            try {
+                if (!window.AIProxy || typeof window.AIProxy.getDeepAnalysis !== 'function') return;
+                const deep = await window.AIProxy.getDeepAnalysis();
+                const v3 = (deep && deep.data) ? deep.data : deep;
+                const ta = v3?.analysis?.tail_analysis;
+                if (Array.isArray(ta) && ta.length > 0) {
+                    payload.analysis.tail_analysis = ta;
+                    // sessionStorage 캐시도 갱신
+                    try {
+                        if (_payloadCache && _payloadCache.data === payload) {
+                            sessionStorage.setItem(_SS_KEY, JSON.stringify(_payloadCache));
+                        }
+                    } catch (_) {}
+                    console.log('[PremiumInsightPanel] tail_analysis v3에서 lazy load 완료');
+                }
+            } catch (e) {
+                console.warn('[PremiumInsightPanel] tail_analysis lazy fetch 실패:', e);
+            } finally {
+                _tailFetchInflight = null;
+            }
+        })();
+        await _tailFetchInflight;
+        return payload;
     }
 
     async function _getPayload() {
@@ -1024,8 +1064,22 @@
         const el = document.getElementById(containerId);
         if (!el) return;
         // 캐시가 있으면 스켈레톤 건너뛰고 즉시 렌더 (탭 전환 체감속도 개선)
+        // [fix-81] digit 키는 warm path 건너뛰고 정식 path로 (tail_analysis lazy fetch 필요)
+        const isDigitKey = /^digit\d$/.test(filterKey);
         const warmPayload = _payloadSync();
-        if (warmPayload && skipMenuFetch) {
+        if (warmPayload && skipMenuFetch && !isDigitKey) {
+            const resolved = _resolvePayload(warmPayload, filterKey);
+            if (resolved && resolved.modelExp && Object.keys(resolved.modelExp).length > 0) {
+                const ensemble = _ensembleOf(resolved.modelExp);
+                el.innerHTML = _buildHTML(filterLabel, resolved.targetRound || '', resolved.modelExp, ensemble, recentValues, tabs, containerId, resolved.ratioData || null, filterKey);
+                _wireTabs(containerId, tabs);
+                return;
+            }
+        }
+        // [fix-81] digit 키 + warm cache에 tail_analysis 있으면 즉시 렌더
+        if (warmPayload && skipMenuFetch && isDigitKey
+            && Array.isArray(warmPayload?.analysis?.tail_analysis)
+            && warmPayload.analysis.tail_analysis.length > 0) {
             const resolved = _resolvePayload(warmPayload, filterKey);
             if (resolved && resolved.modelExp && Object.keys(resolved.modelExp).length > 0) {
                 const ensemble = _ensembleOf(resolved.modelExp);
@@ -1057,6 +1111,10 @@
             // 2) 실시간 딥러닝 분석 폴백 (리졸버 시스템 + 세션 캐시)
             if (!modelExp) {
                 const payload = await _getPayload();
+                // [fix-81] digit 키는 v4에 데이터 없으니 v3 tail_analysis lazy merge
+                if (isDigitKey && payload) {
+                    await _ensureTailAnalysis(payload);
+                }
                 const resolved = _resolvePayload(payload, filterKey);
                 if (resolved) {
                     modelExp = resolved.modelExp;
