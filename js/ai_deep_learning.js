@@ -2176,6 +2176,22 @@ const DeepLearning = {
             return best || 'xgboost';
         };
 
+        // [Stage 1-4-D-2-fix-64] 필터 → 분석 페이지 URL 매핑
+        const FILTER_PAGE = {
+            sum: 'total_sum.html', tail_sum: 'tail_sum.html', ac: 'ac_value.html',
+            odd: 'odd_even.html', high: 'low_high.html',
+            prime: 'prime_number.html', composite: 'composite_number.html',
+            consecutive: 'consecutive_number.html', twin: 'twin_number.html',
+            square: 'square_number.html', triangular: 'triangular_number.html',
+            mul3: 'multiple.html', mul4: 'multiple.html', mul5: 'multiple.html',
+            mul7: 'multiple.html', mul8: 'multiple.html',
+            mul34: 'multiple.html', mul35: 'multiple.html', mul45: 'multiple.html',
+            non_multiple: 'multiple.html',
+            neighbor: 'neighbor_number.html', carryover: 'carryover.html',
+            hot10: 'hot_cold.html', neutral10: 'hot_cold.html', cold10: 'hot_cold.html',
+            missing: 'missing.html',
+        };
+
         // 필터별 짧은 설명 (분석 방식)
         const FILTER_DESC = {
             sum: '6번호의 합계. 물리 범위 21~255, 역사 평균 약 135. 전이(Markov)·패턴(XGBoost)·시계열(TFT)로 예측.',
@@ -2240,9 +2256,14 @@ const DeepLearning = {
 
             cardsHtml += `<div style="border:1px solid #e5e7eb; border-radius:14px; background:#fff; overflow:hidden;">`;
 
-            // 헤더
+            // 헤더 — [fix-64] 필터 라벨 클릭 시 해당 분석 페이지로 이동
+            const pageUrl = FILTER_PAGE[key] || null;
             cardsHtml += `<div style="display:flex; align-items:center; gap:12px; padding:18px 22px; border-bottom:1px solid #f3f4f6; background:linear-gradient(to right, #fafbfc, #fff);">`;
-            cardsHtml += `<span style="font-size:18px; font-weight:800; color:#1f2937;">${label}</span>`;
+            if (pageUrl) {
+                cardsHtml += `<a href="${pageUrl}" style="font-size:18px; font-weight:800; color:#1f2937; text-decoration:none; border-bottom:2px solid transparent; transition:border-color 0.15s;" onmouseover="this.style.borderColor='#4f46e5';" onmouseout="this.style.borderColor='transparent';" title="${label} 분석 페이지로 이동">${label} <span class="material-symbols-outlined" style="font-size:14px; vertical-align:-2px; color:#94a3b8;">open_in_new</span></a>`;
+            } else {
+                cardsHtml += `<span style="font-size:18px; font-weight:800; color:#1f2937;">${label}</span>`;
+            }
             cardsHtml += `<span style="font-size:11px; color:#94a3b8; font-family:monospace; padding-top:4px;">${key}</span>`;
             cardsHtml += `<span style="margin-left:auto; font-size:12px; font-weight:700; padding:4px 12px; border-radius:999px; background:${topCfg.color}18; color:${topCfg.color};">${topCfg.label} 주도</span>`;
             cardsHtml += `</div>`;
