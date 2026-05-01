@@ -2221,7 +2221,7 @@ const DeepLearning = {
             const task = val.primary_task || '-';
             const filterDesc = FILTER_DESC[key] || '필터별 분석 방식.';
 
-            // 모델별 정렬 (가중치 큰 순) — DEPRECATED 제외
+            // 모델별 정렬 (가중치 큰 순) — DEPRECATED 제외 + 0% 모델 제거 (사용자 결정 fix-62)
             const DEPRECATED = new Set(['lstm', 'transformer']);
             const modelRows = Object.entries(modelExp)
                 .filter(([m]) => m !== '__ensemble__' && !DEPRECATED.has(m))
@@ -2235,6 +2235,7 @@ const DeepLearning = {
                     representative: (typeof e?.min === 'number' && typeof e?.max === 'number')
                         ? Math.round((e.min + e.max) / 2) : '-',
                 }))
+                .filter(row => row.weight > 0)  // [fix-62] 0% 모델 제거 — 해당 task에 사용 안 됨
                 .sort((a, b) => b.weight - a.weight);
 
             cardsHtml += `<div style="border:1px solid #e5e7eb; border-radius:14px; background:#fff; overflow:hidden;">`;
