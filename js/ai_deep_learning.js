@@ -2023,6 +2023,12 @@ const DeepLearning = {
                 const enabled = p.enabled !== undefined ? p.enabled : true;
                 if (!enabled) return null;
                 const s = p.settings !== undefined ? p.settings : p;
+                // [fix-74-r3] 비율형(odd/high) — selectedRatios: ["2:4","3:3",...] 형식 처리
+                if (Array.isArray(s.selectedRatios) && s.selectedRatios.length > 0) {
+                    return s.selectedRatios.length > 4
+                        ? `${s.selectedRatios[0]} ~ ${s.selectedRatios[s.selectedRatios.length - 1]}`
+                        : s.selectedRatios.join(', ');
+                }
                 if (s.min !== undefined && s.max !== undefined) return `${s.min}~${s.max}`;
                 if (s.selectedCounts && s.selectedCounts.length > 0) {
                     const mn = s.selectedCounts[0], mx = s.selectedCounts[s.selectedCounts.length - 1];
