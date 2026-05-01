@@ -3436,18 +3436,30 @@ const DeepLearning = {
             return Math.max(0, Math.min(1, p / 1.8));
         };
 
-        // 모델 chip + heatmap (mini progress bar)
+        // [fix-90] 모델 chip + heatmap — 값 0(미학습/추론실패)은 disabled 표시
         const modelChips = MODEL_ORDER.map(m => {
             const val = item.model_exp ? parseFloat(item.model_exp[m]) : NaN;
-            const range = isNaN(val) ? '-' : _fmtRange(val);
+            const isUntrained = !isNaN(val) && val === 0;  // 정확히 0 = 미학습/실패
+            const range = isNaN(val) ? '-' : (isUntrained ? '미학습' : _fmtRange(val));
             const color = MODEL_COLORS[m];
             const intensity = _intensity(val);
-            const opacity = isNaN(val) ? 0.15 : (0.20 + intensity * 0.75);  // 0.20~0.95
+            // 미학습은 회색 + 점선 / NaN은 옅은 회색 / 정상은 모델 색상
+            let bg, txtColor, borderStyle;
+            if (isUntrained) {
+                bg = '#e5e7eb'; txtColor = '#9ca3af'; borderStyle = '1px dashed #d1d5db';
+            } else if (isNaN(val)) {
+                bg = '#f3f4f6'; txtColor = '#9ca3af'; borderStyle = 'none';
+            } else {
+                const opacity = 0.20 + intensity * 0.75;
+                bg = color; txtColor = 'white'; borderStyle = 'none';
+            }
+            const opacity = (isUntrained || isNaN(val)) ? 1.0 : (0.20 + intensity * 0.75);
+            const tooltipText = isUntrained ? `${MODEL_ABBR[m]} - 학습 미완료 또는 추론 실패` : `${MODEL_ABBR[m]} ${range}`;
             return `
-                <div title="${MODEL_ABBR[m]} ${range}" style="display:flex; flex-direction:column; align-items:stretch; gap:2px;">
-                    <div style="font-size:9px; font-weight:700; color:${color}; text-align:center; letter-spacing:0.3px;">${MODEL_ABBR[m]}</div>
-                    <div style="height:14px; background:${color}; opacity:${opacity}; border-radius:3px; display:flex; align-items:center; justify-content:center;">
-                        <span style="font-size:9px; font-weight:800; color:white; font-family:monospace; text-shadow:0 1px 1px rgba(0,0,0,0.2);">${range}</span>
+                <div title="${tooltipText}" style="display:flex; flex-direction:column; align-items:stretch; gap:2px;">
+                    <div style="font-size:9px; font-weight:700; color:${isUntrained ? '#9ca3af' : color}; text-align:center; letter-spacing:0.3px;">${MODEL_ABBR[m]}</div>
+                    <div style="height:14px; background:${isUntrained ? bg : color}; opacity:${opacity}; border-radius:3px; border:${borderStyle}; display:flex; align-items:center; justify-content:center; box-sizing:border-box;">
+                        <span style="font-size:${isUntrained ? '8px' : '9px'}; font-weight:800; color:${txtColor}; font-family:${isUntrained ? 'sans-serif' : 'monospace'}; text-shadow:${isUntrained ? 'none' : '0 1px 1px rgba(0,0,0,0.2)'};">${range}</span>
                     </div>
                 </div>`;
         }).join('');
