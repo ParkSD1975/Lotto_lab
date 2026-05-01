@@ -2330,8 +2330,8 @@ const DeepLearning = {
         cardsHtml += '</div>';
         container.innerHTML = html + cardsHtml;
 
-        // [Stage 1-4-D-2-fix-66] URL ?focus=sum 또는 #filter-card-sum 처리
-        // AI 프리미엄 리포트 → 딥러닝 필터 탭 deep link
+        // [Stage 1-4-D-2-fix-66/71] URL ?focus=sum 또는 #filter-card-sum 처리
+        // AI 프리미엄 리포트 → 딥러닝 필터 탭 deep link (탭 키: 'filters' 's' 추가)
         try {
             const params = new URLSearchParams(window.location.search);
             const focus = params.get('focus') || (window.location.hash || '').replace(/^#filter-card-/, '');
@@ -2339,9 +2339,9 @@ const DeepLearning = {
                 setTimeout(() => {
                     const el = document.getElementById('filter-card-' + focus);
                     if (el) {
-                        // 필터 분석 탭으로 자동 전환
+                        // [fix-71] 필터 분석 탭 키 'filter' → 'filters' (s 추가)
                         if (typeof this.switchTab === 'function') {
-                            this.switchTab('filter');
+                            this.switchTab('filters');
                         }
                         setTimeout(() => {
                             el.scrollIntoView({ behavior: 'smooth', block: 'start' });
