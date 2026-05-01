@@ -40,7 +40,14 @@ _MODEL_KO = {
 }
 
 
-_FILTER_PROMPT = """다음 필터 분석을 한국어 3문장으로만 답해주세요. 영어 단어 사용 금지 (모델명 XGBoost/CNN/Bayesian 등은 예외).
+_FILTER_PROMPT = """다음 필터 분석을 한국어 정확히 3문장으로 작성하세요.
+
+[엄격한 규칙]
+1. 오직 "{filter_label}" 필터에 대해서만 작성하세요. 다른 필터(끝수합/총합/AC값/홀짝/이월수 등) 이름을 절대 언급하지 마세요.
+2. 영어 단어 사용 금지 (모델명 XGBoost/CatBoost/TabNet/CNN/GNN/Markov/AE/TFT/N-BEATS/MHN/Bayesian 만 예외).
+3. 모든 숫자 뒤에 반드시 단위(%, 점, 회, 개)를 붙이세요. "Markov가 25" 처럼 단위 누락 금지.
+4. 결론 문장은 정확히 1번만 작성. "종합적으로" 또는 "결론적으로"로 시작하는 문장을 두 번 이상 쓰지 마세요.
+5. 정확히 3문장 — 1문장: 예측 범위+주도 모델 / 2문장: 신뢰구간+사용자 비교 / 3문장: 결론.
 
 [입력]
 필터: {filter_label}
@@ -49,10 +56,10 @@ AI 예측 범위: {ens_min} ~ {ens_max}
 사용자 설정: {user_range}
 주도 모델: {primary_model} ({primary_weight}%)
 
-[답변 예시 (이 형식대로 한국어로 작성)]
-끝수합은 22 ~ 33 범위로 예측되며 XGBoost가 31% 비중으로 주도하고 있습니다. 80% 신뢰구간 21 ~ 32에 사용자 설정 21 ~ 32가 포함되어 정합성이 높게 나타납니다. 종합적으로 사용자 설정 범위가 AI 예측과 일치하므로 그대로 사용해도 무리가 없습니다.
+[형식 (정확히 한국어 3문장)]
+{filter_label}은(는) {ens_min} ~ {ens_max} 범위로 예측되며 {primary_model}이(가) {primary_weight}% 비중으로 주도하고 있습니다. (신뢰구간과 사용자 설정 비교 1문장). (종합적으로 시작하는 결론 1문장).
 
-[답변 (위 예시처럼 정확히 한국어 3문장)]
+[답변]
 """
 
 
@@ -106,18 +113,23 @@ async def _generate_one(
             "primary_weight": f"{primary_w:.1f}",
             "top_models":     top3,
         })
-        return _clean_response(response)
+        return _clean_response(response, current_filter_key=filter_key)
     except Exception as e:
         logger.warning(f"  filter_narrative {filter_key} 실패: {e}")
         return None
 
 
-def _clean_response(text: str) -> str:
+def _clean_response(text: str, current_filter_key: Optional[str] = None) -> str:
     """LLM 응답 후처리 — 한국어 자연 문장만 추출.
 
     [fix-57] Gemma가 영어 prompt-echo로 시작하는 경우 강화 처리:
     - '번호 N번' 또는 '필터 X번/X 분석' 같은 한국어 시작점부터 채택
     - 한국어 80자 이상 paragraph만 통과
+
+    [fix-73] cross-contamination 차단:
+    - current_filter_key가 주어지면 다른 필터의 한국어 라벨이 등장하는 sentence 폐기
+    - "X가 25." 처럼 숫자 뒤 단위 없이 마침표 찍힌 어절 잘림 감지 → 해당 sentence 폐기
+    - "종합적으로/결론적으로" 시작 sentence는 첫 1개만 채택
     """
     if not text:
         return ""
@@ -203,10 +215,51 @@ def _clean_response(text: str) -> str:
     final_sents = re.split(r"\.\s+", text)
     seen = set()
     deduped = []
+    # [fix-73] 다른 필터 라벨 (current_filter_key 외) 수집
+    _other_labels = []
+    if current_filter_key:
+        for fk, label in _FILTER_LABELS.items():
+            if fk == current_filter_key:
+                continue
+            # 짧은 라벨(2자 이하)은 우연 매치 위험 → 4자 이상만 사용
+            if len(label) >= 4:
+                _other_labels.append(label)
+            else:
+                # '연번', '소수', '동형수' 등 짧은 라벨은 단어 경계 강화
+                _other_labels.append(label)
+    # 결론 sentence 카운터 (종합적으로/결론적으로 시작)
+    conclusion_count = 0
+    # 어절 잘림 패턴: 모델명+조사 뒤 숫자+마침표로 끝나는 단편 (단위 누락)
+    _MODEL_NAMES_ALL = ["XGBoost", "CatBoost", "TabNet", "TFT", "Markov", "N-BEATS",
+                        "MHN", "Bayesian", "CNN", "GNN", "AutoEncoder", "AE"]
+    _model_alt = "|".join(re.escape(m) for m in _MODEL_NAMES_ALL)
+    _truncated_pat = re.compile(rf"(?:{_model_alt})(?:가|이)\s*\d+\s*$")
     for s in final_sents:
         s = s.strip()
         if not s:
             continue
+        # [fix-73 a] 다른 필터 라벨 침투 검출 → sentence 폐기
+        if _other_labels:
+            hit_other = False
+            for label in _other_labels:
+                # current label과 substring 충돌 방지: current_label이 label을 포함하면 skip
+                cur_label = _FILTER_LABELS.get(current_filter_key or "", "")
+                if cur_label and label in cur_label:
+                    continue
+                if label in s:
+                    hit_other = True
+                    break
+            if hit_other:
+                continue
+        # [fix-73 b] 어절 잘림 검출 — "Markov가 25" (단위 없이 끝남) → 폐기
+        if _truncated_pat.search(s):
+            continue
+        # [fix-73 c] 결론 문장은 첫 1개만
+        is_conclusion = bool(re.match(r"^(종합적으로|결론적으로)", s))
+        if is_conclusion:
+            if conclusion_count >= 1:
+                continue
+            conclusion_count += 1
         # 정규화 키 (공백/숫자/특수문자 제거 후 한글만, 첫 25자)
         key = re.sub(r"[^가-힣]", "", s)[:25]
         if key and key not in seen:
