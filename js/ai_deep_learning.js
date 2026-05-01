@@ -2458,25 +2458,56 @@ const DeepLearning = {
         cardsHtml += '</div>';
         container.innerHTML = html + cardsHtml;
 
-        // [Stage 1-4-D-2-fix-66/71] URL ?focus=sum 또는 #filter-card-sum 처리
-        // AI 프리미엄 리포트 → 딥러닝 필터 탭 deep link (탭 키: 'filters' 's' 추가)
+        // [Stage 1-4-D-2-fix-66/71/88] URL ?focus=KEY 또는 #filter-card-KEY 처리
+        // 분석 페이지 → 딥러닝 페이지 deep link 랜딩 (랜딩 위치 정확화)
         try {
             const params = new URLSearchParams(window.location.search);
             const focus = params.get('focus') || (window.location.hash || '').replace(/^#filter-card-/, '');
             if (focus) {
                 setTimeout(() => {
-                    const el = document.getElementById('filter-card-' + focus);
-                    if (el) {
-                        // [fix-71] 필터 분석 탭 키 'filter' → 'filters' (s 추가)
+                    // [fix-88] 키 종류별 랜딩 위치 분기
+                    // (a) 끝수(digit0~9) → 번호 분석 탭의 끝수 섹션
+                    // (b) 1궁~9궁 → 9궁 섹션
+                    // (c) 가로/세로N → 로또용지 섹션
+                    // (d) 단번대/10번대~40번대 → 번호대별 섹션
+                    // (e) 그 외 (sum/odd/prime/etc) → 기초 분석 탭의 해당 카드
+                    let targetTab = 'filters';
+                    let targetEl = null;
+
+                    if (/^digit\d$/.test(focus)) {
+                        // 끝수
+                        targetTab = 'summary';
+                        targetEl = document.getElementById('section-tail');
+                    } else if (/^[1-9]궁$/.test(focus)) {
+                        // 9궁
+                        targetTab = 'summary';
+                        targetEl = document.getElementById('section-magic');
+                    } else if (/^(가로|세로)[1-7]$/.test(focus)) {
+                        // 로또용지
+                        targetTab = 'summary';
+                        targetEl = document.getElementById('section-paper');
+                    } else if (/^(단번대|\d{1,2}번대|01~10|11~20|21~30|31~40|41~45)$/.test(focus)) {
+                        // 번호대별
+                        targetTab = 'summary';
+                        targetEl = document.getElementById('section-band');
+                    } else {
+                        // 기존 필터 카드
+                        targetEl = document.getElementById('filter-card-' + focus);
+                    }
+
+                    if (targetEl) {
                         if (typeof this.switchTab === 'function') {
-                            this.switchTab('filters');
+                            this.switchTab(targetTab);
                         }
                         setTimeout(() => {
-                            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
                             // 강조 효과 (3초간 indigo border)
-                            el.style.boxShadow = '0 0 0 3px #818cf8';
-                            setTimeout(() => { el.style.boxShadow = ''; }, 3000);
+                            targetEl.style.boxShadow = '0 0 0 3px #818cf8';
+                            targetEl.style.transition = 'box-shadow 0.3s';
+                            setTimeout(() => { targetEl.style.boxShadow = ''; }, 3000);
                         }, 300);
+                    } else {
+                        console.warn(`[deep-link] focus '${focus}' element not found`);
                     }
                 }, 200);
             }
