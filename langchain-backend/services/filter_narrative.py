@@ -51,10 +51,10 @@ Filter data:
 - User setting: {user_range}
 - Dominant model: {primary_model} (weight {primary_weight}%)
 
-Required sentence structure:
-S1 (Korean): State that {filter_label} is predicted in the range, mention {primary_model} with {primary_weight}% weight (always include the percent sign).
-S2 (Korean): Compare the 80% confidence interval with the user setting.
-S3 (Korean): A single conclusion sentence starting with "종합적으로".
+Output exactly 3 Korean sentences in this order:
+First sentence: The predicted range of {filter_label} and {primary_model} with {primary_weight} percent weight (always include the percent sign).
+Second sentence: Compare the 80 percent confidence interval with the user setting.
+Third sentence: A conclusion starting with "종합적으로".
 
 Constraints:
 - Korean only. Allowed English tokens: model names XGBoost/CatBoost/TabNet/CNN/GNN/Markov/AE/TFT/N-BEATS/MHN/Bayesian.
@@ -193,12 +193,11 @@ def _clean_response(text: str, current_filter_key: Optional[str] = None) -> str:
             continue
         s = re.sub(r'["“”]', "", s)
         s = re.sub(r"\s+", " ", s).strip()
-        # [fix-63 v5] 앞부분 메타데이터 잘라냄 — 명사+조사 위치가 sentence 시작에서 6자 초과 멀때만
-        rs_match = _real_start.search(s)
-        if rs_match and rs_match.start() > 6:
-            # 6자 이내면 'AC값은', 'XGBoost가' 같은 자연 시작 — 보존
-            # 6자 초과 → '총합 116 ~ 165 80% ... 총합은' 같은 메타 + 자연 혼재 → 잘라냄
-            s = s[rs_match.start():].strip()
+        # [fix-78] _real_start 트리밍 비활성화
+        # 기존(fix-63 v5)은 'X: AI 종합 ...' 같은 메타 라벨을 자르려 했으나,
+        # 'AI 예측 범위 0개에서 1개에 비해 ...' 같은 자연 한국어 prefix까지 잘라
+        # '개에 비해 ...' fragment를 만들어버림.
+        # 메타 라벨/prompt-echo는 _PROMPT_ECHO_PATTERNS에서 별도 처리.
         # 한국어/모델명 시작 + 한글 10+ → 자연 문장
         if _start_pattern.match(s) and len(re.findall(r"[가-힣]", s)) >= 10:
             ko_sentences.append(s + ".")
@@ -239,8 +238,9 @@ def _clean_response(text: str, current_filter_key: Optional[str] = None) -> str:
     _MODEL_NAMES_ALL = ["XGBoost", "CatBoost", "TabNet", "TFT", "Markov", "N-BEATS",
                         "MHN", "Bayesian", "CNN", "GNN", "AutoEncoder", "AE"]
     _model_alt = "|".join(re.escape(m) for m in _MODEL_NAMES_ALL)
-    # [fix-76] 강화: 모델명 + (이|가|모델이)? + 숫자 + (% 없이 sentence 끝)
-    _truncated_pat = re.compile(rf"(?:{_model_alt})(?:이|가|\s*모델이)?\s*\d+(?:\.\d+)?\s*$")
+    # [fix-76/78] 강화: 모델명 + (이|가|모델이)? + 숫자(.소수)? + 옵션 마침표 + sentence 끝
+    # (마침표 포함하여 매치 — sentence가 "...XGBoost가 18." 처럼 마침표 직전에 끝나도 검출)
+    _truncated_pat = re.compile(rf"(?:{_model_alt})(?:이|가|\s*모델이)?\s*\d+(?:\.\d+)?\s*\.?\s*$")
     # [fix-76 추가] prompt-echo 검출 패턴
     _PROMPT_ECHO_PATTERNS = [
         # 메타 라벨/규칙 echo
@@ -256,10 +256,16 @@ def _clean_response(text: str, current_filter_key: Optional[str] = None) -> str:
         re.compile(r"^(만\s*예외|예외\)|예외\s*\))"),
         re.compile(r"종합적으로\s*\d+\s*종합적으로"),
         re.compile(r"^S\d+\s*\("),  # "S1 (Korean):" 같은 영어 형식 라벨
+        re.compile(r"(?i)\b(first|second|third)\s+sentence\b"),  # prompt 영어 라벨 echo
+        re.compile(r"(?i)\boutput\s+(?:exactly|only)\b"),  # "Output exactly 3 Korean sentences"
     ]
     # [fix-76] placeholder echo 패턴 ("필터명은(는)", "모델이(가)") — 자연 조사로 변환
     _placeholder_josa_pat = re.compile(r"([가-힣A-Za-z0-9]+)은\(는\)")
     _placeholder_josa_pat2 = re.compile(r"([가-힣A-Za-z0-9]+)이\(가\)")
+    # [fix-78] 의존명사 시작 fragment 검출
+    # 자연스러운 sentence는 명사+조사("연번은", "총합이", "예측은")로 시작
+    # 의존명사("개", "점", "회", "호")로 시작하면 앞 어절 손실된 fragment → 폐기
+    _dep_noun_start_pat = re.compile(r"^(개|점|회|호)(에|와|과|로|을|를|이|가|는|도|만)\b")
     for s in final_sents:
         s = s.strip()
         if not s:
@@ -269,6 +275,9 @@ def _clean_response(text: str, current_filter_key: Optional[str] = None) -> str:
         s = _placeholder_josa_pat2.sub(r"\1이", s)
         # [fix-76 b] prompt-echo sentence 폐기
         if any(p.search(s) for p in _PROMPT_ECHO_PATTERNS):
+            continue
+        # [fix-78] 의존명사("개"/"점"/"회"/"호") + 조사로 시작하는 fragment 폐기
+        if _dep_noun_start_pat.match(s):
             continue
         # [fix-73 a] 다른 필터 라벨 침투 검출 → sentence 폐기
         if _other_labels:
