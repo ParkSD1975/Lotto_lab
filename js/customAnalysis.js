@@ -5,15 +5,31 @@ let historyViewLimit = 200; // [수정] 딥러닝 백필 데이터(1211회~) 노
 
 const aiCache = new Map(); // [New] AI 예측 데이터 캐시
 
+// [Stage 1-4-D-2-fix-82] AI 캐시 TTL — stale 데이터로 인한 추천조합 갱신 안 됨 버그 수정
+// 사용자 보고: 딥러닝 분석 결과 변경 후에도 추천조합 5/10/1-10 대상번호가 그대로
+// 원인: sessionStorage '_aiCacheV1' 무효화 트리거 없음 → 무한 캐시
+// 정책: 10분 TTL + 키 버전 v1→v2 (즉시 무효화)
+const _AI_CACHE_KEY = '_aiCacheV2';
+const _AI_CACHE_TTL_MS = 10 * 60 * 1000; // 10분
+
 // [성능] sessionStorage에서 aiCache 복원 (페이지 재방문 시 재요청 방지)
 (function _restoreAiCache() {
     try {
-        const raw = sessionStorage.getItem('_aiCacheV1');
+        const raw = sessionStorage.getItem(_AI_CACHE_KEY);
         if (raw) {
-            const obj = JSON.parse(raw);
-            Object.entries(obj).forEach(([k, v]) => aiCache.set(parseInt(k), v));
-            console.log(`♻️ [aiCache] sessionStorage에서 ${aiCache.size}개 회차 복원`);
+            const wrapper = JSON.parse(raw);
+            // [fix-82] {ts, data} 래퍼 형식 — TTL 체크 후 만료되면 무시
+            if (wrapper && wrapper.ts && wrapper.data
+                && (Date.now() - wrapper.ts) < _AI_CACHE_TTL_MS) {
+                Object.entries(wrapper.data).forEach(([k, v]) => aiCache.set(parseInt(k), v));
+                console.log(`♻️ [aiCache] sessionStorage에서 ${aiCache.size}개 회차 복원 (TTL ${Math.round((_AI_CACHE_TTL_MS - (Date.now() - wrapper.ts)) / 60000)}분 남음)`);
+            } else {
+                console.log('♻️ [aiCache] sessionStorage 캐시 만료 → 새로 로드');
+                sessionStorage.removeItem(_AI_CACHE_KEY);
+            }
         }
+        // [fix-82] 구버전 키(_aiCacheV1) 정리
+        sessionStorage.removeItem('_aiCacheV1');
     } catch (_) {}
 })();
 
@@ -22,9 +38,29 @@ function _persistAiCache() {
     try {
         const obj = {};
         aiCache.forEach((v, k) => { obj[k] = v; });
-        sessionStorage.setItem('_aiCacheV1', JSON.stringify(obj));
+        // [fix-82] {ts, data} 래퍼로 저장
+        sessionStorage.setItem(_AI_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: obj }));
     } catch (_) {}
 }
+
+// [fix-82] 외부에서 캐시 무효화 호출용 (딥러닝 분석 페이지 저장 시 broadcast)
+window.invalidateAiCache = function () {
+    aiCache.clear();
+    try { sessionStorage.removeItem(_AI_CACHE_KEY); } catch (_) {}
+    console.log('🧹 [aiCache] 외부 트리거로 캐시 무효화');
+};
+
+// [fix-82] 다른 탭/페이지에서 분석 결과 갱신 시 자동 무효화
+// 'deep_analysis_refresh' 키 storage event를 듣고 캐시 비움
+window.addEventListener('storage', (e) => {
+    if (e.key === 'deep_analysis_refresh' || e.key === 'custom_analysis_refresh') {
+        window.invalidateAiCache();
+        // 페이지가 보이는 상태면 자동 재렌더 (renderUI/renderHistory 같은 함수가 있다면)
+        if (typeof renderHistory === 'function' && document.visibilityState === 'visible') {
+            renderHistory();
+        }
+    }
+});
 
 // [표준] 로또 번호대별 공 색상 — lotto_ball_colors.md 스펙 (그라데이션)
 //   1-10: yellow / 11-20: blue / 21-30: red / 31-40: gray / 41-45: green
