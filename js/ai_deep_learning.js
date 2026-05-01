@@ -2254,7 +2254,7 @@ const DeepLearning = {
                 .filter(row => row.weight > 0)  // [fix-62] 0% 모델 제거 — 해당 task에 사용 안 됨
                 .sort((a, b) => b.weight - a.weight);
 
-            cardsHtml += `<div style="border:1px solid #e5e7eb; border-radius:14px; background:#fff; overflow:hidden;">`;
+            cardsHtml += `<div id="filter-card-${key}" style="border:1px solid #e5e7eb; border-radius:14px; background:#fff; overflow:hidden; scroll-margin-top:80px;">`;
 
             // 헤더 — [fix-64] 필터 라벨 클릭 시 해당 분석 페이지로 이동
             const pageUrl = FILTER_PAGE[key] || null;
@@ -2271,11 +2271,13 @@ const DeepLearning = {
             // 본문
             cardsHtml += `<div style="padding:20px 22px; display:flex; flex-direction:column; gap:18px;">`;
 
-            // 1. 분석 방식
+            // 1. 분석 방식 — [fix-65] 11 base는 1~45 확률 학습, 필터는 MC 시뮬레이션 명시
             cardsHtml += `<div style="display:flex; gap:10px; align-items:flex-start; padding:12px 14px; background:#f8fafc; border-radius:8px;">`;
             cardsHtml += `<span class="material-symbols-outlined" style="font-size:16px; color:#64748b; padding-top:1px;">info</span>`;
-            cardsHtml += `<div><div style="font-size:11px; font-weight:700; color:#475569; margin-bottom:3px;">분석 방식</div>`;
-            cardsHtml += `<div style="font-size:13px; color:#334155; line-height:1.6;">${filterDesc}</div></div>`;
+            cardsHtml += `<div><div style="font-size:11px; font-weight:700; color:#475569; margin-bottom:3px;">분석 방식 <span style="font-weight:500; color:#94a3b8; margin-left:6px;">간접 도출 (MC 시뮬레이션)</span></div>`;
+            cardsHtml += `<div style="font-size:13px; color:#334155; line-height:1.6;">${filterDesc}</div>`;
+            cardsHtml += `<div style="font-size:11px; color:#94a3b8; margin-top:6px; font-style:italic;">11 base 모델은 1~45 번호별 출현 확률을 학습합니다. 본 필터는 그 확률 분포에서 6번호 1000회 sample → 합계/개수 분포를 도출 (20~80분위 = 모델별 예측).</div>`;
+            cardsHtml += `</div>`;
             cardsHtml += `</div>`;
 
             // 2. 핵심 수치 3개 (AI 추천 / CI / 사용자)
@@ -2285,11 +2287,11 @@ const DeepLearning = {
             cardsHtml += `<div style="padding:12px 14px; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px;"><div style="font-size:10px; color:#10b981; font-weight:700; margin-bottom:4px;">사용자 설정</div><div style="font-size:18px; font-weight:800; color:#047857;">${userSet || '미설정'}</div></div>`;
             cardsHtml += `</div>`;
 
-            // 3. 모델별 표 (가중치 큰 순)
+            // 3. 모델별 표 (가중치 큰 순) — [fix-65] 라벨 명확화
             cardsHtml += `<div>`;
             cardsHtml += `<div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">`;
             cardsHtml += `<span class="material-symbols-outlined" style="font-size:16px; color:#4f46e5;">network_intelligence</span>`;
-            cardsHtml += `<span style="font-size:12px; font-weight:700; color:#475569;">모델별 예측 (가중치 큰 순)</span>`;
+            cardsHtml += `<span style="font-size:12px; font-weight:700; color:#475569;">모델별 sum/count 분포 <span style="font-weight:400; color:#94a3b8;">(각 모델 1~45 확률 → MC 1000회 sample → 20~80분위)</span></span>`;
             cardsHtml += `</div>`;
             cardsHtml += `<table style="width:100%; border-collapse:separate; border-spacing:0; font-size:12px;">`;
             cardsHtml += `<thead><tr style="background:#f8fafc;"><th style="text-align:left; padding:8px 10px; font-weight:700; color:#64748b; border-bottom:1px solid #e5e7eb;">모델</th><th style="text-align:right; padding:8px 10px; font-weight:700; color:#64748b; border-bottom:1px solid #e5e7eb;">가중치</th><th style="text-align:center; padding:8px 10px; font-weight:700; color:#64748b; border-bottom:1px solid #e5e7eb;">예측 범위</th><th style="text-align:center; padding:8px 10px; font-weight:700; color:#64748b; border-bottom:1px solid #e5e7eb;">대표값</th></tr></thead>`;
@@ -2327,6 +2329,30 @@ const DeepLearning = {
         }
         cardsHtml += '</div>';
         container.innerHTML = html + cardsHtml;
+
+        // [Stage 1-4-D-2-fix-66] URL ?focus=sum 또는 #filter-card-sum 처리
+        // AI 프리미엄 리포트 → 딥러닝 필터 탭 deep link
+        try {
+            const params = new URLSearchParams(window.location.search);
+            const focus = params.get('focus') || (window.location.hash || '').replace(/^#filter-card-/, '');
+            if (focus) {
+                setTimeout(() => {
+                    const el = document.getElementById('filter-card-' + focus);
+                    if (el) {
+                        // 필터 분석 탭으로 자동 전환
+                        if (typeof this.switchTab === 'function') {
+                            this.switchTab('filter');
+                        }
+                        setTimeout(() => {
+                            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            // 강조 효과 (3초간 indigo border)
+                            el.style.boxShadow = '0 0 0 3px #818cf8';
+                            setTimeout(() => { el.style.boxShadow = ''; }, 3000);
+                        }, 300);
+                    }
+                }, 200);
+            }
+        } catch (_) { /* noop */ }
     },
 
     renderMatrixData(matrixData) {

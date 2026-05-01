@@ -686,7 +686,7 @@
         return rates;
     }
 
-    function _buildHTML(filterLabel, targetRound, modelExp, ensemble, recentValues, tabs, containerId, ratioData) {
+    function _buildHTML(filterLabel, targetRound, modelExp, ensemble, recentValues, tabs, containerId, ratioData, filterKey) {
         const ratioChips = (() => {
             if (!ratioData || !ratioData.ensemble) return '';
             const rec = ratioData.ensemble.recommended || [];
@@ -850,6 +850,16 @@
                     <div style="font-size:0.95rem; font-weight:900; color:white; letter-spacing:-0.3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">AI 프리미엄 전략 리포트</div>
                     <div style="font-size:0.62rem; color:#94a3b8; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">INTELLIGENT ANALYSIS — ${filterLabel}</div>
                 </div>
+                ${filterKey ? `
+                <a href="ai_deep_learning.html?focus=${filterKey}#filter-card-${filterKey}"
+                   style="display:inline-flex; align-items:center; gap:6px; padding:6px 12px; background:#1e293b; border:1px solid #334155; border-radius:8px; color:#38bdf8; font-size:0.72rem; font-weight:700; text-decoration:none; transition:all 0.15s; white-space:nowrap;"
+                   onmouseover="this.style.background='#334155'; this.style.borderColor='#38bdf8';"
+                   onmouseout="this.style.background='#1e293b'; this.style.borderColor='#334155';"
+                   title="딥러닝 분석 페이지의 ${filterLabel} 섹션으로 이동">
+                    <span class="material-symbols-outlined" style="font-size:14px;">network_intelligence</span>
+                    딥러닝 상세
+                    <span class="material-symbols-outlined" style="font-size:12px;">arrow_forward</span>
+                </a>` : ''}
                 ${_tabsHTML(tabs, containerId)}
             </div>
 
@@ -941,7 +951,7 @@
             const resolved = _resolvePayload(warmPayload, filterKey);
             if (resolved && resolved.modelExp && Object.keys(resolved.modelExp).length > 0) {
                 const ensemble = _ensembleOf(resolved.modelExp);
-                el.innerHTML = _buildHTML(filterLabel, resolved.targetRound || '', resolved.modelExp, ensemble, recentValues, tabs, containerId, resolved.ratioData || null);
+                el.innerHTML = _buildHTML(filterLabel, resolved.targetRound || '', resolved.modelExp, ensemble, recentValues, tabs, containerId, resolved.ratioData || null, filterKey);
                 _wireTabs(containerId, tabs);
                 return;
             }
@@ -983,7 +993,7 @@
             }
 
             const ensemble = _ensembleOf(modelExp);
-            el.innerHTML = _buildHTML(filterLabel, targetRound, modelExp, ensemble, recentValues, tabs, containerId, ratioData);
+            el.innerHTML = _buildHTML(filterLabel, targetRound, modelExp, ensemble, recentValues, tabs, containerId, ratioData, filterKey);
             _wireTabs(containerId, tabs);
         } catch (e) {
             console.error('[PremiumInsightPanel]', e);
