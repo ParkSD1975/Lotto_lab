@@ -22,4 +22,5 @@ catboost>=1.2.0
 pytorch-tabnet>=4.1.0
 pytorch-forecasting>=1.0.0
 pytorch-lightning>=2.0.0
-hflayers>=0.7.0
+# hflayers는 PyPI 최신 0.0.7로 버전 명시 (>=0.7.0은 미존재 → BUILD_ERROR)
+hflayers>=0.0.7
