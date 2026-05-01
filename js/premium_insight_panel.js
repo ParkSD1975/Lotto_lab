@@ -724,13 +724,16 @@
         const flow = _flowStats(recentValues);
         const hitRates = _modelHitRates(modelExp, recentValues);
 
-        // [Stage 1-4-D-2-fix-67] 카드 표시 — weight 0 / DEPRECATED 모델 제외
+        // [Stage 1-4-D-2-fix-67/69] 카드 표시 — weight 0 / DEPRECATED 제외
+        // 단 AutoEncoder는 weight 0이어도 '이상 감지 보조' 카드로 표시 (fix-69)
         const cards = MODEL_ORDER
             .filter(m => {
                 const r = modelExp[m.key];
                 if (!r) return false;
                 if (DEPRECATED_MODEL_KEYS.has(m.key)) return false;
-                // weight 0 → 해당 task에서 미사용 → 제외
+                // [fix-69] AE는 weight 0이어도 이상 감지 보조로 항상 표시
+                if (m.key === 'autoencoder') return true;
+                // 그 외 weight 0 → 해당 task 미사용 → 제외
                 if (typeof r.weight === 'number' && r.weight === 0) return false;
                 return true;
             })
@@ -740,6 +743,28 @@
                 if (ratioData && ratioData.model_expectations?.[m.key]) {
                     const rt = ratioData.model_expectations[m.key];
                     if (Array.isArray(rt.top) && rt.top[0] && String(rt.top[0]).includes(':')) val = rt.top[0];
+                }
+                // [fix-69] AE 보조 카드 — 이상 감지 사인 (anomaly score)
+                if (m.key === 'autoencoder' && r && r.weight === 0) {
+                    // AE 범위가 ensemble 중심 대비 얼마나 벗어났는지로 이상 사인 산출
+                    const aeMid = (r.min + r.max) / 2;
+                    const ensMid = (ensemble.cMin + ensemble.cMax) / 2 || 1;
+                    const deviation = Math.abs(aeMid - ensMid) / Math.max(1, Math.abs(ensMid));
+                    let signLabel, signColor, signBg;
+                    if (deviation < 0.05) {
+                        signLabel = '정상'; signColor = '#10b981'; signBg = '#d1fae5';
+                    } else if (deviation < 0.12) {
+                        signLabel = '주의'; signColor = '#f59e0b'; signBg = '#fef3c7';
+                    } else {
+                        signLabel = '이상 감지'; signColor = '#dc2626'; signBg = '#fee2e2';
+                    }
+                    return `
+                    <div style="background:#fafbff; border:1px dashed #c7d2fe; border-radius:10px; padding:10px 4px; text-align:center; min-width:0; position:relative;" title="AutoEncoder는 본 task에 가중치 0이지만 이상 패턴 감지 보조 역할 수행">
+                        <div style="position:absolute; top:4px; right:4px; font-size:0.55rem; color:${signColor}; font-weight:800; padding:2px 6px; background:${signBg}; border-radius:999px;">${signLabel}</div>
+                        <div style="font-size:0.6rem; color:#6366f1; font-weight:800; letter-spacing:0.3px; margin-bottom:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${m.label}<span style="font-size:0.5rem; color:#94a3b8; font-weight:600; margin-left:4px;">이상 감지</span></div>
+                        <div style="font-size:0.85rem; color:#475569; font-weight:500; letter-spacing:-0.3px; white-space:nowrap;">${val}</div>
+                        <div style="font-size:0.5rem; color:#94a3b8; font-weight:600; margin-top:2px;">노이즈 ${(deviation * 100).toFixed(1)}%</div>
+                    </div>`;
                 }
                 return `
                 <div style="background:white; border:1px solid #e2e8f0; border-radius:10px; padding:10px 4px; text-align:center; min-width:0;">
@@ -870,19 +895,19 @@
                     <span class="material-symbols-outlined" style="font-size:20px; color:#38bdf8;">insights</span>
                 </div>
                 <div style="flex:1; min-width:0;">
+                    ${filterKey ? `
+                    <a href="ai_deep_learning.html?focus=${filterKey}#filter-card-${filterKey}"
+                       style="display:inline-flex; align-items:center; gap:8px; font-size:0.95rem; font-weight:900; color:white; letter-spacing:-0.3px; text-decoration:none; border-bottom:2px solid transparent; transition:border-color 0.15s; white-space:nowrap; overflow:hidden;"
+                       onmouseover="this.style.borderColor='#38bdf8';"
+                       onmouseout="this.style.borderColor='transparent';"
+                       title="딥러닝 분석 페이지의 ${filterLabel} 섹션으로 이동">
+                        AI 프리미엄 전략 리포트
+                        <span class="material-symbols-outlined" style="font-size:16px; color:#38bdf8;">arrow_outward</span>
+                    </a>` : `
                     <div style="font-size:0.95rem; font-weight:900; color:white; letter-spacing:-0.3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">AI 프리미엄 전략 리포트</div>
+                    `}
                     <div style="font-size:0.62rem; color:#94a3b8; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">INTELLIGENT ANALYSIS — ${filterLabel}</div>
                 </div>
-                ${filterKey ? `
-                <a href="ai_deep_learning.html?focus=${filterKey}#filter-card-${filterKey}"
-                   style="display:inline-flex; align-items:center; gap:6px; padding:6px 12px; background:#1e293b; border:1px solid #334155; border-radius:8px; color:#38bdf8; font-size:0.72rem; font-weight:700; text-decoration:none; transition:all 0.15s; white-space:nowrap;"
-                   onmouseover="this.style.background='#334155'; this.style.borderColor='#38bdf8';"
-                   onmouseout="this.style.background='#1e293b'; this.style.borderColor='#334155';"
-                   title="딥러닝 분석 페이지의 ${filterLabel} 섹션으로 이동">
-                    <span class="material-symbols-outlined" style="font-size:14px;">network_intelligence</span>
-                    딥러닝 상세
-                    <span class="material-symbols-outlined" style="font-size:12px;">arrow_forward</span>
-                </a>` : ''}
                 ${_tabsHTML(tabs, containerId)}
             </div>
 
