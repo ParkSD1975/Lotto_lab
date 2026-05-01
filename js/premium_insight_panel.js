@@ -724,8 +724,9 @@
         const flow = _flowStats(recentValues);
         const hitRates = _modelHitRates(modelExp, recentValues);
 
-        // [Stage 1-4-D-2-fix-67/69] 카드 표시 — weight 0 / DEPRECATED 제외
+        // [Stage 1-4-D-2-fix-67/69/70] 카드 표시 — weight 0 / DEPRECATED 제외
         // 단 AutoEncoder는 weight 0이어도 '이상 감지 보조' 카드로 표시 (fix-69)
+        // AE는 항상 맨 뒤(우측 끝)에 배치 (fix-70)
         const cards = MODEL_ORDER
             .filter(m => {
                 const r = modelExp[m.key];
@@ -736,6 +737,12 @@
                 // 그 외 weight 0 → 해당 task 미사용 → 제외
                 if (typeof r.weight === 'number' && r.weight === 0) return false;
                 return true;
+            })
+            .sort((a, b) => {
+                // [fix-70] AE를 항상 맨 뒤(우측 끝)로
+                if (a.key === 'autoencoder') return 1;
+                if (b.key === 'autoencoder') return -1;
+                return 0;
             })
             .map(m => {
                 const r = modelExp[m.key];
