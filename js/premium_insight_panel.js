@@ -17,7 +17,7 @@
     let _payloadCache = null;
     let _payloadInflight = null;
     const _CACHE_TTL = 10 * 60 * 1000; // 10분
-    const _SS_KEY = 'pi_payload_cache_v6'; // [fix-85] v3 lazy merge 일반화 (magic_square/lotto_paper 등)
+    const _SS_KEY = 'pi_payload_cache_v7'; // [fix-93] catboost/tabnet/tft 가중치 load 후 강제 invalidate
     // 페이지 로드 시 sessionStorage에서 즉시 복원 (네비게이션 간 캐시 유지)
     try {
         const raw = sessionStorage.getItem(_SS_KEY);
