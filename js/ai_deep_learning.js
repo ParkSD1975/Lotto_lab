@@ -41,8 +41,11 @@ const DeepLearning = {
         this.runAnalysis();
 
         // [fix-89] deep link 즉시 처리 — section-* 정적 ID는 즉시 가능
-        // filter-card-* (동적)는 renderRangeAnalysis 후 자동 retry
         this._handleDeepLink();
+
+        // [Stage 1-4-D-2-fix-97] V4에 없는 4섹션(magic_square/lotto_paper/number_band/tail)을
+        // v3 backend에서 lazy fetch — 진짜 PB PMF 데이터로 덮어씀 (frontend 가짜 generation 폐기)
+        this._mergeV3FourSections();
 
         console.log(`⏱️ [DeepLearning] 초기 렌더 시작 (${Date.now() - startTime}ms)`);
 
@@ -63,6 +66,38 @@ const DeepLearning = {
                 this.loadHistoryList();
             }
         }, 3000);
+    },
+
+    // [Stage 1-4-D-2-fix-97] V4에 없는 4섹션을 v3 backend에서 fetch + render
+    async _mergeV3FourSections() {
+        try {
+            const baseUrl = (window.LANGCHAIN_CONFIG && window.LANGCHAIN_CONFIG.URL) || 'http://127.0.0.1:8000';
+            const res = await fetch(`${baseUrl}/api/deep-analysis/v3/analysis`, {
+                signal: AbortSignal.timeout(30000),
+            });
+            if (!res.ok) {
+                console.warn(`[v3 4섹션] HTTP ${res.status} - 4섹션 표시 안 됨`);
+                return;
+            }
+            const json = await res.json();
+            const v3 = json.data || json;
+            const a = v3.analysis || {};
+            const ad = this.state.analysisData;
+            if (!ad) return;
+            // 진짜 PB PMF 데이터로 덮어씀
+            if (a.tail_analysis) ad.analysis.tail_analysis = a.tail_analysis;
+            if (a.lotto_paper_analysis) ad.analysis.lotto_paper_analysis = a.lotto_paper_analysis;
+            if (a.magic_square_analysis) ad.analysis.magic_square_analysis = a.magic_square_analysis;
+            if (a.number_band_analysis) ad.analysis.number_band_analysis = a.number_band_analysis;
+            console.log('[v3 4섹션] backend 진짜 데이터 merge 완료');
+            // 4 섹션 즉시 재렌더
+            if (a.tail_analysis) this.renderTailAnalysis(a.tail_analysis);
+            if (a.lotto_paper_analysis) this.renderLottoPaperAnalysis(a.lotto_paper_analysis);
+            if (a.magic_square_analysis) this.renderMagicSquareAnalysis(a.magic_square_analysis);
+            if (a.number_band_analysis) this.renderNumberBandAnalysis(a.number_band_analysis);
+        } catch (e) {
+            console.warn('[v3 4섹션] fetch 실패:', e.message || e);
+        }
     },
 
     // [Stage 1-4-D-2-fix-88/89] Deep link 랜딩 (분석 페이지 → 딥러닝 탭+섹션)
@@ -1180,10 +1215,13 @@ const DeepLearning = {
                 matrix_data:          matrixData,
                 hot_cold_data,
                 regression_analysis:  regressionAnalysis.length > 0 ? regressionAnalysis : regression_analysis,
-                magic_square_analysis,
-                lotto_paper_analysis,
-                number_band_analysis,
-                tail_analysis,
+                // [Stage 1-4-D-2-fix-97] magic_square/lotto_paper/number_band/tail은 frontend 자체 generation
+                // _calcModelExp가 가짜 데이터 (catboost=11.22 등) 생성 → v3 backend 진짜 PB PMF 결과로 대체.
+                // 일단 null로 두고 runAnalysis 후 v3 deep-analysis endpoint에서 정확한 값 가져와 merge.
+                magic_square_analysis: null,
+                lotto_paper_analysis:  null,
+                number_band_analysis:  null,
+                tail_analysis:         null,
                 range_analysis:       rangeAnalysis,
                 missing_group_data:   missing_group_data
             },
