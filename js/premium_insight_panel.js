@@ -389,9 +389,18 @@
 
         if (!target || !target.model_exp) return null;
 
+        // [Stage 1-4-D-2-fix-98] backend가 dict({min,max,exp}) 또는 number 둘 다 보낼 수 있음
+        // fix-94에서 4 섹션 backend 형식이 dict로 변경됨 → 기존 Math.floor(val)이 NaN 반환하던 버그
         const modelExp = {};
         Object.entries(target.model_exp).forEach(([m, val]) => {
-            modelExp[m] = { min: Math.floor(val), max: Math.ceil(val) };
+            if (val && typeof val === 'object' && 'min' in val && 'max' in val) {
+                // PB 분위 dict 형식
+                modelExp[m] = { min: parseInt(val.min) || 0, max: parseInt(val.max) || 0 };
+            } else {
+                // 기존 single number 형식 (호환성)
+                const n = parseFloat(val);
+                modelExp[m] = isNaN(n) ? { min: 0, max: 0 } : { min: Math.floor(n), max: Math.ceil(n) };
+            }
         });
 
         const modelRatioExp = {};
