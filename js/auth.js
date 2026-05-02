@@ -67,6 +67,9 @@
     function _resetAllFilterStorage() {
         // [수정] 텔레그램 채팅 ID 백업 (로그아웃 시에도 유지하기 위함)
         const savedTgChatId = localStorage.getItem('telegram_chat_id');
+        // [Stage 1-4-D-2-fix-95] 사용자 보고: '로그아웃되면 또 제외수/고정수 바스켓이 다 없어지네?'
+        // → lotto_basket도 백업/복구 (로그아웃은 필터 reset이지만 사용자 데이터 손실은 막음)
+        const savedBasket = localStorage.getItem('lotto_basket');
 
         const disabledFilter = JSON.stringify({ enabled: false, _ts: Date.now() });
         const disabledCustom  = JSON.stringify({ min: 0, max: 0, enabled: false });
@@ -97,6 +100,10 @@
         // [추가] 백업한 텔레그램 채팅 ID 복구
         if (savedTgChatId) {
             localStorage.setItem('telegram_chat_id', savedTgChatId);
+        }
+        // [fix-95] 백업한 lotto_basket 복구 (로그아웃 후 데이터 손실 방지)
+        if (savedBasket) {
+            localStorage.setItem('lotto_basket', savedBasket);
         }
 
         // 필터 대시보드 리렌더링 (현재 페이지가 filter.html인 경우)

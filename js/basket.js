@@ -44,19 +44,28 @@
 
             if (fixedData || excludeData) {
                 const current = load();
-                const newFixed = fixedData ? (fixedData.settings?.numbers || []) : current.fixed;
-                const newExclude = excludeData ? (excludeData.settings?.numbers || []) : current.exclude;
+                // [Stage 1-4-D-2-fix-95] DB row가 있어도 빈 array면 localStorage 보존
+                // 사용자 보고: '로그아웃되면 또 제외수/고정수 바스켓이 다 없어지네?'
+                // 원인: DB의 fixed_numbers/excluded_numbers row에 빈 array 저장돼 있으면
+                //       기존 코드가 빈 array로 localStorage 덮어씀 → 데이터 손실
+                // 정책: DB array가 비어 있으면 localStorage 우선, 둘 다 합집합(union) 적용
+                const dbFixed = (fixedData && Array.isArray(fixedData.settings?.numbers))
+                    ? fixedData.settings.numbers : [];
+                const dbExclude = (excludeData && Array.isArray(excludeData.settings?.numbers))
+                    ? excludeData.settings.numbers : [];
+                // union: 로컬 + DB 합집합 (사용자 데이터 손실 방지)
+                const newFixed = [...new Set([...(current.fixed || []), ...dbFixed])];
+                const newExclude = [...new Set([...(current.exclude || []), ...dbExclude])];
 
-                // 병합 (로컬 데이터와 DB 데이터 비교하여 합집합 또는 DB 우선 선택 - 여기선 DB 우선)
                 const merged = {
-                    fixed: [...new Set([...newFixed])].sort((a, b) => a - b),
-                    exclude: [...new Set([...newExclude])].sort((a, b) => a - b),
+                    fixed: newFixed.sort((a, b) => a - b),
+                    exclude: newExclude.sort((a, b) => a - b),
                     current_round: current.current_round
                 };
 
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
                 renderPanel();
-                console.log('🔄 GNB Basket synced from Supabase');
+                console.log(`🔄 GNB Basket synced (union: fixed=${merged.fixed.length}, exclude=${merged.exclude.length})`);
             }
         } catch (e) {
             console.error('❌ Basket Sync Error:', e);
