@@ -68,15 +68,23 @@ const DeepLearning = {
         }, 3000);
     },
 
-    // [Stage 1-4-D-2-fix-97] V4에 없는 4섹션을 v3 backend에서 fetch + render
-    async _mergeV3FourSections() {
+    // [Stage 1-4-D-2-fix-97/100] V4에 없는 4섹션을 v3 backend에서 fetch + render
+    // fix-100: timeout 30→120초 + retry 3회 (backend cold start 대응)
+    async _mergeV3FourSections(retryCount) {
+        retryCount = retryCount || 0;
+        const MAX_RETRY = 3;
+        const TIMEOUT_MS = 120000;  // 2분 (cold start + 모델 추론 시간)
         try {
             const baseUrl = (window.LANGCHAIN_CONFIG && window.LANGCHAIN_CONFIG.URL) || 'http://127.0.0.1:8000';
+            console.log(`[v3 4섹션] fetch 시도 ${retryCount + 1}/${MAX_RETRY + 1}...`);
             const res = await fetch(`${baseUrl}/api/deep-analysis/v3/analysis`, {
-                signal: AbortSignal.timeout(30000),
+                signal: AbortSignal.timeout(TIMEOUT_MS),
             });
             if (!res.ok) {
-                console.warn(`[v3 4섹션] HTTP ${res.status} - 4섹션 표시 안 됨`);
+                console.warn(`[v3 4섹션] HTTP ${res.status}`);
+                if (retryCount < MAX_RETRY) {
+                    setTimeout(() => this._mergeV3FourSections(retryCount + 1), 5000);
+                }
                 return;
             }
             const json = await res.json();
@@ -96,7 +104,11 @@ const DeepLearning = {
             if (a.magic_square_analysis) this.renderMagicSquareAnalysis(a.magic_square_analysis);
             if (a.number_band_analysis) this.renderNumberBandAnalysis(a.number_band_analysis);
         } catch (e) {
-            console.warn('[v3 4섹션] fetch 실패:', e.message || e);
+            console.warn(`[v3 4섹션] fetch 실패 (시도 ${retryCount + 1}):`, e.message || e);
+            // timeout 또는 네트워크 에러 시 retry
+            if (retryCount < MAX_RETRY) {
+                setTimeout(() => this._mergeV3FourSections(retryCount + 1), 5000);
+            }
         }
     },
 
