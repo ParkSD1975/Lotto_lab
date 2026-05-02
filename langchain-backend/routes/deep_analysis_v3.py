@@ -1199,8 +1199,13 @@ def analyze_9palace(combination: list, history_draws: list):
 # 2. 끝수 정밀 분석
 # ------------------------------------------------------------------
 def analyze_tail_detailed(final_probs, history_draws, model_contributions=None):
+    """[fix-94] PB PMF + 분위 적용 — sum/odd/prime처럼 자연스러운 차별 분포 형성.
+    이전: 단순 평균 × 6 (균등 입력 → 모든 끝수 비슷한 fake-looking 값)
+    이후: PB PMF (분위 20~80%) → 분위 분포로 차별화
+    """
+    from services.filter_stats import poisson_binomial_pmf, pmf_percentile_range
+
     tails = []
-    # Stage 1-4-D-2: 11 base 활성 (lstm/transformer deprecated 제외)
     models = list(ACTIVE_MODELS)
 
     # 앙상블 확률 정규화 (합=1)
@@ -1210,29 +1215,41 @@ def analyze_tail_detailed(final_probs, history_draws, model_contributions=None):
     else:
         norm_final = {int(n): v / ens_total for n, v in final_probs.items()}
 
-    # 모델별 확률 정규화 캐시 (한 번만 계산)
+    # 모델별 확률 정규화
     norm_model = {}
     if model_contributions:
         for m in models:
             m_probs = model_contributions.get(m, {})
             m_total = sum(m_probs.values())
-            if m_total == 0:
-                norm_model[m] = {}
-            else:
-                norm_model[m] = {int(n): v / m_total for n, v in m_probs.items()}
+            norm_model[m] = ({} if m_total == 0
+                else {int(n): v / m_total for n, v in m_probs.items()})
+
+    def _pb_range_min_max(norm_probs, attr_set, draw_size=6, lo=0.20, hi=0.80):
+        """정규화된 model_probs(합=1)에서 attr_set의 PB 분위 [lo_val, hi_val] 반환."""
+        if not norm_probs or not attr_set:
+            return (0, 0)
+        attr_probs = [min(1.0, draw_size * norm_probs.get(n, 0.0)) for n in attr_set]
+        # 모두 0이면 PB 의미 없음
+        if sum(attr_probs) <= 0:
+            return (0, 0)
+        pmf = poisson_binomial_pmf(attr_probs)
+        return pmf_percentile_range(pmf, lo, hi)
 
     for t in range(10):
         t_nums = [n for n in range(1, 46) if n % 10 == t]
-        # 정규화 후 *6 (6개 번호 기준 기대값)
-        ens_exp = sum(norm_final.get(n, 0) for n in t_nums) * 6
+        t_set = set(t_nums)
 
-        # Gap: 해당 끝수가 마지막으로 출현한 이후 경과 회차
+        # 앙상블 PB 분위
+        ens_lo, ens_hi = _pb_range_min_max(norm_final, t_set)
+        ens_exp = sum(norm_final.get(n, 0) for n in t_nums) * 6  # 평균값 (UI 보조 표시용)
+
+        # Gap / STR
         gap = 0
         for draw in history_draws:
-            if t in [n % 10 for n in draw["numbers"]]: break
+            if t in [n % 10 for n in draw["numbers"]]:
+                break
             gap += 1
 
-        # STR: 가장 최근 연속 출현 횟수
         str_count = 0
         for draw in history_draws:
             if t in [n % 10 for n in draw["numbers"]]:
@@ -1245,21 +1262,28 @@ def analyze_tail_detailed(final_probs, history_draws, model_contributions=None):
         elif ens_exp > 0.7: rec = "유력"
         elif ens_exp < 0.3: rec = "제외"
 
-        # 모델별 기대값 (정규화 후 *6)
+        # [fix-94] 모델별 PB 분위 (단순 평균 → 분위 range)
         model_exp = {}
         if model_contributions:
             for m in models:
                 nm = norm_model.get(m, {})
-                model_exp[m] = round(sum(nm.get(n, 0) for n in t_nums) * 6, 2)
-        _fill_deprecated(model_exp)  # lstm/transformer 백워드 호환 0 채움
+                if not nm:
+                    model_exp[m] = {"min": 0, "max": 0, "exp": 0.0}
+                    continue
+                lo_v, hi_v = _pb_range_min_max(nm, t_set)
+                mean_v = sum(nm.get(n, 0) for n in t_nums) * 6
+                model_exp[m] = {"min": lo_v, "max": hi_v, "exp": round(mean_v, 2)}
+        _fill_deprecated(model_exp)
 
         tails.append({
             "tail": t,
             "exp": round(ens_exp, 2),
+            "exp_min": ens_lo,
+            "exp_max": ens_hi,
             "gap": gap,
             "str": str_count,
             "rec": rec,
-            "model_exp": model_exp
+            "model_exp": model_exp,
         })
     return tails
 
@@ -1457,30 +1481,49 @@ def analyze_lotto_paper(final_probs, history_draws, model_contributions=None):
                 break
         return streak
 
+    # [fix-94] PB PMF + 분위 helper
+    from services.filter_stats import poisson_binomial_pmf, pmf_percentile_range
+    def _pb_min_max(norm_probs, attr_set, draw_size=6, lo=0.20, hi=0.80):
+        if not norm_probs or not attr_set:
+            return (0, 0)
+        attr_probs = [min(1.0, draw_size * norm_probs.get(n, 0.0)) for n in attr_set]
+        if sum(attr_probs) <= 0:
+            return (0, 0)
+        pmf = poisson_binomial_pmf(attr_probs)
+        return pmf_percentile_range(pmf, lo, hi)
+
     def _build_section(items):
         result = []
         for item in items:
             nums = item["nums"]
-            # 정규화 후 *6
+            nset = set(nums)
+            # [fix-94] 앙상블 PB 분위
+            ens_lo, ens_hi = _pb_min_max(norm_final, nset)
             ens_exp = round(sum(norm_final.get(n, 0) for n in nums) * 6, 2)
-            # Gap / STR
             gap = _calc_gap(nums, history_draws)
             str_count = _calc_str(nums, history_draws)
-            # 모델별 기대값 (정규화 후 *6)
+            # [fix-94] 모델별 PB 분위 (dict {min, max, exp})
             model_exp = {}
             if model_contributions:
                 for m in models:
                     nm = norm_model.get(m, {})
-                    model_exp[m] = round(sum(nm.get(n, 0) for n in nums) * 6, 2)
-            _fill_deprecated(model_exp)  # lstm/transformer 백워드 호환 0 채움
+                    if not nm:
+                        model_exp[m] = {"min": 0, "max": 0, "exp": 0.0}
+                        continue
+                    lo_v, hi_v = _pb_min_max(nm, nset)
+                    mean_v = sum(nm.get(n, 0) for n in nums) * 6
+                    model_exp[m] = {"min": lo_v, "max": hi_v, "exp": round(mean_v, 2)}
+            _fill_deprecated(model_exp)
 
             result.append({
                 "label": item["label"],
                 "nums": nums,
                 "exp": ens_exp,
+                "exp_min": ens_lo,
+                "exp_max": ens_hi,
                 "gap": gap,
                 "str": str_count,
-                "model_exp": model_exp
+                "model_exp": model_exp,
             })
         return result
 
@@ -1534,45 +1577,50 @@ def analyze_magic_square(final_probs, history_draws, model_contributions=None):
         {"label": "9궁", "nums": [41, 42, 43, 44, 45]},
     ]
 
+    # [fix-94] PB PMF helper
+    from services.filter_stats import poisson_binomial_pmf, pmf_percentile_range
+    def _pb_min_max(norm_probs, attr_set, draw_size=6, lo=0.20, hi=0.80):
+        if not norm_probs or not attr_set: return (0, 0)
+        attr_probs = [min(1.0, draw_size * norm_probs.get(n, 0.0)) for n in attr_set]
+        if sum(attr_probs) <= 0: return (0, 0)
+        pmf = poisson_binomial_pmf(attr_probs)
+        return pmf_percentile_range(pmf, lo, hi)
+
     result = []
     for gung in gung_defs:
         nums = gung["nums"]
+        nset = set(nums)
 
-        # 앙상블 기대값 (정규화 후 *6)
+        ens_lo, ens_hi = _pb_min_max(norm_final, nset)
         ens_exp = round(sum(norm_final.get(n, 0) for n in nums) * 6, 2)
 
-        # Gap: 마지막 출현 이후 연속 미출현 회차
         gap = 0
         for draw in history_draws:
-            if any(n in draw.get("numbers", []) for n in nums):
-                break
+            if any(n in draw.get("numbers", []) for n in nums): break
             gap += 1
-
-        # STR: 가장 최근 연속 출현 횟수
         str_count = 0
         for draw in history_draws:
-            if any(n in draw.get("numbers", []) for n in nums):
-                str_count += 1
-            else:
-                break
+            if any(n in draw.get("numbers", []) for n in nums): str_count += 1
+            else: break
 
-        # 모델별 기대값
+        # [fix-94] 모델별 PB 분위 (dict {min, max, exp})
         model_exp = {}
         if model_contributions:
             for m in models:
                 nm = norm_model.get(m, {})
-                model_exp[m] = round(sum(nm.get(n, 0) for n in nums) * 6, 2)
-        _fill_deprecated(model_exp)  # lstm/transformer 백워드 호환 0 채움
+                if not nm:
+                    model_exp[m] = {"min": 0, "max": 0, "exp": 0.0}; continue
+                lo_v, hi_v = _pb_min_max(nm, nset)
+                mean_v = sum(nm.get(n, 0) for n in nums) * 6
+                model_exp[m] = {"min": lo_v, "max": hi_v, "exp": round(mean_v, 2)}
+        _fill_deprecated(model_exp)
 
         result.append({
-            "label": gung["label"],
-            "nums": nums,
-            "exp": ens_exp,
-            "gap": gap,
-            "str": str_count,
-            "model_exp": model_exp
+            "label": gung["label"], "nums": nums,
+            "exp": ens_exp, "exp_min": ens_lo, "exp_max": ens_hi,
+            "gap": gap, "str": str_count,
+            "model_exp": model_exp,
         })
-
     return result
 
 
@@ -1613,41 +1661,49 @@ def analyze_number_band(final_probs, history_draws, model_contributions=None):
         {"label": "41~45",  "nums": list(range(41, 46))},
     ]
 
+    # [fix-94] PB PMF helper
+    from services.filter_stats import poisson_binomial_pmf, pmf_percentile_range
+    def _pb_min_max(norm_probs, attr_set, draw_size=6, lo=0.20, hi=0.80):
+        if not norm_probs or not attr_set: return (0, 0)
+        attr_probs = [min(1.0, draw_size * norm_probs.get(n, 0.0)) for n in attr_set]
+        if sum(attr_probs) <= 0: return (0, 0)
+        pmf = poisson_binomial_pmf(attr_probs)
+        return pmf_percentile_range(pmf, lo, hi)
+
     result = []
     for band in bands:
         nums = band["nums"]
-        # 정규화 후 *6
+        nset = set(nums)
+
+        ens_lo, ens_hi = _pb_min_max(norm_final, nset)
         ens_exp = round(sum(norm_final.get(n, 0) for n in nums) * 6, 2)
 
-        # Gap: 해당 구간 번호가 마지막 출현 이후 경과 회차
         gap = 0
         for draw in history_draws:
             if any(n in draw["numbers"] for n in nums): break
             gap += 1
-
-        # STR: 가장 최근 연속 출현 횟수
         str_count = 0
         for draw in history_draws:
-            if any(n in draw["numbers"] for n in nums):
-                str_count += 1
-            else:
-                break
+            if any(n in draw["numbers"] for n in nums): str_count += 1
+            else: break
 
-        # 모델별 기대값 (정규화 후 *6)
+        # [fix-94] 모델별 PB 분위 (dict)
         model_exp = {}
         if model_contributions:
             for m in models:
                 nm = norm_model.get(m, {})
-                model_exp[m] = round(sum(nm.get(n, 0) for n in nums) * 6, 2)
-        _fill_deprecated(model_exp)  # lstm/transformer 백워드 호환 0 채움
+                if not nm:
+                    model_exp[m] = {"min": 0, "max": 0, "exp": 0.0}; continue
+                lo_v, hi_v = _pb_min_max(nm, nset)
+                mean_v = sum(nm.get(n, 0) for n in nums) * 6
+                model_exp[m] = {"min": lo_v, "max": hi_v, "exp": round(mean_v, 2)}
+        _fill_deprecated(model_exp)
 
         result.append({
-            "label": band["label"],
-            "nums": nums,
-            "exp": ens_exp,
-            "gap": gap,
-            "str": str_count,
-            "model_exp": model_exp
+            "label": band["label"], "nums": nums,
+            "exp": ens_exp, "exp_min": ens_lo, "exp_max": ens_hi,
+            "gap": gap, "str": str_count,
+            "model_exp": model_exp,
         })
     return result
 

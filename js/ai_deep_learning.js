@@ -3435,9 +3435,25 @@ const DeepLearning = {
 
         // [fix-90] 모델 chip + heatmap — 값 0(미학습/추론실패)은 disabled 표시
         const modelChips = MODEL_ORDER.map(m => {
-            const val = item.model_exp ? parseFloat(item.model_exp[m]) : NaN;
-            const isUntrained = !isNaN(val) && val === 0;  // 정확히 0 = 미학습/실패
-            const range = isNaN(val) ? '-' : (isUntrained ? '미학습' : _fmtRange(val));
+            // [fix-94] backend가 dict({min,max,exp}) 또는 number 둘 다 보낼 수 있음
+            let val = NaN, rangeStr = '-', isUntrained = false;
+            const me = item.model_exp ? item.model_exp[m] : null;
+            if (me && typeof me === 'object' && 'min' in me && 'max' in me) {
+                // PB 분위 형식: {min, max, exp}
+                const lo = parseInt(me.min);
+                const hi = parseInt(me.max);
+                val = parseFloat(me.exp);
+                if (!isNaN(lo) && !isNaN(hi)) {
+                    isUntrained = (lo === 0 && hi === 0 && val === 0);
+                    rangeStr = isUntrained ? '미학습' : (lo === hi ? `${lo}` : `${lo}~${hi}`);
+                }
+            } else {
+                // 기존 single number 형식 (호환성)
+                val = parseFloat(me);
+                isUntrained = !isNaN(val) && val === 0;
+                rangeStr = isNaN(val) ? '-' : (isUntrained ? '미학습' : _fmtRange(val));
+            }
+            const range = rangeStr;
             const color = MODEL_COLORS[m];
             const intensity = _intensity(val);
             // 미학습은 회색 + 점선 / NaN은 옅은 회색 / 정상은 모델 색상
