@@ -76,22 +76,19 @@ const DeepLearning = {
             const focus = params.get('focus') || (window.location.hash || '').replace(/^#filter-card-/, '');
             if (!focus) return;
 
-            // 키 종류별 매핑
+            // [fix-92] 키 종류별 매핑 — 4 섹션 모두 기초 분석 탭(filters)에 있음
+            // 이전 fix-88에서 'summary'로 잘못 보냈음 → filters로 수정
             let targetTab = 'filters';
             let targetEl = null;
             let isStaticTarget = true;  // section-* (정적) vs filter-card-* (동적)
 
             if (/^digit\d$/.test(focus)) {
-                targetTab = 'summary';
                 targetEl = document.getElementById('section-tail');
             } else if (/^[1-9]궁$/.test(focus)) {
-                targetTab = 'summary';
                 targetEl = document.getElementById('section-magic');
             } else if (/^(가로|세로)[1-7]$/.test(focus)) {
-                targetTab = 'summary';
                 targetEl = document.getElementById('section-paper');
             } else if (/^(단번대|\d{1,2}번대|01~10|11~20|21~30|31~40|41~45)$/.test(focus)) {
-                targetTab = 'summary';
                 targetEl = document.getElementById('section-band');
             } else {
                 // 기존 필터 카드 (동적 생성)
