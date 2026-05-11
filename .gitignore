@@ -18,5 +18,14 @@ langchain-backend/saved_models/_archive/
 langchain-backend/saved_models/sla_history.parquet
 langchain-backend/saved_models/regression_meta_patterns.json
 langchain-backend/saved_models/pillar_meta_weights.json
+
+# [2026-05-12] 11-base 핵심 학습 가중치 — HF Spaces 배포 시 필수 (.gitignore 예외)
+# legacy lstm_model.pt / transformer_model.pt 는 의도적 제외 (stage-0 archive)
+!langchain-backend/saved_models/bayesian_nn_main45.pt
+!langchain-backend/saved_models/mhn_main45.pt
+!langchain-backend/saved_models/nbeats_sum.pt
+!langchain-backend/saved_models/ssl_backbone.pt
+!langchain-backend/saved_models/tft_main45.pt
+!langchain-backend/saved_models/gnn_feature_transformer.pkl
 ai_deep_learning.html.bak
 ai_combination.html.bak
