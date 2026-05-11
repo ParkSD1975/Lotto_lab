@@ -10,6 +10,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Install huggingface_hub
         run: pip install huggingface_hub
@@ -28,6 +30,7 @@ jobs:
           api = HfApi(token=os.environ["HF_TOKEN"])
 
           # 1. 코드 배포
+          # LFS pointer 파일 7개는 deploy 제외 — HF Space에 이미 가중치 보존됨
           api.upload_folder(
               folder_path=".",
               repo_id="Parksungdeok/lotto-ai-backend",
@@ -36,10 +39,17 @@ jobs:
                   ".git*", "__pycache__", "*.pyc",
                   ".github", ".env", ".env.*",
                   "*.log", "backend*.log", "server*.log",
-                  "train_log.txt"
+                  "train_log.txt",
+                  "saved_models/meta_learner.pkl",
+                  "saved_models/cnn_model.pt",
+                  "saved_models/xgboost_models.pkl",
+                  "saved_models/autoencoder_model.pt",
+                  "saved_models/transformer_model.pt",
+                  "saved_models/gnn_model.pt",
+                  "saved_models/lstm_model.pt",
               ]
           )
-          # saved_models/ 전체 포함: meta_learner.pkl, gnn_model.pt 등 신규 모델 배포
+          # saved_models/ 일부 제외 — HF 기존 가중치 유지
           print("✅ HF Spaces 코드 배포 완료!")
 
           # .env 파일 HF Space 레포에서 삭제 (이전에 업로드된 경우)
@@ -83,12 +93,15 @@ jobs:
           sync_secret("SUPABASE_URL",   os.environ.get("SUPABASE_URL", ""))
           sync_secret("SUPABASE_KEY",   os.environ.get("SUPABASE_KEY", ""))
 
-          # 3. Space 강제 재시작 (시크릿 전파 대기 후)
+          # 3. Space 강제 재빌드 (factory_reboot=True - 새 requirements.txt 적용)
           import time
           time.sleep(30)   # 시크릿 전파 대기
           try:
-              api.restart_space(repo_id="Parksungdeok/lotto-ai-backend")
-              print("✅ HF Space 재시작 완료!")
+              api.restart_space(
+                  repo_id="Parksungdeok/lotto-ai-backend",
+                  factory_reboot=True,  # Docker 재빌드 강제 (catboost/tabnet/tft 라이브러리 설치)
+              )
+              print("✅ HF Space factory_reboot 완료 (Docker 재빌드 진행)!")
               time.sleep(10)  # 재시작 시작 대기
           except Exception as e:
               print(f"⚠️ 재시작 실패 (무시): {e}")

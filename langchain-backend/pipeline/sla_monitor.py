@@ -232,3 +232,151 @@ def read_sla_history(limit: int | None = None) -> list[dict]:
     if limit:
         rows = rows[-limit:]
     return rows
+
+
+# ────────────────── 11 base 모델별 SLA 통계 ──────────────────
+
+
+def get_model_sla_stats(model_name: str, recent_n: int = 100) -> dict:
+    """특정 11 base 모델의 최근 N회 SLA 통계 반환.
+
+    Args:
+        model_name: "xgboost", "cnn", "gnn", "markov", "autoencoder",
+                    "catboost", "tabnet", "tft", "mhn", "bayesian_nn", "nbeats"
+        recent_n: 최근 N개 entry
+
+    Returns:
+        {
+            'count': int,
+            'avg_wall_time': float (seconds),
+            'max_wall_time': float,
+            'avg_mem_mb': float,
+            'max_mem_mb': float,
+            'violation_count': int,
+        }
+    """
+    history = read_sla_history(limit=1000)  # 최근 1000개 조회
+    filtered = [
+        h for h in history
+        if model_name.lower() in h.get("tag", "").lower()
+    ][-recent_n:]
+
+    if not filtered:
+        return {
+            'count': 0,
+            'avg_wall_time': 0,
+            'max_wall_time': 0,
+            'avg_mem_mb': 0,
+            'max_mem_mb': 0,
+            'violation_count': 0,
+        }
+
+    import numpy as np
+    wall_times = [h.get("wall_time", 0) for h in filtered]
+    mem_mbs = [h.get("mem_peak_mb", 0) for h in filtered]
+    violations = sum(
+        1 for h in filtered
+        if h.get("wall_violation") or h.get("mem_violation")
+    )
+
+    return {
+        'count': len(filtered),
+        'avg_wall_time': float(np.mean(wall_times)),
+        'max_wall_time': float(np.max(wall_times)),
+        'avg_mem_mb': float(np.mean(mem_mbs)),
+        'max_mem_mb': float(np.max(mem_mbs)),
+        'violation_count': violations,
+    }
+
+
+# ────────────────── model_latency_log 테이블 동기화 ──────────────────
+
+
+def sync_sla_to_latency_log(
+    supabase_client=None,
+    recent_n: int = 100,
+    model_names: list | None = None,
+) -> dict:
+    """sla_history에서 11 base 모델별 최근 추론시간을 model_latency_log 테이블에 동기화.
+
+    Args:
+        supabase_client: Supabase 클라이언트 (None이면 get_client 호출)
+        recent_n: 각 모델당 최근 N개 entry 조회
+        model_names: 동기화 대상 모델 리스트 (None이면 11 base 전체)
+
+    Returns:
+        {success: bool, rows_inserted: int, models_synced: list, error: str?}
+
+    Supabase 테이블 스키마 (실제):
+        model_name (varchar, not null)
+        operation (varchar, not null) — 'predict' 또는 'train'
+        target_round (int, nullable)
+        elapsed_ms (int, not null) — milliseconds
+        memory_mb (float, nullable)
+        threshold_ms (int, nullable)
+        fallback_triggered (bool, default false)
+        error_msg (text, nullable)
+        created_at (timestamptz)
+    """
+    if supabase_client is None:
+        try:
+            from db.supabase_client import get_client
+            supabase_client = get_client()
+        except Exception as e:
+            return {"success": False, "rows_inserted": 0, "error": f"supabase unavailable: {e}"}
+
+    if model_names is None:
+        model_names = [
+            "xgboost", "catboost", "tabnet", "cnn", "gnn",
+            "markov", "autoencoder", "tft", "mhn", "bayesian_nn", "nbeats"
+        ]
+
+    history = read_sla_history(limit=recent_n * len(model_names))
+    if not history:
+        return {"success": False, "rows_inserted": 0, "error": "no sla_history entries"}
+
+    rows = []
+    models_synced = []
+
+    # [개선] predict + train 양쪽 다 적재 (검증 페이지 SLA 학습/추론 분리 지원)
+    op_keywords = {
+        "predict": ["infer", "predict"],
+        "train":   ["train", "fit"],
+    }
+
+    for model_name in model_names:
+        for op_label, keywords in op_keywords.items():
+            # 모델별 + operation별 필터링 (tag에 모델명 + 키워드 포함)
+            filtered = [
+                h for h in history
+                if model_name.lower() in h.get("tag", "").lower()
+                and any(kw in h.get("tag", "").lower() for kw in keywords)
+            ]
+            if not filtered:
+                continue
+
+            # 최근 1개만 적재
+            latest = filtered[-1]
+            wall_time = float(latest.get("wall_time", 0))  # seconds
+            mem_mb = float(latest.get("mem_peak_mb", 0))
+
+            # [방어] sub-millisecond 추론(예: tft 0.0001s)은 int 변환 시 0이 됨 → 최소 1ms 보장
+            elapsed_ms = max(1, int(round(wall_time * 1000))) if wall_time > 0 else 0
+            rows.append({
+                "model_name": model_name,
+                "operation": op_label,
+                "elapsed_ms": elapsed_ms,
+                "memory_mb": round(mem_mb, 2) if mem_mb > 0 else None,
+            })
+            if model_name not in models_synced:
+                models_synced.append(model_name)
+
+    if not rows:
+        return {"success": False, "rows_inserted": 0, "error": "no valid model entries"}
+
+    try:
+        # 일괄 INSERT
+        supabase_client.table("model_latency_log").insert(rows).execute()
+        return {"success": True, "rows_inserted": len(rows), "models_synced": models_synced}
+    except Exception as e:
+        return {"success": False, "rows_inserted": 0, "error": str(e)}

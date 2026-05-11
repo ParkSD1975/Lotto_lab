@@ -27,6 +27,8 @@
 
     <!-- 🔹 [New] NLP 모듈 (자연어 처리 및 자동완성) -->
     <script src="js/NLPProcessor.js"></script>
+    <script src="js/AutoNLPMatcher.js"></script>
+    <script src="js/auto_nlp_loader.js" defer></script>
     <script src="js/NLPInputComponent.js"></script>
     <script src="js/BasicAnalysisNLP.js"></script>
 
@@ -1041,9 +1043,16 @@
     <script>
         document.addEventListener('DOMContentLoaded', async function () {
             try {
-                // 🔥 데이터 로딩 최적화: Promise.all로 병렬 조회
-                const client = window.supabaseClient || supabaseClient;
-                if (!client) throw new Error("Supabase Client가 초기화되지 않았습니다.");
+                // [fix-245] common_v2.js init이 늦을 수 있어 polling으로 supabaseClient 가용 대기
+                let client = window.supabaseClient;
+                if (!client) {
+                    const _s = Date.now();
+                    while (!window.supabaseClient && (Date.now() - _s < 3000)) {
+                        await new Promise(r => setTimeout(r, 50));
+                    }
+                    client = window.supabaseClient;
+                }
+                if (!client) throw new Error("Supabase Client가 초기화되지 않았습니다 (3초 대기 timeout).");
 
                 const [drawsResult, featuresResult] = await Promise.all([
                     client.from('lotto_draws').select('*').order('round', { ascending: false }).range(0, 5000),
@@ -2239,7 +2248,58 @@ ${contextData}
         // → premium_insight_panel.js의 _regressionStepResolver가
         //    regression_analysis 배열 + matrix_data 모델스코어로 per-model {min,max} 합성
 
-        function initDeepInsight() {
+        // [fix-243] supabaseClient 비동기 init 대응 (common_v2.js)
+        async function _waitForSupabase(maxMs = 3000) {
+            const start = Date.now();
+            while (!window.supabaseClient || typeof window.supabaseClient.from !== 'function') {
+                if (Date.now() - start > maxMs) return null;
+                await new Promise(r => setTimeout(r, 50));
+            }
+            return window.supabaseClient;
+        }
+
+        // [fix-238] PremiumInsightPanel cache에 deep_analysis_history.analysis_data를 미리 주입
+        let _regressionPreloadDone = false;
+        async function _preloadRegressionPayload() {
+            if (_regressionPreloadDone) return;
+            try {
+                if (!targetRound) return;
+                const sb = await _waitForSupabase();
+                if (!sb) return;
+                const { data } = await sb
+                    .from('deep_analysis_history')
+                    .select('analysis_data, target_round')
+                    .eq('target_round', targetRound)
+                    .order('created_at', { ascending: false })
+                    .limit(1)
+                    .maybeSingle();
+                if (!data || !data.analysis_data) return;
+                let ad = data.analysis_data;
+                if (typeof ad === 'string') { try { ad = JSON.parse(ad); } catch(_) { return; } }
+                if (!ad || !ad.analysis) return;
+                // PremiumInsightPanel sessionStorage cache 형식으로 주입
+                const payload = {
+                    success: true,
+                    target_round: data.target_round,
+                    _source: 'regression_preload',
+                    analysis: ad.analysis
+                };
+                // [fix-242] PremiumInsightPanel public API 호출 — 메모리 _payloadCache 직접 set
+                if (window.PremiumInsightPanel && typeof window.PremiumInsightPanel.setPayloadCache === 'function') {
+                    window.PremiumInsightPanel.setPayloadCache(payload);
+                } else {
+                    // fallback: sessionStorage만
+                    const cacheEntry = { ts: Date.now(), data: payload };
+                    try { sessionStorage.setItem('pi_payload_cache_v7', JSON.stringify(cacheEntry)); } catch(_) {}
+                }
+                _regressionPreloadDone = true;
+                console.log(`[regression] payload preload 완료 (round ${targetRound}, regression_analysis=${(ad.analysis.regression_analysis || []).length}건, matrix_data=${(ad.analysis.matrix_data || []).length}행)`);
+            } catch (e) {
+                console.warn('[regression] preload 실패:', e?.message || e);
+            }
+        }
+
+        async function initDeepInsight() {
             if (!window.PremiumInsightPanel || !allData?.length) return;
 
             const step = regressionStep;
@@ -2259,6 +2319,9 @@ ${contextData}
                 }
                 curr -= step;
             }
+
+            // [fix-238] 첫 호출 시 supabase에서 직접 preload — V3 API fetch 대기 제거
+            await _preloadRegressionPayload();
 
             PremiumInsightPanel.render(
                 'dlInsightContainer',

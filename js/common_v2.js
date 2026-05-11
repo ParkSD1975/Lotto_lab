@@ -136,6 +136,21 @@ if (window._COMMON_V2_LOADED) {
             if (type === 'dynamic') {
                 if (!allDraws || allDraws.length === 0) return [];
 
+                // [신규] 시뮬레이터 v5-multi 수식: simulator_evaluator.js의 전역 함수 사용
+                // simulator_custom은 isPrediction 모드에서 simNow(=draws[0].round+1) 산출
+                if (rules.formula === 'simulator_custom' && typeof window.evalSimulatorFormulaForDraw === 'function') {
+                    const isPredictionSim = options.isPrediction === true;
+                    const latest = allDraws[0];
+                    const simNow = ((latest && (latest.round || latest.drawNo)) || 0) + 1;
+                    const targetRound = isPredictionSim
+                        ? simNow
+                        : (latest && (latest.round || latest.drawNo)) || simNow;
+                    const result = window.evalSimulatorFormulaForDraw(rules.formula_steps, allDraws, targetRound);
+                    if (Array.isArray(result) && result.length > 0) return result;
+                    // 평가 실패 시 저장된 target_numbers fallback
+                    return targetNums;
+                }
+
                 let formula = rules.formula || 'prev_plus_n';
                 let val = (rules.value !== undefined && rules.value !== null && rules.value !== '') ? Number(rules.value) : 1;
                 if (isNaN(val)) val = 1;

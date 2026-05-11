@@ -700,6 +700,27 @@
                 <h2 class="text-xs font-bold text-gray-400 uppercase tracking-widest">바로가기</h2>
                 <div class="flex-1 h-px bg-gray-100"></div>
             </div>
+            <!-- 번호대 자동 제외 패턴 표시 -->
+            <section id="section-auto-exclude" class="section-animate" style="transition-delay: 0ms">
+                <div class="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+                    <div class="flex items-center justify-between mb-3">
+                        <div class="flex items-center gap-2">
+                            <span class="material-symbols-outlined text-rose-400 text-xl">block</span>
+                            <h3 class="text-base font-bold text-gray-800">번호대 자동 제외 패턴 (최근 5회차)</h3>
+                            <span id="auto-exclude-status-badge" class="text-[10px] font-bold px-2 py-0.5 rounded text-rose-600 bg-rose-50">활성</span>
+                        </div>
+                        <a href="number_range.html" class="text-xs font-medium text-slate-500 hover:text-blue-600 flex items-center gap-1 transition-colors">
+                            <span class="material-symbols-outlined text-[16px]">tune</span>
+                            설정
+                        </a>
+                    </div>
+                    <p class="text-xs text-gray-500 mb-3">아래 패턴은 AI 추천 조합에서 자동 차단됩니다 (`단번대-10번대-20번대-30번대-40번대` 분포).</p>
+                    <div id="auto-exclude-patterns" class="flex gap-2 flex-wrap">
+                        <span class="text-xs text-gray-400">로딩 중...</span>
+                    </div>
+                </div>
+            </section>
+
             <section id="section-quicklinks" class="section-animate" style="transition-delay: 0ms">
                 <div class="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
                     <!-- Header -->
@@ -783,7 +804,57 @@
                 await this.loadAISection();
                 await this.loadVerificationSection();
                 this.loadHeatmapSection();
+                await this.loadAutoExcludeSection();
                 this.loadQuickLinks();
+            }
+
+            // ── 번호대 자동 제외 패턴 표시 ──
+            async loadAutoExcludeSection() {
+                const container = document.getElementById('auto-exclude-patterns');
+                const badge = document.getElementById('auto-exclude-status-badge');
+                if (!container) return;
+
+                let settings = null;
+                try {
+                    // 1순위: filterService DB
+                    if (window.filterService) {
+                        const round = parseInt(document.getElementById('kpi-round')?.textContent || '0');
+                        if (round > 0) {
+                            const dbData = await window.filterService.loadSetting('number_range_patterns', round);
+                            if (dbData) settings = dbData.settings;
+                        }
+                    }
+                    // 2순위: localStorage
+                    if (!settings) {
+                        const ls = localStorage.getItem('number_range_patterns');
+                        if (ls) settings = JSON.parse(ls);
+                    }
+                } catch (_) {}
+
+                const isOn = settings?.autoExcludeRecent5;
+                const patterns = settings?.excludedPatterns || [];
+
+                if (badge) {
+                    if (isOn && patterns.length > 0) {
+                        badge.textContent = '활성';
+                        badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded text-rose-600 bg-rose-50';
+                    } else {
+                        badge.textContent = '비활성';
+                        badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded text-gray-500 bg-gray-100';
+                    }
+                }
+
+                if (!isOn || patterns.length === 0) {
+                    container.innerHTML = '<span class="text-xs text-gray-400">자동 제외 비활성 — 번호대별 분석 페이지에서 활성화하세요.</span>';
+                    return;
+                }
+
+                container.innerHTML = patterns.map(p =>
+                    `<span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-50 border border-rose-100">
+                        <span class="material-symbols-outlined text-rose-400 text-[14px]">block</span>
+                        <span class="text-sm font-mono font-bold text-rose-600 line-through">${p}</span>
+                    </span>`
+                ).join('');
             }
 
             _setupSectionObserver() {

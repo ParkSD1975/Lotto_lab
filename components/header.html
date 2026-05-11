@@ -13,20 +13,55 @@
         </div>
     </a>
 
-    <nav class="flex items-center gap-0.5 overflow-x-auto no-scrollbar">
-        <a href="dashboard.html" class="gnb-link">대시보드</a>
-        <a href="winning-numbers.html" class="gnb-link">당첨번호</a>
-        <a href="properties_matrix.html" class="gnb-link">기초분석</a>
-        <a href="custom_analysis.html" class="gnb-link">커스텀분석</a>
-        <a href="ai_deep_learning.html" class="gnb-link">딥러닝 분석</a>
-        <a href="filter.html" class="gnb-link">필터</a>
-        <a href="combination_generator.html" class="gnb-link">조합</a>
-        <a href="ai_combination.html" class="gnb-link">AI 조합</a>
-        <a href="output.html" class="gnb-link">출력</a>
-        <a href="verification.html" class="gnb-link">검증</a>
+    <nav class="flex items-center gap-1 overflow-x-auto" style="scrollbar-width:none">
+        <a href="dashboard.html" class="gnb-link inline-flex items-center px-4 py-2 text-[13.5px] font-medium text-slate-500 hover:text-slate-900 transition-colors whitespace-nowrap relative">대시보드</a>
+        <a href="winning-numbers.html" class="gnb-link inline-flex items-center px-4 py-2 text-[13.5px] font-medium text-slate-500 hover:text-slate-900 transition-colors whitespace-nowrap relative">당첨번호</a>
+        <a href="properties_matrix.html" class="gnb-link inline-flex items-center px-4 py-2 text-[13.5px] font-medium text-slate-500 hover:text-slate-900 transition-colors whitespace-nowrap relative">기초분석</a>
+        <a href="custom_analysis.html" class="gnb-link inline-flex items-center px-4 py-2 text-[13.5px] font-medium text-slate-500 hover:text-slate-900 transition-colors whitespace-nowrap relative">커스텀분석</a>
+        <a href="ai_deep_learning.html" class="gnb-link inline-flex items-center px-4 py-2 text-[13.5px] font-medium text-slate-500 hover:text-slate-900 transition-colors whitespace-nowrap relative">딥러닝</a>
+        <a href="filter.html" class="gnb-link inline-flex items-center px-4 py-2 text-[13.5px] font-medium text-slate-500 hover:text-slate-900 transition-colors whitespace-nowrap relative">필터</a>
+        <a href="combination_generator.html" class="gnb-link inline-flex items-center px-4 py-2 text-[13.5px] font-medium text-slate-500 hover:text-slate-900 transition-colors whitespace-nowrap relative">조합</a>
+        <a href="ai_combination.html" class="gnb-link inline-flex items-center px-4 py-2 text-[13.5px] font-medium text-slate-500 hover:text-slate-900 transition-colors whitespace-nowrap relative">AI 조합</a>
+        <a href="output.html" class="gnb-link inline-flex items-center px-4 py-2 text-[13.5px] font-medium text-slate-500 hover:text-slate-900 transition-colors whitespace-nowrap relative">출력</a>
+        <a href="verification.html" class="gnb-link inline-flex items-center px-4 py-2 text-[13.5px] font-medium text-slate-500 hover:text-slate-900 transition-colors whitespace-nowrap relative">검증</a>
     </nav>
 
     <div class="flex items-center gap-2 flex-shrink-0">
+
+        <!-- [fix-363] 분석 매트릭스 퀵 버튼 — 다중 분석 비교/집합 연산 -->
+        <a href="analysis_matrix.html" title="분석 매트릭스 — 다중 분석 비교/집합 연산"
+            class="flex items-center justify-center w-9 h-9 rounded-full text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition-all mr-1">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg">
+                <rect x="3" y="3" width="7" height="7" rx="1"/>
+                <rect x="14" y="3" width="7" height="7" rx="1"/>
+                <rect x="3" y="14" width="7" height="7" rx="1"/>
+                <rect x="14" y="14" width="7" height="7" rx="1"/>
+                <line x1="10" y1="6.5" x2="14" y2="6.5"/>
+                <line x1="10" y1="17.5" x2="14" y2="17.5"/>
+                <line x1="6.5" y1="10" x2="6.5" y2="14"/>
+                <line x1="17.5" y1="10" x2="17.5" y2="14"/>
+            </svg>
+        </a>
+
+        <!-- [fix-277] 패턴 탐정 퀵 버튼 — 셜록홈즈 파이프 옆모습 SVG 아이콘 -->
+        <a href="winning-numbers.html?detective=1" title="패턴 탐정 — 당첨번호 패턴 검색"
+            class="flex items-center justify-center w-9 h-9 rounded-full text-slate-500 hover:text-violet-600 hover:bg-violet-50 transition-all mr-1">
+            <svg viewBox="0 0 32 32" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg">
+                <!-- 디어스토커 모자 (위·아래 챙) -->
+                <path d="M6 9 L26 9 L24 7 Q16 3.5 8 7 Z" fill="currentColor" stroke="none"/>
+                <path d="M5 9 L27 9 L26 11 L6 11 Z" fill="currentColor" stroke="none"/>
+                <!-- 옆모습 윤곽: 이마 → 코 → 입 → 턱 → 목 -->
+                <path d="M9 11 L9 15 L7 17 L9 19 L10 21 L13 22 L13 25 L15 26 L15 28 L11 28"/>
+                <!-- 콧등 강조 -->
+                <path d="M7 17 L8 17.5"/>
+                <!-- 파이프 손잡이 (입에서 우측 하단으로) -->
+                <line x1="13" y1="22" x2="20" y2="24"/>
+                <!-- 파이프 보울 -->
+                <ellipse cx="22" cy="22.5" rx="3" ry="2.5" fill="currentColor" stroke="none"/>
+                <!-- 연기 곡선 -->
+                <path d="M22 19 Q23.5 16.5 22 14 Q23.5 12 22 10"/>
+            </svg>
+        </a>
 
         <!-- ── 시뮬레이터 퀵 버튼 ── -->
         <a href="custom_simulator.html" title="커스텀 시뮬레이터"
@@ -181,56 +216,5 @@
         </div>
     </div>
 
-    <style>
-        nav.flex {
-            scrollbar-width: none;
-            -ms-overflow-style: none;
-        }
-
-        nav.flex::-webkit-scrollbar {
-            display: none;
-        }
-
-        .gnb-link {
-            position: relative;
-            padding: 6px 14px;
-            font-size: 13.5px;
-            font-weight: 500;
-            color: #64748b;
-            white-space: nowrap;
-            text-decoration: none;
-            transition: color 0.2s;
-            letter-spacing: -0.01em;
-        }
-
-        .gnb-link::after {
-            content: '';
-            position: absolute;
-            bottom: -1px;
-            left: 14px;
-            right: 14px;
-            height: 2px;
-            background: #1d4ed8;
-            border-radius: 2px 2px 0 0;
-            transform: scaleX(0);
-            transition: transform 0.2s ease;
-        }
-
-        .gnb-link:hover {
-            color: #1d4ed8;
-        }
-
-        .gnb-link:hover::after {
-            transform: scaleX(1);
-        }
-
-        .gnb-link.active {
-            color: #1d4ed8;
-            font-weight: 600;
-        }
-
-        .gnb-link.active::after {
-            transform: scaleX(1);
-        }
-    </style>
+    <style>nav::-webkit-scrollbar{display:none}</style>
 </header>

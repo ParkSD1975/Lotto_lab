@@ -662,6 +662,9 @@ function calculateStats(analysis, draws) {
                 targets = (calculateDynamicTargets(null, draw.date, draw.round) || []).map(Number);
             } else if (rules.formula === 'round_end_digit') {
                 targets = (calculateDynamicTargets(null, null, draw.round) || []).map(Number);
+            } else if (rules.formula === 'simulator_custom') {
+                // [신규] 시뮬레이터에서 저장한 수식 — 회차별 재실행
+                targets = (evalSimulatorFormulaForDraw(rules.formula_steps, draws, draw.round) || []).map(Number);
             } else {
                 // [New] 회귀 분석(Regression) 지원: regression_step 만큼 뒤의 회차를 참조
                 const step = parseInt(rules.regression_step || 1);
@@ -739,6 +742,7 @@ function calculateStats(analysis, draws) {
         return {
             round: draw.round,
             winNumbers: draw.numbers,
+            bonus: draw.bonus ?? null,
             targets: targets,
             matched: matched,
             hitCount: hitCount,
@@ -784,6 +788,11 @@ function calculateStats(analysis, draws) {
                 }
             } else if (rules.formula === 'round_end_digit') {
                 nextTargets = calculateDynamicTargets(null, null, nextRound);
+            } else if (rules.formula === 'simulator_custom') {
+                // [신규] 시뮬레이터 v5-multi: nextRound(simNow)는 draws에 없음
+                // 저장 시점에 evaluateAt(-1)로 산출된 analysis.target_numbers 그대로 사용
+                nextTargets = (analysis.target_numbers || []).map(Number);
+                console.log(`[simulator_custom] nextRound=${nextRound} targets count=${nextTargets.length}`, nextTargets);
             } else {
                 // [New] 회귀 기반 다음 회차 타겟 산출
                 const step = parseInt(rules.regression_step || 1);
@@ -808,7 +817,8 @@ function calculateStats(analysis, draws) {
 
     const nextRow = {
         round: nextRound,
-        winNumbers: [0, 0, 0, 0, 0, 0, 0], // 미추첨
+        winNumbers: [0, 0, 0, 0, 0, 0], // 미추첨 (6개 placeholder)
+        bonus: null,
         targets: nextTargets,
         matched: [],
         hitCount: 0,
@@ -927,15 +937,25 @@ function renderHeaderBalls(stats) {
         targets = (currentAnalysis.target_numbers || []);
     }
 
+    // [요청 fix-210/fix-216] ball 30px + flex-shrink:0 — 부모 flex 컨테이너에서 squeeze 방지 (찌그러짐 fix)
     const html = (!targets || targets.length === 0) ?
-        '<span class="text-sm text-gray-400">선택된 번호가 없습니다.</span>' :
+        '<span class="text-xs text-gray-400">선택된 번호가 없습니다.</span>' :
         targets.map(num => {
             const bg = getStandardBallGradient(num);
-            return `<div class="w-8 h-8 rounded-full flex items-center justify-center text-white font-medium text-[13px]" style="background:${bg}; box-shadow:0 2px 4px rgba(0,0,0,0.12)">${num}</div>`;
+            return `<div class="rounded-full flex items-center justify-center text-white font-medium" style="width:30px;height:30px;min-width:30px;min-height:30px;max-width:30px;max-height:30px;font-size:12px;flex-shrink:0;flex-grow:0;aspect-ratio:1/1;background:${bg};box-shadow:0 1px 3px rgba(0,0,0,0.12)">${num}</div>`;
         }).join('');
 
     if (container) container.innerHTML = html;
     if (filterContainer) filterContainer.innerHTML = html;
+
+    // [fix-352] 조합 필터 영역 — 대상번호 개수 표시 (총 N개 뱃지)
+    const cntEl = document.getElementById('targetCountFilterValue');
+    if (cntEl) {
+        const cnt = Array.isArray(targets) ? targets.length : 0;
+        cntEl.textContent = cnt;
+        const wrap = document.getElementById('targetCountFilter');
+        if (wrap) wrap.style.display = cnt > 0 ? 'inline-flex' : 'none';
+    }
 }
 
 // Zone B: 대시보드
@@ -1212,8 +1232,11 @@ async function batchCalibrateAllFilters() {
         // 보정이 필요한 분석만 선별:
         // 1) last_calibrated_round < latestRound (새 회차 업데이트)
         // 2) min=0 AND max=0 (이전 보정이 잘못된 경우 강제 재보정)
+        // [예외] simulator_custom (시뮬레이터 분석)은 사용자가 직접 입력한 명시 설정이므로 자동 보정 제외
         const toUpdate = allAnalyses.filter(a => {
             try {
+                const rules = typeof a.rules === 'string' ? JSON.parse(a.rules) : (a.rules || {});
+                if (rules.formula === 'simulator_custom') return false; // ★ 시뮬레이터 분석 자동 보정 제외
                 const fc = typeof a.filter_config === 'string'
                     ? JSON.parse(a.filter_config)
                     : (a.filter_config || {});
@@ -1308,6 +1331,7 @@ async function batchCalibrateAllFilters() {
 function renderHistoryTable(stats) {
     const headerGrid = document.getElementById('historyHeader');
     const tbody = document.getElementById('historyTableBody');
+    const colgroup = document.getElementById('historyColgroup');
     if (!tbody || !headerGrid) {
         console.error("Table elements not found:", { headerGrid, tbody });
         return;
@@ -1328,28 +1352,58 @@ function renderHistoryTable(stats) {
     // 혹은 사용자가 명시적으로 날짜 보기를 원할 수도 있음(추후 옵션). 여기선 rule 기반 자동 감지.
     const isDateBased = (currentAnalysis.rules?.formula === 'draw_date_end');
 
-    // [표준화] 헤더 재구성 (Table Headers) - [Mod] 텍스트 크기 확대 (text-base)
+    // [fix-224] 사용자 요청: 당첨번호 + HIT/GAP/STR 약간 확대
+    //  - 회차: 56 → 70 (sticky padding 여유 — fix-308)
+    //  - 추첨일: 78 → 100 (YYYY-MM-DD 한 줄 표기 — fix-308)
+    //  - 당첨번호: 276 → 296 (+20px 여유)
+    //  - 대상번호: <col> 가변 (유지)
+    //  - HIT/GAP/STR: 38 → 50 (+12px 여유)
+    // [fix-355] '대상수' 컬럼 추가 — 분석 대상 옆 / HIT 앞
+    let colgroupHtml = `
+        <col style="width:70px;">
+    `;
+    if (isDateBased) colgroupHtml += `<col style="width:100px;">`;
+    colgroupHtml += `
+        <col style="width:296px;">
+        <col>
+        <col style="width:56px;">
+        <col style="width:50px;">
+        <col style="width:50px;">
+        <col style="width:50px;">
+    `;
+    if (colgroup) colgroup.innerHTML = colgroupHtml;
+
+    // [fix-354] thead sticky 제거 + 각 th에 직접 sticky 적용 — nested sticky stacking context 회피
+    //   문제: thead.sticky 가 stacking context 를 만들어 th의 z-index가 thead 내부에서만 유효
+    //         → tbody의 td(z:30)가 thead의 th 위로 침범하는 현상
+    //   해결: thead 자체엔 sticky 없음, 모든 th 각각이 viewport 기준 sticky top:0
+    //         회차/추첨일 th는 추가로 sticky left → top+left 동시 sticky (corner 고정)
+    const thBaseStyle = `position:sticky;top:0;background:#0f172a;z-index:55`;
+    const thRoundStyle = `position:sticky;left:0;top:0;background:#0f172a;z-index:65;box-shadow:1px 0 0 0 rgba(255,255,255,0.08)`;
+    const thDateStyle = `position:sticky;left:70px;top:0;background:#0f172a;z-index:64;box-shadow:1px 0 0 0 rgba(255,255,255,0.08)`;
+
     let headerHtml = `
-        <tr class="text-base font-black uppercase tracking-wider text-white">
-            <th class="py-4 px-4 text-center w-20 sticky left-0 bg-slate-900 z-40">회차</th>
+        <tr class="text-[11px] font-bold uppercase tracking-wide text-white">
+            <th class="py-2.5 px-3 text-center whitespace-nowrap" style="${thRoundStyle}">회차</th>
     `;
 
     if (isDateBased) {
-        headerHtml += `<th class="py-4 px-4 text-center w-28 whitespace-nowrap">추첨일</th>`;
+        headerHtml += `<th class="py-2.5 px-3 text-center whitespace-nowrap" style="${thDateStyle}">추첨일</th>`;
     }
 
     headerHtml += `
-            <th class="py-4 px-4 text-center w-[300px]">당첨번호</th>
-            <th class="py-4 px-4 text-center">분석 대상 (Target)</th>
-            <th class="py-4 px-2 text-center w-24">HIT</th>
-            <th class="py-4 px-2 text-center w-24">GAP</th>
-            <th class="py-4 px-2 text-center w-24">STR</th>
+            <th class="py-2.5 pl-0 pr-4 text-center" style="${thBaseStyle}">당첨번호</th>
+            <th class="py-2.5 px-3 text-center" style="${thBaseStyle}">분석 대상 (Target)</th>
+            <th class="py-2.5 px-2 text-center" style="${thBaseStyle}">대상수</th>
+            <th class="py-2.5 px-2 text-center" style="${thBaseStyle}">HIT</th>
+            <th class="py-2.5 px-2 text-center" style="${thBaseStyle}">GAP</th>
+            <th class="py-2.5 px-2 text-center" style="${thBaseStyle}">STR</th>
         </tr>
     `;
 
     headerGrid.innerHTML = headerHtml;
-    // Remove grid classes from header row since it's now a thead
-    headerGrid.className = "sticky top-0 bg-slate-900 text-white font-semibold border-b border-[#334155] z-30";
+    // [fix-354] thead 자체엔 sticky 제거 — 각 th 가 개별 sticky
+    headerGrid.className = "bg-slate-900 text-white font-semibold border-b border-[#334155]";
 
 
     // [Refinement] 정교한 HIT/GAP/STR 색상 정의
@@ -1373,46 +1427,45 @@ function renderHistoryTable(stats) {
         isFixedCount = stats.rows.every(r => r.targets.length === firstLen);
     }
 
-    // [Mod] 당첨번호 크기(w-9 h-9)와 동일하게 최대 크기 제한
-    let globalSizeClass = 'text-base';
-    let globalGapClass = 'gap-2';
+    // [Mod 사용자 요청] 사이즈 70% 축소 + 한줄 ~20개 보장
+    // 기본 32px(w-9 → 70%) ≈ 22px (w-[22px])
+    let globalSizeClass = 'text-[11px]';
+    let globalGapClass = 'gap-1';
 
-    // 기본값: w-9 (36px) - 당첨번호와 동일한 크기 (폰트도 text-sm으로 맞춤)
-    // 중요: 테두리가 있으므로 내부 공간이 조금 좁아 보일 수 있음 -> w-9 유지하되 폰트는 sm
-    let globalBallSize = 'min-w-[2.25rem] w-9 h-9 text-sm';
-    let globalBallGap = 'gap-2';
+    // 기본값: w-[22px] h-[22px] text-[10px] - 70% 축소
+    let globalBallSize = 'min-w-[22px] w-[22px] h-[22px] text-[10px]';
+    let globalBallGap = 'gap-1';
 
-    // 단계별 축소 로직 (최대 개수 기준)
-    // [Refinement] 고정형(Fixed)일 경우, 개수가 적당하면(15개 이하) 무조건 당첨번호 사이즈 유지
+    // 단계별 축소 로직 (최대 개수 기준) — 모두 한줄에 ~20개 들어가도록 통일
     if (isFixedCount && maxTargetLen <= 15) {
-        globalBallSize = 'min-w-[2.25rem] w-9 h-9 text-sm';
-        globalBallGap = 'gap-2';
+        // 15개 이하: 22px (이미 충분히 작음)
+        globalBallSize = 'min-w-[22px] w-[22px] h-[22px] text-[10px]';
+        globalBallGap = 'gap-1';
     } else {
-        // 단, 너무 많으면 어쩔 수 없이 줄여야 함
         if (maxTargetLen > 25) {
-            // 25개 초과
-            globalSizeClass = 'text-[10px]';
+            // 25개 초과: 16px
+            globalSizeClass = 'text-[9px]';
             globalGapClass = 'gap-0.5';
-            globalBallSize = 'w-5 h-5 text-[10px]';
+            globalBallSize = 'w-4 h-4 text-[9px]';
             globalBallGap = 'gap-0.5';
         } else if (maxTargetLen > 20) {
-            // 21~25개
-            globalSizeClass = 'text-xs';
-            globalGapClass = 'gap-1';
-            globalBallSize = 'w-6 h-6 text-xs';
-            globalBallGap = 'gap-1';
+            // 21~25개: 18px
+            globalSizeClass = 'text-[10px]';
+            globalGapClass = 'gap-0.5';
+            globalBallSize = 'w-[18px] h-[18px] text-[9px]';
+            globalBallGap = 'gap-0.5';
         } else if (maxTargetLen > 15) {
-            // 16~20개: w-7 (28px)
-            globalSizeClass = 'text-sm';
+            // 16~20개: 20px (한줄에 20개 보장)
+            globalSizeClass = 'text-[10px]';
             globalGapClass = 'gap-1';
-            globalBallSize = 'min-w-[1.75rem] w-7 h-7 text-xs';
+            globalBallSize = 'min-w-[20px] w-[20px] h-[20px] text-[9px]';
             globalBallGap = 'gap-1';
         } else {
-            // 15개 이하 (가변형이라도 공간 충분하면 w-9)
-            globalSizeClass = 'text-base';
-            globalGapClass = 'gap-1.5';
-            globalBallSize = 'min-w-[2.25rem] w-9 h-9 text-sm'; // [Force] w-9 유지
-            globalBallGap = 'gap-1.5';
+            // 15개 이하: 22px
+            globalSizeClass = 'text-[11px]';
+            globalGapClass = 'gap-1';
+            globalBallSize = 'min-w-[22px] w-[22px] h-[22px] text-[10px]';
+            globalBallGap = 'gap-1';
         }
     }
 
@@ -1431,35 +1484,38 @@ function renderHistoryTable(stats) {
             ? `justify-start ${globalGapClass}`
             : `${alignClassBase} ${globalGapClass}`;
 
-        const targetVisualManual = `<div class="flex flex-nowrap items-center ${alignClass} pl-2" style="max-width: 100%; overflow-x: auto;">${row.targets.map(n => {
+        // [Mod] 항상 wrap 적용, 좌우 스크롤 완전 차단 (사용자 요청)
+        const wrapMode = 'flex-wrap';
+        const overflowMode = 'overflow-x: hidden;';
+
+        const targetVisualManual = `<div class="flex ${wrapMode} items-center ${alignClass} pl-2" style="max-width: 100%; ${overflowMode} row-gap: 4px;">${row.targets.map(n => {
             const isMatched = row.matched.includes(n);
             const textClass = isMatched ? 'text-red-500 font-bold' : 'text-slate-400';
             return `<span class="${textClass} ${globalSizeClass} transition-all whitespace-nowrap shrink-0">${n}</span>`;
         }).join('')}</div>`;
 
-        // [Refinement] 기본형 (정렬 + 글로벌 사이즈 적용)
-        const alignClassDefault = `${alignClassBase} items-center ${globalBallGap}`;
+        // [요청 fix-210] ball 크기 22 → 30px 증가 (전역 가독성 개선)
+        const targetVisualDefault = row.targets.length === 0
+            ? `<span class="text-slate-200">-</span>`
+            : `<div style="display:flex; flex-wrap:wrap; gap:5px; padding:2px 4px; align-items:center; row-gap:5px;">${row.targets.map(n => {
+                const isMatched = row.matched.includes(n);
+                const bg = getStandardBallGradient(n);
+                const baseStyle = `width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:12px; flex-shrink:0;`;
+                const colorStyle = isMatched
+                    ? `background:${bg}; color:#fff; box-shadow:0 1px 3px rgba(0,0,0,0.12);`
+                    : `background:#fff; color:#475569; border:1px solid #cbd5e1;`;
+                return `<span style="${baseStyle}${colorStyle}">${n}</span>`;
+            }).join('')}</div>`;
 
-        const targetVisualDefault = `<div class="flex flex-nowrap ${alignClassDefault}" style="max-width: 100%; overflow-x: auto;">${row.targets.map(n => {
-            const isMatched = row.matched.includes(n);
-            const bg = getStandardBallGradient(n);
-            const ballClass = isMatched
-                ? 'text-white'
-                : 'text-slate-700 border border-slate-400 bg-white font-bold';
-            const ballStyle = isMatched ? `background: ${bg}; box-shadow:0 2px 4px rgba(0,0,0,0.12);` : '';
-            return `<span class="${globalBallSize} rounded-full flex items-center justify-center font-bold transition-all shrink-0 ${ballClass}" style="${ballStyle}">${n}</span>`;
-        }).join('')}</div>`;
-
-        // [수정] AI 타입 전용: CSS Grid repeat(20, 1fr) — 열 너비에 꽉 차도록 20개씩 자동 분배
-        // 볼 크기가 열 너비를 20등분한 크기로 자동 계산되어 항상 딱 맞게 표시됨
+        // [요청 fix-210] AI 타입도 30px (당첨번호와 동일)
         const targetVisualAI = row.targets.length === 0
             ? `<div class="flex items-center justify-center w-full">
                    <span class="text-[11px] text-slate-300 italic px-2">모델 점수 데이터 없음</span>
                </div>`
-            : `<div style="display:grid; grid-template-columns:repeat(20, 1fr); gap:2px; width:100%; padding:2px 6px; box-sizing:border-box;">${row.targets.map(n => {
+            : `<div style="display:flex; flex-wrap:wrap; gap:5px; padding:2px 6px; align-items:center; row-gap:5px;">${row.targets.map(n => {
                 const isMatched = row.matched.includes(n);
                 const bg = getStandardBallGradient(n);
-                const baseStyle = `aspect-ratio:1/1; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:9px; min-width:0;`;
+                const baseStyle = `width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:12px; flex-shrink:0;`;
                 const colorStyle = isMatched
                     ? `background:${bg}; color:#fff; box-shadow:0 1px 3px rgba(0,0,0,0.15);`
                     : `background:#fff; color:#64748b; border:1px solid #cbd5e1;`;
@@ -1528,59 +1584,87 @@ function renderHistoryTable(stats) {
             <div class="text-xs font-semibold text-slate-500 text-center">${drawDate}</div>
         ` : '';
 
-        // [Refinement] 하이라이트 스타일 가이드 적용 (보라색 테마)
-        let rowClass = 'transition-none';
-        let cellBaseClass = 'py-4 px-4 text-center border-l-4 border-transparent'; // Shaking Fix
+        // [fix-221] 회차 cell padding 축소 (px-3 → px-2) + bg 명시
+        let rowClass = 'transition-none bg-white';
+        let cellBaseClass = 'py-2 px-2 text-center border-l-4 border-transparent';
 
         if (isInRange) {
-            rowClass = 'bg-[#F3E8FF]'; // 옅은 보라색 배경
-            cellBaseClass = 'py-4 px-4 text-center border-l-4 border-[#7C3AED]'; // 딥퍼플 왼쪽 선
+            rowClass = 'bg-[#F3E8FF]';
+            cellBaseClass = 'py-2 px-2 text-center border-l-4 border-[#7C3AED]';
         }
 
+        // [fix-353] 회차/추첨일 sticky 강화
+        //   - inline border (left-4 보라색)을 inset box-shadow로 변환 → sticky 영역 깨짐 방지
+        //   - 추첨일 td도 sticky (회차 70px 옆에 lock)
+        //   - 분리선 box-shadow + 배경 명시 (다른 셀이 위로 침범 방지)
+        const stickyBg = isInRange ? '#F3E8FF' : '#ffffff';
+        const stickyDivider = '1px 0 0 0 #e5e7eb';        // 우측 1px 분리선
+        const inRangeAccent = isInRange ? 'inset 4px 0 0 0 #7C3AED, ' : '';   // 좌측 4px 보라 액센트 (inset)
+        const stickyShadow = inRangeAccent + stickyDivider;
+        // 회차 셀은 cellBaseClass의 border-l-4를 사용하지 않고 자체 sticky 처리
+        const roundCellClass = `py-2 px-2 text-center text-[11px] font-bold text-gray-900 whitespace-nowrap history-sticky-col`;
+        // 당첨번호 ball 22px (70% 축소: 36px → 22px)
         return `
             <tr class="${rowClass} cursor-pointer group" onclick="toggleRangeHighlight(${index})">
-                <td class="${cellBaseClass} text-sm font-bold text-gray-900 w-20 sticky left-0 bg-inherit z-10 whitespace-nowrap">${row.round}회</td>
-                ${isDateBased ? `<td class="py-4 px-4 text-xs font-semibold text-slate-500 text-center">${drawDate}</td>` : ''}
-                <td class="py-4 px-4 text-center">
-                    <div class="flex gap-2 justify-center w-[300px] mx-auto">
-                        ${row.winNumbers.every(n => n === 0) ? '<span class="text-slate-300 text-xs italic">추첨 대기 중...</span>' : row.winNumbers.map((num, i) => {
-            const bg = getStandardBallGradient(num);
-            const orbStyle = `background: ${bg}; color: white; box-shadow: 0 2px 4px rgba(0,0,0,0.12);`;
-            return `
-                                ${i === 6 ? '<span class="text-slate-300 self-center font-bold px-1">+</span>' : ''}
-                                <div class="w-9 h-9 rounded-full flex items-center justify-center text-sm font-medium transition-transform hover:scale-110" style="${orbStyle}">${num}</div>
-                            `;
-        }).join('')}
+                <td class="${roundCellClass}" data-sticky-bg="${stickyBg}" style="position:sticky;left:0;z-index:20;background:${stickyBg};box-shadow:${stickyShadow}">${row.round}회</td>
+                ${isDateBased ? `<td class="py-2 px-3 text-[10px] font-semibold text-slate-500 text-center whitespace-nowrap" style="position:sticky;left:70px;z-index:19;background:${stickyBg};box-shadow:${stickyDivider}">${drawDate}</td>` : ''}
+                <td class="py-2 pl-3 pr-1 text-center" style="white-space:nowrap;overflow:hidden">
+                    <div class="flex gap-1 justify-center items-center" style="flex-wrap:nowrap">
+                        ${row.winNumbers.every(n => n === 0) ? '<span class="text-slate-300 text-[10px] italic">추첨 대기 중...</span>' : (() => {
+            // [fix-217] hover:scale-110 제거 — ball 확대로 인한 인접 ball/cell 침범 차단
+            const mainBalls = row.winNumbers.slice(0, 6).map(num => {
+                const bg = getStandardBallGradient(num);
+                const orbStyle = `background:${bg};color:white;box-shadow:0 1px 3px rgba(0,0,0,0.12);width:30px;height:30px;min-width:30px;min-height:30px;max-width:30px;max-height:30px;font-size:12px;flex-shrink:0;flex-grow:0;aspect-ratio:1/1;border-radius:50%;`;
+                return `<div class="flex items-center justify-center font-medium" style="${orbStyle}">${num}</div>`;
+            }).join('');
+            // 보너스볼 — +기호와 함께 표시 (메인볼과 같은 크기, hover scale 제거)
+            const bonus = row.bonus;
+            const bonusHtml = (bonus != null && bonus > 0) ? (() => {
+                const bg = getStandardBallGradient(bonus);
+                const orbStyle = `background:${bg};color:white;box-shadow:0 1px 3px rgba(0,0,0,0.12);width:30px;height:30px;min-width:30px;min-height:30px;max-width:30px;max-height:30px;font-size:12px;flex-shrink:0;flex-grow:0;aspect-ratio:1/1;border-radius:50%;`;
+                return `<span class="text-slate-400 self-center font-bold px-1 text-[12px] flex-shrink-0">+</span>` +
+                    `<div class="flex items-center justify-center font-medium" style="${orbStyle}">${bonus}</div>`;
+            })() : '';
+            return mainBalls + bonusHtml;
+        })()}
                     </div>
                 </td>
-                <td class="py-4 px-4 text-center text-sm font-medium">${targetContent || '<span class="text-slate-200">-</span>'}</td>
-                <td class="py-4 px-2">
+                <td class="py-2 pl-3 pr-2 text-[11px] font-medium border-l border-slate-100" style="white-space:normal;word-break:keep-all">${targetContent || '<span class="text-slate-200">-</span>'}</td>
+                <td class="py-2 px-1">
+                    <!-- [fix-355] 대상수 — 회차별 분석 대상 번호 개수 (tabular-nums) -->
+                    <div class="flex justify-center">
+                        ${(row.targets && row.targets.length > 0)
+                            ? `<div class="text-[11px] font-bold text-slate-700" style="font-feature-settings:'tnum';letter-spacing:-0.01em">${row.targets.length}<span class="text-[9px] font-medium text-slate-400 ml-0.5">개</span></div>`
+                            : '<span class="text-slate-300 text-[10px]">-</span>'}
+                    </div>
+                </td>
+                <td class="py-2 px-1">
                     <div class="flex justify-center">
                         ${row.isUpcoming ? '<span class="text-slate-300">-</span>' : `
-                        <div class="text-sm font-medium ${row.hitCount > 0 ? 'text-blue-600 font-black' : 'text-slate-600'}">
+                        <div class="text-[11px] font-medium ${row.hitCount > 0 ? 'text-blue-600 font-black' : 'text-slate-600'}">
                             ${row.hitCount}
                         </div>
                         `}
                     </div>
                 </td>
-                <td class="py-4 px-2">
+                <td class="py-2 px-1">
                     <div class="flex justify-center">
                         ${row.isUpcoming ? '<span class="text-slate-300">-</span>' : `
                         ${row.gap === 0 ? `
-                            <div class="flex items-center justify-center w-8 h-8 rounded-full bg-blue-600 text-white text-[10px] font-black shadow-sm">당</div>
+                            <div class="flex items-center justify-center rounded-full bg-blue-600 text-white text-[11px] font-black shadow-sm" style="width:30px;height:30px;min-width:30px;min-height:30px;max-width:30px;max-height:30px;flex-shrink:0;flex-grow:0;aspect-ratio:1/1;">당</div>
                         ` : `
-                            <div class="text-sm font-medium text-slate-600">${row.gap}</div>
+                            <div class="text-[11px] font-medium text-slate-600">${row.gap}</div>
                         `}
                         `}
                     </div>
                 </td>
-                <td class="py-4 px-2">
+                <td class="py-2 px-1">
                     <div class="flex justify-center">
                         ${row.isUpcoming ? '<span class="text-slate-300">-</span>' : `
                         ${row.straight > 0 ? `
-                            <div class="text-sm font-medium text-slate-600">${row.straight}</div>
+                            <div class="text-[11px] font-medium text-slate-600">${row.straight}</div>
                         ` : `
-                            <div class="flex items-center justify-center w-8 h-8 rounded-full bg-red-500 text-white text-[10px] font-black shadow-sm">미</div>
+                            <div class="flex items-center justify-center rounded-full bg-red-500 text-white text-[11px] font-black shadow-sm" style="width:30px;height:30px;min-width:30px;min-height:30px;max-width:30px;max-height:30px;flex-shrink:0;flex-grow:0;aspect-ratio:1/1;">미</div>
                         `}
                         `}
                     </div>
@@ -1864,17 +1948,75 @@ function showToast(msg) {
     setTimeout(() => { if (toast.parentElement) toast.remove(); }, 2500);
 }
 
-// 편집, 삭제 (UI 연동용)
+// [fix-291] 편집 — 인라인 편집 (제목 자리에서 input 전환)
 window.editTitle = async () => {
-    const val = prompt("새 제목:", currentAnalysis.title);
-    if (val) {
-        await window.supabaseClient.from('ai_custom_analyses').update({ title: val }).eq('id', currentAnalysis.id);
-        currentAnalysis.title = val;
-        // [추가] 대시보드 갱신 알림
-        localStorage.setItem('custom_analysis_refresh', Date.now());
-        renderBaseInfo();
-        updateAnalysisDisplay(); // [Fix] 제목 변경 즉시 분석 갱신
-    }
+    const titleEl = document.getElementById('analysisTitle');
+    if (!titleEl) return;
+    if (titleEl.dataset.editing === '1') return;  // 중복 방지
+    titleEl.dataset.editing = '1';
+    const oldTitle = currentAnalysis.title || '';
+    const oldClass = titleEl.className;
+
+    // input으로 교체
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = oldTitle;
+    input.className = 'text-3xl font-normal text-gray-900 tracking-tight bg-blue-50/50 border-b-2 border-blue-500 focus:outline-none focus:bg-white px-2 -mx-2 py-1 rounded-t';
+    input.style.minWidth = '320px';
+    input.style.width = Math.max(320, oldTitle.length * 22) + 'px';
+    titleEl.replaceWith(input);
+    input.focus();
+    input.select();
+
+    let resolved = false;
+    const restore = (newTitle) => {
+        if (resolved) return;
+        resolved = true;
+        const h1 = document.createElement('h1');
+        h1.id = 'analysisTitle';
+        h1.className = oldClass;
+        h1.textContent = newTitle;
+        h1.title = '클릭하여 제목 편집';
+        h1.onclick = () => window.editTitle();
+        input.replaceWith(h1);
+    };
+    // [fix-292] AI 자동 감지 키워드 보존 가드
+    const AI_KEYWORDS_RE = /(GNN|CNN|MARKOV|AUTOENCODER|XGBOOST|XGB|CATBOOST|TABNET|TFT|N-?BEATS|NBEATS|MHN|BAYESIAN|ENSEMBLE|앙상블|추천조합|TF|ATC|AE|AI|딥러닝|추천|제외)/i;
+    const oldHasAiKeyword = AI_KEYWORDS_RE.test(oldTitle);
+    const save = async () => {
+        const val = input.value.trim();
+        if (!val) { restore(oldTitle); return; }
+        if (val === oldTitle) { restore(oldTitle); return; }
+        // AI 키워드 보존 경고
+        if (oldHasAiKeyword && !AI_KEYWORDS_RE.test(val)) {
+            const proceed = confirm(
+                `⚠ 이 분석은 AI 자동 감지 키워드(GNN/CNN/AI/딥러닝/추천/제외 등)가 포함된 제목이었습니다.\n` +
+                `새 제목 "${val}"에는 키워드가 없어 AI 실시간 데이터 자동 매칭이 풀릴 수 있습니다.\n` +
+                `(저장된 정적 target_numbers는 그대로 유지됨)\n\n계속 변경하시겠습니까?`
+            );
+            if (!proceed) { restore(oldTitle); return; }
+        }
+        try {
+            const { error } = await window.supabaseClient
+                .from('ai_custom_analyses').update({ title: val }).eq('id', currentAnalysis.id);
+            if (error) throw error;
+            currentAnalysis.title = val;
+            localStorage.setItem('custom_analysis_refresh', Date.now());
+            restore(val);
+            if (typeof renderBaseInfo === 'function') renderBaseInfo();
+            if (typeof updateAnalysisDisplay === 'function') updateAnalysisDisplay();
+            if (typeof showAIFeedback === 'function') showAIFeedback(`제목을 "${val}"(으)로 변경했습니다.`);
+        } catch (e) {
+            console.error('[editTitle] 저장 실패', e);
+            alert('제목 변경 실패: ' + (e.message || '알 수 없는 오류'));
+            restore(oldTitle);
+        }
+    };
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); save(); }
+        else if (e.key === 'Escape') { e.preventDefault(); restore(oldTitle); }
+    });
+    input.addEventListener('blur', save);
 };
 
 window.deleteAnalysis = async () => {
@@ -2023,6 +2165,10 @@ async function runRegressionScan(limit = 200) {
     }).join('');
 }
 
+// ============================================================
+// [2026-05-03] 시뮬레이터 수식 평가는 js/simulator_evaluator.js로 완전 이전.
+// 모든 페이지가 simulator_evaluator.js를 로드하므로 fallback 불필요.
+// ============================================================
 // [New] 특정 회귀를 커스텀 분석으로 등록
 window.createRegressionAnalysis = async function (step) {
     const params = {

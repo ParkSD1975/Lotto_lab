@@ -163,6 +163,7 @@
                             <thead>
                                 <tr>
                                     <th class="sticky-col" style="width:36px">요일</th>
+                                    <th style="width:60px">회차</th>
                                     <th style="width:88px">날짜</th>
                                     <th style="width:190px">당첨번호</th>
                                     <th style="width:46px">보너스</th>
@@ -182,7 +183,7 @@
                             </thead>
                             <tbody id="drawTableBody">
                                 <tr>
-                                    <td colspan="16" class="py-16 text-center text-slate-400 text-sm">
+                                    <td colspan="17" class="py-16 text-center text-slate-400 text-sm">
                                         위 드롭다운에서 로또를 선택하세요.
                                     </td>
                                 </tr>
@@ -262,9 +263,31 @@
             allLotteries = lotRes.data || [];
 
             // 한국 로또 날짜 맵
-            (krRes.data || []).forEach(d => {
+            const krList = krRes.data || [];
+            krList.forEach(d => {
                 if (d.date) krDrawMap.set(d.date, { numbers: d.numbers || [], round: d.round });
             });
+
+            // [fix-261] 미추첨 회차(예: 1223)는 lotto_draws에 row 없음 → 가상 추가
+            // 최신 round + 1 회차를 다음 토요일에 매핑하여 해외 같은 주 추첨 매칭 가능하게 함
+            if (krList.length > 0) {
+                const latest = krList[krList.length - 1];
+                if (latest && latest.date) {
+                    const nextSat = new Date(latest.date + 'T00:00:00');
+                    nextSat.setDate(nextSat.getDate() + 7);
+                    const nextDateStr = nextSat.toISOString().slice(0, 10);
+                    if (!krDrawMap.has(nextDateStr)) {
+                        krDrawMap.set(nextDateStr, { numbers: [], round: latest.round + 1, _pending: true });
+                    }
+                    // 한 회차 더 (1224 등 — 향후 추첨)
+                    const nextSat2 = new Date(nextSat);
+                    nextSat2.setDate(nextSat2.getDate() + 7);
+                    const next2DateStr = nextSat2.toISOString().slice(0, 10);
+                    if (!krDrawMap.has(next2DateStr)) {
+                        krDrawMap.set(next2DateStr, { numbers: [], round: latest.round + 2, _pending: true });
+                    }
+                }
+            }
 
             buildDropdown();
         } catch(e) {
@@ -301,7 +324,7 @@
             document.getElementById('lotteryMeta').classList.add('hidden');
             document.getElementById('totalCount').textContent = '0회차';
             document.getElementById('drawTableBody').innerHTML =
-                `<tr><td colspan="16" class="py-16 text-center text-slate-400 text-sm">위 드롭다운에서 로또를 선택하세요.</td></tr>`;
+                `<tr><td colspan="17" class="py-16 text-center text-slate-400 text-sm">위 드롭다운에서 로또를 선택하세요.</td></tr>`;
             return;
         }
         currentLottery = allLotteries.find(l => l.id === id);
@@ -314,7 +337,7 @@
         meta.classList.remove('hidden');
 
         document.getElementById('drawTableBody').innerHTML =
-            `<tr><td colspan="16" class="py-12 text-center text-slate-400">
+            `<tr><td colspan="17" class="py-12 text-center text-slate-400">
                 <span class="material-symbols-outlined animate-spin text-3xl block mb-2">sync</span>로딩 중...
             </td></tr>`;
 
@@ -330,7 +353,7 @@
             renderTable(currentDraws);
         } catch(e) {
             document.getElementById('drawTableBody').innerHTML =
-                `<tr><td colspan="16" class="py-12 text-center text-red-400 text-sm">로드 실패: ${e.message}</td></tr>`;
+                `<tr><td colspan="17" class="py-12 text-center text-red-400 text-sm">로드 실패: ${e.message}</td></tr>`;
         }
     }
 
@@ -361,7 +384,7 @@
         const tbody = document.getElementById('drawTableBody');
         if (!list || list.length === 0) {
             tbody.innerHTML = `
-                <tr><td colspan="16">
+                <tr><td colspan="17">
                     <div style="display:flex;flex-direction:column;align-items:center;padding:60px 20px;gap:10px;color:#94a3b8;">
                         <span class="material-symbols-outlined" style="font-size:48px;">cloud_download</span>
                         <p style="font-weight:700;font-size:15px;color:#64748b;">수집 대기 중</p>
@@ -387,7 +410,10 @@
 
             // Hit + 한국로또 (당첨번호 하이라이트용으로 먼저 계산)
             const kr = findNearestKr(d.draw_date);
-            const hit = kr ? nums.filter(n => kr.numbers.includes(n)).length : null;
+            // [fix-261] 미추첨 회차(_pending)는 numbers가 빈 배열이라 hit 계산 의미 없음 → null
+            const hit = (kr && !kr._pending && (kr.numbers || []).length > 0)
+                ? nums.filter(n => kr.numbers.includes(n)).length
+                : null;
 
             // 당첨번호 볼 (동행로또 일치 번호 하이라이트)
             const ballsHtml = nums.map(n => {
@@ -446,9 +472,18 @@
             const dowLabel = dowIdx >= 0 ? DOW[dowIdx] : '-';
             const dowCls   = dowIdx >= 0 ? DOW_COLOR[dowIdx] : 'text-slate-400';
 
+            // [fix-260/261] 회차 표시 — 한국 동행로또 매칭 round 우선, 없으면 해외 draw_no fallback
+            // 미추첨 회차(_pending)는 amber 색상으로 구분
+            const roundDisplay = (kr && kr.round != null)
+                ? (kr._pending
+                    ? `<span class="font-bold text-amber-600">${kr.round}</span><span class="text-[9px] text-amber-500 ml-0.5">미</span>`
+                    : `<span class="font-bold text-blue-600">${kr.round}</span>회`)
+                : (d.draw_no != null ? `<span class="text-slate-400">#${d.draw_no}</span>` : '<span class="text-slate-300">-</span>');
+
             return `
             <tr class="group">
                 <td class="sticky-col group-hover:!bg-slate-50 font-bold text-xs ${dowCls}">${dowLabel}</td>
+                <td class="text-xs text-center">${roundDisplay}</td>
                 <td class="text-slate-500 text-xs">${d.draw_date ?? '-'}</td>
                 <td><div style="display:flex;align-items:center;justify-content:center;">${ballsHtml}</div></td>
                 <td>${bonusHtml}</td>
@@ -481,7 +516,8 @@
             const hit  = kr ? nums.filter(n=>kr.numbers.includes(n)).length : null;
             const pn   = prevNums.get(d.draw_date);
             return {
-                '회차':d.draw_no,'날짜':d.draw_date,
+                // [fix-260] 회차 = 한국 동행로또 round 우선 (사용자 요청), 없으면 해외 draw_no fallback
+                '회차': kr?.round ?? d.draw_no, '해외회차': d.draw_no, '날짜':d.draw_date,
                 '번호1':d.n1,'번호2':d.n2,'번호3':d.n3,'번호4':d.n4,'번호5':d.n5,'번호6':d.n6,
                 '보너스1':d.b1??'','보너스2':d.b2??'',
                 '총합':d.sum??calc.sum(nums),'끝수합':d.tail_sum??calc.tailSum(nums),

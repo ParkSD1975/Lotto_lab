@@ -300,6 +300,12 @@ class NLPInputComponent {
         }
 
         const result = window.nlpProcessor.process(value);
+        // [fix-302] 원본 사용자 입력을 params.prompt에 자동 보존 → DB NOT NULL 컬럼 안전
+        if (result && result.success && result.params) {
+            if (!result.params.prompt || !String(result.params.prompt).trim()) {
+                result.params.prompt = value;
+            }
+        }
         this.currentResult = result;
 
         loadingEl.classList.add('hidden');
@@ -567,11 +573,30 @@ window.createAnalysis = window.createAnalysis || async function (params) {
 
         const _nlpUserId = window.filterService ? window.filterService.userId : null
             || (await window.supabaseClient.auth.getUser()).data ? (await window.supabaseClient.auth.getUser()).data.user ? (await window.supabaseClient.auth.getUser()).data.user.id : null : null;
+
+        // [fix-302] prompt는 DB NOT NULL — params.prompt → title → mergedRules.formula → fallback 순으로 안전 가드
+        const safePrompt = (() => {
+            const candidates = [
+                params.prompt,
+                params.userInput,
+                params.input,
+                title,
+                mergedRules?.formula ? `[${params.type}] ${mergedRules.formula}` : null,
+                params.type ? `[${params.type}] 자동 생성된 분석` : null,
+                '커스텀 분석'
+            ];
+            for (const c of candidates) {
+                if (c && String(c).trim()) return String(c).trim();
+            }
+            return '커스텀 분석';
+        })();
+
         const { data, error } = await window.supabaseClient
             .from('ai_custom_analyses')
             .insert({
                 title: title,
                 type: params.type,
+                prompt: safePrompt,            // [fix-302] NOT NULL 안전 가드
                 target_numbers: params.target_numbers || [],
                 rules: mergedRules,
                 filter_config: params.filter_config || { min: 1, max: 3, enabled: false },

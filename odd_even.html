@@ -33,6 +33,8 @@
 
     <!-- NLP Modules -->
     <script src="js/NLPProcessor.js"></script>
+    <script src="js/AutoNLPMatcher.js"></script>
+    <script src="js/auto_nlp_loader.js" defer></script>
     <script src="js/NLPInputComponent.js"></script>
     <script src="js/BasicAnalysisNLP.js"></script>
 
@@ -583,6 +585,29 @@
         }
     </script>
     <style>
+        /* [fix-313] 보조 분석 전용 — impeccable 가이드 (underline-only, tabular-nums, 박스 회피) */
+        .oe-input {
+            background: transparent;
+            border: 0;
+            border-bottom: 1px solid #E5E7EB;
+            padding: 4px 18px 4px 6px;          /* 우측 18px — spinner 핸들러와 숫자 겹침 방지 */
+            font-size: 13px;
+            color: #0F172A;
+            outline: none;
+            transition: border-color 180ms ease;
+            font-feature-settings: "tnum";
+            -moz-appearance: textfield;          /* Firefox: spinner 가벼운 표시 */
+        }
+        .oe-input:focus { border-bottom-color: #3B82F6; }
+        /* 우측 spinner 자체는 보이도록 두되 input 너비를 확보해 텍스트와 분리 */
+        .oe-input::-webkit-inner-spin-button,
+        .oe-input::-webkit-outer-spin-button {
+            opacity: 0.5;                        /* 기본 chrome spinner는 자리 차지 — opacity로 방해 X */
+            margin-left: 4px;
+        }
+        #oeMarkovTable td, #oeCrossTable td, #oeGapTable td { padding: 8px 8px; border-bottom: 1px solid #F3F4F6; }
+        #oeMarkovTable tbody tr:hover, #oeCrossTable tbody tr:hover, #oeGapTable tbody tr:hover { background: #FAFAFA; }
+
         /* 페이지 전용 스타일 */
         .ball-base {
             width: 32px;
@@ -853,6 +878,131 @@
                     </div>
 
 
+                    <!-- ════════════════════════════════════════════════ -->
+                    <!-- [fix-312] 홀짝 보조 분석 6종 — 단일 흰 박스 통합     -->
+                    <!-- ════════════════════════════════════════════════ -->
+                    <div class="bg-white rounded-xl border border-gray-200 mb-6 overflow-hidden">
+
+                        <!-- §1. 시계열 추세 (홀수 카운트 MA + 캘린더 히트맵) -->
+                        <div class="p-8">
+                            <div class="flex items-baseline justify-between mb-6">
+                                <div>
+                                    <h3 class="text-lg font-bold text-gray-900 tracking-tight">시계열 추세</h3>
+                                    <p class="text-xs text-gray-500 mt-1">홀수 카운트(0~6) 이동평균과 ±1σ · 평균선 3.0 (이항분포 기대값)</p>
+                                </div>
+                                <div class="flex items-baseline gap-2 text-xs text-gray-500">
+                                    <label>MA 윈도우</label>
+                                    <input type="number" id="oeMaWindow" value="10" min="3" max="50" oninput="renderOeMa()"
+                                        class="oe-input w-16 text-center tabular-nums">
+                                    <span>회</span>
+                                </div>
+                            </div>
+                            <div class="h-64 mb-6"><canvas id="oeMaChart"></canvas></div>
+                            <div class="pt-6 border-t border-gray-100">
+                                <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-3">홀수 카운트 캘린더 (좌=과거, 우=최신)</div>
+                                <div id="oeCalendar"></div>
+                            </div>
+                        </div>
+
+                        <!-- §2 + §3 : 비율 분포 + streak 분포 (2분할) -->
+                        <div class="border-t border-gray-100 grid grid-cols-1 lg:grid-cols-2 lg:divide-x lg:divide-gray-100">
+                            <div class="p-8">
+                                <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">홀짝 비율 분포</h3>
+                                <p class="text-xs text-gray-500 mb-4">7개 비율(6:0~0:6) 출현 회수 · 점선 = 이항분포 기대값</p>
+                                <div class="h-56"><canvas id="oeRatioDist"></canvas></div>
+                                <div id="oeRatioDistStats" class="mt-3 text-xs text-gray-600 tabular-nums"></div>
+                            </div>
+                            <div class="p-8 border-t lg:border-t-0 border-gray-100">
+                                <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">streak 분포</h3>
+                                <p class="text-xs text-gray-500 mb-4">같은 비율 연속 출현 길이 분포</p>
+                                <div class="h-56"><canvas id="oeStreakDist"></canvas></div>
+                                <div id="oeStreakDistStats" class="mt-3 text-xs text-gray-600 tabular-nums"></div>
+                            </div>
+                        </div>
+
+                        <!-- §4. Markov 전이 행렬 -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">Markov 전이 행렬</h3>
+                            <p class="text-xs text-gray-500 mb-4">이전 회차 비율 → 다음 회차 비율 (7×7) · 각 행 합 = 100%</p>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-sm tabular-nums" id="oeMarkovTable">
+                                    <thead>
+                                        <tr class="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                            <th class="py-2 pr-3 border-b border-gray-200">이전\\다음</th>
+                                            <th class="py-2 px-2 border-b border-gray-200 text-right">6:0</th>
+                                            <th class="py-2 px-2 border-b border-gray-200 text-right">5:1</th>
+                                            <th class="py-2 px-2 border-b border-gray-200 text-right">4:2</th>
+                                            <th class="py-2 px-2 border-b border-gray-200 text-right">3:3</th>
+                                            <th class="py-2 px-2 border-b border-gray-200 text-right">2:4</th>
+                                            <th class="py-2 px-2 border-b border-gray-200 text-right">1:5</th>
+                                            <th class="py-2 px-2 border-b border-gray-200 text-right">0:6</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="oeMarkovBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- §5. 교차 분석 (7 ratio × 6 속성) -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">교차 분석</h3>
+                            <p class="text-xs text-gray-500 mb-4">7개 비율별 6개 속성 평균값 (총합/끝수합/AC값/저번호/연번/번호대분산)</p>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-sm tabular-nums" id="oeCrossTable">
+                                    <thead>
+                                        <tr class="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                            <th class="py-2 pr-3 border-b border-gray-200">비율</th>
+                                            <th class="py-2 px-2 border-b border-gray-200 text-right">총합</th>
+                                            <th class="py-2 px-2 border-b border-gray-200 text-right">끝수합</th>
+                                            <th class="py-2 px-2 border-b border-gray-200 text-right">AC</th>
+                                            <th class="py-2 px-2 border-b border-gray-200 text-right">저번호</th>
+                                            <th class="py-2 px-2 border-b border-gray-200 text-right">연번</th>
+                                            <th class="py-2 px-2 border-b border-gray-200 text-right">번호대분산</th>
+                                            <th class="py-2 pl-3 border-b border-gray-200 text-right">N</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="oeCrossBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- §6. 시퀀스 패턴 검색 -->
+                        <div class="p-8 border-t border-gray-100">
+                            <div class="flex items-baseline justify-between mb-1">
+                                <h3 class="text-lg font-bold text-gray-900 tracking-tight">시퀀스 패턴 검색</h3>
+                                <div class="flex items-baseline gap-2 text-xs text-gray-500">
+                                    <label>시퀀스 길이</label>
+                                    <input type="number" id="oeSeqLen" value="3" min="2" max="10" oninput="renderOeSeq()"
+                                        class="oe-input w-16 text-center tabular-nums">
+                                </div>
+                            </div>
+                            <p class="text-xs text-gray-500 mb-4">최근 N개 비율 시퀀스와 동일한 과거 패턴 → 다음 회차 분포</p>
+                            <div id="oeSeqPanel"></div>
+                        </div>
+
+                        <!-- §7. 7비 미출현 갭 -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">7비 미출현 갭</h3>
+                            <p class="text-xs text-gray-500 mb-4">각 비율 마지막 출현 후 경과 + z-score</p>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-sm tabular-nums" id="oeGapTable">
+                                    <thead>
+                                        <tr class="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                            <th class="py-2 pr-3 border-b border-gray-200">비율</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">출현/회</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">미출현 갭</th>
+                                            <th class="py-2 pl-3 border-b border-gray-200 text-right">z-score</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="oeGapBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- ════════════════════════════════════════════════ -->
+                    <!-- [/fix-312] 단일 박스 통합 끝                       -->
+                    <!-- ════════════════════════════════════════════════ -->
+
                     <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm" id="filter-patterns">
                         <div class="flex items-center justify-between mb-6">
                             <h3 class="text-xl font-bold text-gray-900">조합 필터</h3>
@@ -895,8 +1045,9 @@
                         </div>
                     </div>
 
-                    <div class="rounded-xl overflow-hidden mt-6">
-                        <div class="flex items-center justify-between mb-4">
+                    <!-- [fix-395] 헤더 + 표 흰 박스로 일체화 -->
+                    <div class="bg-white rounded-xl border border-gray-200 mt-6 overflow-hidden">
+                        <div class="flex items-center justify-between px-8 pt-6 pb-4 border-b border-gray-100">
                             <div>
                                 <h3 class="text-xl font-bold text-gray-900 mb-1">회차별 당첨번호 및 홀짝 비율</h3>
                                 <p class="text-sm text-gray-600">최근 <span id="displayedCount">100</span>회차 표시</p>
@@ -1196,6 +1347,8 @@
             updatePresetButtons(currentRange);
             updateStatistics();
             applyFilterWithHighlight();
+            // [fix-312] 보조 분석 6종 갱신
+            if (typeof renderAllOeSupp === 'function') renderAllOeSupp();
         }
 
         function updateStatistics() {
@@ -1693,6 +1846,400 @@
                 modal.classList.add('hidden');
             }, 300);
         }
+
+        // ════════════════════════════════════════════════════════════
+        // [fix-312] 홀짝 보조 분석 6종 — impeccable 가이드
+        // 라이트 모드, 단일 액센트(#3B82F6), tabular-nums, 박스 일변도 회피
+        // ════════════════════════════════════════════════════════════
+        const OE_ACCENT = '#3B82F6';
+        const OE_ACCENT_LIGHT = 'rgba(59, 130, 246, 0.08)';
+        const OE_GRID = '#F1F5F9';
+        const OE_INK_1 = '#0F172A';
+        const OE_INK_2 = '#475569';
+        const OE_INK_3 = '#94A3B8';
+        // 7 ratio 색상 토큰 (데이터 라벨 한정)
+        const OE_RATIO_COLORS = {
+            '6:0': '#94A3B8', '5:1': '#A855F7', '4:2': '#06B6D4',
+            '3:3': '#3B82F6', '2:4': '#14B8A6', '1:5': '#10B981', '0:6': '#94A3B8'
+        };
+
+        let _oeCache = null;
+        function getOeCache() {
+            if (_oeCache) return _oeCache;
+            const data = allDrawData || [];
+            _oeCache = data.map(d => {
+                const nums = d.numbers || [];
+                const oddCount = nums.filter(n => n % 2 !== 0).length;
+                const ratio = `${oddCount}:${6 - oddCount}`;
+                // 파생 속성 (교차분석용)
+                const sorted = [...nums].sort((a, b) => a - b);
+                const total = nums.reduce((a, b) => a + b, 0);
+                const tailSum = nums.reduce((a, b) => a + (b % 10), 0);
+                const lowCount = nums.filter(x => x <= 22).length;
+                let cons = 0;
+                for (let i = 0; i < sorted.length - 1; i++) if (sorted[i + 1] === sorted[i] + 1) cons++;
+                const dec = [0, 0, 0, 0, 0];
+                nums.forEach(x => dec[Math.min(Math.floor((x - 1) / 10), 4)]++);
+                const dMean = dec.reduce((a, b) => a + b, 0) / 5;
+                const decVar = dec.reduce((a, b) => a + (b - dMean) ** 2, 0) / 5;
+                const diffs = new Set();
+                for (let i = 0; i < nums.length; i++) for (let j = i + 1; j < nums.length; j++) diffs.add(Math.abs(nums[i] - nums[j]));
+                const ac = Math.max(0, diffs.size - 5);
+                return { round: d.round, oddCount, ratio, total, tailSum, lowCount, cons, decVar, ac };
+            });
+            return _oeCache;
+        }
+        function invalidateOeCache() { _oeCache = null; }
+
+        function renderAllOeSupp() {
+            try {
+                if (!allDrawData || allDrawData.length === 0) return;
+                renderOeMa();
+                renderOeCalendar();
+                renderOeRatioDist();
+                renderOeStreakDist();
+                renderOeMarkov();
+                renderOeCross();
+                renderOeSeq();
+                renderOeGap();
+            } catch (e) { console.warn('[oe-supp]', e); }
+        }
+
+        // ─── §1-A. 시계열 추세 (홀수 카운트 MA + ±1σ) ───
+        let oeMaInst = null;
+        function renderOeMa() {
+            const canvas = document.getElementById('oeMaChart');
+            if (!canvas) return;
+            const win = Math.max(3, Math.min(50, parseInt(document.getElementById('oeMaWindow').value) || 10));
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getOeCache().slice(0, range).slice().reverse();
+            if (cache.length === 0) return;
+            const labels = cache.map(d => d.round);
+            const counts = cache.map(d => d.oddCount);
+            const ma = [], up = [], lo = [];
+            for (let i = 0; i < counts.length; i++) {
+                const s = Math.max(0, i - win + 1);
+                const sl = counts.slice(s, i + 1);
+                const m = sl.reduce((a, b) => a + b, 0) / sl.length;
+                const v = sl.reduce((a, b) => a + (b - m) ** 2, 0) / sl.length;
+                const sd = Math.sqrt(v);
+                ma.push(m); up.push(m + sd); lo.push(m - sd);
+            }
+            if (oeMaInst) oeMaInst.destroy();
+            oeMaInst = new Chart(canvas.getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels, datasets: [
+                        { label: '홀수 카운트', data: counts, borderColor: 'rgba(15,23,42,0.35)', borderWidth: 1, pointRadius: 0, fill: false, tension: 0.25 },
+                        { label: `이동평균 ${win}회`, data: ma, borderColor: OE_ACCENT, borderWidth: 2, pointRadius: 0, fill: false, tension: 0.25 },
+                        { label: '±1σ', data: up, borderColor: 'rgba(59,130,246,0.25)', borderWidth: 1, pointRadius: 0, borderDash: [3, 3], fill: '+1', backgroundColor: OE_ACCENT_LIGHT },
+                        { label: ' ', data: lo, borderColor: 'rgba(59,130,246,0.25)', borderWidth: 1, pointRadius: 0, borderDash: [3, 3], fill: false },
+                        { label: '평균 3.0', data: Array(counts.length).fill(3.0), borderColor: 'rgba(15,23,42,0.35)', borderDash: [4, 4], borderWidth: 1, pointRadius: 0, fill: false }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top', align: 'end', labels: { boxWidth: 6, font: { size: 11, family: 'Pretendard' }, color: OE_INK_2 }, display: true } },
+                    scales: {
+                        y: { min: 0, max: 6, grid: { color: OE_GRID, drawBorder: false }, ticks: { color: OE_INK_3, font: { size: 11 }, stepSize: 1 } },
+                        x: { grid: { display: false }, ticks: { color: OE_INK_3, font: { size: 11 }, display: range < 80, autoSkip: true, maxRotation: 0 } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+        }
+
+        // ─── §1-B. 캘린더 히트맵 (홀수 카운트) ───
+        function renderOeCalendar() {
+            const c = document.getElementById('oeCalendar');
+            if (!c) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getOeCache().slice(0, range).slice().reverse();
+            const cols = range <= 50 ? 10 : range <= 100 ? 20 : range <= 300 ? 25 : 30;
+            const colorOf = (n) => {
+                if (n == null) return '#F8FAFC';
+                if (n <= 1) return '#1E40AF';      // 짝수 우세 — 짙은 파랑
+                if (n === 2) return '#60A5FA';
+                if (n === 3) return '#94A3B8';      // 균형 — 회색
+                if (n === 4) return '#FB923C';      // 홀수 우세 — 주황
+                return '#C2410C';                    // 5~6 — 짙은 주황
+            };
+            const fgOf = (n) => (n <= 2 || n >= 5) ? '#fff' : OE_INK_1;
+            const fontMain = cols >= 25 ? 11 : 12;
+            const fontRd = cols >= 25 ? 8 : 9;
+            const pad = cols >= 25 ? '4px 0 3px' : '6px 0 4px';
+            let html = `<div style="display:grid;grid-template-columns:repeat(${cols},minmax(0,1fr));gap:2px">`;
+            for (const d of cache) {
+                html += `<div title="${d.round}회 · ${d.ratio}" style="background:${colorOf(d.oddCount)};color:${fgOf(d.oddCount)};text-align:center;padding:${pad};border-radius:2px;line-height:1.05;font-feature-settings:'tnum'">
+                    <div style="font-size:${fontMain}px;font-weight:700">${d.oddCount}</div>
+                    <div style="font-size:${fontRd}px;font-weight:500;opacity:0.65;letter-spacing:-0.02em">${d.round}</div>
+                </div>`;
+            }
+            c.innerHTML = html + '</div>';
+        }
+
+        // ─── §2. 홀짝 비율 분포 (7비) ───
+        let oeRatioDistInst = null;
+        function renderOeRatioDist() {
+            const canvas = document.getElementById('oeRatioDist');
+            const statsEl = document.getElementById('oeRatioDistStats');
+            if (!canvas) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getOeCache().slice(0, range);
+            if (cache.length === 0) return;
+            const labels = ['6:0', '5:1', '4:2', '3:3', '2:4', '1:5', '0:6'];
+            const counts = labels.map(r => cache.filter(d => d.ratio === r).length);
+            const total = cache.length;
+            // 이항분포 기대값 (이론) — 6/45 무작위 선택 시 홀수=23, 짝수=22 가정
+            // P(odd=k) ≈ C(23,k)*C(22,6-k)/C(45,6)
+            const C = (n, k) => { if (k < 0 || k > n) return 0; let r = 1; for (let i = 0; i < k; i++) r = r * (n - i) / (i + 1); return r; };
+            const totalC = C(45, 6);
+            const expected = [6, 5, 4, 3, 2, 1, 0].map(k => C(23, k) * C(22, 6 - k) / totalC * total);
+            const colors = labels.map(r => OE_RATIO_COLORS[r]);
+            if (oeRatioDistInst) oeRatioDistInst.destroy();
+            oeRatioDistInst = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [
+                        { label: '관측', data: counts, backgroundColor: colors, borderRadius: 2, borderSkipped: false },
+                        { label: '기대값', data: expected, type: 'line', borderColor: 'rgba(15,23,42,0.4)', borderDash: [3, 3], borderWidth: 1, pointRadius: 2, pointBackgroundColor: 'rgba(15,23,42,0.4)', fill: false }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { grid: { color: OE_GRID, drawBorder: false }, ticks: { color: OE_INK_3, font: { size: 11 } } },
+                        x: { grid: { display: false }, ticks: { color: OE_INK_2, font: { size: 11 } } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+            // 통계 한 줄
+            const top = labels.map((r, i) => ({ r, c: counts[i], pct: counts[i] / total * 100 })).sort((a, b) => b.c - a.c);
+            const mostC = top[0], leastC = top[top.length - 1];
+            statsEl.innerHTML = `
+                <span class="text-gray-500">최다</span> <b style="color:${OE_RATIO_COLORS[mostC.r]}">${mostC.r}</b> ${mostC.pct.toFixed(1)}%
+                <span class="text-gray-300 mx-2">·</span>
+                <span class="text-gray-500">최소</span> <b>${leastC.r}</b> ${leastC.pct.toFixed(1)}%
+            `;
+        }
+
+        // ─── §3. streak 분포 ───
+        let oeStreakDistInst = null;
+        function renderOeStreakDist() {
+            const canvas = document.getElementById('oeStreakDist');
+            const statsEl = document.getElementById('oeStreakDistStats');
+            if (!canvas) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getOeCache().slice(0, range);
+            if (cache.length === 0) return;
+            // streak 길이 측정 — 동일 ratio 연속
+            const streaks = [];
+            let cur = 1;
+            for (let i = 1; i < cache.length; i++) {
+                if (cache[i].ratio === cache[i - 1].ratio) cur++;
+                else { streaks.push(cur); cur = 1; }
+            }
+            streaks.push(cur);
+            const maxLen = Math.min(8, Math.max(...streaks));
+            const labels = [], values = [];
+            for (let len = 1; len <= maxLen; len++) {
+                labels.push(String(len));
+                values.push(streaks.filter(s => s === len).length);
+            }
+            // 8+ 누적
+            const above = streaks.filter(s => s > maxLen).length;
+            if (above > 0) { labels.push(`${maxLen + 1}+`); values.push(above); }
+            if (oeStreakDistInst) oeStreakDistInst.destroy();
+            oeStreakDistInst = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: { labels, datasets: [{ label: '발생 횟수', data: values, backgroundColor: OE_ACCENT, borderRadius: 2, borderSkipped: false }] },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { grid: { color: OE_GRID, drawBorder: false }, ticks: { color: OE_INK_3, font: { size: 11 } } },
+                        x: { grid: { display: false }, ticks: { color: OE_INK_2, font: { size: 11 } }, title: { display: true, text: '연속 길이', color: OE_INK_3, font: { size: 11 } } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+            const meanStreak = streaks.reduce((a, b) => a + b, 0) / streaks.length;
+            const maxStreakObs = Math.max(...streaks);
+            statsEl.innerHTML = `
+                <span class="text-gray-500">평균</span> <b style="color:${OE_ACCENT}">${meanStreak.toFixed(2)}</b>
+                <span class="text-gray-300 mx-2">·</span>
+                <span class="text-gray-500">최대</span> <b>${maxStreakObs}회</b>
+            `;
+        }
+
+        // ─── §4. Markov 전이 행렬 (7×7) ───
+        function renderOeMarkov() {
+            const tbody = document.getElementById('oeMarkovBody');
+            if (!tbody) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getOeCache().slice(0, range);
+            if (cache.length < 2) return;
+            const labels = ['6:0', '5:1', '4:2', '3:3', '2:4', '1:5', '0:6'];
+            const matrix = {};
+            labels.forEach(r => { matrix[r] = {}; labels.forEach(s => matrix[r][s] = 0); });
+            // 시간순 정렬 (cache는 desc — 최신우선) → asc로 뒤집어 전이 계산
+            const asc = cache.slice().reverse();
+            for (let i = 1; i < asc.length; i++) {
+                const prev = asc[i - 1].ratio, next = asc[i].ratio;
+                if (matrix[prev] && matrix[prev][next] !== undefined) matrix[prev][next]++;
+            }
+            tbody.innerHTML = labels.map(prev => {
+                const rowSum = labels.reduce((a, s) => a + matrix[prev][s], 0);
+                const cells = labels.map(next => {
+                    const v = matrix[prev][next];
+                    if (rowSum === 0) return `<td class="text-right py-1.5 px-2" style="color:${OE_INK_3}">−</td>`;
+                    const pct = v / rowSum * 100;
+                    const isMax = pct === Math.max(...labels.map(s => matrix[prev][s] / rowSum * 100));
+                    const bg = pct > 0 ? `background:rgba(59,130,246,${Math.min(0.5, pct / 100 * 1.2)})` : '';
+                    return `<td class="text-right py-1.5 px-2" style="${bg};color:${pct >= 30 ? '#fff' : OE_INK_2};${isMax && pct > 0 ? 'font-weight:700' : ''}">${pct.toFixed(0)}%</td>`;
+                }).join('');
+                return `<tr>
+                    <td class="font-medium py-1.5 pr-3" style="color:${OE_RATIO_COLORS[prev]}">${prev}</td>
+                    ${cells}
+                </tr>`;
+            }).join('');
+        }
+
+        // ─── §5. 교차 분석 (7 ratio × 6 속성 평균) ───
+        function renderOeCross() {
+            const tbody = document.getElementById('oeCrossBody');
+            if (!tbody) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getOeCache().slice(0, range);
+            if (cache.length === 0) return;
+            const labels = ['6:0', '5:1', '4:2', '3:3', '2:4', '1:5', '0:6'];
+            const fmt = (v, dec) => Number.isFinite(v) ? v.toFixed(dec) : '−';
+            tbody.innerHTML = labels.map(r => {
+                const grp = cache.filter(d => d.ratio === r);
+                const n = grp.length;
+                if (n === 0) return `<tr>
+                    <td class="font-medium py-2 pr-3" style="color:${OE_RATIO_COLORS[r]}">${r}</td>
+                    <td class="text-right py-2 px-2" style="color:${OE_INK_3}">−</td>
+                    <td class="text-right py-2 px-2" style="color:${OE_INK_3}">−</td>
+                    <td class="text-right py-2 px-2" style="color:${OE_INK_3}">−</td>
+                    <td class="text-right py-2 px-2" style="color:${OE_INK_3}">−</td>
+                    <td class="text-right py-2 px-2" style="color:${OE_INK_3}">−</td>
+                    <td class="text-right py-2 px-2" style="color:${OE_INK_3}">−</td>
+                    <td class="text-right py-2 pl-3" style="color:${OE_INK_3}">0</td>
+                </tr>`;
+                const avg = (k) => grp.reduce((a, b) => a + b[k], 0) / n;
+                return `<tr>
+                    <td class="font-medium py-2 pr-3" style="color:${OE_RATIO_COLORS[r]}">${r}</td>
+                    <td class="text-right py-2 px-2" style="color:${OE_INK_2}">${fmt(avg('total'), 1)}</td>
+                    <td class="text-right py-2 px-2" style="color:${OE_INK_2}">${fmt(avg('tailSum'), 1)}</td>
+                    <td class="text-right py-2 px-2" style="color:${OE_INK_2}">${fmt(avg('ac'), 2)}</td>
+                    <td class="text-right py-2 px-2" style="color:${OE_INK_2}">${fmt(avg('lowCount'), 2)}</td>
+                    <td class="text-right py-2 px-2" style="color:${OE_INK_2}">${fmt(avg('cons'), 2)}</td>
+                    <td class="text-right py-2 px-2" style="color:${OE_INK_2}">${fmt(avg('decVar'), 2)}</td>
+                    <td class="text-right py-2 pl-3" style="color:${OE_INK_3}">${n}</td>
+                </tr>`;
+            }).join('');
+        }
+
+        // ─── §6. 시퀀스 패턴 검색 ───
+        function renderOeSeq() {
+            const panel = document.getElementById('oeSeqPanel');
+            if (!panel) return;
+            const len = Math.max(2, Math.min(10, parseInt(document.getElementById('oeSeqLen').value) || 3));
+            const cache = getOeCache();
+            if (cache.length === 0) { panel.innerHTML = '<div class="text-sm text-gray-400">데이터 없음</div>'; return; }
+            const asc = cache.slice().reverse();
+            if (asc.length < len + 1) { panel.innerHTML = '<div class="text-sm text-gray-400">데이터 부족</div>'; return; }
+            const recent = asc.slice(-len).map(d => d.ratio);
+            const recentStr = recent.join(',');
+            const matches = [];
+            for (let i = 0; i < asc.length - len; i++) {
+                const slice = asc.slice(i, i + len).map(d => d.ratio);
+                if (slice.join(',') === recentStr && i + len < asc.length - len) {
+                    matches.push({ nextRatio: asc[i + len].ratio });
+                }
+            }
+            const dist = {};
+            matches.forEach(m => { dist[m.nextRatio] = (dist[m.nextRatio] || 0) + 1; });
+            const distSorted = Object.entries(dist).sort((a, b) => b[1] - a[1]);
+            let html = `<div class="mb-4 text-xs"><span class="text-gray-500">최근 ${len}개 시퀀스 →</span> `;
+            html += recent.map(v => `<span class="inline-block px-2 py-0.5 rounded mx-0.5 tabular-nums" style="background:${OE_ACCENT_LIGHT};color:${OE_RATIO_COLORS[v] || OE_ACCENT};font-weight:600">${v}</span>`).join('<span class="text-gray-300 mx-0.5">→</span>');
+            html += '</div>';
+            if (matches.length === 0) {
+                html += `<div class="text-sm text-gray-400 italic py-3">동일 시퀀스 없음. 길이를 줄여보세요.</div>`;
+            } else {
+                html += `<div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">다음 회차 비율 분포 (${matches.length}건)</div>`;
+                html += '<div class="space-y-1.5">';
+                distSorted.forEach(([r, c]) => {
+                    const pct = (c / matches.length * 100).toFixed(0);
+                    html += `<div class="flex items-center gap-3 text-xs tabular-nums">
+                        <span class="w-12 text-right" style="color:${OE_RATIO_COLORS[r] || OE_INK_2};font-weight:600">${r}</span>
+                        <div class="flex-1 h-1.5 rounded-full overflow-hidden" style="background:${OE_GRID}">
+                            <div style="background:${OE_RATIO_COLORS[r] || OE_ACCENT};height:100%;width:${pct}%"></div>
+                        </div>
+                        <span class="w-12 text-right" style="color:${OE_INK_3}">${c}회 (${pct}%)</span>
+                    </div>`;
+                });
+                html += '</div>';
+            }
+            panel.innerHTML = html;
+        }
+
+        // ─── §7. 7비 미출현 갭 ───
+        function renderOeGap() {
+            const tbody = document.getElementById('oeGapBody');
+            if (!tbody) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getOeCache().slice(0, range);
+            if (cache.length === 0) return;
+            const labels = ['6:0', '5:1', '4:2', '3:3', '2:4', '1:5', '0:6'];
+            const rows = labels.map(r => {
+                let currentGap = -1;
+                for (let i = 0; i < cache.length; i++) {
+                    if (cache[i].ratio === r) { currentGap = i; break; }
+                }
+                const apperIdx = [];
+                cache.forEach((d, idx) => { if (d.ratio === r) apperIdx.push(idx); });
+                let avgGap = null, sigma = null;
+                if (apperIdx.length >= 2) {
+                    const ints = [];
+                    for (let i = 1; i < apperIdx.length; i++) ints.push(apperIdx[i] - apperIdx[i - 1]);
+                    avgGap = ints.reduce((a, b) => a + b, 0) / ints.length;
+                    sigma = Math.sqrt(ints.reduce((a, b) => a + (b - avgGap) ** 2, 0) / ints.length);
+                }
+                const gapForZ = currentGap >= 0 ? currentGap : cache.length;
+                const z = (avgGap !== null && sigma > 0) ? (gapForZ - avgGap) / sigma : null;
+                const totalCount = apperIdx.length;
+                const avgPerDraw = totalCount / cache.length;
+                return { r, avgPerDraw, currentGap, z };
+            });
+            tbody.innerHTML = rows.map(rw => {
+                let zStyle = `color:${OE_INK_3}`, zLabel = '−';
+                if (rw.z !== null) {
+                    zLabel = (rw.z > 0 ? '+' : '') + rw.z.toFixed(1) + 'σ';
+                    if (rw.z >= 1.5) zStyle = 'color:#F43F5E;font-weight:600';
+                    else if (rw.z >= 0.5) zStyle = `color:${OE_ACCENT}`;
+                    else if (rw.z <= -0.5) zStyle = 'color:#10B981';
+                    else zStyle = `color:${OE_INK_2}`;
+                }
+                const gapText = rw.currentGap >= 0 ? `${rw.currentGap}회 전` : '없음';
+                const dotColor = OE_RATIO_COLORS[rw.r];
+                return `<tr>
+                    <td class="py-2 pr-3" style="color:${OE_INK_1}">
+                        <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${dotColor};margin-right:8px;vertical-align:middle"></span>${rw.r}
+                    </td>
+                    <td class="text-right py-2 px-3" style="color:${OE_INK_3}">${(rw.avgPerDraw * 100).toFixed(1)}%</td>
+                    <td class="text-right py-2 px-3" style="color:${OE_INK_1};font-weight:600">${gapText}</td>
+                    <td class="text-right py-2 pl-3" style="${zStyle}">${zLabel}</td>
+                </tr>`;
+            }).join('');
+        }
+        // ════════════════════════════════════════════════════════════
+        // [/fix-312]
+        // ════════════════════════════════════════════════════════════
     </script>
     <!-- AI Q&A Sidebar (Floating Right) -->
     <div id="aiQnaModal"

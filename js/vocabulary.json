@@ -1,0 +1,1573 @@
+{
+  "version": "1.0.0",
+  "generated_at": "2026-05-07T16:00:27.670275+00:00",
+  "sources": [
+    "filter_definitions (Supabase)",
+    "ensemble.py TASK_WEIGHTS",
+    "predictors/__init__.py",
+    "ai_deep_learning.js",
+    "verification.html FILTER_META",
+    "manual_operations.yaml"
+  ],
+  "filters": [
+    {
+      "key": "ac",
+      "name_kr": "AC값",
+      "name_en": "",
+      "category": "basic",
+      "description": "산술 복잡도(AC값). 6번호 차이의 고유 값 수 - 5. 범위 0~10. 조합 다양성 측정.",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "AC",
+        "AC값",
+        "ac",
+        "complexity",
+        "복잡도"
+      ],
+      "source": "ai_deep_learning.js"
+    },
+    {
+      "key": "ac_value",
+      "name_kr": "AC값",
+      "name_en": "AC Value",
+      "category": "system",
+      "description": "당첨번호 6개의 산술적 복잡도 (0~10)",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "AC",
+        "AC값",
+        "ac",
+        "ac_value",
+        "complexity",
+        "복잡도"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "carryover",
+      "name_kr": "이월수",
+      "name_en": "",
+      "category": "basic",
+      "description": "직전 회차 그대로 출현(이월수) 개수. 평균 약 1.0개.",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "carryover",
+        "이월수"
+      ],
+      "source": "ai_deep_learning.js"
+    },
+    {
+      "key": "carryover_count",
+      "name_kr": "이월수(당번)",
+      "name_en": "Carryover Count",
+      "category": "system",
+      "description": "직전 회차 당첨번호와 일치 개수",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "carryover_count",
+        "이월수(당번)"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "carryover_with_bonus",
+      "name_kr": "이월수(보너스포함)",
+      "name_en": "Carryover with Bonus",
+      "category": "system",
+      "description": "직전 회차 보너스볼 포함 일치 여부",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "carryover_with_bonus",
+        "이월수(보너스포함)"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "composite",
+      "name_kr": "합성수",
+      "name_en": "",
+      "category": "basic",
+      "description": "합성수(4·6·8·9·10·12·14·15·16·18·20·21·22·24·25·26·27·28·30·32·33·34·35·36·38·39·40·42·44·45) 30개 중 출현 개수. 평균 약 3.0개. 핫(최근 3회 등장)/콜드(최근 3회 미등장)로 세분화 분석 (composite_hot/composite_cold).",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "composite",
+        "합성",
+        "합성수"
+      ],
+      "source": "ai_deep_learning.js"
+    },
+    {
+      "key": "composite_cold",
+      "name_kr": "합성수(콜드)",
+      "name_en": "",
+      "category": "basic",
+      "description": "최근 3회차에 미등장한 합성수(콜드) 중 6번호 안에 출현하는 개수. 평균 약 1.5개.",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "composite",
+        "composite_cold",
+        "합성",
+        "합성수(콜드)"
+      ],
+      "source": "ai_deep_learning.js"
+    },
+    {
+      "key": "composite_count",
+      "name_kr": "합성수 개수",
+      "name_en": "Composite Count",
+      "category": "system",
+      "description": "합성수 포함 개수",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "composite",
+        "composite_count",
+        "합성",
+        "합성수 개수"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "composite_hot",
+      "name_kr": "합성수(핫)",
+      "name_en": "",
+      "category": "basic",
+      "description": "최근 3회차에 등장한 합성수(핫) 중 6번호 안에 출현하는 개수. 평균 약 1.5개.",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "composite",
+        "composite_hot",
+        "합성",
+        "합성수(핫)"
+      ],
+      "source": "ai_deep_learning.js"
+    },
+    {
+      "key": "consecutive",
+      "name_kr": "연번",
+      "name_en": "",
+      "category": "basic",
+      "description": "연속 번호 쌍 수 (예: 7,8 / 23,24). 평균 약 0.5~1.0개.",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "consec",
+        "consecutive",
+        "연번",
+        "연속",
+        "연속번호"
+      ],
+      "source": "ai_deep_learning.js"
+    },
+    {
+      "key": "consecutive_count",
+      "name_kr": "연번(전체)",
+      "name_en": "Consecutive Count",
+      "category": "system",
+      "description": "모든 연번 쌍의 합",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "consec",
+        "consecutive",
+        "consecutive_count",
+        "연번(전체)",
+        "연속",
+        "연속번호"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "consecutive_type",
+      "name_kr": "연번 형태",
+      "name_en": "Consecutive Type",
+      "category": "system",
+      "description": "연번의 구체적 형태 선택",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "consec",
+        "consecutive",
+        "consecutive_type",
+        "연번 형태",
+        "연속",
+        "연속번호"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "end_digit_0_count",
+      "name_kr": "0끝수 개수",
+      "name_en": "End Digit 0",
+      "category": "system",
+      "description": "1의 자리가 0인 번호 개수",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "0끝수 개수",
+        "digit",
+        "end_digit_0_count",
+        "ending",
+        "tail",
+        "끝자리",
+        "일의자리"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "end_digit_1_count",
+      "name_kr": "1끝수 개수",
+      "name_en": "End Digit 1",
+      "category": "system",
+      "description": "1의 자리가 1인 번호 개수",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "1끝수 개수",
+        "digit",
+        "end_digit_1_count",
+        "ending",
+        "tail",
+        "끝자리",
+        "일의자리"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "end_digit_2_count",
+      "name_kr": "2끝수 개수",
+      "name_en": "End Digit 2",
+      "category": "system",
+      "description": "1의 자리가 2인 번호 개수",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "2끝수 개수",
+        "digit",
+        "end_digit_2_count",
+        "ending",
+        "tail",
+        "끝자리",
+        "일의자리"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "end_digit_3_count",
+      "name_kr": "3끝수 개수",
+      "name_en": "End Digit 3",
+      "category": "system",
+      "description": "1의 자리가 3인 번호 개수",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "3끝수 개수",
+        "digit",
+        "end_digit_3_count",
+        "ending",
+        "tail",
+        "끝자리",
+        "일의자리"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "end_digit_4_count",
+      "name_kr": "4끝수 개수",
+      "name_en": "End Digit 4",
+      "category": "system",
+      "description": "1의 자리가 4인 번호 개수",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "4끝수 개수",
+        "digit",
+        "end_digit_4_count",
+        "ending",
+        "tail",
+        "끝자리",
+        "일의자리"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "end_digit_5_count",
+      "name_kr": "5끝수 개수",
+      "name_en": "End Digit 5",
+      "category": "system",
+      "description": "1의 자리가 5인 번호 개수",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "5끝수 개수",
+        "digit",
+        "end_digit_5_count",
+        "ending",
+        "tail",
+        "끝자리",
+        "일의자리"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "end_digit_6_count",
+      "name_kr": "6끝수 개수",
+      "name_en": "End Digit 6",
+      "category": "system",
+      "description": "1의 자리가 6인 번호 개수",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "6끝수 개수",
+        "digit",
+        "end_digit_6_count",
+        "ending",
+        "tail",
+        "끝자리",
+        "일의자리"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "end_digit_7_count",
+      "name_kr": "7끝수 개수",
+      "name_en": "End Digit 7",
+      "category": "system",
+      "description": "1의 자리가 7인 번호 개수",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "7끝수 개수",
+        "digit",
+        "end_digit_7_count",
+        "ending",
+        "tail",
+        "끝자리",
+        "일의자리"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "end_digit_8_count",
+      "name_kr": "8끝수 개수",
+      "name_en": "End Digit 8",
+      "category": "system",
+      "description": "1의 자리가 8인 번호 개수",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "8끝수 개수",
+        "digit",
+        "end_digit_8_count",
+        "ending",
+        "tail",
+        "끝자리",
+        "일의자리"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "end_digit_9_count",
+      "name_kr": "9끝수 개수",
+      "name_en": "End Digit 9",
+      "category": "system",
+      "description": "1의 자리가 9인 번호 개수",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "9끝수 개수",
+        "digit",
+        "end_digit_9_count",
+        "ending",
+        "tail",
+        "끝자리",
+        "일의자리"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "excluded_numbers",
+      "name_kr": "제외수 (절대 제외)",
+      "name_en": "Excluded Numbers",
+      "category": "system",
+      "description": "이 번호는 절대 안 나옴",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "excluded_numbers",
+        "제외수 (절대 제외)"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "fixed_numbers",
+      "name_kr": "고정수 (반드시 포함)",
+      "name_en": "Fixed Numbers",
+      "category": "system",
+      "description": "내가 찍은 번호 무조건 포함",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "fixed_numbers",
+        "고정수 (반드시 포함)"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "high",
+      "name_kr": "저고",
+      "name_en": "",
+      "category": "basic",
+      "description": "고영역(23~45) 출현 개수. 평균 약 3.0개.",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "high",
+        "low",
+        "고",
+        "고번호",
+        "저",
+        "저고",
+        "저번호"
+      ],
+      "source": "ai_deep_learning.js"
+    },
+    {
+      "key": "high_low_pattern",
+      "name_kr": "고저 패턴",
+      "name_en": "High/Low Pattern",
+      "category": "system",
+      "description": "고(23~45):저(1~22) 비율",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "high",
+        "high_low_pattern",
+        "low",
+        "고",
+        "고번호",
+        "고저 패턴",
+        "저",
+        "저번호"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "hot_cold_10",
+      "name_kr": "10회차 핫/콜드",
+      "name_en": "Hot/Cold 10",
+      "category": "system",
+      "description": "최근 10회 기준",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "10회차 핫/콜드",
+        "hot_cold_10"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "hot_cold_15",
+      "name_kr": "15회차 핫/콜드",
+      "name_en": "Hot/Cold 15",
+      "category": "system",
+      "description": "최근 15회 기준",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "15회차 핫/콜드",
+        "hot_cold_15"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "hot_cold_20",
+      "name_kr": "20회차 핫/콜드",
+      "name_en": "Hot/Cold 20",
+      "category": "system",
+      "description": "최근 20회 기준",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "20회차 핫/콜드",
+        "hot_cold_20"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "hot_cold_5",
+      "name_kr": "5회차 핫/콜드",
+      "name_en": "Hot/Cold 5",
+      "category": "system",
+      "description": "최근 5회 기준",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "5회차 핫/콜드",
+        "hot_cold_5"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "last_digit_sum",
+      "name_kr": "끝수합",
+      "name_en": "Last Digit Sum",
+      "category": "system",
+      "description": "번호의 1의 자리 합계 (0~54)",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "digit",
+        "ending",
+        "last_digit_sum",
+        "sum",
+        "tail",
+        "total",
+        "끝수합",
+        "끝자리",
+        "일의자리",
+        "합",
+        "합계"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "long_term_miss",
+      "name_kr": "장기 미출현",
+      "name_en": "Long Term Miss",
+      "category": "system",
+      "description": "10회 이상 미출현 번호 포함 개수",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "long_term_miss",
+        "장기 미출현"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "lotto_paper_pattern",
+      "name_kr": "로또 용지 패턴",
+      "name_en": "Lotto Paper Pattern",
+      "category": "system",
+      "description": "로또 용지 그룹(A~E)별 번호 개수 분석",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "lotto_paper_pattern",
+        "로또 용지 패턴"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "magic_square_pattern",
+      "name_kr": "마방진(궁) 패턴",
+      "name_en": "Magic Square Pattern",
+      "category": "system",
+      "description": "마방진 9궁 위치별 번호 개수 분석",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "magic_square_pattern",
+        "마방진(궁) 패턴"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "missing_custom_filter",
+      "name_kr": "미출현 커스텀",
+      "name_en": "Missing Custom",
+      "category": "custom",
+      "description": "Filter description",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "missing_custom_filter",
+        "미출현 커스텀"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "missing_period",
+      "name_kr": "미출현 그룹",
+      "name_en": "Missing Period Group",
+      "category": "system",
+      "description": "미출현 기간별 그룹(1-5회/6-10회/11-15회/16+회) 포함 번호 개수 필터",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "missing_period",
+        "미출현 그룹"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "mul3",
+      "name_kr": "3배수",
+      "name_en": "",
+      "category": "basic",
+      "description": "3배수(3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45) 15개 중 출현 개수. 평균 약 2.0개.",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "3배수",
+        "3의 배수",
+        "3의배수",
+        "mul3",
+        "삼배수"
+      ],
+      "source": "ai_deep_learning.js"
+    },
+    {
+      "key": "mul4",
+      "name_kr": "4배수",
+      "name_en": "",
+      "category": "basic",
+      "description": "4배수(4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44) 11개 중 출현 개수. 평균 약 1.5개.",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "4배수",
+        "4의 배수",
+        "4의배수",
+        "mul4",
+        "사배수"
+      ],
+      "source": "ai_deep_learning.js"
+    },
+    {
+      "key": "mul5",
+      "name_kr": "5배수",
+      "name_en": "",
+      "category": "basic",
+      "description": "5배수(5, 10, 15, 20, 25, 30, 35, 40, 45) 9개 중 출현 개수. 평균 약 1.2개.",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "5배수",
+        "5의 배수",
+        "5의배수",
+        "mul5",
+        "오배수"
+      ],
+      "source": "ai_deep_learning.js"
+    },
+    {
+      "key": "mul7",
+      "name_kr": "7배수",
+      "name_en": "",
+      "category": "basic",
+      "description": "7배수(7, 14, 21, 28, 35, 42) 6개 중 출현 개수. 평균 약 0.8개.",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "7배수",
+        "7의 배수",
+        "7의배수",
+        "mul7",
+        "칠배수"
+      ],
+      "source": "ai_deep_learning.js"
+    },
+    {
+      "key": "mul8",
+      "name_kr": "8배수",
+      "name_en": "",
+      "category": "basic",
+      "description": "8배수(8, 16, 24, 32, 40) 5개 중 출현 개수. 평균 약 0.7개.",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "8배수",
+        "8의 배수",
+        "8의배수",
+        "mul8",
+        "팔배수"
+      ],
+      "source": "ai_deep_learning.js"
+    },
+    {
+      "key": "multiple_3_4_count",
+      "name_kr": "3·4 공배수",
+      "name_en": "Multiple of 3&4",
+      "category": "system",
+      "description": "12,24,36",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "34배수",
+        "34의 배수",
+        "34의배수",
+        "3·4 공배수",
+        "multiple_3_4_count"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "multiple_3_5_count",
+      "name_kr": "3·5 공배수",
+      "name_en": "Multiple of 3&5",
+      "category": "system",
+      "description": "15,30,45",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "35배수",
+        "35의 배수",
+        "35의배수",
+        "3·5 공배수",
+        "multiple_3_5_count"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "multiple_3_count",
+      "name_kr": "3의 배수",
+      "name_en": "Multiple of 3",
+      "category": "system",
+      "description": "3,6,9...45",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "3의 배수",
+        "3의배수",
+        "multiple_3_count",
+        "삼배수"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "multiple_4_5_count",
+      "name_kr": "4·5 공배수",
+      "name_en": "Multiple of 4&5",
+      "category": "system",
+      "description": "20,40",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "45배수",
+        "45의 배수",
+        "45의배수",
+        "4·5 공배수",
+        "multiple_4_5_count"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "multiple_4_count",
+      "name_kr": "4의 배수",
+      "name_en": "Multiple of 4",
+      "category": "system",
+      "description": "4,8,12...44",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "4의 배수",
+        "4의배수",
+        "multiple_4_count",
+        "사배수"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "multiple_5_count",
+      "name_kr": "5의 배수",
+      "name_en": "Multiple of 5",
+      "category": "system",
+      "description": "5,10,15...45",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "5의 배수",
+        "5의배수",
+        "multiple_5_count",
+        "오배수"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "multiple_7_count",
+      "name_kr": "7의 배수",
+      "name_en": "Multiple of 7",
+      "category": "system",
+      "description": "7,14,21,28,35,42",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "7의 배수",
+        "7의배수",
+        "multiple_7_count",
+        "칠배수"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "multiple_8_count",
+      "name_kr": "8의 배수",
+      "name_en": "Multiple of 8",
+      "category": "system",
+      "description": "8,16,24,32,40",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "8의 배수",
+        "8의배수",
+        "multiple_8_count",
+        "팔배수"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "neighbor",
+      "name_kr": "이웃수",
+      "name_en": "",
+      "category": "basic",
+      "description": "직전 회차 번호 ±1 (이웃수) 개수. 직전 6 + 이웃 12 풀에서 추출.",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "neighbor",
+        "이웃수"
+      ],
+      "source": "ai_deep_learning.js"
+    },
+    {
+      "key": "neighbor_count",
+      "name_kr": "이웃수 개수",
+      "name_en": "Neighbor Count",
+      "category": "system",
+      "description": "직전 회차 당첨번호의 ±1 인접번호 포함 개수",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "neighbor_count",
+        "이웃수 개수"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "neighbor_number_patterns",
+      "name_kr": "이웃수 패턴",
+      "name_en": "Neighbor Number Patterns",
+      "category": "system",
+      "description": "직전 회차 당첨번호의 인접 이웃수(±1) 패턴을 분석합니다.",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "neighbor_number_patterns",
+        "이웃수 패턴"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "no_multiple_count",
+      "name_kr": "배수 아님",
+      "name_en": "No Multiple",
+      "category": "system",
+      "description": "3,4,5의 배수가 아닌 수",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "no_multiple_count",
+        "배수 아님"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "non_multiple",
+      "name_kr": "배수외",
+      "name_en": "",
+      "category": "basic",
+      "description": "배수 외(3·4·5·7·8 어떤 배수에도 안 속하는 번호) 개수.",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "non_multiple",
+        "배수외"
+      ],
+      "source": "ai_deep_learning.js"
+    },
+    {
+      "key": "number_range_patterns",
+      "name_kr": "번호대별 패턴",
+      "name_en": "Number Range Patterns",
+      "category": "system",
+      "description": "단번대, 10번대~40번대 및 엔트로피 출현 구간을 분석합니다.",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "number_range_patterns",
+        "번호대별 패턴"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "odd",
+      "name_kr": "홀짝",
+      "name_en": "",
+      "category": "basic",
+      "description": "홀수 개수 (0~6). 평균 약 3.0개 (홀짝 균등).",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "even",
+        "odd",
+        "짝",
+        "짝수",
+        "홀",
+        "홀수",
+        "홀짝"
+      ],
+      "source": "ai_deep_learning.js"
+    },
+    {
+      "key": "odd_even_pattern",
+      "name_kr": "홀짝 패턴",
+      "name_en": "Odd/Even Pattern",
+      "category": "system",
+      "description": "홀수:짝수 비율",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "even",
+        "odd",
+        "odd_even_pattern",
+        "짝",
+        "짝수",
+        "홀",
+        "홀수",
+        "홀짝 패턴"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "prime",
+      "name_kr": "소수",
+      "name_en": "",
+      "category": "basic",
+      "description": "소수 14개(2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43) 중 출현 개수. 평균 약 2.0개. 핫(최근 3회 등장)/콜드(최근 3회 미등장)로 세분화 분석 (prime_hot/prime_cold).",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "prime",
+        "소수",
+        "프라임"
+      ],
+      "source": "ai_deep_learning.js"
+    },
+    {
+      "key": "prime_cold",
+      "name_kr": "소수(콜드)",
+      "name_en": "",
+      "category": "basic",
+      "description": "최근 3회차에 미등장한 소수(콜드 소수) 중 6번호 안에 출현하는 개수. 평균 약 1.0개.",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "prime",
+        "prime_cold",
+        "소수",
+        "소수(콜드)",
+        "프라임"
+      ],
+      "source": "ai_deep_learning.js"
+    },
+    {
+      "key": "prime_count",
+      "name_kr": "소수 개수",
+      "name_en": "Prime Count",
+      "category": "system",
+      "description": "소수 포함 개수",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "prime",
+        "prime_count",
+        "소수",
+        "소수 개수",
+        "프라임"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "prime_hot",
+      "name_kr": "소수(핫)",
+      "name_en": "",
+      "category": "basic",
+      "description": "최근 3회차에 등장한 소수(핫 소수) 중 6번호 안에 출현하는 개수. 평균 약 1.0개.",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "prime",
+        "prime_hot",
+        "소수",
+        "소수(핫)",
+        "프라임"
+      ],
+      "source": "ai_deep_learning.js"
+    },
+    {
+      "key": "prime_number_patterns",
+      "name_kr": "소수 패턴",
+      "name_en": "Prime Number Patterns",
+      "category": "system",
+      "description": "소수(2, 3, 5, 7, 11, ...)의 출현 패턴을 분석합니다.",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "prime",
+        "prime_number_patterns",
+        "소수",
+        "소수 패턴",
+        "프라임"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "regression_analysis",
+      "name_kr": "회귀 분석",
+      "name_en": "Regression Analysis",
+      "category": "system",
+      "description": "2~200회귀 중 특정 회귀설정 적용",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "regression_analysis",
+        "회귀 분석"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "square",
+      "name_kr": "제곱수",
+      "name_en": "",
+      "category": "basic",
+      "description": "제곱수(1, 4, 9, 16, 25, 36) 6개 중 출현 개수. 평균 약 0.8개.",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "square",
+        "제곱수"
+      ],
+      "source": "ai_deep_learning.js"
+    },
+    {
+      "key": "square_count",
+      "name_kr": "제곱수 개수",
+      "name_en": "Square Count",
+      "category": "system",
+      "description": "제곱수(1,4,9,16,25,36) 포함 개수",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "square_count",
+        "제곱수 개수"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "square_number_patterns",
+      "name_kr": "제곱수 패턴",
+      "name_en": "Square Number Patterns",
+      "category": "system",
+      "description": "제곱수(1, 4, 9, 16, 25, 36)의 출현 패턴을 분석합니다.",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "square_number_patterns",
+        "제곱수 패턴"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "sum",
+      "name_kr": "총합",
+      "name_en": "",
+      "category": "basic",
+      "description": "6번호의 합계. 물리 범위 21~255, 역사 평균 약 135. 전이(Markov)·패턴(XGBoost)·시계열(TFT)로 예측.",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "sum",
+        "total",
+        "총합",
+        "합",
+        "합계"
+      ],
+      "source": "ai_deep_learning.js"
+    },
+    {
+      "key": "tail_digit_patterns",
+      "name_kr": "끝수 출현 패턴",
+      "name_en": "Tail Digit Patterns",
+      "category": "system",
+      "description": "0~9 각 끝수의 출현 개수 범위를 통합 관리합니다.",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "digit",
+        "ending",
+        "tail",
+        "tail_digit_patterns",
+        "끝수 출현 패턴",
+        "끝자리",
+        "일의자리"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "tail_sum",
+      "name_kr": "끝수합",
+      "name_en": "",
+      "category": "basic",
+      "description": "6번호 끝수합 (각 번호 % 10의 합). 범위 0~54, 평균 약 27.",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "digit",
+        "ending",
+        "sum",
+        "tail",
+        "tail_sum",
+        "total",
+        "끝수합",
+        "끝자리",
+        "일의자리",
+        "합",
+        "합계"
+      ],
+      "source": "ai_deep_learning.js"
+    },
+    {
+      "key": "total_sum",
+      "name_kr": "총합",
+      "name_en": "Total Sum",
+      "category": "system",
+      "description": "당첨 번호 6개의 합 (21~255)",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "sum",
+        "total",
+        "total_sum",
+        "총합",
+        "합",
+        "합계"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "triangular",
+      "name_kr": "삼각수",
+      "name_en": "",
+      "category": "basic",
+      "description": "삼각수(1, 3, 6, 10, 15, 21, 28, 36, 45) 9개 중 출현 개수. 평균 약 1.0개.",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "triangular",
+        "삼각수"
+      ],
+      "source": "ai_deep_learning.js"
+    },
+    {
+      "key": "triangular_count",
+      "name_kr": "삼각수 개수",
+      "name_en": "Triangular Number Count",
+      "category": "system",
+      "description": "삼각수(1,3,6,10,15,21,28,36,45) 포함 개수",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "triangular_count",
+        "삼각수 개수"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "triangular_number_patterns",
+      "name_kr": "삼각수 패턴",
+      "name_en": "Triangular Number Patterns",
+      "category": "system",
+      "description": "삼각수(1, 3, 6, 10, 15, 21, 28, 36, 45)의 출현 패턴을 분석합니다.",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "triangular_number_patterns",
+        "삼각수 패턴"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "twin",
+      "name_kr": "동형수",
+      "name_en": "",
+      "category": "basic",
+      "description": "동형수(11, 22, 33, 44) 4개 중 출현 개수. 평균 약 0.5개.",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "twin",
+        "동형수"
+      ],
+      "source": "ai_deep_learning.js"
+    },
+    {
+      "key": "twin_count",
+      "name_kr": "동형수 개수",
+      "name_en": "Twin Number Count",
+      "category": "system",
+      "description": "동형수(11,22,33,44) 포함 개수",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "twin_count",
+        "동형수 개수"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "twin_number_patterns",
+      "name_kr": "쌍둥이수 패턴",
+      "name_en": "Twin Number Patterns",
+      "category": "system",
+      "description": "번호쌍(11, 22, 33, 44)의 출현 패턴을 분석합니다.",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "twin_number_patterns",
+        "쌍둥이수 패턴"
+      ],
+      "source": "filter_definitions"
+    },
+    {
+      "key": "zone_3_pattern",
+      "name_kr": "3분할 패턴",
+      "name_en": "Zone 3 Pattern",
+      "category": "system",
+      "description": "1~15 / 16~30 / 31~45 분포",
+      "members": [],
+      "value_range": {},
+      "aliases": [
+        "3분할 패턴",
+        "zone_3_pattern"
+      ],
+      "source": "filter_definitions"
+    }
+  ],
+  "models": [
+    {
+      "key": "autoencoder",
+      "name_kr": "Autoencoder",
+      "category": "base_model",
+      "color": "#8B5CF6",
+      "aliases": [
+        "AE",
+        "Autoencoder",
+        "ae",
+        "autoencoder",
+        "오토인코더"
+      ],
+      "source": "ensemble.py"
+    },
+    {
+      "key": "bayesian_nn",
+      "name_kr": "Bayesian Neural Network",
+      "category": "base_model",
+      "color": "#F59E0B",
+      "aliases": [
+        "Bayesian Neural Network",
+        "bayes",
+        "bayesian",
+        "bayesian_nn",
+        "베이지안"
+      ],
+      "source": "ensemble.py"
+    },
+    {
+      "key": "catboost",
+      "name_kr": "CatBoost",
+      "category": "base_model",
+      "color": "#14B8A6",
+      "aliases": [
+        "CatBoost",
+        "cat",
+        "catboost",
+        "캣부스트"
+      ],
+      "source": "ensemble.py"
+    },
+    {
+      "key": "cnn",
+      "name_kr": "CNN",
+      "category": "base_model",
+      "color": "#EC4899",
+      "aliases": [
+        "CNN",
+        "cnn",
+        "convolution",
+        "씨엔엔"
+      ],
+      "source": "ensemble.py"
+    },
+    {
+      "key": "gnn",
+      "name_kr": "GNN",
+      "category": "base_model",
+      "color": "#EF4444",
+      "aliases": [
+        "GNN",
+        "gnn",
+        "graph",
+        "지엔엔"
+      ],
+      "source": "ensemble.py"
+    },
+    {
+      "key": "markov",
+      "name_kr": "Markov Chain",
+      "category": "base_model",
+      "color": "#10B981",
+      "aliases": [
+        "Markov",
+        "Markov Chain",
+        "markov",
+        "마르코프",
+        "마코프"
+      ],
+      "source": "ensemble.py"
+    },
+    {
+      "key": "mhn",
+      "name_kr": "Modern Hopfield Network",
+      "category": "base_model",
+      "color": "#84CC16",
+      "aliases": [
+        "MHN",
+        "Modern Hopfield Network",
+        "hopfield",
+        "mhn",
+        "modern hopfield",
+        "홉필드"
+      ],
+      "source": "ensemble.py"
+    },
+    {
+      "key": "nbeats",
+      "name_kr": "N-BEATS",
+      "category": "base_model",
+      "color": "#06B6D4",
+      "aliases": [
+        "N-BEATS",
+        "NBEATS",
+        "n-beats",
+        "nbeats"
+      ],
+      "source": "ensemble.py"
+    },
+    {
+      "key": "tabnet",
+      "name_kr": "TabNet",
+      "category": "base_model",
+      "color": "#A855F7",
+      "aliases": [
+        "TabNet",
+        "tab",
+        "tabnet",
+        "탭넷"
+      ],
+      "source": "ensemble.py"
+    },
+    {
+      "key": "tft",
+      "name_kr": "Temporal Fusion Transformer",
+      "category": "base_model",
+      "color": "#F97316",
+      "aliases": [
+        "TFT",
+        "Temporal Fusion Transformer",
+        "temporal",
+        "tft",
+        "transformer",
+        "템포럴"
+      ],
+      "source": "ensemble.py"
+    },
+    {
+      "key": "xgboost",
+      "name_kr": "XGBoost",
+      "category": "base_model",
+      "color": "#3B82F6",
+      "aliases": [
+        "XGBoost",
+        "xgb",
+        "xgboost",
+        "엑스지비"
+      ],
+      "source": "ensemble.py"
+    }
+  ],
+  "operations": [
+    {
+      "key": "union",
+      "name_kr": "합집합",
+      "aliases": [
+        "합집합",
+        "유니온",
+        "union",
+        "또는",
+        "or",
+        "U"
+      ],
+      "description": "두 필터 결과의 합집합",
+      "source": "manual_operations.yaml"
+    },
+    {
+      "key": "intersection",
+      "name_kr": "교집합",
+      "aliases": [
+        "교집합",
+        "인터섹션",
+        "intersection",
+        "그리고",
+        "and",
+        "교차",
+        "∩"
+      ],
+      "description": "두 필터 결과의 교집합",
+      "source": "manual_operations.yaml"
+    },
+    {
+      "key": "ranking_top",
+      "name_kr": "상위",
+      "aliases": [
+        "상위",
+        "톱",
+        "top",
+        "높은",
+        "high",
+        "많은"
+      ],
+      "description": "순위 상위 N개",
+      "source": "manual_operations.yaml"
+    },
+    {
+      "key": "ranking_bottom",
+      "name_kr": "하위",
+      "aliases": [
+        "하위",
+        "바텀",
+        "bottom",
+        "낮은",
+        "low",
+        "적은"
+      ],
+      "description": "순위 하위 N개",
+      "source": "manual_operations.yaml"
+    },
+    {
+      "key": "grouping",
+      "name_kr": "그룹화",
+      "aliases": [
+        "그룹화",
+        "grouping",
+        "묶기",
+        "분류"
+      ],
+      "description": "필터별 그룹화",
+      "source": "manual_operations.yaml"
+    }
+  ],
+  "statistics": [
+    {
+      "key": "average",
+      "name_kr": "평균",
+      "aliases": [
+        "평균",
+        "평균값",
+        "avg",
+        "average",
+        "mean"
+      ],
+      "description": "평균 통계",
+      "source": "manual_operations.yaml"
+    },
+    {
+      "key": "frequency",
+      "name_kr": "빈도",
+      "aliases": [
+        "빈도",
+        "빈도수",
+        "freq",
+        "frequency",
+        "출현빈도",
+        "출현"
+      ],
+      "description": "출현 빈도",
+      "source": "manual_operations.yaml"
+    },
+    {
+      "key": "probability",
+      "name_kr": "확률",
+      "aliases": [
+        "확률",
+        "prob",
+        "probability",
+        "가능성",
+        "출현확률"
+      ],
+      "description": "출현 확률",
+      "source": "manual_operations.yaml"
+    }
+  ],
+  "time_windows": [
+    {
+      "key": "recent_n",
+      "name_kr": "최근 N회",
+      "aliases": [
+        "최근",
+        "recent",
+        "최근N회",
+        "최근N",
+        "지난N회"
+      ],
+      "description": "최근 N회차 범위",
+      "source": "manual_operations.yaml"
+    },
+    {
+      "key": "missing_n",
+      "name_kr": "미출 N회",
+      "aliases": [
+        "미출",
+        "missing",
+        "미출현",
+        "N회미출",
+        "N주미출"
+      ],
+      "description": "N회 동안 미출현",
+      "source": "manual_operations.yaml"
+    },
+    {
+      "key": "all_time",
+      "name_kr": "전체",
+      "aliases": [
+        "전체",
+        "모든",
+        "all",
+        "전체회차",
+        "전기간"
+      ],
+      "description": "전체 회차 범위",
+      "source": "manual_operations.yaml"
+    }
+  ],
+  "intents": []
+}

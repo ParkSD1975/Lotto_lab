@@ -49,6 +49,11 @@ except Exception:
     except Exception:
         ConsensusAnalyzer = None  # type: ignore
 
+try:
+    from db.supabase_client import get_client as _get_supabase  # type: ignore
+except Exception:
+    _get_supabase = None  # type: ignore
+
 
 # ──────────────────────────────────────────────────────────────────────
 # 유틸
@@ -110,6 +115,254 @@ def _ci_lower_estimate(score: float, sigma: float | None) -> float:
 
 
 # ──────────────────────────────────────────────────────────────────────
+# [P1 PATCH] 빈도 페널티 — favorite bias 해소
+# 근거: Lotto_lab_Root_Cause_Diagnosis.md (Finding #2)
+#       50회차 분석에서 18=60%, 14=50%, 43=50% 추천 → 자연 출현률 14% 대비 과대
+# 패치 일자: 2026-05-11
+# ──────────────────────────────────────────────────────────────────────
+def _compute_frequency_penalty(
+    n: int,
+    draws_so_far: list[dict] | None,
+    recent_window: int = 3,
+    recent_penalty: float = 0.7,
+    historical_threshold_high: float = 0.18,
+    historical_penalty_high: float = 0.85,
+    historical_threshold_mid: float = 0.16,
+    historical_penalty_mid: float = 0.92,
+    min_rounds_for_hist: int = 50,
+) -> float:
+    """빈도 페널티 곱셈 계수 반환 (1.0=무페널티, < 1.0=감점).
+
+    Args:
+        n: 평가할 번호 (1~45)
+        draws_so_far: 회차 history (dict or list of int)
+        recent_window: 최근 N회 회피 윈도우
+        recent_penalty: 최근 N회 출현 시 곱셈 계수
+        historical_threshold_high/mid: 자연 빈도 대비 high/mid 임계
+        historical_penalty_high/mid: high/mid 페널티
+        min_rounds_for_hist: historical 페널티 적용 최소 회차
+
+    Returns:
+        곱셈 계수 (예: 0.7 × 0.85 = 0.595)
+    """
+    if not draws_so_far:
+        return 1.0
+
+    coef = 1.0
+
+    # 1) 직전 N회 출현 페널티
+    recent_numbers: set[int] = set()
+    for draw in draws_so_far[-recent_window:]:
+        nums = draw.get("numbers") if isinstance(draw, dict) else draw
+        if isinstance(nums, (list, tuple, set)):
+            for x in nums:
+                try:
+                    recent_numbers.add(int(x))
+                except (ValueError, TypeError):
+                    continue
+    if n in recent_numbers:
+        coef *= recent_penalty
+
+    # 2) Historical 빈도 페널티
+    total_rounds = len(draws_so_far)
+    if total_rounds >= min_rounds_for_hist:
+        appear_count = 0
+        for draw in draws_so_far:
+            nums = draw.get("numbers") if isinstance(draw, dict) else draw
+            if isinstance(nums, (list, tuple, set)):
+                for x in nums:
+                    try:
+                        if int(x) == n:
+                            appear_count += 1
+                            break
+                    except (ValueError, TypeError):
+                        continue
+        hist_freq = appear_count / total_rounds
+
+        if hist_freq > historical_threshold_high:
+            coef *= historical_penalty_high
+        elif hist_freq > historical_threshold_mid:
+            coef *= historical_penalty_mid
+
+    return coef
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Stage 6-D — Diversity injection (Plackett-Luce sampling)
+# ──────────────────────────────────────────────────────────────────────
+def _round_seeded_rng(target_round: int | None, salt: str = "rec") -> np.random.Generator:
+    """target_round + salt 기반 결정론적 RNG.
+
+    Stage 6-F-3 fix: Python의 hash()는 PYTHONHASHSEED 기본 random이라
+    프로세스마다 다른 seed 발생 → hashlib.md5로 fully deterministic seeding.
+
+    같은 (round, salt)는 어느 프로세스든 같은 seed → 재현 가능.
+    다른 round는 다른 seed → 회차별 다양성.
+    target_round가 None이면 fixed seed (기존 동작 유지).
+    """
+    if target_round is None:
+        return np.random.default_rng(_RANDOM_SEED)
+    import hashlib
+    seed_str = f"{salt}:{int(target_round)}:{_RANDOM_SEED}"
+    h = hashlib.md5(seed_str.encode("utf-8")).digest()
+    seed = int.from_bytes(h[:4], "big")
+    return np.random.default_rng(seed)
+
+
+def _plackett_luce_diverse_pick(
+    scored_items: list[tuple[int, float]],
+    n_pick: int,
+    target_round: int | None = None,
+    temperature: float = 0.04,
+    salt: str = "rec",
+    adjacency: np.ndarray | list | None = None,
+    gnn_penalty_strength: float = 0.5,
+) -> list[int]:
+    """Plackett-Luce 샘플링 + (옵션) GNN co-occurrence pairwise diversity penalty.
+
+    스코어 차이가 작으면 (mode collapse) softmax 분포가 평탄해져 다양 선택 유도.
+    adjacency 주입 시 각 pick마다 이미 뽑힌 번호와의 동반출현 빈도가 높은 후보에 페널티 →
+    조합 다양성 강화 (Stage 6-F-3).
+
+    Args:
+        scored_items         : [(number, score), ...] — 점수 내림차순 정렬 가정 (큰 게 좋음)
+        n_pick               : 뽑을 개수
+        target_round         : 회차별 시드 (None이면 fixed)
+        temperature          : softmax 온도. 작을수록 greedy. 0.06 권장.
+        salt                 : RNG salt ("rec" / "exc")
+        adjacency            : 45×45 GNN co-occurrence 매트릭스 (선택). None이면 기존 PL.
+        gnn_penalty_strength : 페널티 강도. 0.0=GNN 무시, 1.0=score range 만큼 차감.
+
+    Returns:
+        선택된 number 리스트 (n_pick개, 중복 없음)
+    """
+    if not scored_items or n_pick <= 0:
+        return []
+
+    items = list(scored_items)
+    rng = _round_seeded_rng(target_round, salt=salt)
+    picked: list[int] = []
+
+    T = max(float(temperature), 1e-6)
+
+    # adjacency normalize (max-norm to [0, 1])
+    adj_norm = None
+    if adjacency is not None:
+        try:
+            adj_arr = np.asarray(adjacency, dtype=np.float64)
+            if adj_arr.shape == (45, 45):
+                amax = float(adj_arr.max())
+                if amax > 1e-9:
+                    adj_norm = adj_arr / amax
+        except Exception:
+            adj_norm = None
+
+    while items and len(picked) < n_pick:
+        nums = np.array([n for n, _ in items], dtype=np.int64)
+        scores = np.array([s for _, s in items], dtype=np.float64)
+
+        # GNN pairwise penalty (Stage 6-F-3)
+        if adj_norm is not None and picked:
+            penalty = np.zeros(len(items), dtype=np.float64)
+            for n_picked in picked:
+                idx_picked = n_picked - 1
+                for i, n_cand in enumerate(nums):
+                    penalty[i] += adj_norm[idx_picked, n_cand - 1]
+            penalty /= max(len(picked), 1)
+            score_range = float(scores.max() - scores.min()) or 1e-6
+            scores = scores - gnn_penalty_strength * score_range * penalty
+
+        # softmax with temperature
+        z = (scores - scores.max()) / T
+        p = np.exp(z)
+        p_sum = p.sum()
+        if not np.isfinite(p_sum) or p_sum <= 0:
+            p = np.ones_like(p) / len(p)
+        else:
+            p = p / p_sum
+
+        idx = int(rng.choice(len(items), p=p))
+        picked.append(int(nums[idx]))
+        items.pop(idx)
+
+    return picked
+
+
+def _plackett_luce_diverse_pick_asc(
+    scored_items: list[tuple[int, float]],
+    n_pick: int,
+    target_round: int | None = None,
+    temperature: float = 0.04,
+    salt: str = "exc",
+    adjacency: np.ndarray | list | None = None,
+    gnn_penalty_strength: float = 0.0,
+) -> list[int]:
+    """제외용: 점수 작은 게 좋음. 부호 반전 후 _plackett_luce_diverse_pick 호출.
+
+    제외 측면에서는 GNN diversity가 역효과 (10개 제외가 비슷해야 좋음 — 약한 번호 그룹).
+    기본 gnn_penalty_strength=0.0으로 GNN penalty 비활성화.
+    """
+    flipped = [(n, -s) for n, s in scored_items]
+    return _plackett_luce_diverse_pick(
+        flipped, n_pick, target_round, temperature, salt,
+        adjacency=adjacency, gnn_penalty_strength=gnn_penalty_strength,
+    )
+
+
+# ──────────────────────────────────────────────────────────────────────
+# MemoLoader (Supabase 자동 조회)
+# ──────────────────────────────────────────────────────────────────────
+class MemoLoader:
+    """Supabase expert_memos 테이블에서 target_round용 메모 자동 조회."""
+
+    def __init__(self, supabase_client: Any | None = None):
+        self._client = supabase_client
+
+    def _ensure_client(self) -> Any | None:
+        if self._client is not None:
+            return self._client
+        if _get_supabase is None:
+            return None
+        try:
+            self._client = _get_supabase()
+        except Exception:
+            self._client = None
+        return self._client
+
+    def load_memos_for_round(self, target_round: int) -> dict | None:
+        """target_round용 메모 조회 (최신 1개).
+
+        Returns:
+            dict with forced_includes/forced_excludes/confidence or None
+        """
+        client = self._ensure_client()
+        if client is None:
+            return None
+        try:
+            res = (
+                client.table("expert_memos")
+                .select("*")
+                .eq("target_round", int(target_round))
+                .order("created_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if res.data:
+                row = res.data[0]
+                return {
+                    "memo_id": row.get("id"),
+                    "forced_includes": row.get("forced_includes") or [],
+                    "forced_excludes": row.get("forced_excludes") or [],
+                    "confidence": float(row.get("confidence") or 0.5),
+                    "memo_text": row.get("memo_text"),
+                    "domain_tags": row.get("domain_tags") or [],
+                }
+        except Exception as e:
+            print(f"[MemoLoader] Supabase query fail: {e}")
+        return None
+
+
+# ──────────────────────────────────────────────────────────────────────
 # NumberRecommender
 # ──────────────────────────────────────────────────────────────────────
 class NumberRecommender:
@@ -119,16 +372,19 @@ class NumberRecommender:
         self,
         scorer: "NumberScorer | None" = None,
         consensus_analyzer: "ConsensusAnalyzer | None" = None,
+        memo_loader: "MemoLoader | None" = None,
     ):
         """외부 주입 받거나 lazy 초기화.
 
         Args:
             scorer            : NumberScorer (4 Pillar Ridge 통합)
             consensus_analyzer: ConsensusAnalyzer (Pillar 4)
+            memo_loader       : MemoLoader (Supabase 메모 자동 조회)
         """
         self._seed: int = _RANDOM_SEED
         self.scorer = scorer
         self.consensus_analyzer = consensus_analyzer
+        self.memo_loader = memo_loader or MemoLoader()
 
         if self.scorer is None and NumberScorer is not None:
             try:
@@ -144,6 +400,31 @@ class NumberRecommender:
                 print(f"[NumberRecommender] ConsensusAnalyzer init skip: {e}")
                 self.consensus_analyzer = None
 
+        # Stage 6-F-3: GNN adjacency lazy load (45×45 co-occurrence)
+        self._gnn_adjacency: np.ndarray | None = None
+
+    def _load_gnn_adjacency(self) -> np.ndarray | None:
+        """saved_models/gnn_adjacency.json 1회 로드 (캐시)."""
+        if self._gnn_adjacency is not None:
+            return self._gnn_adjacency
+        try:
+            import json
+            path = os.path.join(
+                os.path.dirname(os.path.dirname(__file__)),
+                "saved_models", "gnn_adjacency.json",
+            )
+            if not os.path.exists(path):
+                return None
+            with open(path, "r", encoding="utf-8") as f:
+                arr = json.load(f)
+            adj = np.asarray(arr, dtype=np.float64)
+            if adj.shape == (45, 45):
+                self._gnn_adjacency = adj
+                return adj
+        except Exception as e:
+            print(f"[NumberRecommender] gnn_adjacency load skip: {e}")
+        return None
+
     # ------------------------------------------------------------------
     # 추천 5 결정
     # ------------------------------------------------------------------
@@ -155,15 +436,29 @@ class NumberRecommender:
         expert_memo: dict | None = None,
         n_top: int = 5,
         bayesian_sigma: dict[int, float] | None = None,
+        target_round: int | None = None,
+        diversity_temperature: float = 0.06,
+        gnn_diversity_strength: float = 0.5,
+        draws_so_far: list[dict] | None = None,  # [P1 PATCH]
     ) -> list[dict]:
-        """추천 5 선출 (Hard Filter 3계층).
+        """추천 5 선출 (Hard Filter 3계층 + [P1] 빈도 페널티 + [6-D] Plackett-Luce).
 
         흐름:
         1. 사용자 메모 forced_includes 우선 (최대 n_top까지 강제 포함)
-        2. final_score 정렬 -> 상위 15 후보
-        3. consensus_metrics.top10_count >= REC_TOP10_THR 통과
-        4. filter_compliance >= median + 0.1 통과
-        5. CI lower bound 정렬 -> top n_top
+        2. [P1 PATCH] 빈도 페널티 적용 (favorite bias 해소, memo_forced 면제)
+        3. final_score 정렬 -> 상위 15 후보
+        4. consensus_metrics.top10_count >= REC_TOP10_THR 통과
+        5. filter_compliance >= median + 0.1 통과
+        6. (Stage 6-D) Plackett-Luce diversity 샘플링 -> top n_top
+            - 회차 시드(target_round) 기반 결정론적 RNG
+            - softmax(score / T) 분포에서 비복원 추출
+            - mode collapse 완화 (회차마다 동일 번호 반복 방지)
+
+        Args:
+            target_round         : 회차 시드 (None이면 fixed seed로 기존 동작)
+            diversity_temperature: softmax 온도. 0.06 권장 (Stage 6-F sweep 최적값,
+                                  hit_top5=0.818 random+23%). T<0.04 너무 greedy, T>0.12 너무 평탄.
+            draws_so_far         : [P1 PATCH] 빈도 페널티용 회차 history (None이면 페널티 비활성)
         """
         comp = _coerce_filter_compliance(filter_compliance)
         median_comp = float(np.median(comp))
@@ -178,6 +473,21 @@ class NumberRecommender:
 
         # 강제 포함은 forced_excludes와 충돌 시 forced_excludes 우선 (사용자 모순 방어)
         memo_forced = memo_forced - memo_excludes
+
+        # ── [P1 PATCH] 빈도 페널티 적용 ────────────────────────────────
+        # favorite bias 해소: 직전 3회 출현 + historical 과빈출 감점
+        # memo_forced는 페널티 면제 (사용자 의도 존중)
+        if draws_so_far:
+            _adjusted_scores: dict[int, float] = {}
+            for _n in range(1, 46):
+                _base = float(scores.get(_n, 0.0))
+                if _n in memo_forced:
+                    _adjusted_scores[_n] = _base
+                else:
+                    _coef = _compute_frequency_penalty(_n, draws_so_far)
+                    _adjusted_scores[_n] = _base * _coef
+            scores = _adjusted_scores
+        # ── /P1 PATCH ─────────────────────────────────────────────────
 
         # 1) memo forced_includes 우선 슬롯 채우기
         result: list[dict] = []
@@ -219,33 +529,52 @@ class NumberRecommender:
         # 4) filter_compliance >= median + 0.1 통과
         f_pass = [n for n in c_pass if comp[n - 1] >= thr_comp]
 
-        # 5) CI lower bound 정렬 (Bayesian sigma 가용 시)
-        def _ci_key(n: int) -> float:
+        # 5) (Stage 6-D/F-3) Plackett-Luce + GNN co-occurrence diversity
+        # CI lower bound를 score로 사용 (Bayesian sigma 가용 시 보수적)
+        def _ci_score(n: int) -> float:
             sc = float(scores.get(n, 0.0))
             sig = None
             if isinstance(bayesian_sigma, dict):
                 sig = bayesian_sigma.get(n, bayesian_sigma.get(str(n)))
-            return -_ci_lower_estimate(sc, sig)  # 내림차순 정렬 위해 음수
+            return _ci_lower_estimate(sc, sig)
 
-        f_pass.sort(key=_ci_key)
-
-        # 부족 시 c_pass -> candidates 순으로 보충
         need = n_top - len(result)
-        picked = list(f_pass[:need])
+
+        # F-3: GNN adjacency lazy load (조합 다양성 보너스)
+        gnn_adj = self._load_gnn_adjacency() if gnn_diversity_strength > 0.0 else None
+
+        # f_pass에서 우선 샘플링
+        f_scored = [(n, _ci_score(n)) for n in f_pass]
+        f_scored.sort(key=lambda kv: kv[1], reverse=True)
+        picked = _plackett_luce_diverse_pick(
+            f_scored, need, target_round=target_round,
+            temperature=diversity_temperature, salt="rec",
+            adjacency=gnn_adj, gnn_penalty_strength=gnn_diversity_strength,
+        )
+
+        # 부족 시 c_pass에서 추가 샘플링 (이미 picked는 제외)
         if len(picked) < need:
-            for n in c_pass:
-                if n in picked:
-                    continue
-                picked.append(n)
-                if len(picked) >= need:
-                    break
+            remain_c = [n for n in c_pass if n not in picked]
+            c_scored = [(n, _ci_score(n)) for n in remain_c]
+            c_scored.sort(key=lambda kv: kv[1], reverse=True)
+            extra = _plackett_luce_diverse_pick(
+                c_scored, need - len(picked), target_round=target_round,
+                temperature=diversity_temperature, salt="rec_c",
+                adjacency=gnn_adj, gnn_penalty_strength=gnn_diversity_strength,
+            )
+            picked.extend(extra)
+
+        # 그래도 부족 시 candidates 전체에서 보충
         if len(picked) < need:
-            for n in candidates:
-                if n in picked:
-                    continue
-                picked.append(n)
-                if len(picked) >= need:
-                    break
+            remain_all = [n for n in candidates if n not in picked]
+            a_scored = [(n, _ci_score(n)) for n in remain_all]
+            a_scored.sort(key=lambda kv: kv[1], reverse=True)
+            extra = _plackett_luce_diverse_pick(
+                a_scored, need - len(picked), target_round=target_round,
+                temperature=diversity_temperature, salt="rec_a",
+                adjacency=gnn_adj, gnn_penalty_strength=gnn_diversity_strength,
+            )
+            picked.extend(extra)
 
         for n in picked[:need]:
             entry = self._build_rec_entry(
@@ -308,6 +637,8 @@ class NumberRecommender:
         expert_memo: dict | None = None,
         n_exc: int = 10,
         gnn_strong_set: set[int] | None = None,
+        target_round: int | None = None,
+        diversity_temperature: float = 0.06,
     ) -> list[dict]:
         """제외 10 선출 (Hard Filter 3계층).
 
@@ -417,15 +748,27 @@ class NumberRecommender:
 
         f_pass = [n for n in c_pass if comp[n - 1] < thr_low]
 
-        # 4) GNN veto 보강 (가용 시)
+        # 4) (Stage 6-D) GNN veto + Plackett-Luce diversity (점수 작은 게 좋음)
         gnn_set = gnn_strong_set or set()
-        if gnn_set:
-            # f_pass에 우선 GNN strong 포함된 번호를 앞으로
-            f_pass.sort(key=lambda n: (n not in gnn_set, scores.get(n, 0.0)))
 
-        # 5) 보완 우선순위: f_pass -> c_pass -> low_candidates
+        def _exc_score(n: int) -> float:
+            """제외 점수: low score + GNN strong 보너스. 작을수록 강한 제외."""
+            base = float(scores.get(n, 0.0))
+            # GNN strong이면 -0.05 보너스 (더 작아짐 = 더 강한 제외)
+            if n in gnn_set:
+                base -= 0.05
+            return base
+
         need = n_exc - len(result)
-        for n in f_pass:
+
+        # 5) f_pass에서 PL 샘플링 (작을수록 좋음 → ASC variant)
+        f_scored = [(n, _exc_score(n)) for n in f_pass if n not in picked]
+        f_scored.sort(key=lambda kv: kv[1])  # 오름차순
+        f_picked = _plackett_luce_diverse_pick_asc(
+            f_scored, need, target_round=target_round,
+            temperature=diversity_temperature, salt="exc",
+        )
+        for n in f_picked:
             if len(result) >= n_exc:
                 break
             if n in picked:
@@ -441,8 +784,17 @@ class NumberRecommender:
             result.append(entry)
             picked.add(n)
 
+        # 6) 부족 시 c_pass에서 PL 샘플링
         if len(result) < n_exc:
-            for n in c_pass:
+            remain_c = [n for n in c_pass if n not in picked]
+            c_scored = [(n, _exc_score(n)) for n in remain_c]
+            c_scored.sort(key=lambda kv: kv[1])
+            c_picked = _plackett_luce_diverse_pick_asc(
+                c_scored, n_exc - len(result),
+                target_round=target_round,
+                temperature=diversity_temperature, salt="exc_c",
+            )
+            for n in c_picked:
                 if len(result) >= n_exc:
                     break
                 if n in picked:
@@ -458,8 +810,17 @@ class NumberRecommender:
                 result.append(entry)
                 picked.add(n)
 
+        # 7) 그래도 부족 시 low_candidates 전체에서 PL 샘플링
         if len(result) < n_exc:
-            for n in low_candidates:
+            remain_l = [n for n in low_candidates if n not in picked]
+            l_scored = [(n, _exc_score(n)) for n in remain_l]
+            l_scored.sort(key=lambda kv: kv[1])
+            l_picked = _plackett_luce_diverse_pick_asc(
+                l_scored, n_exc - len(result),
+                target_round=target_round,
+                temperature=diversity_temperature, salt="exc_l",
+            )
+            for n in l_picked:
                 if len(result) >= n_exc:
                     break
                 if n in picked:
@@ -518,22 +879,38 @@ class NumberRecommender:
         predictor_pipeline_outputs: dict,
         rankings: dict[str, list[int]],
         expert_memo: dict | None = None,
+        target_round: int | None = None,
         n_top: int = 5,
         n_exc: int = 10,
         draws_so_far: list[dict] | None = None,
         bayesian_sigma: dict[int, float] | None = None,
         gnn_strong_set: set[int] | None = None,
         filter_compliance_override: np.ndarray | dict | None = None,
+        auto_load_memo: bool = True,
     ) -> dict:
         """추천 5 + 제외 10 + Hard Filter 3계층 통합 진입점.
 
         흐름:
+        0. (신규) target_round 지정 시 Supabase에서 메모 자동 로드
         1. ConsensusAnalyzer로 Pillar 4 메트릭 산출
         2. NumberScorer로 4 Pillar 점수 (final_score) 산출
         3. filter_compliance 추출 (filter_stats_result 또는 override)
         4. regression_rules_output 추출 (predictor_pipeline_outputs.regression.tier3_rules)
         5. select_recommendations + select_exclusions
+
+        Args:
+            target_round      : 예측 대상 회차 (메모 자동 로드용)
+            auto_load_memo    : True면 target_round로 메모 자동 조회 (expert_memo 우선)
         """
+        # 0) 메모 자동 로드 (expert_memo 미지정 + target_round 가용 시)
+        if expert_memo is None and target_round is not None and auto_load_memo:
+            try:
+                loaded = self.memo_loader.load_memos_for_round(target_round)
+                if loaded:
+                    expert_memo = loaded
+                    print(f"[NumberRecommender] Auto-loaded memo for round {target_round}")
+            except Exception as e:
+                print(f"[NumberRecommender] Memo auto-load fail: {e}")
         # 1) Pillar 4
         if self.consensus_analyzer is not None and rankings:
             consensus_metrics = self.consensus_analyzer.compute_metrics(rankings)
@@ -584,7 +961,7 @@ class NumberRecommender:
                 if isinstance(t3, dict):
                     regr_rules = t3
 
-        # 5) 추천 + 제외
+        # 5) 추천 + 제외 (Stage 6-D: target_round 전파 + [P1] draws_so_far)
         recommendations = self.select_recommendations(
             scores=scores,
             consensus_metrics=consensus_metrics,
@@ -592,6 +969,8 @@ class NumberRecommender:
             expert_memo=expert_memo,
             n_top=n_top,
             bayesian_sigma=bayesian_sigma,
+            target_round=target_round,
+            draws_so_far=draws_so_far,  # [P1 PATCH]
         )
         exclusions = self.select_exclusions(
             scores=scores,
@@ -601,6 +980,7 @@ class NumberRecommender:
             expert_memo=expert_memo,
             n_exc=n_exc,
             gnn_strong_set=gnn_strong_set,
+            target_round=target_round,
         )
 
         # Hard Filter 3계층 요약

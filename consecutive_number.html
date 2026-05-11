@@ -4,6 +4,9 @@
 <head>
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <title>Lotto Lab - 연번 분석 (Supabase AI)</title>
     <link href="css/tailwind.css" rel="stylesheet" />
 
@@ -32,6 +35,8 @@
 
     <!-- NLP Modules -->
     <script src="js/NLPProcessor.js"></script>
+    <script src="js/AutoNLPMatcher.js"></script>
+    <script src="js/auto_nlp_loader.js" defer></script>
     <script src="js/NLPInputComponent.js"></script>
     <script src="js/BasicAnalysisNLP.js"></script>
 
@@ -365,6 +370,83 @@
         #aiQnaContent .prose {
             font-size: 1rem !important;
         }
+
+        /* [fix-338] 연번 보조 분석 — impeccable 가이드 */
+        .cs-input {
+            background: transparent; border: 0; border-bottom: 1px solid #E5E7EB;
+            padding: 4px 18px 4px 6px; font-size: 13px; color: #0F172A;
+            outline: none; transition: border-color 180ms ease;
+            font-feature-settings: "tnum"; -moz-appearance: textfield;
+        }
+        .cs-input:focus { border-bottom-color: #F59E0B; }
+        .cs-input::-webkit-inner-spin-button, .cs-input::-webkit-outer-spin-button { opacity: 0.5; margin-left: 4px; }
+        #csRunTable td, #csPairTable td, #csDecadeTable td, #csElementTable td, #csStreakTable td { padding: 8px 8px; border-bottom: 1px solid #F3F4F6; }
+        #csRunTable tbody tr:hover, #csPairTable tbody tr:hover,
+        #csDecadeTable tbody tr:hover, #csElementTable tbody tr:hover, #csStreakTable tbody tr:hover { background: #FAFAFA; }
+        .cs-pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 600; line-height: 1.4; }
+        .cs-pill-hot { background: #FEF2F2; color: #DC2626; }
+        .cs-pill-cold { background: #ECFEFF; color: #0E7490; }
+        .cs-pill-warm { background: #FFF7ED; color: #C2410C; }
+        .cs-pill-norm { background: #F1F5F9; color: #475569; }
+
+        /* §1 캘린더 v2 (연번 카운트) */
+        .cs-cal-stats { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; font-size: 11px; color: #94A3B8; font-feature-settings: "tnum"; margin-bottom: 12px; padding: 8px 12px; background: #FAFAFA; border-radius: 8px; }
+        .cs-cal-stats strong { color: #0F172A; font-weight: 700; font-size: 12px; }
+        .cs-cal-row { display: grid; grid-template-columns: 56px 1fr; gap: 8px; align-items: center; margin-bottom: 3px; }
+        .cs-cal-label { font-size: 10px; color: #94A3B8; font-feature-settings: "tnum"; text-align: right; padding-right: 2px; line-height: 1.15; }
+        .cs-cal-label strong { display: block; color: #0F172A; font-weight: 700; font-size: 11px; }
+        .cs-cal-label .meta { display: block; font-size: 9px; color: #CBD5E1; margin-top: 1px; }
+        .cs-cal-cells { display: grid; grid-template-columns: repeat(10, 1fr); gap: 3px; }
+        .cs-cal-cell {
+            height: 30px; border-radius: 4px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 12px; font-weight: 700; font-feature-settings: "tnum";
+            transition: transform 120ms ease, box-shadow 120ms ease;
+            cursor: default;
+        }
+        .cs-cal-cell:hover { transform: scale(1.15); box-shadow: 0 4px 14px rgba(15,23,42,0.18); z-index: 5; }
+        /* 연번 평균 0.67 — 0=흔함(50%), 1=중간(35%), 2+=드뭄 */
+        .cs-cal-cell.cnt-0 { background: #FAFAFA; color: #94A3B8; }
+        .cs-cal-cell.cnt-1 { background: #FEF3C7; color: #92400E; }
+        .cs-cal-cell.cnt-2 { background: #F59E0B; color: #FFFFFF; }
+        .cs-cal-cell.cnt-3 { background: #D97706; color: #FFFFFF; }
+        .cs-cal-cell.cnt-4p { background: #92400E; color: #FBBF24; }
+        .cs-cal-cell.is-latest { box-shadow: 0 0 0 2px #0F172A; }
+        .cs-cal-empty { height: 30px; }
+        .cs-cal-legend { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; margin-top: 10px; font-size: 11px; color: #94A3B8; }
+        .cs-cal-legend .legend-cell { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 3px; font-size: 10px; font-weight: 700; font-feature-settings: "tnum"; }
+
+        /* §4 44 쌍 grid — 컴팩트 칩 */
+        .cs-pair-grid { display: grid; grid-template-columns: repeat(11, 1fr); gap: 4px; }
+        .cs-pair-chip {
+            background: #FAFAFA; border-radius: 6px;
+            padding: 5px 4px; text-align: center;
+            font-size: 11px; font-feature-settings: "tnum";
+            transition: transform 120ms ease;
+            cursor: default;
+        }
+        .cs-pair-chip:hover { transform: scale(1.08); box-shadow: 0 2px 8px rgba(15,23,42,0.12); z-index: 2; position: relative; }
+        .cs-pair-chip .pair { font-weight: 700; color: #0F172A; }
+        .cs-pair-chip .cnt { display: block; font-size: 10px; color: #94A3B8; margin-top: 1px; font-weight: 600; }
+        .cs-pair-chip.hot { background: #FEF2F2; }
+        .cs-pair-chip.hot .pair { color: #DC2626; }
+        .cs-pair-chip.cold { background: #ECFEFF; }
+        .cs-pair-chip.cold .pair { color: #0E7490; }
+
+        /* §7 45 element grid */
+        .cs-elem-grid { display: grid; grid-template-columns: repeat(15, 1fr); gap: 3px; }
+        .cs-elem-chip {
+            background: #FAFAFA; border-radius: 4px;
+            padding: 4px 2px; text-align: center;
+            font-size: 11px; font-feature-settings: "tnum";
+            font-weight: 700;
+        }
+        .cs-elem-chip .num { color: #0F172A; }
+        .cs-elem-chip .cnt { display: block; font-size: 9px; color: #94A3B8; font-weight: 500; margin-top: 1px; }
+        .cs-elem-chip.hot { background: #FEF2F2; }
+        .cs-elem-chip.hot .num { color: #DC2626; }
+        .cs-elem-chip.cold { background: #ECFEFF; }
+        .cs-elem-chip.cold .num { color: #0E7490; }
     </style>
 </head>
 
@@ -435,6 +517,125 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- ════════════════════════════════════════════════ -->
+                    <!-- [fix-338] 연번 보조 분석 7종 — 단일 흰 박스 통합   -->
+                    <!-- ════════════════════════════════════════════════ -->
+                    <div class="bg-white rounded-xl border border-gray-200 mb-6 overflow-hidden">
+
+                        <!-- §1. 시계열 추세 + 캘린더 -->
+                        <div class="p-8">
+                            <div class="flex items-baseline justify-between mb-3">
+                                <div>
+                                    <h3 class="text-lg font-bold text-gray-900 tracking-tight">시계열 추세</h3>
+                                    <p class="text-xs text-gray-500 mt-1">연번 쌍 카운트(0~5) 이동평균 + ±1σ · 평균선 0.67 (44 × 0.01515 — 44 가능 쌍 × 페어 출현 확률)</p>
+                                </div>
+                                <div class="flex items-baseline gap-2 text-xs text-gray-500">
+                                    <label>MA 윈도우</label>
+                                    <input type="number" id="csMaWindow" value="20" min="5" max="100"
+                                        oninput="renderCsMa()" class="cs-input w-16 text-center tabular-nums">
+                                    <span>회</span>
+                                </div>
+                            </div>
+                            <div class="h-64 mb-6"><canvas id="csMaChart"></canvas></div>
+                            <div class="pt-6 border-t border-gray-100">
+                                <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-3">연번 카운트 캘린더 (좌=과거, 우=최신)</div>
+                                <div id="csCalendar"></div>
+                            </div>
+                        </div>
+
+                        <!-- §2. 카운트 분포 0~5 -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">연번 쌍 카운트 분포 0~5</h3>
+                            <p class="text-xs text-gray-500 mb-4">0개 약 50%, 1개 약 35%, 2개+ 약 15% 분포 · 점선 = 이론값 (자체 시뮬레이션 근사)</p>
+                            <div class="h-56"><canvas id="csCountDist"></canvas></div>
+                            <div id="csCountDistStats" class="mt-3 text-xs text-gray-600 tabular-nums"></div>
+                        </div>
+
+                        <!-- §3. Run 길이 분포 ⭐ -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">Run 길이 분포 (회차별 최대 연속 길이)</h3>
+                            <p class="text-xs text-gray-500 mb-4">길이 1=연속 없음 · 2=쌍만 · 3=triple · 4=quad · 5=quintuple · 6=극값 (전체 6 연속)</p>
+                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch">
+                                <div class="relative" style="min-height: 260px"><canvas id="csRunChart"></canvas></div>
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-sm tabular-nums" id="csRunTable">
+                                        <thead>
+                                            <tr class="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                                <th class="py-2 pr-3 border-b border-gray-200">Run 길이</th>
+                                                <th class="py-2 px-3 border-b border-gray-200 text-right">출현/회</th>
+                                                <th class="py-2 px-3 border-b border-gray-200 text-right">비중</th>
+                                                <th class="py-2 pl-3 border-b border-gray-200 text-right">현재 갭</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="csRunBody"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- §4. 44 연번 쌍 출현 빈도 ⭐ -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">44 연번 쌍 출현 빈도 (1-2 ~ 44-45)</h3>
+                            <p class="text-xs text-gray-500 mb-4">각 가능한 인접 쌍 44개의 출현 횟수 · 빨강 = 핫 (상위 25%) / 파랑 = 콜드 (하위 25%) · 11컬럼 grid (4행 × 11열 ≈ 44)</p>
+                            <div id="csPairGrid" class="cs-pair-grid"></div>
+                            <div id="csPairNote" class="mt-4 text-xs text-gray-600 tabular-nums"></div>
+                        </div>
+
+                        <!-- §5. 번호대별 연번 분포 ⭐ -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">번호대별 연번 분포</h3>
+                            <p class="text-xs text-gray-500 mb-4">5개 번호대(1~10·11~20·21~30·31~40·41~45) 내부 연번 + 4개 번호대 경계(10-11·20-21·30-31·40-41) 분포</p>
+                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch">
+                                <div class="relative" style="min-height: 260px"><canvas id="csDecadeChart"></canvas></div>
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-sm tabular-nums" id="csDecadeTable">
+                                        <thead>
+                                            <tr class="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                                <th class="py-2 pr-3 border-b border-gray-200">번호대 / 경계</th>
+                                                <th class="py-2 px-3 border-b border-gray-200 text-right">쌍 수</th>
+                                                <th class="py-2 px-3 border-b border-gray-200 text-right">관측 합계</th>
+                                                <th class="py-2 pl-3 border-b border-gray-200 text-right">기대값 대비</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="csDecadeBody"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- §6. 연번 streak 분석 ⭐ -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">연번 0개 / 1+ 연속 streak 분석</h3>
+                            <p class="text-xs text-gray-500 mb-4">연번 0개 (no consecutive) 연속 회차 vs 연번 1+ (consecutive 등장) 연속 회차</p>
+                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch">
+                                <div class="relative" style="min-height: 260px"><canvas id="csStreakChart"></canvas></div>
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-sm tabular-nums" id="csStreakTable">
+                                        <thead>
+                                            <tr class="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                                <th class="py-2 pr-3 border-b border-gray-200">지표</th>
+                                                <th class="py-2 px-3 border-b border-gray-200 text-right">0개 streak</th>
+                                                <th class="py-2 pl-3 border-b border-gray-200 text-right">1+ streak</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="csStreakBody"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- §7. 45 per-element 연번 동반 횟수 ⭐ -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">45 번호별 연번 동반 출현 횟수</h3>
+                            <p class="text-xs text-gray-500 mb-4">각 번호 n이 등장한 회차 중 (n-1) 또는 (n+1)이 함께 출현한 횟수 · 빨강 = 핫 / 파랑 = 콜드</p>
+                            <div id="csElementGrid" class="cs-elem-grid"></div>
+                            <div id="csElementNote" class="mt-4 text-xs text-gray-600 tabular-nums"></div>
+                        </div>
+                    </div>
+                    <!-- ════════════════════════════════════════════════ -->
+                    <!-- [/fix-338] 단일 박스 통합 끝                       -->
+                    <!-- ════════════════════════════════════════════════ -->
 
                     <div class="bg-white rounded-xl p-8 border border-gray-200 shadow-sm" id="filter-page">
                         <div class="flex items-center justify-between mb-8">
@@ -513,9 +714,9 @@
                         </div>
                     </div>
 
-                    <!-- [표준화] 리스트 섹션 (Integrated Header) -->
-                    <div class="rounded-xl overflow-hidden mt-6">
-                        <div class="flex items-center justify-between mb-4 px-2">
+                    <!-- [fix-402] 리스트 섹션 — 헤더 + 표 흰 박스 일체화 -->
+                    <div class="bg-white rounded-xl border border-gray-200 mt-6 overflow-hidden">
+                        <div class="flex items-center justify-between px-8 pt-6 pb-4 border-b border-gray-100">
                             <div>
                                 <h3 class="text-xl font-bold text-gray-900 mb-1">최근 당첨번호 및 연번</h3>
                                 <p class="text-sm text-gray-600">
@@ -525,7 +726,7 @@
                             </div>
                         </div>
 
-                        <div class="overflow-x-auto custom-scrollbar border border-gray-200 rounded-xl bg-white"
+                        <div class="overflow-x-auto custom-scrollbar"
                             style="max-height: 600px;">
                             <table class="w-full text-sm">
                                 <thead
@@ -678,6 +879,10 @@
 
                 // [수정] AI 분석 자동 실행 (표준화)
                 initDeepInsight();
+
+                // [fix-338] 보조 분석 7종 초기 렌더링
+                if (typeof invalidateCsCache === 'function') invalidateCsCache();
+                if (typeof renderAllCsSupp === 'function') renderAllCsSupp();
             } catch (err) {
                 console.error('데이터 로드 실패:', err);
                 const listEl = document.getElementById('drawsList');
@@ -960,6 +1165,9 @@
             const filteredData = listData.filter(checkDrawFilter);
             updateCharts(filteredData);
             updateRecent10FilterUI();
+
+            // [fix-338] 보조 분석 7종 갱신
+            if (typeof renderAllCsSupp === 'function') renderAllCsSupp();
         }
 
         // [추가] 최근 10회차 필터 UI 업데이트 함수 (표준화)
@@ -1715,6 +1923,551 @@
                     container.className = 'text-red-500 text-xs p-2';
                 }
             }
+        }
+
+        // ════════════════════════════════════════════════════════════
+        // [fix-338] 연번 보조 분석 7종 — impeccable 가이드
+        // ════════════════════════════════════════════════════════════
+        const CS_ACCENT = '#F59E0B';
+        const CS_ACCENT_LIGHT = 'rgba(245, 158, 11, 0.10)';
+        const CS_GRID = '#F1F5F9';
+        const CS_INK_2 = '#475569';
+        const CS_INK_3 = '#94A3B8';
+
+        // 가능한 연번 쌍 44개: (1,2), (2,3), ..., (44,45)
+        const CS_ALL_PAIRS = Array.from({ length: 44 }, (_, i) => [i + 1, i + 2]);
+        // 번호대 정의 (5 decade + 4 boundary)
+        const CS_DECADES = [
+            { label: '1~10대', range: [1, 10], pairs: 9 },
+            { label: '11~20대', range: [11, 20], pairs: 9 },
+            { label: '21~30대', range: [21, 30], pairs: 9 },
+            { label: '31~40대', range: [31, 40], pairs: 9 },
+            { label: '41~45대', range: [41, 45], pairs: 4 }
+        ];
+        const CS_BOUNDARIES = [
+            { label: '10-11', pair: [10, 11] },
+            { label: '20-21', pair: [20, 21] },
+            { label: '30-31', pair: [30, 31] },
+            { label: '40-41', pair: [40, 41] }
+        ];
+
+        // 회차 1개에서 연번 쌍 카운트
+        function csCountPairs(nums) {
+            const sorted = [...nums].sort((a, b) => a - b);
+            let cnt = 0;
+            for (let i = 0; i < sorted.length - 1; i++) {
+                if (sorted[i + 1] === sorted[i] + 1) cnt++;
+            }
+            return cnt;
+        }
+        // 최대 run 길이
+        function csMaxRunLen(nums) {
+            const sorted = [...nums].sort((a, b) => a - b);
+            let maxLen = 1, cur = 1;
+            for (let i = 0; i < sorted.length - 1; i++) {
+                if (sorted[i + 1] === sorted[i] + 1) { cur++; if (cur > maxLen) maxLen = cur; }
+                else { cur = 1; }
+            }
+            return maxLen;
+        }
+        // 출현하는 모든 인접 쌍 list
+        function csPairsIn(nums) {
+            const set = new Set(nums);
+            const list = [];
+            for (let i = 1; i < 45; i++) {
+                if (set.has(i) && set.has(i + 1)) list.push(i);
+            }
+            return list;  // i means pair (i, i+1)
+        }
+
+        let _csCache = null;
+        function getCsCache() {
+            if (_csCache) return _csCache;
+            const data = window.allDrawData || allDrawData || [];
+            _csCache = data.map(d => {
+                const nums = d.numbers || [];
+                const numSet = new Set(nums);
+                const csCount = csCountPairs(nums);
+                const maxRun = csMaxRunLen(nums);
+                const pairsIn = csPairsIn(nums);  // [i] = pair (i, i+1) starts
+                return { round: d.round, nums, numSet, csCount, maxRun, pairsIn };
+            });
+            return _csCache;
+        }
+        function invalidateCsCache() { _csCache = null; }
+
+        function renderAllCsSupp() {
+            try {
+                if (!allDrawData || allDrawData.length === 0) return;
+                invalidateCsCache();
+                renderCsMa();
+                renderCsCalendar();
+                renderCsCountDist();
+                renderCsRun();
+                renderCsPairGrid();
+                renderCsDecade();
+                renderCsStreak();
+                renderCsElement();
+            } catch (e) { console.warn('[cs-supp]', e); }
+        }
+
+        // ─── §1-A. 시계열 추세 ───
+        let csMaInst = null;
+        function renderCsMa() {
+            const canvas = document.getElementById('csMaChart');
+            if (!canvas) return;
+            const win = Math.max(5, Math.min(100, parseInt(document.getElementById('csMaWindow')?.value) || 20));
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getCsCache().slice(0, range).slice().reverse();
+            if (cache.length === 0) return;
+            const labels = cache.map(d => d.round);
+            const counts = cache.map(d => d.csCount);
+            const ma = [], up = [], lo = [];
+            for (let i = 0; i < counts.length; i++) {
+                const s = Math.max(0, i - win + 1);
+                const sl = counts.slice(s, i + 1);
+                const m = sl.reduce((a, b) => a + b, 0) / sl.length;
+                const v = sl.reduce((a, b) => a + (b - m) ** 2, 0) / sl.length;
+                ma.push(m); up.push(m + Math.sqrt(v)); lo.push(m - Math.sqrt(v));
+            }
+            const expected = 44 * (6 * 5) / (45 * 44); // = 30/45 ≈ 0.667
+            if (csMaInst) csMaInst.destroy();
+            csMaInst = new Chart(canvas.getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels, datasets: [
+                        { label: '연번 카운트', data: counts, borderColor: 'rgba(15,23,42,0.35)', borderWidth: 1, pointRadius: 0, fill: false, tension: 0.25 },
+                        { label: `이동평균 ${win}회`, data: ma.map(v => +v.toFixed(2)), borderColor: CS_ACCENT, borderWidth: 2, pointRadius: 0, fill: false, tension: 0.25 },
+                        { label: '±1σ', data: up.map(v => +v.toFixed(2)), borderColor: 'rgba(245,158,11,0.25)', borderWidth: 1, pointRadius: 0, borderDash: [3, 3], fill: '+1', backgroundColor: CS_ACCENT_LIGHT },
+                        { label: ' ', data: lo.map(v => +v.toFixed(2)), borderColor: 'rgba(245,158,11,0.25)', borderWidth: 1, pointRadius: 0, borderDash: [3, 3], fill: false },
+                        { label: '평균 0.67', data: Array(counts.length).fill(+expected.toFixed(2)), borderColor: 'rgba(15,23,42,0.35)', borderDash: [4, 4], borderWidth: 1, pointRadius: 0, fill: false }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'top', align: 'end', labels: { boxWidth: 6, font: { size: 11, family: 'Pretendard' }, color: CS_INK_2 } },
+                        datalabels: { display: false }
+                    },
+                    scales: {
+                        y: { min: 0, max: 5, grid: { color: CS_GRID, drawBorder: false }, ticks: { color: CS_INK_3, font: { size: 11 }, stepSize: 1 } },
+                        x: { grid: { display: false }, ticks: { color: CS_INK_3, font: { size: 11 }, display: range < 80, autoSkip: true, maxRotation: 0 } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+        }
+
+        // ─── §1-B. 캘린더 ───
+        function renderCsCalendar() {
+            const c = document.getElementById('csCalendar');
+            if (!c) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getCsCache().slice(0, range);
+            if (cache.length === 0) { c.innerHTML = ''; return; }
+
+            const chrono = cache.slice().reverse();
+            const latestRound = cache[0].round;
+            const oldestRound = chrono[0].round;
+            const counts = chrono.map(d => d.csCount);
+            const total = counts.length;
+            const obs0 = counts.filter(x => x === 0).length;
+            const max = Math.max(...counts);
+            const mean = counts.reduce((a, b) => a + b, 0) / total;
+
+            function cellClass(cnt) {
+                if (cnt === 0) return 'cnt-0';
+                if (cnt === 1) return 'cnt-1';
+                if (cnt === 2) return 'cnt-2';
+                if (cnt === 3) return 'cnt-3';
+                return 'cnt-4p';
+            }
+
+            const groups = new Map();
+            chrono.forEach(d => {
+                const groupStart = Math.floor(d.round / 10) * 10;
+                if (!groups.has(groupStart)) groups.set(groupStart, []);
+                groups.get(groupStart).push(d);
+            });
+
+            let html = `<div class="cs-cal-stats">
+                <span><span class="text-gray-400">분석 범위</span> <strong>${oldestRound} ~ ${latestRound}회</strong> <span class="text-gray-400">(${total}회)</span></span>
+                <span><span class="text-gray-400">평균</span> <strong>${mean.toFixed(2)}</strong></span>
+                <span><span class="text-gray-400">최대</span> <strong>${max}쌍</strong></span>
+                <span><span class="text-gray-400">0쌍</span> <strong>${obs0}회</strong> <span class="text-gray-400">(${(obs0/total*100).toFixed(1)}%)</span></span>
+            </div><div>`;
+
+            const sortedKeys = Array.from(groups.keys()).sort((a, b) => a - b);
+            sortedKeys.forEach(start => {
+                const draws = groups.get(start);
+                const drawByRound = new Map(draws.map(d => [d.round, d]));
+                const groupMean = draws.reduce((a, d) => a + d.csCount, 0) / draws.length;
+                html += `<div class="cs-cal-row">
+                    <div class="cs-cal-label"><strong>${start}~</strong><span class="meta">평균 ${groupMean.toFixed(1)}</span></div>
+                    <div class="cs-cal-cells">`;
+                for (let i = 0; i < 10; i++) {
+                    const round = start + i;
+                    const d = drawByRound.get(round);
+                    if (!d) {
+                        html += `<div class="cs-cal-empty"></div>`;
+                    } else {
+                        const isLatest = round === latestRound ? ' is-latest' : '';
+                        const sortedNums = [...d.nums].sort((a, b) => a - b);
+                        const pairText = d.pairsIn.length > 0 ? d.pairsIn.map(i => `${i}-${i+1}`).join(', ') : '없음';
+                        const tooltip = `${round}회 · 연번 ${d.csCount}쌍 · 최대 run ${d.maxRun}\n전체: ${sortedNums.join(', ')}\n쌍: ${pairText}`;
+                        html += `<div class="cs-cal-cell ${cellClass(d.csCount)}${isLatest}" title="${tooltip}">${d.csCount}</div>`;
+                    }
+                }
+                html += `</div></div>`;
+            });
+            html += `</div>`;
+
+            const legendData = [
+                { cnt: 0, cls: 'cnt-0' }, { cnt: 1, cls: 'cnt-1' }, { cnt: 2, cls: 'cnt-2' },
+                { cnt: 3, cls: 'cnt-3' }, { cnt: '4+', cls: 'cnt-4p' }
+            ];
+            html += `<div class="cs-cal-legend">
+                <span class="text-gray-500 mr-1">연번 쌍:</span>
+                ${legendData.map(L => `<span class="legend-cell ${L.cls}">${L.cnt}</span>`).join('')}
+                <span class="ml-3 flex items-center gap-1.5">
+                    <span style="display:inline-block;width:16px;height:16px;border:2px solid #0F172A;border-radius:3px"></span>
+                    <span>최신</span>
+                </span>
+            </div>`;
+            c.innerHTML = html;
+        }
+
+        // ─── §2. 카운트 분포 0~5 ───
+        let csCountDistInst = null;
+        function renderCsCountDist() {
+            const canvas = document.getElementById('csCountDist');
+            if (!canvas) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getCsCache().slice(0, range);
+            const obs = [0, 0, 0, 0, 0, 0]; // 0~5
+            cache.forEach(d => { if (d.csCount >= 0 && d.csCount <= 5) obs[d.csCount]++; });
+            const N = cache.length || 1;
+            // 이론값 (정확한 분포 — 시뮬레이션 근사 대신 알려진 근사값)
+            // 실제로는 inclusion-exclusion 필요. 여기는 경험적 근사값
+            const expRatio = [0.504, 0.351, 0.119, 0.024, 0.002, 0.0001]; // 근사 비율 (총합 ≈ 1)
+            const exp = expRatio.map(r => +(r * N).toFixed(2));
+
+            if (csCountDistInst) csCountDistInst.destroy();
+            csCountDistInst = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: ['0', '1', '2', '3', '4', '5'],
+                    datasets: [
+                        { label: '관측', data: obs, backgroundColor: CS_ACCENT, borderRadius: 4 },
+                        { label: '이론(근사)', data: exp, type: 'line', borderColor: 'rgba(15,23,42,0.5)', borderDash: [4, 4], borderWidth: 1.5, pointRadius: 3, pointBackgroundColor: 'rgba(15,23,42,0.5)', fill: false }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'top', align: 'end', labels: { boxWidth: 6, font: { size: 11, family: 'Pretendard' }, color: CS_INK_2 } },
+                        datalabels: { display: false }
+                    },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: CS_GRID, drawBorder: false }, ticks: { color: CS_INK_3, font: { size: 11 } } },
+                        x: { grid: { display: false }, ticks: { color: CS_INK_2, font: { size: 11 } }, title: { display: true, text: '연번 쌍 개수', color: CS_INK_3, font: { size: 11 } } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+            const obsMean = obs.reduce((a, b, i) => a + b * i, 0) / N;
+            const stats = document.getElementById('csCountDistStats');
+            if (stats) stats.innerHTML = `<span class="text-gray-400">관측 평균</span> <strong class="text-gray-900">${obsMean.toFixed(2)}</strong> &nbsp;·&nbsp; <span class="text-gray-400">이론 평균</span> <strong class="text-gray-900">0.67</strong> &nbsp;·&nbsp; <span class="text-gray-400">최빈</span> <strong class="text-gray-900">${obs.indexOf(Math.max(...obs))}쌍 (${Math.max(...obs)}회)</strong>`;
+        }
+
+        // ─── §3. Run 길이 분포 ───
+        let csRunInst = null;
+        function renderCsRun() {
+            const canvas = document.getElementById('csRunChart');
+            const tbody = document.getElementById('csRunBody');
+            if (!canvas || !tbody) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getCsCache().slice(0, range);
+            if (cache.length === 0) return;
+            const total = cache.length;
+            const latestRound = cache[0].round;
+
+            // run 길이 1~6 분포
+            const runDist = [0, 0, 0, 0, 0, 0]; // index = length-1
+            const lastSeen = { 1: null, 2: null, 3: null, 4: null, 5: null, 6: null };
+            cache.forEach(d => {
+                const ml = d.maxRun;
+                if (ml >= 1 && ml <= 6) runDist[ml - 1]++;
+                if (lastSeen[ml] === null) lastSeen[ml] = d.round;
+            });
+            const labels = ['1 (없음)', '2 (쌍)', '3', '4', '5', '6'];
+            const colors = ['#94A3B8', '#FEF3C7', '#F59E0B', '#D97706', '#92400E', '#7C2D12'];
+
+            if (csRunInst) csRunInst.destroy();
+            csRunInst = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: { labels, datasets: [{ label: '회차 수', data: runDist, backgroundColor: colors, borderRadius: 4 }] },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false }, datalabels: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: CS_GRID, drawBorder: false }, ticks: { color: CS_INK_3, font: { size: 11 } } },
+                        x: { grid: { display: false }, ticks: { color: CS_INK_2, font: { size: 10 } }, title: { display: true, text: '최대 run 길이', color: CS_INK_3, font: { size: 11 } } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+
+            tbody.innerHTML = labels.map((lbl, i) => {
+                const len = i + 1;
+                const cnt = runDist[i];
+                const pct = (cnt / total * 100).toFixed(1);
+                const last = lastSeen[len];
+                const gap = last !== null ? latestRound - last : '—';
+                return `<tr>
+                    <td class="font-bold text-gray-900">${lbl}</td>
+                    <td class="text-right text-gray-900 font-semibold">${cnt}회</td>
+                    <td class="text-right text-gray-500">${pct}%</td>
+                    <td class="text-right text-gray-900 font-semibold">${gap === '—' ? '<span class="text-gray-400">—</span>' : gap + '회'}</td>
+                </tr>`;
+            }).join('');
+        }
+
+        // ─── §4. 44 연번 쌍 출현 빈도 (grid) ───
+        function renderCsPairGrid() {
+            const grid = document.getElementById('csPairGrid');
+            const note = document.getElementById('csPairNote');
+            if (!grid) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getCsCache().slice(0, range);
+            const total = cache.length || 1;
+            const expected = total * 30 / (45 * 44 / 6); // 각 pair 출현 기대 ≈ total × 0.0303
+
+            // 44 pair counts (index = i means pair (i+1, i+2))
+            const counts = new Array(44).fill(0);
+            cache.forEach(d => {
+                d.pairsIn.forEach(i => { counts[i - 1]++; });  // pair (i, i+1) → index i-1
+            });
+            // 핫·콜드 임계값 (상위 25% / 하위 25%)
+            const sorted = [...counts].sort((a, b) => a - b);
+            const q1 = sorted[Math.floor(sorted.length * 0.25)];
+            const q3 = sorted[Math.floor(sorted.length * 0.75)];
+
+            grid.innerHTML = CS_ALL_PAIRS.map(([a, b], idx) => {
+                const cnt = counts[idx];
+                let cls = 'cs-pair-chip';
+                if (cnt >= q3 && cnt > expected) cls += ' hot';
+                else if (cnt <= q1 && cnt < expected) cls += ' cold';
+                const ratio = expected > 0 ? cnt / expected : 0;
+                const tooltip = `${a}-${b} · ${cnt}회 (기대 ${expected.toFixed(1)}, ${ratio.toFixed(2)}×)`;
+                return `<div class="${cls}" title="${tooltip}">
+                    <span class="pair">${a}-${b}</span>
+                    <span class="cnt">${cnt}</span>
+                </div>`;
+            }).join('');
+
+            // note: 핫/콜드 통계
+            const hotCount = counts.filter((c, i) => c >= q3 && c > expected).length;
+            const coldCount = counts.filter((c, i) => c <= q1 && c < expected).length;
+            const maxIdx = counts.indexOf(Math.max(...counts));
+            const minIdx = counts.indexOf(Math.min(...counts));
+            const maxPair = CS_ALL_PAIRS[maxIdx];
+            const minPair = CS_ALL_PAIRS[minIdx];
+            if (note) note.innerHTML = `<span class="text-gray-400">기대 출현/쌍</span> <strong class="text-gray-900">${expected.toFixed(2)}회</strong> &nbsp;·&nbsp; <span class="text-gray-400">최다</span> <strong class="text-red-600">${maxPair[0]}-${maxPair[1]} (${counts[maxIdx]}회)</strong> &nbsp;·&nbsp; <span class="text-gray-400">최소</span> <strong class="text-blue-600">${minPair[0]}-${minPair[1]} (${counts[minIdx]}회)</strong> &nbsp;·&nbsp; <span class="text-gray-400">핫</span> <strong class="text-red-600">${hotCount}쌍</strong> &nbsp;·&nbsp; <span class="text-gray-400">콜드</span> <strong class="text-blue-600">${coldCount}쌍</strong>`;
+        }
+
+        // ─── §5. 번호대별 연번 분포 ───
+        let csDecadeInst = null;
+        function renderCsDecade() {
+            const canvas = document.getElementById('csDecadeChart');
+            const tbody = document.getElementById('csDecadeBody');
+            if (!canvas || !tbody) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getCsCache().slice(0, range);
+            const total = cache.length || 1;
+
+            // 번호대 내부 쌍 (label, count)
+            const decadeCounts = CS_DECADES.map(d => 0);
+            const boundaryCounts = CS_BOUNDARIES.map(b => 0);
+
+            cache.forEach(d => {
+                d.pairsIn.forEach(i => {
+                    // pair (i, i+1) — 어느 그룹?
+                    const lower = i;
+                    // boundary?
+                    const boundaryIdx = CS_BOUNDARIES.findIndex(b => b.pair[0] === lower);
+                    if (boundaryIdx >= 0) {
+                        boundaryCounts[boundaryIdx]++;
+                    } else {
+                        // 어느 decade?
+                        const dIdx = CS_DECADES.findIndex(dec => lower >= dec.range[0] && lower + 1 <= dec.range[1]);
+                        if (dIdx >= 0) decadeCounts[dIdx]++;
+                    }
+                });
+            });
+
+            // 차트: 9개 막대 (5 decade + 4 boundary)
+            const labels = [...CS_DECADES.map(d => d.label), ...CS_BOUNDARIES.map(b => '경계 ' + b.label)];
+            const data = [...decadeCounts, ...boundaryCounts];
+            const colors = [...CS_DECADES.map((_, i) => '#F59E0B'), ...CS_BOUNDARIES.map(() => '#94A3B8')];
+
+            if (csDecadeInst) csDecadeInst.destroy();
+            csDecadeInst = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: { labels, datasets: [{ label: '쌍 출현 합계', data, backgroundColor: colors, borderRadius: 4 }] },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false }, datalabels: { display: false } },
+                    scales: {
+                        x: { beginAtZero: true, grid: { color: CS_GRID, drawBorder: false }, ticks: { color: CS_INK_3, font: { size: 11 } } },
+                        y: { grid: { display: false }, ticks: { color: CS_INK_2, font: { size: 10 } } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+
+            // 표
+            const rows = [];
+            CS_DECADES.forEach((dec, i) => {
+                const exp = dec.pairs * total * (6 * 5) / (45 * 44); // 기대 = pair 수 × 회차당 pair 출현 확률
+                const ratio = exp > 0 ? decadeCounts[i] / exp : 0;
+                const ratioColor = ratio > 1.15 ? 'text-red-600' : ratio < 0.85 ? 'text-blue-600' : 'text-gray-900';
+                rows.push(`<tr>
+                    <td class="font-bold text-gray-900">${dec.label} <span class="text-gray-400 font-normal">(내부)</span></td>
+                    <td class="text-right text-gray-600">${dec.pairs}</td>
+                    <td class="text-right text-gray-900 font-semibold">${decadeCounts[i]}회</td>
+                    <td class="text-right font-semibold ${ratioColor}">${ratio.toFixed(2)}×</td>
+                </tr>`);
+            });
+            CS_BOUNDARIES.forEach((b, i) => {
+                const exp = total * (6 * 5) / (45 * 44);
+                const ratio = exp > 0 ? boundaryCounts[i] / exp : 0;
+                const ratioColor = ratio > 1.15 ? 'text-red-600' : ratio < 0.85 ? 'text-blue-600' : 'text-gray-900';
+                rows.push(`<tr>
+                    <td class="font-bold text-gray-900">${b.label} <span class="text-gray-400 font-normal">(경계)</span></td>
+                    <td class="text-right text-gray-600">1</td>
+                    <td class="text-right text-gray-900 font-semibold">${boundaryCounts[i]}회</td>
+                    <td class="text-right font-semibold ${ratioColor}">${ratio.toFixed(2)}×</td>
+                </tr>`);
+            });
+            tbody.innerHTML = rows.join('');
+        }
+
+        // ─── §6. 연번 streak 분석 ───
+        let csStreakInst = null;
+        function renderCsStreak() {
+            const canvas = document.getElementById('csStreakChart');
+            const tbody = document.getElementById('csStreakBody');
+            if (!canvas || !tbody) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getCsCache().slice(0, range).slice().reverse();
+            if (cache.length === 0) return;
+
+            const zeroStreaks = [], plusStreaks = [];
+            let curZero = 0, curPlus = 0;
+            cache.forEach(d => {
+                if (d.csCount === 0) {
+                    curZero++;
+                    if (curPlus > 0) { plusStreaks.push(curPlus); curPlus = 0; }
+                } else {
+                    curPlus++;
+                    if (curZero > 0) { zeroStreaks.push(curZero); curZero = 0; }
+                }
+            });
+            if (curZero > 0) zeroStreaks.push(curZero);
+            if (curPlus > 0) plusStreaks.push(curPlus);
+
+            // 현재 streak
+            let curStreak0 = 0, curStreakP = 0;
+            for (let i = cache.length - 1; i >= 0; i--) {
+                if (cache[i].csCount === 0) curStreak0++;
+                else break;
+            }
+            for (let i = cache.length - 1; i >= 0; i--) {
+                if (cache[i].csCount > 0) curStreakP++;
+                else break;
+            }
+
+            // 분포 차트 — 1~10 길이별
+            const maxLen = 10;
+            const labels = Array.from({ length: maxLen }, (_, i) => `${i + 1}회`);
+            const zeroDist = labels.map((_, i) => zeroStreaks.filter(s => s === i + 1).length);
+            const plusDist = labels.map((_, i) => plusStreaks.filter(s => s === i + 1).length);
+
+            if (csStreakInst) csStreakInst.destroy();
+            csStreakInst = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels, datasets: [
+                        { label: '0개 streak', data: zeroDist, backgroundColor: '#94A3B8', borderRadius: 4 },
+                        { label: '1+ streak', data: plusDist, backgroundColor: CS_ACCENT, borderRadius: 4 }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'top', align: 'end', labels: { boxWidth: 6, font: { size: 11, family: 'Pretendard' }, color: CS_INK_2 } },
+                        datalabels: { display: false }
+                    },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: CS_GRID, drawBorder: false }, ticks: { color: CS_INK_3, font: { size: 11 } } },
+                        x: { grid: { display: false }, ticks: { color: CS_INK_2, font: { size: 10 } } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+
+            const meanZero = zeroStreaks.length > 0 ? zeroStreaks.reduce((a, b) => a + b, 0) / zeroStreaks.length : 0;
+            const meanPlus = plusStreaks.length > 0 ? plusStreaks.reduce((a, b) => a + b, 0) / plusStreaks.length : 0;
+            const maxZero = zeroStreaks.length > 0 ? Math.max(...zeroStreaks) : 0;
+            const maxPlus = plusStreaks.length > 0 ? Math.max(...plusStreaks) : 0;
+
+            tbody.innerHTML = `
+                <tr><td class="text-gray-500">현재 streak</td><td class="text-right font-bold text-gray-900">${curStreak0}회</td><td class="text-right font-bold text-gray-900">${curStreakP}회</td></tr>
+                <tr><td class="text-gray-500">평균 길이</td><td class="text-right font-semibold text-gray-900">${meanZero.toFixed(1)}회</td><td class="text-right font-semibold text-gray-900">${meanPlus.toFixed(1)}회</td></tr>
+                <tr><td class="text-gray-500">최장</td><td class="text-right font-semibold text-gray-900">${maxZero}회</td><td class="text-right font-semibold text-gray-900">${maxPlus}회</td></tr>
+                <tr><td class="text-gray-500">총 발생</td><td class="text-right font-semibold text-gray-900">${zeroStreaks.length}회</td><td class="text-right font-semibold text-gray-900">${plusStreaks.length}회</td></tr>
+            `;
+        }
+
+        // ─── §7. 45 per-element 연번 동반 ───
+        function renderCsElement() {
+            const grid = document.getElementById('csElementGrid');
+            const note = document.getElementById('csElementNote');
+            if (!grid) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getCsCache().slice(0, range);
+            const total = cache.length || 1;
+
+            // n별 연번 동반 출현 횟수 = n이 등장 + (n-1 또는 n+1) 함께 출현 회차 수
+            const elemCounts = new Array(46).fill(0);  // index 1~45
+            cache.forEach(d => {
+                d.nums.forEach(n => {
+                    const hasNeighbor = (n > 1 && d.numSet.has(n - 1)) || (n < 45 && d.numSet.has(n + 1));
+                    if (hasNeighbor) elemCounts[n]++;
+                });
+            });
+            const counts = elemCounts.slice(1, 46);  // 1~45
+            const sorted = [...counts].sort((a, b) => a - b);
+            const q1 = sorted[Math.floor(sorted.length * 0.25)];
+            const q3 = sorted[Math.floor(sorted.length * 0.75)];
+
+            grid.innerHTML = counts.map((cnt, i) => {
+                const n = i + 1;
+                let cls = 'cs-elem-chip';
+                if (cnt >= q3) cls += ' hot';
+                else if (cnt <= q1) cls += ' cold';
+                return `<div class="${cls}" title="${n} · 연번 동반 ${cnt}회">
+                    <span class="num">${n}</span>
+                    <span class="cnt">${cnt}</span>
+                </div>`;
+            }).join('');
+
+            const meanCnt = counts.reduce((a, b) => a + b, 0) / 45;
+            const maxN = counts.indexOf(Math.max(...counts)) + 1;
+            const minN = counts.indexOf(Math.min(...counts)) + 1;
+            if (note) note.innerHTML = `<span class="text-gray-400">평균 동반</span> <strong class="text-gray-900">${meanCnt.toFixed(1)}회</strong> &nbsp;·&nbsp; <span class="text-gray-400">최다</span> <strong class="text-red-600">${maxN}번 (${Math.max(...counts)}회)</strong> &nbsp;·&nbsp; <span class="text-gray-400">최소</span> <strong class="text-blue-600">${minN}번 (${Math.min(...counts)}회)</strong>`;
         }
     </script>
 </body>

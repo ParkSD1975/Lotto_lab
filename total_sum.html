@@ -31,13 +31,13 @@
     <script src="js/filter/FilterRuleEngine.js"></script>
     <script src="js/layout.js"></script>
     <script>
-        // [캐시 버스터] 최신 분석 로직 강제 적용
-        document.write('<script src="js/deep_insight_panel.js?v=20260502c"><\/script>');
-        document.write('<script src="js/deep_insight_panel_v3.js?v=20260502c"><\/script>');
-        document.write('<script src="js/premium_insight_panel.js?v=20260502c"><\/script>');
+        // [fix-235] PremiumInsightPanel만 사용 — deep_insight_panel(v3)은 미완성 인사이트를 먼저 그려서 깜빡거림 유발
+        document.write('<script src="js/premium_insight_panel.js?v=20260508c"><\/script>');
     </script>
     <script src="js/NLPInputComponent.js"></script>
     <script src="js/NLPProcessor.js"></script>
+    <script src="js/AutoNLPMatcher.js"></script>
+    <script src="js/auto_nlp_loader.js" defer></script>
     <script src="js/BasicAnalysisNLP.js"></script>
 
     <script>
@@ -548,7 +548,194 @@
                         </div>
                     </div>
 
+                    <!-- ════════════════════════════════════════════════ -->
+                    <!-- [fix-288] 총합 보조 분석 6종 (Phase A + B + C)    -->
+                    <!-- ════════════════════════════════════════════════ -->
+
+                    <!-- §1. 시계열 추세 (이동평균 + 캘린더 히트맵 통합) -->
                     <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
+                        <div class="flex items-center justify-between mb-4">
+                            <div>
+                                <h3 class="text-lg font-bold text-gray-900 flex items-center gap-2">
+                                    <span class="material-symbols-outlined text-emerald-500">trending_up</span>
+                                    총합 시계열 추세 (이동평균 + 캘린더 히트맵)
+                                </h3>
+                                <p class="text-xs text-gray-500 mt-1">상단: 라인차트(이동평균±1σ) · 하단: 캘린더 히트맵 (왼쪽=과거, 오른쪽=최신)</p>
+                            </div>
+                            <div class="flex items-center gap-3 text-xs">
+                                <div class="flex items-center gap-1.5">
+                                    <label class="text-gray-500">MA 윈도우:</label>
+                                    <input type="number" id="sumMaWindow" value="10" min="3" max="50" oninput="renderSumMaChart()"
+                                        class="w-14 px-2 py-1 border-b border-gray-300 focus:outline-none focus:border-emerald-500 text-center font-bold">
+                                    <span class="text-gray-400">회</span>
+                                </div>
+                                <span class="text-gray-200">|</span>
+                                <div class="flex items-center gap-1.5">
+                                    <span class="inline-block w-3 h-3 rounded-sm" style="background:#dbeafe"></span>
+                                    <span class="text-gray-500">~125</span>
+                                    <span class="inline-block w-3 h-3 rounded-sm" style="background:#60a5fa"></span>
+                                    <span class="text-gray-500">~155</span>
+                                    <span class="inline-block w-3 h-3 rounded-sm" style="background:#1e40af"></span>
+                                    <span class="text-gray-500">155+</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="h-64 mb-4"><canvas id="sumMaChart"></canvas></div>
+                        <div class="flex items-center gap-3 mb-3 mt-2 pt-3 border-t border-gray-100">
+                            <span class="material-symbols-outlined text-pink-500 text-sm">calendar_view_month</span>
+                            <span class="text-xs font-bold text-gray-700">캘린더 히트맵 — 회차별 총합 한눈에</span>
+                        </div>
+                        <div id="sumCalendarHeatmap" class="w-full"></div>
+                    </div>
+
+                    <!-- [fix-289] §2+§3 통합 — 2분할 그래프 + 그래프 밑 텍스트 통계 (박스 없음) -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+                        <!-- §2. 정규분포 적합성 -->
+                        <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
+                            <div class="mb-4">
+                                <h3 class="text-lg font-bold text-gray-900 flex items-center gap-2">
+                                    <span class="material-symbols-outlined text-indigo-500">show_chart</span>
+                                    총합 정규분포 적합성
+                                </h3>
+                                <p class="text-xs text-gray-500 mt-1">실제 분포 vs 이론적 정규분포 + 왜도/첨도 진단</p>
+                            </div>
+                            <div class="h-56"><canvas id="sumNormalFitChart"></canvas></div>
+                            <div id="sumNormalStats" class="mt-4 pt-4 border-t border-gray-100 text-sm"></div>
+                        </div>
+
+                        <!-- §3. ΔSum 변화량 분포 -->
+                        <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
+                            <div class="mb-4">
+                                <h3 class="text-lg font-bold text-gray-900 flex items-center gap-2">
+                                    <span class="material-symbols-outlined text-rose-500">swap_vert</span>
+                                    회차간 합계 변화량 (ΔSum)
+                                </h3>
+                                <p class="text-xs text-gray-500 mt-1">ΔSum_t = Sum_t − Sum_{t−1} · 다음 회차 점프 폭</p>
+                            </div>
+                            <div class="h-56"><canvas id="sumDeltaChart"></canvas></div>
+                            <div id="sumDeltaStats" class="mt-4 pt-4 border-t border-gray-100 text-sm"></div>
+                        </div>
+                    </div>
+
+                    <!-- §4. 합계 × 다른 속성 교차 분석 -->
+                    <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm mt-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <div>
+                                <h3 class="text-lg font-bold text-gray-900 flex items-center gap-2">
+                                    <span class="material-symbols-outlined text-violet-500">scatter_plot</span>
+                                    합계 × 다른 속성 교차 분석
+                                </h3>
+                                <p class="text-xs text-gray-500 mt-1">합계 5분위(Q1~Q5) × 6 속성 평균 비교 → 상관관계 시그널</p>
+                            </div>
+                        </div>
+                        <div id="sumCrossGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"></div>
+                    </div>
+
+                    <!-- §5. 5분위 빈출 번호 -->
+                    <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm mt-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <div>
+                                <h3 class="text-lg font-bold text-gray-900 flex items-center gap-2">
+                                    <span class="material-symbols-outlined text-amber-500">stars</span>
+                                    5분위 구간별 빈출 번호 Top 10
+                                </h3>
+                                <p class="text-xs text-gray-500 mt-1">합계 5분위(Q1~Q5)로 분할 → 각 구간에서 자주 출현한 번호 발견</p>
+                            </div>
+                        </div>
+                        <div id="sumQuintileTopGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3"></div>
+                    </div>
+
+                    <!-- §6. 평균 회귀 + 11빈 갭 -->
+                    <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm mt-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <div>
+                                <h3 class="text-lg font-bold text-gray-900 flex items-center gap-2">
+                                    <span class="material-symbols-outlined text-cyan-500">history</span>
+                                    평균 회귀 + 11빈 미출현 갭
+                                </h3>
+                                <p class="text-xs text-gray-500 mt-1">합계를 11구간으로 분할 → 각 구간 마지막 출현 후 경과 회차 + z-score</p>
+                            </div>
+                        </div>
+                        <div class="mb-4 p-3 bg-cyan-50/50 rounded-lg border border-cyan-100" id="sumReversionPanel"></div>
+                        <div id="sumGapBins" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3"></div>
+                    </div>
+                    <!-- ════════════════════════════════════════════════ -->
+                    <!-- [/fix-288] 보조 분석 6종 끝                       -->
+                    <!-- ════════════════════════════════════════════════ -->
+
+                    <!-- ════════════════════════════════════════════════ -->
+                    <!-- [fix-389] 다음 회차 방향 예측 (전회차 합계 ±N 통계) -->
+                    <!-- ════════════════════════════════════════════════ -->
+                    <div class="bg-white rounded-xl border border-gray-200 p-6 mt-6" style="font-feature-settings:'tnum'">
+                        <div class="flex items-baseline justify-between flex-wrap gap-3 mb-4">
+                            <div>
+                                <h3 class="text-lg text-gray-900">다음 회차 방향 예측</h3>
+                                <p class="text-xs text-gray-500 mt-1">전회차 합계 기준 ±N 범위에 있던 과거 회차들의 다음 회차 변동 통계</p>
+                            </div>
+                            <div class="flex items-center gap-2 text-[12px] text-gray-500">
+                                <span>±</span>
+                                <input type="number" id="nextDirRange" min="1" max="50" value="5" class="w-12 text-center text-[12px] border-0 border-b border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent" style="font-feature-settings:'tnum'">
+                                <span>범위</span>
+                            </div>
+                        </div>
+                        <!-- [fix-391] Anchor strip — 한 줄 inline (전회차 합계 → 평균 변동) -->
+                        <div class="flex items-baseline flex-wrap gap-x-8 gap-y-2 pb-4 mb-4 border-b border-gray-100">
+                            <div class="flex items-baseline gap-2"><span class="text-[10px] uppercase tracking-wider text-gray-400">전회차 합계</span><span class="text-xl text-slate-700" id="nextDirPrevSum">—</span></div>
+                            <div class="flex items-baseline gap-2"><span class="text-[10px] uppercase tracking-wider text-gray-400">분석 범위</span><span class="text-xl text-slate-700" id="nextDirRangeText">—</span></div>
+                            <div class="flex items-baseline gap-2"><span class="text-[10px] uppercase tracking-wider text-gray-400">매칭 회차수</span><span class="text-xl text-blue-700" id="nextDirMatchN">—</span></div>
+                            <div class="flex items-baseline gap-2"><span class="text-[10px] uppercase tracking-wider text-gray-400">평균 변동</span><span class="text-xl text-slate-700" id="nextDirAvgDelta">—</span></div>
+                        </div>
+                        <!-- 3-track: 상승 / 하락 / 유지 -->
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                            <div>
+                                <div class="text-[10px] uppercase tracking-wider mb-2" style="color:#059669">↑ 상승</div>
+                                <div class="flex items-baseline gap-1 mb-2">
+                                    <span id="nextDirUpPct" class="text-3xl" style="color:#059669">—</span>
+                                    <span class="text-xs text-gray-400">%</span>
+                                </div>
+                                <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden mb-2">
+                                    <div id="nextDirUpBar" class="h-full transition-all" style="background:#10B981;width:0%"></div>
+                                </div>
+                                <div class="text-[11px] text-gray-500"><span id="nextDirUpN">0</span>회 / 평균 <span id="nextDirUpAvg">0</span></div>
+                            </div>
+                            <div>
+                                <div class="text-[10px] uppercase tracking-wider mb-2" style="color:#E11D48">↓ 하락</div>
+                                <div class="flex items-baseline gap-1 mb-2">
+                                    <span id="nextDirDownPct" class="text-3xl" style="color:#E11D48">—</span>
+                                    <span class="text-xs text-gray-400">%</span>
+                                </div>
+                                <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden mb-2">
+                                    <div id="nextDirDownBar" class="h-full transition-all" style="background:#F43F5E;width:0%"></div>
+                                </div>
+                                <div class="text-[11px] text-gray-500"><span id="nextDirDownN">0</span>회 / 평균 <span id="nextDirDownAvg">0</span></div>
+                            </div>
+                            <div>
+                                <div class="text-[10px] uppercase tracking-wider text-slate-500 mb-2">— 유지</div>
+                                <div class="flex items-baseline gap-1 mb-2">
+                                    <span id="nextDirFlatPct" class="text-3xl text-slate-500">—</span>
+                                    <span class="text-xs text-gray-400">%</span>
+                                </div>
+                                <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden mb-2">
+                                    <div id="nextDirFlatBar" class="h-full transition-all" style="background:#94A3B8;width:0%"></div>
+                                </div>
+                                <div class="text-[11px] text-gray-500"><span id="nextDirFlatN">0</span>회 / Δ=0</div>
+                            </div>
+                        </div>
+                        <!-- 변동폭 분포 차트 -->
+                        <div class="border-t border-gray-100 pt-4">
+                            <div class="flex items-baseline justify-between mb-2">
+                                <span class="text-[11px] uppercase tracking-wider text-gray-400">변동폭 분포</span>
+                                <span class="text-[10px] text-gray-400" id="nextDirChartHint">매칭 회차의 다음 회차 합계 변동(Δ) 히스토그램</span>
+                            </div>
+                            <div class="relative" style="height:200px"><canvas id="nextDirChart"></canvas></div>
+                        </div>
+                        <!-- 인사이트 -->
+                        <div id="nextDirInsight" class="mt-4 p-3 bg-blue-50/40 border border-blue-100 rounded-lg text-[12px] text-slate-700"></div>
+                    </div>
+                    <!-- ════════════════════════════════════════════════ -->
+
+                    <!-- [fix-288] 조합 필터 — 리스트 바로 위로 이동 -->
+                    <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm mt-6">
                         <div class="flex items-center justify-between mb-4">
                             <h3 class="text-lg font-bold text-gray-900">조합 필터</h3>
                             <a href="filter.html#filter-total_sum" target="_blank"
@@ -558,29 +745,21 @@
                             </a>
                         </div>
                         <div class="flex flex-col sm:flex-row items-start sm:items-end gap-6 justify-between">
-                            <div class="flex items-end gap-3">
-                                <div class="flex items-center gap-2">
-                                    <div class="flex flex-col"><span
-                                            class="text-xs text-gray-500 mb-1 ml-1">Min</span><input type="number"
-                                            id="minFilter" placeholder="0" onchange="applyFilter()"
-                                            class="w-72 px-3 py-2 text-center border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-bold" />
-                                    </div>
-                                    <span class="text-gray-400 mb-3">~</span>
-                                    <div class="flex flex-col"><span
-                                            class="text-xs text-gray-500 mb-1 ml-1">Max</span><input type="number"
-                                            id="maxFilter" placeholder="0" onchange="applyFilter()"
-                                            class="w-72 px-3 py-2 text-center border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-bold" />
-                                    </div>
-                                </div>
+                            <div class="flex items-center gap-2 flex-1">
+                                <input type="number" id="minFilter" placeholder="0" onchange="applyFilter()"
+                                    class="w-20 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent" />
+                                <span class="text-xs text-gray-400">~</span>
+                                <input type="number" id="maxFilter" placeholder="0" onchange="applyFilter()"
+                                    class="w-20 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent" />
                             </div>
 
                             <div class="flex items-center gap-3 ml-auto">
                                 <button onclick="applyRecent10Filters()" id="recent10FilterBtn"
-                                    style="min-width: 210px;"
-                                    class="flex items-center justify-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 transition-all active:scale-95 text-sm font-black mr-2">
-                                    <span class="material-symbols-outlined text-[18px]">auto_fix_high</span>
+                                    class="flex items-center gap-2 px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-all">
+                                    <span class="material-symbols-outlined text-[16px]">auto_fix_high</span>
                                     <span id="recent10BtnText">최근 10회차 필터 적용</span>
                                 </button>
+                                <span class="text-sm text-gray-700">필터 적용</span>
                                 <label class="relative inline-flex items-center cursor-pointer">
                                     <input type="checkbox" id="applyFilterCheck" onchange="applyFilter()"
                                         class="sr-only peer" checked>
@@ -588,14 +767,11 @@
                                         class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600">
                                     </div>
                                 </label>
-                                <label for="applyFilterCheck"
-                                    class="text-sm font-medium text-gray-700 cursor-pointer">필터 적용</label>
                             </div>
                         </div>
-
                     </div>
 
-                    <div class="rounded-xl overflow-hidden">
+                    <div class="rounded-xl overflow-hidden mt-6">
                         <!-- [Fix 문제3] 배지 영역을 스크롤 컨테이너 안으로 이동 → 리스트 위치 고정 -->
                         <div id="excludedSumsBadgeArea" class="invisible bg-white px-6 transition-all duration-300 overflow-hidden" style="min-height:0; max-height:0;">
                             <div class="py-3 border-b border-gray-100">
@@ -805,6 +981,9 @@
                     // 데이터가 없거나 이전 회차 필터면 신규 회차 리셋 로직 수행
                     await checkAndResetOnNewDraw();
                 }
+
+                // [fix-288] 보조 분석 6종 초기 렌더 (applyFilter 안에서도 호출되지만 안전 보강)
+                renderAllSumSupp();
 
                 // 5. 완료
                 document.getElementById('loadingOverlay').style.display = 'none';
@@ -1203,6 +1382,8 @@
             updatePresetButtons(currentRange);
             changeChartMode(chartMode);
             renderDrawsList();
+            // [fix-288] 보조 분석 6종 갱신
+            if (typeof renderAllSumSupp === 'function') renderAllSumSupp();
         }
 
         function updatePresetButtons(value) {
@@ -1230,7 +1411,624 @@
             saveFilterSettings();
             renderDrawsList();
             changeChartMode(chartMode);
+            // [fix-288] 보조 분석 6종 동시 갱신
+            renderAllSumSupp();
         }
+
+        // ════════════════════════════════════════════════════════════
+        // [fix-288] 총합 보조 분석 6종 — Phase A + B + C
+        // ════════════════════════════════════════════════════════════
+        const _sumPrimes = [2,3,5,7,11,13,17,19,23,29,31,37,41,43];
+        let _sumStatCache = null;
+        function getSumStatCache() {
+            if (_sumStatCache) return _sumStatCache;
+            _sumStatCache = allDrawData.map(d => {
+                const n = d.numbers;
+                const sorted = [...n].sort((a,b)=>a-b);
+                const sum = d.sum || d.total_sum || n.reduce((a,b)=>a+b,0);
+                const odd = n.filter(x => x % 2).length;
+                const low = n.filter(x => x <= 22).length;
+                let cons = 0;
+                for (let i = 0; i < sorted.length-1; i++) if (sorted[i+1] === sorted[i]+1) cons++;
+                const decadeBuckets = [0,0,0,0,0];
+                n.forEach(x => decadeBuckets[Math.min(Math.floor((x-1)/10), 4)]++);
+                const dMean = decadeBuckets.reduce((a,b)=>a+b,0)/5;
+                const decadeVar = decadeBuckets.reduce((a,b)=>a+(b-dMean)**2,0)/5;
+                // AC 계산
+                const diffs = new Set();
+                for (let i = 0; i < n.length; i++) for (let j = i+1; j < n.length; j++) diffs.add(Math.abs(n[i]-n[j]));
+                const ac = diffs.size - (n.length - 1);
+                // 끝수합
+                const endSum = n.reduce((a,b)=>a+(b%10), 0);
+                return { round: d.round, numbers: n, sum, odd, low, cons, decadeVar, ac, endSum };
+            });
+            return _sumStatCache;
+        }
+
+        function renderAllSumSupp() {
+            try {
+                renderSumMaChart();
+                renderSumCalendar();
+                renderSumNormalFit();
+                renderSumDeltaDist();
+                renderSumCrossAnalysis();
+                renderSumQuintileTop();
+                renderSumGapBins();
+                renderNextDirPredictor();   // [fix-389] 다음 회차 방향 예측
+            } catch (e) { console.warn('[sum-supp]', e); }
+        }
+
+        // ─────────────────────────────────────────────
+        // [fix-389] 다음 회차 방향 예측 — 전회차 합계 ±N 통계
+        // ─────────────────────────────────────────────
+        let nextDirChartInstance = null;
+        function renderNextDirPredictor() {
+            if (!allDrawData || allDrawData.length < 30) return;
+            const rangeInput = document.getElementById('nextDirRange');
+            const range = Math.max(1, Math.min(50, parseInt(rangeInput?.value) || 5));
+
+            // 전회차 = allDrawData[0] (DESC 정렬, 가장 최신 = 직전 추첨)
+            const prevSum = allDrawData[0].total_sum || allDrawData[0].sum;
+            const lower = prevSum - range;
+            const upper = prevSum + range;
+
+            // 과거에 prevSum±range 범위였던 회차들 → 그 회차의 다음 회차 합계와 비교
+            // allDrawData는 DESC. i회차의 "다음 회차"는 allDrawData[i-1].
+            const matches = [];
+            for (let i = 1; i < allDrawData.length - 1; i++) {
+                const sum_i = allDrawData[i].total_sum || allDrawData[i].sum;
+                if (sum_i == null) continue;
+                if (sum_i >= lower && sum_i <= upper) {
+                    const next = allDrawData[i - 1];
+                    const sum_next = next.total_sum || next.sum;
+                    if (sum_next == null) continue;
+                    const delta = sum_next - sum_i;
+                    matches.push({ round: allDrawData[i].round, sum: sum_i, nextRound: next.round, nextSum: sum_next, delta });
+                }
+            }
+
+            const ups = matches.filter(m => m.delta > 0);
+            const downs = matches.filter(m => m.delta < 0);
+            const flats = matches.filter(m => m.delta === 0);
+            const N = matches.length;
+
+            const avgDelta = N ? matches.reduce((s,m) => s + m.delta, 0) / N : 0;
+            const upAvg = ups.length ? ups.reduce((s,m) => s + m.delta, 0) / ups.length : 0;
+            const downAvg = downs.length ? downs.reduce((s,m) => s + m.delta, 0) / downs.length : 0;
+
+            const upPct = N ? (ups.length / N * 100) : 0;
+            const downPct = N ? (downs.length / N * 100) : 0;
+            const flatPct = N ? (flats.length / N * 100) : 0;
+
+            // Anchor strip
+            const setText = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+            const setBar = (id, p) => { const el = document.getElementById(id); if (el) el.style.width = Math.min(100, p) + '%'; };
+            setText('nextDirPrevSum', prevSum);
+            setText('nextDirRangeText', `${lower}~${upper}`);
+            setText('nextDirMatchN', N);
+            setText('nextDirAvgDelta', `${avgDelta >= 0 ? '+' : ''}${avgDelta.toFixed(1)}`);
+
+            // 3-track
+            setText('nextDirUpPct', upPct.toFixed(1));
+            setText('nextDirDownPct', downPct.toFixed(1));
+            setText('nextDirFlatPct', flatPct.toFixed(1));
+            setText('nextDirUpN', ups.length);
+            setText('nextDirDownN', downs.length);
+            setText('nextDirFlatN', flats.length);
+            setText('nextDirUpAvg', `+${upAvg.toFixed(1)}`);
+            setText('nextDirDownAvg', downAvg.toFixed(1));
+            setBar('nextDirUpBar', upPct);
+            setBar('nextDirDownBar', downPct);
+            setBar('nextDirFlatBar', flatPct);
+
+            // 변동폭 분포 차트 — bin 폭 5
+            const canvas = document.getElementById('nextDirChart');
+            if (canvas && N > 0) {
+                const binW = 5;
+                const minD = Math.min(...matches.map(m => m.delta));
+                const maxD = Math.max(...matches.map(m => m.delta));
+                const startBin = Math.floor(minD / binW) * binW;
+                const endBin = Math.ceil(maxD / binW) * binW;
+                const bins = [];
+                for (let v = startBin; v <= endBin; v += binW) bins.push(v);
+                const counts = bins.map(b => matches.filter(m => m.delta >= b && m.delta < b + binW).length);
+                const colors = bins.map(b => b + binW / 2 > 0 ? '#10B981' : (b + binW / 2 < 0 ? '#F43F5E' : '#94A3B8'));
+
+                if (nextDirChartInstance) nextDirChartInstance.destroy();
+                nextDirChartInstance = new Chart(canvas.getContext('2d'), {
+                    type: 'bar',
+                    data: {
+                        labels: bins.map(b => `${b >= 0 ? '+' : ''}${b}`),
+                        datasets: [{
+                            label: '회차수',
+                            data: counts,
+                            backgroundColor: colors,
+                            borderRadius: 3,
+                            barPercentage: 0.85
+                        }]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    title: (items) => `Δ ${items[0].label} ~ ${parseInt(items[0].label) + binW}`,
+                                    label: (item) => `${item.parsed.y}회차`
+                                }
+                            },
+                            datalabels: { display: false }
+                        },
+                        scales: {
+                            x: { grid: { display: false }, ticks: { color: '#94A3B8', font: { size: 9 }, maxRotation: 0 } },
+                            y: { grid: { color: '#F1F5F9' }, ticks: { color: '#94A3B8', font: { size: 9 }, stepSize: 1 } }
+                        }
+                    }
+                });
+            }
+
+            // 인사이트 — 다음 회차 예상 합계 (전회차 + 변동) + 폭넓게 범위
+            const insightEl = document.getElementById('nextDirInsight');
+            if (insightEl) {
+                if (N === 0) {
+                    insightEl.innerHTML = `<span class="text-gray-400">전회차 합계 ${prevSum} ±${range} 범위(${lower}~${upper})에 해당하는 과거 회차가 없습니다.</span>`;
+                } else {
+                    const dominantDir = upPct > downPct ? '상승' : downPct > upPct ? '하락' : '균형';
+                    const dirColor = upPct > downPct ? '#059669' : downPct > upPct ? '#E11D48' : '#475569';
+                    // [fix-392] 다음 회차 예상 합계 = 전회차 + 평균 변동 (방향별)
+                    const expectedAvg = prevSum + avgDelta;
+                    const expectedUp = ups.length ? prevSum + upAvg : null;
+                    const expectedDown = downs.length ? prevSum + downAvg : null;
+                    // 폭넓게 80% 범위 = nextSums P10 ~ P90 (= prevSum + ΔP10 ~ prevSum + ΔP90)
+                    const nextSums = matches.map(m => m.nextSum).slice().sort((a, b) => a - b);
+                    const p10 = nextSums[Math.max(0, Math.floor(N * 0.10))];
+                    const p25 = nextSums[Math.max(0, Math.floor(N * 0.25))];
+                    const p75 = nextSums[Math.min(N - 1, Math.floor(N * 0.75))];
+                    const p90 = nextSums[Math.min(N - 1, Math.ceil(N * 0.90) - 1)];
+                    insightEl.innerHTML = `
+                        과거 합계 <span style="color:#1e293b">${lower}~${upper}</span> 범위(${N}회차)에서 다음 회차는
+                        <span style="color:${dirColor}">${dominantDir}</span> 우세 —
+                        평균 변동 <span style="color:#1e293b">${avgDelta >= 0 ? '+' : ''}${avgDelta.toFixed(1)}</span>
+                        (상승 시 <span style="color:#059669">+${upAvg.toFixed(1)}</span> · 하락 시 <span style="color:#E11D48">${downAvg.toFixed(1)}</span>).
+                        <div class="mt-2 pt-2 border-t border-blue-100/60 text-[12px]">
+                            <span class="text-gray-500">▸ 다음 회차 예상 합계</span>
+                            <div class="mt-1 grid grid-cols-1 sm:grid-cols-3 gap-x-6 gap-y-1">
+                                <div>평균 진행 시 → <span style="color:#1e293b">${expectedAvg.toFixed(1)}</span></div>
+                                ${expectedUp != null ? `<div>상승 시 → <span style="color:#059669">${expectedUp.toFixed(1)}</span></div>` : ''}
+                                ${expectedDown != null ? `<div>하락 시 → <span style="color:#E11D48">${expectedDown.toFixed(1)}</span></div>` : ''}
+                            </div>
+                            <div class="mt-2 pt-2 border-t border-blue-100/60">
+                                <span class="text-gray-500">▸ 신뢰 구간</span>
+                                <span class="ml-2">중간 50% (P25~P75) <span style="color:#2563EB">${p25}~${p75}</span></span>
+                                <span class="mx-2 text-gray-300">·</span>
+                                <span>폭넓게 80% (P10~P90) <span style="color:#475569">${p10}~${p90}</span></span>
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+        }
+
+        // 범위 input 변경 시 즉시 재계산
+        document.addEventListener('DOMContentLoaded', () => {
+            const inp = document.getElementById('nextDirRange');
+            if (inp) inp.addEventListener('input', () => renderNextDirPredictor());
+        });
+
+        // ─────────────────────────────────────────────
+        // §1-A. 시계열 추세 차트 (이동평균 + ±1σ)
+        // ─────────────────────────────────────────────
+        let sumMaChartInstance = null;
+        function renderSumMaChart() {
+            const canvas = document.getElementById('sumMaChart');
+            if (!canvas) return;
+            const win = Math.max(3, Math.min(50, parseInt(document.getElementById('sumMaWindow').value) || 10));
+            const data = allDrawData.slice(0, currentRange).slice().reverse();
+            const sumVals = data.map(d => d.sum || d.total_sum);
+            const labels = data.map(d => d.round);
+            const ma = [], upper = [], lower = [];
+            for (let i = 0; i < sumVals.length; i++) {
+                const start = Math.max(0, i - win + 1);
+                const slice = sumVals.slice(start, i + 1);
+                const mean = slice.reduce((a,b)=>a+b,0) / slice.length;
+                const variance = slice.reduce((a,b)=>a+(b-mean)**2,0) / slice.length;
+                const sd = Math.sqrt(variance);
+                ma.push(mean); upper.push(mean + sd); lower.push(mean - sd);
+            }
+            if (sumMaChartInstance) sumMaChartInstance.destroy();
+            sumMaChartInstance = new Chart(canvas.getContext('2d'), {
+                type: 'line',
+                data: { labels,
+                    datasets: [
+                        { label: '합계', data: sumVals, borderColor: 'rgba(59,130,246,0.6)', backgroundColor: 'rgba(59,130,246,0.05)', borderWidth: 1, pointRadius: 1.5, fill: false, tension: 0.2 },
+                        { label: `이동평균(${win}회)`, data: ma, borderColor: 'rgb(16, 185, 129)', borderWidth: 2.5, pointRadius: 0, fill: false, tension: 0.3 },
+                        { label: '+1σ', data: upper, borderColor: 'rgba(16,185,129,0.4)', borderWidth: 1, pointRadius: 0, borderDash: [4,4], fill: '+1', backgroundColor: 'rgba(16,185,129,0.08)' },
+                        { label: '−1σ', data: lower, borderColor: 'rgba(16,185,129,0.4)', borderWidth: 1, pointRadius: 0, borderDash: [4,4], fill: false }
+                    ]
+                },
+                options: { responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top', labels: { boxWidth: 12, font: { size: 11 } } } },
+                    scales: { y: { title: { display: true, text: '합계' } },
+                        x: { ticks: { display: currentRange < 80, maxRotation: 0, autoSkip: true } } }
+                }
+            });
+        }
+
+        // ─────────────────────────────────────────────
+        // §1-B. 캘린더 히트맵
+        // ─────────────────────────────────────────────
+        function renderSumCalendar() {
+            const container = document.getElementById('sumCalendarHeatmap');
+            if (!container) return;
+            const data = allDrawData.slice(0, currentRange).slice().reverse();
+            const cols = currentRange <= 50 ? 10 : currentRange <= 100 ? 20 : currentRange <= 300 ? 25 : 30;
+            const colorOf = (sum) => {
+                if (sum == null) return '#f8fafc';
+                if (sum < 100) return '#dbeafe';
+                if (sum < 125) return '#bfdbfe';
+                if (sum < 140) return '#93c5fd';
+                if (sum < 155) return '#60a5fa';
+                if (sum < 170) return '#3b82f6';
+                if (sum < 185) return '#1d4ed8';
+                return '#1e3a8a';
+            };
+            const fgOf = (sum) => sum != null && sum >= 140 ? '#fff' : '#1e293b';
+            const cellFontMain = cols >= 25 ? 11 : 12;
+            const cellFontRd = cols >= 25 ? 8 : 9;
+            const cellPad = cols >= 25 ? '4px 0 3px' : '6px 0 4px';
+            let html = `<div style="display:grid;grid-template-columns:repeat(${cols},minmax(0,1fr));gap:3px">`;
+            for (const d of data) {
+                const sum = d.sum || d.total_sum;
+                html += `<div title="${d.round}회 · 합계 ${sum}" style="background:${colorOf(sum)};color:${fgOf(sum)};text-align:center;padding:${cellPad};border-radius:3px;line-height:1.05">
+                    <div style="font-size:${cellFontMain}px;font-weight:800">${sum}</div>
+                    <div style="font-size:${cellFontRd}px;font-weight:500;opacity:0.7;letter-spacing:-0.02em">${d.round}</div>
+                </div>`;
+            }
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+        // ─────────────────────────────────────────────
+        // §2. 정규분포 적합성 (skew/kurtosis 진단)
+        // ─────────────────────────────────────────────
+        let sumNormalFitChartInstance = null;
+        function renderSumNormalFit() {
+            const canvas = document.getElementById('sumNormalFitChart');
+            const statsEl = document.getElementById('sumNormalStats');
+            if (!canvas || !statsEl) return;
+            const data = allDrawData.slice(0, currentRange);
+            const sums = data.map(d => d.sum || d.total_sum);
+            const n = sums.length;
+            const mean = sums.reduce((a,b)=>a+b,0) / n;
+            const variance = sums.reduce((a,b)=>a+(b-mean)**2,0) / n;
+            const sd = Math.sqrt(variance);
+            // Skewness & Kurtosis (Fisher-Pearson)
+            const skew = sums.reduce((a,b)=>a+((b-mean)/sd)**3, 0) / n;
+            const kurt = sums.reduce((a,b)=>a+((b-mean)/sd)**4, 0) / n - 3;
+            // 빈 (10단위)
+            const binSize = 10;
+            const binMin = Math.floor(Math.min(...sums) / binSize) * binSize;
+            const binMax = Math.ceil(Math.max(...sums) / binSize) * binSize;
+            const bins = [];
+            for (let v = binMin; v <= binMax; v += binSize) bins.push(v);
+            const hist = bins.map(b => sums.filter(s => s >= b && s < b + binSize).length);
+            // 이론적 정규분포 (같은 mean/sd 기준)
+            const normPDF = (x) => Math.exp(-0.5 * ((x - mean) / sd) ** 2) / (sd * Math.sqrt(2 * Math.PI));
+            const theoretical = bins.map(b => normPDF(b + binSize/2) * binSize * n);
+            // 최신 회차 z-score
+            const latestSum = sums[0];
+            const latestZ = (latestSum - mean) / sd;
+            if (sumNormalFitChartInstance) sumNormalFitChartInstance.destroy();
+            sumNormalFitChartInstance = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: { labels: bins.map(b => b),
+                    datasets: [
+                        { label: '실제 분포', data: hist, backgroundColor: 'rgba(99, 102, 241, 0.5)', borderColor: 'rgba(99, 102, 241, 1)', borderWidth: 1 },
+                        { label: '이론(정규분포)', data: theoretical, type: 'line', borderColor: 'rgb(244, 63, 94)', borderWidth: 2, pointRadius: 0, tension: 0.4, fill: false }
+                    ]
+                },
+                options: { responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top', labels: { boxWidth: 12, font: { size: 11 } } } },
+                    scales: { y: { title: { display: true, text: '회차 수' } }, x: { title: { display: true, text: '합계 (10단위)' } } }
+                }
+            });
+            // [fix-289] 박스 없는 인라인 텍스트 통계 — 그래프 밑에 4개 메트릭 한 줄씩
+            const skewLabel = Math.abs(skew) < 0.3 ? '대칭' : skew > 0 ? '오른쪽 꼬리' : '왼쪽 꼬리';
+            const kurtLabel = Math.abs(kurt) < 0.5 ? '정규에 근접' : kurt > 0 ? '뾰족' : '평평';
+            const zColor = Math.abs(latestZ) >= 1.5 ? 'text-rose-600' : Math.abs(latestZ) >= 0.8 ? 'text-amber-600' : 'text-emerald-600';
+            statsEl.innerHTML = `
+                <div class="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                    <div class="flex items-baseline justify-between">
+                        <span class="text-gray-500">표본</span>
+                        <span class="font-bold text-gray-800">n=${n} · μ=${mean.toFixed(1)} · σ=${sd.toFixed(1)}</span>
+                    </div>
+                    <div class="flex items-baseline justify-between">
+                        <span class="text-gray-500">최신 z-score</span>
+                        <span class="font-bold ${zColor}">${(latestZ >= 0 ? '+' : '') + latestZ.toFixed(2)}σ <span class="text-gray-400 font-normal">(${latestSum})</span></span>
+                    </div>
+                    <div class="flex items-baseline justify-between">
+                        <span class="text-gray-500">왜도 (Skew)</span>
+                        <span class="font-bold text-gray-800">${skew.toFixed(3)} <span class="text-gray-400 font-normal">· ${skewLabel}</span></span>
+                    </div>
+                    <div class="flex items-baseline justify-between">
+                        <span class="text-gray-500">첨도 (Kurt)</span>
+                        <span class="font-bold text-gray-800">${kurt.toFixed(3)} <span class="text-gray-400 font-normal">· ${kurtLabel}</span></span>
+                    </div>
+                </div>
+            `;
+        }
+
+        // ─────────────────────────────────────────────
+        // §3. ΔSum 변화량 분포
+        // ─────────────────────────────────────────────
+        let sumDeltaChartInstance = null;
+        function renderSumDeltaDist() {
+            const canvas = document.getElementById('sumDeltaChart');
+            const statsEl = document.getElementById('sumDeltaStats');
+            if (!canvas || !statsEl) return;
+            const data = allDrawData.slice(0, currentRange).slice().reverse();
+            const deltas = [];
+            for (let i = 1; i < data.length; i++) {
+                const cur = data[i].sum || data[i].total_sum;
+                const prev = data[i-1].sum || data[i-1].total_sum;
+                deltas.push(cur - prev);
+            }
+            if (deltas.length === 0) return;
+            const mean = deltas.reduce((a,b)=>a+b,0) / deltas.length;
+            const variance = deltas.reduce((a,b)=>a+(b-mean)**2,0) / deltas.length;
+            const sd = Math.sqrt(variance);
+            const absMean = deltas.reduce((a,b)=>a+Math.abs(b),0) / deltas.length;
+            const maxJump = Math.max(...deltas.map(Math.abs));
+            // 빈
+            const binSize = 10;
+            const binMin = Math.floor(Math.min(...deltas) / binSize) * binSize;
+            const binMax = Math.ceil(Math.max(...deltas) / binSize) * binSize;
+            const bins = [];
+            for (let v = binMin; v <= binMax; v += binSize) bins.push(v);
+            const hist = bins.map(b => deltas.filter(d => d >= b && d < b + binSize).length);
+            if (sumDeltaChartInstance) sumDeltaChartInstance.destroy();
+            sumDeltaChartInstance = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: { labels: bins.map(b => b >= 0 ? `+${b}` : `${b}`),
+                    datasets: [{ label: 'ΔSum 빈도', data: hist,
+                        backgroundColor: bins.map(b => b < 0 ? 'rgba(244,63,94,0.6)' : b > 0 ? 'rgba(16,185,129,0.6)' : 'rgba(148,163,184,0.6)'),
+                        borderColor: 'rgba(99,102,241,0.8)', borderWidth: 1 }]
+                },
+                options: { responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: { y: { title: { display: true, text: '회차 수' } }, x: { title: { display: true, text: 'ΔSum (10단위 구간)' } } }
+                }
+            });
+            const posCount = deltas.filter(d => d > 0).length;
+            const negCount = deltas.filter(d => d < 0).length;
+            const zeroCount = deltas.filter(d => d === 0).length;
+            // [fix-289] 박스 없는 인라인 텍스트 통계
+            statsEl.innerHTML = `
+                <div class="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                    <div class="flex items-baseline justify-between">
+                        <span class="text-gray-500">평균 ΔSum</span>
+                        <span class="font-bold text-gray-800">${(mean >= 0 ? '+' : '') + mean.toFixed(2)} <span class="text-gray-400 font-normal">σ=${sd.toFixed(1)}</span></span>
+                    </div>
+                    <div class="flex items-baseline justify-between">
+                        <span class="text-gray-500">|Δ| 평균</span>
+                        <span class="font-bold text-gray-800">${absMean.toFixed(1)}</span>
+                    </div>
+                    <div class="flex items-baseline justify-between">
+                        <span class="text-gray-500">증감 비율</span>
+                        <span class="font-bold">
+                            <span class="text-emerald-600">↑${posCount}</span>
+                            <span class="text-gray-400">·${zeroCount}</span>
+                            <span class="text-rose-600">↓${negCount}</span>
+                        </span>
+                    </div>
+                    <div class="flex items-baseline justify-between">
+                        <span class="text-gray-500">최대 점프</span>
+                        <span class="font-bold text-gray-800">±${maxJump}</span>
+                    </div>
+                </div>
+            `;
+        }
+
+        // ─────────────────────────────────────────────
+        // §4. 합계 × 6 속성 교차 분석 (5분위)
+        // ─────────────────────────────────────────────
+        function renderSumCrossAnalysis() {
+            const container = document.getElementById('sumCrossGrid');
+            if (!container) return;
+            const cache = getSumStatCache().slice(0, currentRange);
+            // 5분위 분할 (실제 분포 기준 quintile)
+            const sortedSums = cache.map(d => d.sum).sort((a,b)=>a-b);
+            const q = (p) => sortedSums[Math.floor(sortedSums.length * p)] || 0;
+            const breaks = [q(0.2), q(0.4), q(0.6), q(0.8)];
+            const groupOf = (s) => {
+                if (s < breaks[0]) return 'Q1';
+                if (s < breaks[1]) return 'Q2';
+                if (s < breaks[2]) return 'Q3';
+                if (s < breaks[3]) return 'Q4';
+                return 'Q5';
+            };
+            const groups = { Q1: [], Q2: [], Q3: [], Q4: [], Q5: [] };
+            cache.forEach(d => groups[groupOf(d.sum)].push(d));
+            const avg = (arr, key) => arr.length === 0 ? 0 : arr.reduce((a,b)=>a+b[key],0) / arr.length;
+            const attrs = [
+                { key: 'ac', label: 'AC값', icon: 'analytics', color: 'blue' },
+                { key: 'endSum', label: '끝수합', icon: 'looks_one', color: 'emerald' },
+                { key: 'odd', label: '홀수 개수', icon: 'casino', color: 'orange' },
+                { key: 'low', label: '저번호 개수 (≤22)', icon: 'arrow_downward', color: 'cyan' },
+                { key: 'cons', label: '연번 쌍수', icon: 'link', color: 'red' },
+                { key: 'decadeVar', label: '번호대 분산', icon: 'view_module', color: 'violet' }
+            ];
+            const cards = attrs.map(a => {
+                const vals = ['Q1','Q2','Q3','Q4','Q5'].map(k => avg(groups[k], a.key));
+                const trend = vals[4] - vals[0];
+                let trendLabel = '관계 미약', trendColor = 'text-gray-500';
+                if (Math.abs(trend) > (Math.abs(vals[2]) * 0.15 + 0.1)) {
+                    trendLabel = trend > 0 ? '양의 상관 ↑' : '음의 상관 ↓';
+                    trendColor = trend > 0 ? 'text-emerald-600' : 'text-rose-600';
+                }
+                const fmt = (v) => Number.isFinite(v) ? v.toFixed(a.key === 'decadeVar' ? 2 : 1) : '−';
+                return `
+                    <div class="rounded-lg border border-gray-200 p-3 bg-gradient-to-br from-${a.color}-50/30 to-white">
+                        <div class="flex items-center gap-2 mb-2">
+                            <span class="material-symbols-outlined text-${a.color}-500 text-base">${a.icon}</span>
+                            <span class="text-xs font-bold text-gray-800">${a.label}</span>
+                        </div>
+                        <div class="grid grid-cols-5 gap-1 text-center mb-2">
+                            ${['Q1','Q2','Q3','Q4','Q5'].map((k,i) => `
+                                <div><div class="text-[9px] text-gray-500">${k}</div><div class="text-xs font-black text-gray-700">${fmt(vals[i])}</div></div>
+                            `).join('')}
+                        </div>
+                        <div class="text-[10px] font-bold ${trendColor} text-center pt-1.5 border-t border-gray-100">${trendLabel}</div>
+                    </div>
+                `;
+            });
+            container.innerHTML = cards.join('');
+        }
+
+        // ─────────────────────────────────────────────
+        // §5. 5분위 빈출 번호 Top 10
+        // ─────────────────────────────────────────────
+        function renderSumQuintileTop() {
+            const container = document.getElementById('sumQuintileTopGrid');
+            if (!container) return;
+            const data = allDrawData.slice(0, currentRange);
+            const sortedSums = data.map(d => d.sum || d.total_sum).sort((a,b)=>a-b);
+            const q = (p) => sortedSums[Math.floor(sortedSums.length * p)] || 0;
+            const breaks = [q(0.2), q(0.4), q(0.6), q(0.8)];
+            const groupRanges = [
+                { label: 'Q1', sub: `${sortedSums[0] || 0}~${breaks[0]-1}`, color: 'rose', filter: s => s < breaks[0] },
+                { label: 'Q2', sub: `${breaks[0]}~${breaks[1]-1}`, color: 'orange', filter: s => s >= breaks[0] && s < breaks[1] },
+                { label: 'Q3', sub: `${breaks[1]}~${breaks[2]-1}`, color: 'amber', filter: s => s >= breaks[1] && s < breaks[2] },
+                { label: 'Q4', sub: `${breaks[2]}~${breaks[3]-1}`, color: 'emerald', filter: s => s >= breaks[2] && s < breaks[3] },
+                { label: 'Q5', sub: `${breaks[3]}~${sortedSums[sortedSums.length-1] || 0}`, color: 'blue', filter: s => s >= breaks[3] }
+            ];
+            const cards = groupRanges.map(g => {
+                const groupDraws = data.filter(d => g.filter(d.sum || d.total_sum));
+                const counts = new Array(46).fill(0);
+                groupDraws.forEach(d => d.numbers.forEach(n => counts[n]++));
+                const top = [];
+                for (let n = 1; n <= 45; n++) top.push({ n, c: counts[n] });
+                top.sort((a,b)=>b.c-a.c);
+                const top10 = top.slice(0, 10);
+                const ballColor = (n) => n <= 10 ? '#f59e0b' : n <= 20 ? '#3b82f6' : n <= 30 ? '#ef4444' : n <= 40 ? '#6b7280' : '#10b981';
+                return `
+                    <div class="rounded-lg border border-${g.color}-200 bg-${g.color}-50/30 p-3">
+                        <div class="flex items-baseline justify-between mb-2">
+                            <div>
+                                <span class="text-xs font-black text-${g.color}-700">${g.label}</span>
+                                <span class="text-[10px] text-gray-500 ml-1">${g.sub}</span>
+                            </div>
+                            <span class="text-[10px] text-gray-400">${groupDraws.length}회</span>
+                        </div>
+                        <div class="flex flex-wrap gap-1">
+                            ${top10.map(t => `
+                                <div class="flex flex-col items-center" title="${t.n}: ${t.c}회">
+                                    <span class="inline-flex items-center justify-center w-7 h-7 rounded-full text-[11px] font-bold text-white" style="background:${ballColor(t.n)}">${t.n}</span>
+                                    <span class="text-[9px] text-gray-500 mt-0.5">${t.c}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            });
+            container.innerHTML = cards.join('');
+        }
+
+        // ─────────────────────────────────────────────
+        // §6. 평균 회귀 + 11빈 갭
+        // ─────────────────────────────────────────────
+        function renderSumGapBins() {
+            const reversionEl = document.getElementById('sumReversionPanel');
+            const container = document.getElementById('sumGapBins');
+            if (!reversionEl || !container) return;
+            const data = allDrawData.slice(0, currentRange);
+            const sums = data.map(d => d.sum || d.total_sum);
+            const mean = sums.reduce((a,b)=>a+b,0) / sums.length;
+            const variance = sums.reduce((a,b)=>a+(b-mean)**2,0) / sums.length;
+            const sd = Math.sqrt(variance);
+            // 평균 회귀: ±2σ 벗어난 직후 회차의 평균 거리
+            const dataAsc = data.slice().reverse();
+            let outliersFollowed = 0, totalRevDistance = 0;
+            for (let i = 0; i < dataAsc.length - 1; i++) {
+                const s = dataAsc[i].sum || dataAsc[i].total_sum;
+                const next = dataAsc[i+1].sum || dataAsc[i+1].total_sum;
+                if (Math.abs(s - mean) > 2 * sd) {
+                    outliersFollowed++;
+                    totalRevDistance += Math.abs(next - mean);
+                }
+            }
+            const avgRevAfterOutlier = outliersFollowed > 0 ? totalRevDistance / outliersFollowed : null;
+            // 평균 회귀 강도
+            reversionEl.innerHTML = `
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                        <div class="text-[10px] font-bold text-cyan-700 uppercase">평균 회귀 표본</div>
+                        <div class="text-base font-black text-gray-900">${outliersFollowed}건</div>
+                        <div class="text-[11px] text-gray-500">±2σ 벗어난 직후 회차</div>
+                    </div>
+                    <div>
+                        <div class="text-[10px] font-bold text-cyan-700 uppercase">회귀 후 평균 거리</div>
+                        <div class="text-base font-black text-gray-900">${avgRevAfterOutlier !== null ? avgRevAfterOutlier.toFixed(1) : '−'}</div>
+                        <div class="text-[11px] text-gray-500">평균에서 벗어난 거리</div>
+                    </div>
+                    <div>
+                        <div class="text-[10px] font-bold text-cyan-700 uppercase">현재 분포 중심</div>
+                        <div class="text-base font-black text-gray-900">μ = ${mean.toFixed(1)}</div>
+                        <div class="text-[11px] text-gray-500">σ = ${sd.toFixed(1)} · 이론 μ=138</div>
+                    </div>
+                </div>
+            `;
+            // 11빈 갭
+            const minS = 21, maxS = 255, binCount = 11;
+            const binSize = (maxS - minS) / binCount;
+            const binLabels = [];
+            for (let i = 0; i < binCount; i++) {
+                const lo = Math.round(minS + i * binSize);
+                const hi = Math.round(minS + (i + 1) * binSize);
+                binLabels.push({ lo, hi });
+            }
+            // 각 빈에 대해 마지막 출현 idx + 평균 출현 간격
+            const cards = binLabels.map((bin, bi) => {
+                const indices = [];
+                data.forEach((d, idx) => {
+                    const s = d.sum || d.total_sum;
+                    if (s >= bin.lo && s < bin.hi) indices.push(idx);
+                });
+                if (indices.length === 0) return null;
+                const currentGap = indices.length > 0 ? indices[0] : currentRange;
+                let avgGap = null, sigma = null;
+                if (indices.length >= 2) {
+                    const intervals = [];
+                    for (let i = 1; i < indices.length; i++) intervals.push(indices[i] - indices[i-1]);
+                    avgGap = intervals.reduce((a,b)=>a+b,0) / intervals.length;
+                    sigma = Math.sqrt(intervals.reduce((a,b)=>a+(b-avgGap)**2,0) / intervals.length);
+                }
+                const zScore = (avgGap !== null && sigma > 0) ? (currentGap - avgGap) / sigma : null;
+                let zLabel = '−', zColor = 'text-gray-400';
+                if (zScore !== null) {
+                    zLabel = (zScore > 0 ? '+' : '') + zScore.toFixed(1) + 'σ';
+                    if (zScore >= 1.5) zColor = 'text-rose-600';
+                    else if (zScore >= 0.5) zColor = 'text-amber-600';
+                    else if (zScore <= -0.5) zColor = 'text-emerald-600';
+                    else zColor = 'text-gray-500';
+                }
+                return `
+                    <div class="rounded-lg border ${zScore >= 1.5 ? 'border-rose-300 bg-rose-50/50' : 'border-gray-200 bg-gray-50'} p-3">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-[10px] font-bold text-gray-500">${bin.lo}~${bin.hi - 1}</span>
+                            <span class="text-[10px] text-gray-400">${indices.length}회</span>
+                        </div>
+                        <div class="text-xl font-black text-gray-900 leading-none">${currentGap}<span class="text-xs font-medium text-gray-400">회 전</span></div>
+                        <div class="mt-1 text-[10px] text-gray-500">평균 ${avgGap !== null ? avgGap.toFixed(1) : '−'}회마다</div>
+                        <div class="mt-1 text-[11px] font-bold ${zColor}">${zLabel}</div>
+                    </div>
+                `;
+            }).filter(Boolean);
+            container.innerHTML = cards.join('');
+        }
+        // ════════════════════════════════════════════════════════════
+        // [/fix-288] 끝
+        // ════════════════════════════════════════════════════════════
         function openStatsModal() { document.getElementById('statsModal').classList.remove('hidden'); document.getElementById('statsRangeSlider').value = currentRange; updateStatsRange(currentRange); }
         function closeStatsModal() { document.getElementById('statsModal').classList.add('hidden'); }
 
@@ -1996,6 +2794,11 @@ ${safeContent}</div>`;
         // 🆕 페이지 최초 로드 시 최근 10회차 필터 자동 적용
         function autoApplyRecent10OnLoad() {
             if (!allDrawData || allDrawData.length < 10) return;
+            // [fix-388] tbody 비어있으면 먼저 renderDrawsList — applyRecent10Highlight 가 행을 못 찾는 버그 방지
+            const tbody = document.getElementById('drawsList');
+            if (tbody && tbody.children.length === 0) {
+                renderDrawsList();
+            }
 
             const recent10 = allDrawData.slice(0, 10);
             const sums = recent10.map(d => d.sum);

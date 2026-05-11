@@ -4,6 +4,9 @@
 <head>
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <title>Lotto Lab - 동형수 (Supabase AI)</title>
     <link href="css/tailwind.css" rel="stylesheet" />
 
@@ -34,6 +37,8 @@
 
     <!-- NLP Modules -->
     <script src="js/NLPProcessor.js"></script>
+    <script src="js/AutoNLPMatcher.js"></script>
+    <script src="js/auto_nlp_loader.js" defer></script>
     <script src="js/NLPInputComponent.js"></script>
     <script src="js/BasicAnalysisNLP.js"></script>
 
@@ -263,6 +268,9 @@
 
             renderDrawsList(filteredData);
             // [수정] updateRecentTenButtonState() 호출 제거 (자동 동기화 방지)
+
+            // [fix-334] 보조 분석 5종 갱신
+            if (typeof renderAllTwSupp === 'function') renderAllTwSupp();
         }
 
         // [표준] 신규 회차 감지 시 필터 자동 초기화
@@ -627,6 +635,64 @@
                 transform: rotate(360deg);
             }
         }
+
+        /* [fix-334] 동형수 보조 분석 — impeccable 가이드 (ultra-sparse) */
+        .tw-input {
+            background: transparent; border: 0; border-bottom: 1px solid #E5E7EB;
+            padding: 4px 18px 4px 6px; font-size: 13px; color: #0F172A;
+            outline: none; transition: border-color 180ms ease;
+            font-feature-settings: "tnum"; -moz-appearance: textfield;
+        }
+        .tw-input:focus { border-bottom-color: #3B82F6; }
+        .tw-input::-webkit-inner-spin-button, .tw-input::-webkit-outer-spin-button { opacity: 0.5; margin-left: 4px; }
+        #twGapTable td, #twMatrix td, #twStreakTable td { padding: 8px 8px; border-bottom: 1px solid #F3F4F6; }
+        #twGapTable tbody tr:hover, #twStreakTable tbody tr:hover { background: #FAFAFA; }
+        .tw-pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 600; line-height: 1.4; }
+        .tw-pill-hot { background: #FEF2F2; color: #DC2626; }
+        .tw-pill-cold { background: #ECFEFF; color: #0E7490; }
+        .tw-pill-warm { background: #FFF7ED; color: #C2410C; }
+        .tw-pill-norm { background: #F1F5F9; color: #475569; }
+        .tw-num-chip {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 36px; height: 36px; border-radius: 50%;
+            font-size: 14px; font-weight: 700; font-feature-settings: "tnum";
+            background: #FEF3C7; color: #92400E;
+        }
+        #twMatrix { border-collapse: separate; border-spacing: 4px; }
+        #twMatrix td.cell { width: 64px; height: 64px; text-align: center; border-radius: 8px; font-feature-settings: "tnum"; }
+        #twMatrix td.diag { background: #F1F5F9; color: #94A3B8; font-size: 12px; }
+        #twMatrix th { font-size: 12px; font-weight: 700; color: #475569; padding: 4px 8px; }
+
+        /* [fix-335c] 동형수 카운트 캘린더 v2 — 컴팩트 (ultra-sparse) */
+        .tw-cal-stats {
+            display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+            font-size: 11px; color: #94A3B8; font-feature-settings: "tnum";
+            margin-bottom: 12px; padding: 8px 12px;
+            background: #FAFAFA; border-radius: 8px;
+        }
+        .tw-cal-stats strong { color: #0F172A; font-weight: 700; font-size: 12px; }
+        .tw-cal-row { display: grid; grid-template-columns: 56px 1fr; gap: 8px; align-items: center; margin-bottom: 3px; }
+        .tw-cal-label { font-size: 10px; color: #94A3B8; font-feature-settings: "tnum"; text-align: right; padding-right: 2px; line-height: 1.15; }
+        .tw-cal-label strong { display: block; color: #0F172A; font-weight: 700; font-size: 11px; }
+        .tw-cal-label .meta { display: block; font-size: 9px; color: #CBD5E1; margin-top: 1px; }
+        .tw-cal-cells { display: grid; grid-template-columns: repeat(10, 1fr); gap: 3px; }
+        .tw-cal-cell {
+            height: 30px; border-radius: 4px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 12px; font-weight: 700; font-feature-settings: "tnum";
+            transition: transform 120ms ease, box-shadow 120ms ease;
+            cursor: default;
+        }
+        .tw-cal-cell:hover { transform: scale(1.15); box-shadow: 0 4px 14px rgba(15,23,42,0.18); z-index: 5; }
+        /* 동형수: 평균 0.53 — 0=흔함(60%), 1=가끔, 2+=드문 사건 */
+        .tw-cal-cell.cnt-0 { background: #FAFAFA; color: #94A3B8; }
+        .tw-cal-cell.cnt-1 { background: #FDE68A; color: #92400E; }
+        .tw-cal-cell.cnt-2 { background: #F59E0B; color: #FFFFFF; }
+        .tw-cal-cell.cnt-3p { background: #92400E; color: #FBBF24; }
+        .tw-cal-cell.is-latest { box-shadow: 0 0 0 2px #0F172A; }
+        .tw-cal-empty { height: 30px; }
+        .tw-cal-legend { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; margin-top: 10px; font-size: 11px; color: #94A3B8; }
+        .tw-cal-legend .legend-cell { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 3px; font-size: 10px; font-weight: 700; font-feature-settings: "tnum"; }
     </style>
     <script src="js/deep_insight_panel_v3.js?v=20260502c"></script>
 </head>
@@ -684,7 +750,8 @@
                             </div>
                         </div>
 
-                        <div id="premiumInsight" class="mb-10"></div>
+                        <!-- [fix-399] 그래프와의 간격 mb-10 → mb-16 (충분한 호흡) -->
+                        <div id="premiumInsight" class="mb-16"></div>
 
                         <div class="mb-6">
                             <div class="flex items-center justify-between mb-4">
@@ -724,6 +791,115 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- ════════════════════════════════════════════════ -->
+                    <!-- [fix-334] 동형수 보조 분석 5종 — 단일 흰 박스 통합  -->
+                    <!-- ════════════════════════════════════════════════ -->
+                    <div class="bg-white rounded-xl border border-gray-200 mb-6 overflow-hidden">
+
+                        <!-- §1. 시계열 추세 (마이크로) -->
+                        <div class="p-8">
+                            <div class="flex items-baseline justify-between mb-6">
+                                <div>
+                                    <h3 class="text-lg font-bold text-gray-900 tracking-tight">시계열 추세 (마이크로)</h3>
+                                    <p class="text-xs text-gray-500 mt-1">동형수 카운트(0~3) long-window MA · 평균선 0.53 (이항 4/45 × 6 기대값) · ultra-sparse — 0개가 약 60%</p>
+                                </div>
+                                <div class="flex items-baseline gap-2 text-xs text-gray-500">
+                                    <label>MA 윈도우</label>
+                                    <input type="number" id="twMaWindow" value="30" min="5" max="200"
+                                        oninput="renderTwMa()" class="tw-input w-16 text-center tabular-nums">
+                                    <span>회</span>
+                                </div>
+                            </div>
+                            <div class="h-64 mb-6"><canvas id="twMaChart"></canvas></div>
+                            <div class="pt-6 border-t border-gray-100">
+                                <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-3">
+                                    동형수 카운트 캘린더 (좌=과거, 우=최신)
+                                </div>
+                                <div id="twCalendar"></div>
+                            </div>
+                        </div>
+
+                        <!-- [fix-399] §2 카운트 분포 + §4 4×4 매트릭스 좌우 2분할 -->
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-0 border-t border-gray-100">
+                            <!-- §2. 카운트 분포 + 출현률 강조 (좌) -->
+                            <div class="p-8 lg:border-r border-gray-100">
+                                <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">카운트 분포 + 출현률 강조</h3>
+                                <p class="text-xs text-gray-500 mb-4">동형수 4개 모두 11의 배수 · 0개가 압도적 (~60%)</p>
+                                <div class="space-y-4">
+                                    <div class="h-48"><canvas id="twCountDist"></canvas></div>
+                                    <div class="grid grid-cols-2 gap-4 pt-4 border-t border-gray-100">
+                                        <div class="text-center">
+                                            <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">전멸률(0개)</div>
+                                            <div class="text-3xl font-bold text-gray-900 tabular-nums" id="twZeroPct">—</div>
+                                            <div class="text-xs text-gray-500 mt-1">이론 <span id="twZeroExp" class="tabular-nums">—</span></div>
+                                        </div>
+                                        <div class="text-center">
+                                            <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">1개 이상 출현률</div>
+                                            <div class="text-3xl font-bold text-gray-900 tabular-nums" id="twAnyPct">—</div>
+                                            <div class="text-xs text-gray-500 mt-1">이론 <span id="twAnyExp" class="tabular-nums">—</span></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- §4. 4×4 동반 출현 매트릭스 (우) -->
+                            <div class="p-8 border-t lg:border-t-0 border-gray-100">
+                                <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">동형수 동반 출현 매트릭스 (4×4)</h3>
+                                <p class="text-xs text-gray-500 mb-4">두 동형수가 같은 회차에 함께 출현한 횟수 · 대각선 = 단독 / 셀 = 동반 / 기대값 대비</p>
+                                <div class="flex justify-center overflow-x-auto py-3">
+                                    <table class="text-sm tabular-nums" id="twMatrix">
+                                        <thead id="twMatrixHead"></thead>
+                                        <tbody id="twMatrixBody"></tbody>
+                                    </table>
+                                </div>
+                                <div id="twMatrixNote" class="mt-3 text-xs text-gray-600 tabular-nums text-center"></div>
+                            </div>
+                        </div>
+
+                        <!-- §3. 4개 per-element 갭·핫콜드 (2분할 다음) -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">4개 동형수 · 미출현 갭 + 핫·콜드</h3>
+                            <p class="text-xs text-gray-500 mb-4">각 동형수의 출현 + 평균 갭 + z-score · 핫 = 최근 5회차 ≥ 1회 / 콜드 = 최근 30회차 0회 · ultra-sparse 도메인</p>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-sm tabular-nums" id="twGapTable">
+                                    <thead>
+                                        <tr class="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                            <th class="py-2 pr-3 border-b border-gray-200">번호</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">출현/회</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">평균 갭</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">현재 갭</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">z-score</th>
+                                            <th class="py-2 pl-3 border-b border-gray-200 text-center">상태</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="twGapBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- §5. 전멸 streak 히스토그램 -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">전멸(0개) streak 히스토그램</h3>
+                            <p class="text-xs text-gray-500 mb-4">동형수 0개 연속 회차 분포 · ultra-sparse 도메인의 핵심 지표 · 현재 streak가 평균 대비 길수록 출현 임박</p>
+                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch">
+                                <div class="relative" style="min-height: 220px"><canvas id="twStreakChart"></canvas></div>
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-sm tabular-nums" id="twStreakTable">
+                                        <thead>
+                                            <tr class="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                                <th class="py-2 pr-3 border-b border-gray-200">지표</th>
+                                                <th class="py-2 pl-3 border-b border-gray-200 text-right">값</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="twStreakBody"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- ════════════════════════════════════════════════ -->
+                    <!-- [/fix-334] 단일 박스 통합 끝                       -->
+                    <!-- ════════════════════════════════════════════════ -->
 
                     <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
                         <div class="flex items-center justify-between mb-4">
@@ -780,9 +956,9 @@
                         </div>
                     </div>
 
-                    <!-- [표준화] 리스트 섹션 (Integrated Header) -->
-                    <div class="rounded-xl overflow-hidden mt-6">
-                        <div class="flex items-center justify-between mb-4 px-2">
+                    <!-- [fix-399] 리스트 섹션 — 헤더 + 표 흰 박스 일체화 -->
+                    <div class="bg-white rounded-xl border border-gray-200 mt-6 overflow-hidden">
+                        <div class="flex items-center justify-between px-8 pt-6 pb-4 border-b border-gray-100">
                             <div>
                                 <h3 class="text-xl font-bold text-gray-900 mb-1">회차별 당첨번호 및 동형수</h3>
                                 <p class="text-sm text-gray-600">최근 <span id="displayedCount"
@@ -795,7 +971,7 @@
                         </div>
 
                         <div
-                            class="overflow-x-auto overflow-y-auto custom-scrollbar border border-gray-200 rounded-xl bg-white shadow-sm max-h-[600px]">
+                            class="overflow-x-auto overflow-y-auto custom-scrollbar max-h-[600px]">
                             <table class="w-full text-sm table-fixed">
                                 <thead
                                     class="sticky top-0 bg-[#1e293b] text-white font-semibold border-b border-[#334155] z-30">
@@ -1050,6 +1226,10 @@
 
                 document.getElementById('loadingOverlay').style.display = 'none';
                 await initDeepInsight();
+
+                // [fix-334] 보조 분석 5종 초기 렌더링
+                if (typeof invalidateTwCache === 'function') invalidateTwCache();
+                if (typeof renderAllTwSupp === 'function') renderAllTwSupp();
 
             } catch (err) {
                 console.error('데이터 로드 실패:', err);
@@ -1590,7 +1770,383 @@
             }
         }
 
+        // ════════════════════════════════════════════════════════════
+        // [fix-334] 동형수 보조 분석 5종 — impeccable 가이드 (ultra-sparse)
+        // ════════════════════════════════════════════════════════════
+        const TW_ACCENT = '#3B82F6';
+        const TW_ACCENT_LIGHT = 'rgba(59, 130, 246, 0.08)';
+        const TW_GRID = '#F1F5F9';
+        const TW_INK_2 = '#475569';
+        const TW_INK_3 = '#94A3B8';
+        const TW_GOLD = '#F59E0B';
 
+        const TW_LIST = [11, 22, 33, 44];
+
+        let _twCache = null;
+        function getTwCache() {
+            if (_twCache) return _twCache;
+            const data = window.allDrawData || allDrawData || [];
+            _twCache = data.map(d => {
+                const nums = d.numbers || [];
+                const numSet = new Set(nums);
+                const twCount = nums.filter(n => twinNumbers.has(n)).length;
+                return { round: d.round, nums, numSet, twCount };
+            });
+            return _twCache;
+        }
+        function invalidateTwCache() { _twCache = null; }
+
+        function renderAllTwSupp() {
+            try {
+                if (!allDrawData || allDrawData.length === 0) return;
+                invalidateTwCache();
+                renderTwMa();
+                renderTwCalendar();
+                renderTwCountDist();
+                renderTwGap();
+                renderTwMatrix();
+                renderTwStreak();
+            } catch (e) { console.warn('[tw-supp]', e); }
+        }
+
+        // ─── §1-A. 시계열 추세 (마이크로) ───
+        let twMaInst = null;
+        function renderTwMa() {
+            const canvas = document.getElementById('twMaChart');
+            if (!canvas) return;
+            const win = Math.max(5, Math.min(200, parseInt(document.getElementById('twMaWindow')?.value) || 30));
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getTwCache().slice(0, range).slice().reverse();
+            if (cache.length === 0) return;
+            const labels = cache.map(d => d.round);
+            const counts = cache.map(d => d.twCount);
+            const ma = [];
+            for (let i = 0; i < counts.length; i++) {
+                const s = Math.max(0, i - win + 1);
+                const sl = counts.slice(s, i + 1);
+                ma.push(sl.reduce((a, b) => a + b, 0) / sl.length);
+            }
+            const expected = 4 * 6 / 45; // 0.533
+            if (twMaInst) twMaInst.destroy();
+            twMaInst = new Chart(canvas.getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels, datasets: [
+                        { label: '동형수 카운트', data: counts, borderColor: 'rgba(15,23,42,0.35)', borderWidth: 1, pointRadius: 0, fill: false, tension: 0.25 },
+                        { label: `이동평균 ${win}회`, data: ma, borderColor: TW_GOLD, borderWidth: 2, pointRadius: 0, fill: false, tension: 0.25 },
+                        { label: '평균 0.53', data: Array(counts.length).fill(expected), borderColor: 'rgba(15,23,42,0.35)', borderDash: [4, 4], borderWidth: 1, pointRadius: 0, fill: false }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top', align: 'end', labels: { boxWidth: 6, font: { size: 11, family: 'Pretendard' }, color: TW_INK_2 } } },
+                    scales: {
+                        y: { min: 0, max: 3, grid: { color: TW_GRID, drawBorder: false }, ticks: { color: TW_INK_3, font: { size: 11 }, stepSize: 1 } },
+                        x: { grid: { display: false }, ticks: { color: TW_INK_3, font: { size: 11 }, display: range < 80, autoSkip: true, maxRotation: 0 } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+        }
+
+        // ─── §1-B. 카운트 캘린더 v2 — 10회차 그룹 + 카운트 숫자 표시 ───
+        function renderTwCalendar() {
+            const c = document.getElementById('twCalendar');
+            if (!c) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getTwCache().slice(0, range);
+            if (cache.length === 0) { c.innerHTML = ''; return; }
+
+            const chrono = cache.slice().reverse();
+            const latestRound = cache[0].round;
+            const oldestRound = chrono[0].round;
+            const counts = chrono.map(d => d.twCount);
+            const total = counts.length;
+            const obs0 = counts.filter(x => x === 0).length;
+            const max = Math.max(...counts);
+            const mean = counts.reduce((a, b) => a + b, 0) / total;
+
+            function cellClass(cnt) {
+                if (cnt === 0) return 'cnt-0';
+                if (cnt === 1) return 'cnt-1';
+                if (cnt === 2) return 'cnt-2';
+                return 'cnt-3p';
+            }
+
+            const groups = new Map();
+            chrono.forEach(d => {
+                const groupStart = Math.floor(d.round / 10) * 10;
+                if (!groups.has(groupStart)) groups.set(groupStart, []);
+                groups.get(groupStart).push(d);
+            });
+
+            let html = `<div class="tw-cal-stats">
+                <span><span class="text-gray-400">분석 범위</span> <strong>${oldestRound} ~ ${latestRound}회</strong> <span class="text-gray-400">(${total}회)</span></span>
+                <span><span class="text-gray-400">평균</span> <strong>${mean.toFixed(2)}</strong></span>
+                <span><span class="text-gray-400">최대</span> <strong>${max}개</strong></span>
+                <span><span class="text-gray-400">전멸(0개)</span> <strong>${obs0}회</strong> <span class="text-gray-400">(${(obs0/total*100).toFixed(1)}%)</span></span>
+            </div><div>`;
+
+            const sortedKeys = Array.from(groups.keys()).sort((a, b) => a - b);
+            sortedKeys.forEach(start => {
+                const draws = groups.get(start);
+                const drawByRound = new Map(draws.map(d => [d.round, d]));
+                const groupMean = draws.reduce((a, d) => a + d.twCount, 0) / draws.length;
+                html += `<div class="tw-cal-row">
+                    <div class="tw-cal-label">
+                        <strong>${start}~</strong>
+                        <span class="meta">평균 ${groupMean.toFixed(1)}</span>
+                    </div>
+                    <div class="tw-cal-cells">`;
+                for (let i = 0; i < 10; i++) {
+                    const round = start + i;
+                    const d = drawByRound.get(round);
+                    if (!d) {
+                        html += `<div class="tw-cal-empty"></div>`;
+                    } else {
+                        const isLatest = round === latestRound ? ' is-latest' : '';
+                        const sortedNums = [...d.nums].sort((a, b) => a - b);
+                        const twList = sortedNums.filter(n => twinNumbers.has(n));
+                        const tooltip = `${round}회 · 동형수 ${d.twCount}개\n전체: ${sortedNums.join(', ')}\n동형수: ${twList.length > 0 ? twList.join(', ') : '없음'}`;
+                        html += `<div class="tw-cal-cell ${cellClass(d.twCount)}${isLatest}" title="${tooltip}">${d.twCount}</div>`;
+                    }
+                }
+                html += `</div></div>`;
+            });
+            html += `</div>`;
+
+            const legendData = [
+                { cnt: 0, cls: 'cnt-0' },
+                { cnt: 1, cls: 'cnt-1' },
+                { cnt: 2, cls: 'cnt-2' },
+                { cnt: '3+', cls: 'cnt-3p' }
+            ];
+            html += `<div class="tw-cal-legend">
+                <span class="text-gray-500 mr-1">동형수 개수:</span>
+                ${legendData.map(L => `<span class="legend-cell ${L.cls}">${L.cnt}</span>`).join('')}
+                <span class="ml-3 flex items-center gap-1.5">
+                    <span style="display:inline-block;width:16px;height:16px;border:2px solid #0F172A;border-radius:3px"></span>
+                    <span>최신</span>
+                </span>
+            </div>`;
+
+            c.innerHTML = html;
+        }
+
+        // ─── §2. 카운트 분포 + 출현률 카드 ───
+        let twCountDistInst = null;
+        function renderTwCountDist() {
+            const canvas = document.getElementById('twCountDist');
+            if (!canvas) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getTwCache().slice(0, range);
+            const obs = [0, 0, 0, 0]; // 0~3
+            cache.forEach(d => { if (d.twCount >= 0 && d.twCount <= 3) obs[d.twCount]++; });
+            const N = cache.length || 1;
+            const p = 4 / 45;
+            const C = [1, 6, 15, 20];
+            const exp = [0, 1, 2, 3].map(k => C[k] * Math.pow(p, k) * Math.pow(1 - p, 6 - k) * N);
+            if (twCountDistInst) twCountDistInst.destroy();
+            twCountDistInst = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: ['0개 (전멸)', '1개', '2개', '3개+'],
+                    datasets: [
+                        { label: '관측', data: obs, backgroundColor: ['#94A3B8', TW_GOLD, TW_GOLD, TW_GOLD], borderRadius: 4 },
+                        { label: '이론(이항)', data: exp.map(v => +v.toFixed(2)), type: 'line', borderColor: 'rgba(15,23,42,0.5)', borderDash: [4, 4], borderWidth: 1.5, pointRadius: 3, pointBackgroundColor: 'rgba(15,23,42,0.5)', fill: false }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top', align: 'end', labels: { boxWidth: 6, font: { size: 11, family: 'Pretendard' }, color: TW_INK_2 } } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: TW_GRID, drawBorder: false }, ticks: { color: TW_INK_3, font: { size: 11 } } },
+                        x: { grid: { display: false }, ticks: { color: TW_INK_2, font: { size: 11 } } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+            const zeroPct = (obs[0] / N * 100).toFixed(1);
+            const expZeroPct = (Math.pow(1 - p, 6) * 100).toFixed(1);
+            const anyPct = ((N - obs[0]) / N * 100).toFixed(1);
+            const expAnyPct = ((1 - Math.pow(1 - p, 6)) * 100).toFixed(1);
+            const elZ = document.getElementById('twZeroPct'); if (elZ) elZ.textContent = zeroPct + '%';
+            const elZE = document.getElementById('twZeroExp'); if (elZE) elZE.textContent = expZeroPct + '%';
+            const elA = document.getElementById('twAnyPct'); if (elA) elA.textContent = anyPct + '%';
+            const elAE = document.getElementById('twAnyExp'); if (elAE) elAE.textContent = expAnyPct + '%';
+        }
+
+        // ─── §3. 4개 per-element 갭·핫콜드 ───
+        function renderTwGap() {
+            const tbody = document.getElementById('twGapBody');
+            if (!tbody) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getTwCache().slice(0, range);
+            if (cache.length === 0) return;
+            const latestRound = cache[0].round;
+            const recent5 = cache.slice(0, 5);
+            const recent30 = cache.slice(0, Math.min(30, cache.length));
+            const rows = TW_LIST.map(t => {
+                let appearances = 0;
+                let lastRound = null;
+                const gaps = [];
+                let prevRound = null;
+                const chrono = cache.slice().reverse();
+                chrono.forEach(d => {
+                    if (d.numSet.has(t)) {
+                        appearances++;
+                        if (prevRound !== null) gaps.push(d.round - prevRound);
+                        prevRound = d.round;
+                        lastRound = d.round;
+                    }
+                });
+                const meanGap = gaps.length > 0 ? gaps.reduce((a, b) => a + b, 0) / gaps.length : range;
+                const sdGap = gaps.length > 1 ? Math.sqrt(gaps.reduce((a, b) => a + (b - meanGap) ** 2, 0) / gaps.length) : 0;
+                const currentGap = lastRound !== null ? latestRound - lastRound : range;
+                const z = sdGap > 0 ? (currentGap - meanGap) / sdGap : 0;
+                const r5 = recent5.filter(d => d.numSet.has(t)).length;
+                const r30 = recent30.filter(d => d.numSet.has(t)).length;
+                let label, cls;
+                // ultra-sparse 임계 완화: 핫=최근5≥1회 / 콜드=최근30=0회
+                if (r5 >= 1) { label = '🔥 핫'; cls = 'tw-pill tw-pill-hot'; }
+                else if (r30 === 0) { label = '🧊 콜드'; cls = 'tw-pill tw-pill-cold'; }
+                else if (r30 <= 2) { label = '온화'; cls = 'tw-pill tw-pill-warm'; }
+                else { label = '평이'; cls = 'tw-pill tw-pill-norm'; }
+                return { t, appearances, meanGap, currentGap, z, label, cls };
+            });
+            tbody.innerHTML = rows.map(r => {
+                const zColor = r.z > 1.5 ? 'text-red-600' : r.z < -1.0 ? 'text-blue-600' : 'text-gray-700';
+                return `<tr>
+                    <td><span class="tw-num-chip">${r.t}</span></td>
+                    <td class="text-right text-gray-900 font-semibold">${r.appearances}회</td>
+                    <td class="text-right text-gray-600">${r.meanGap.toFixed(1)}</td>
+                    <td class="text-right text-gray-900 font-semibold">${r.currentGap}</td>
+                    <td class="text-right ${zColor}">${r.z >= 0 ? '+' : ''}${r.z.toFixed(2)}</td>
+                    <td class="text-center"><span class="${r.cls}">${r.label}</span></td>
+                </tr>`;
+            }).join('');
+        }
+
+        // ─── §4. 4×4 동반 출현 매트릭스 ───
+        function renderTwMatrix() {
+            const head = document.getElementById('twMatrixHead');
+            const body = document.getElementById('twMatrixBody');
+            const note = document.getElementById('twMatrixNote');
+            if (!head || !body) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getTwCache().slice(0, range);
+            if (cache.length === 0) return;
+
+            // 단독 출현: 다른 동형수 없이 자기만 등장
+            const solo = {};
+            const pair = {};
+            TW_LIST.forEach(a => { solo[a] = 0; TW_LIST.forEach(b => { if (a < b) pair[`${a}-${b}`] = 0; }); });
+            cache.forEach(d => {
+                const present = TW_LIST.filter(t => d.numSet.has(t));
+                if (present.length === 1) solo[present[0]]++;
+                for (let i = 0; i < present.length; i++) {
+                    for (let j = i + 1; j < present.length; j++) {
+                        pair[`${present[i]}-${present[j]}`]++;
+                    }
+                }
+            });
+            // 헤더
+            head.innerHTML = `<tr>
+                <th></th>
+                ${TW_LIST.map(t => `<th>${t}</th>`).join('')}
+            </tr>`;
+            // 기대값: pair = N × (6/45) × (5/44)
+            const pairExp = cache.length * (6 / 45) * (5 / 44);
+            const soloExp = cache.length * 6 / 45 * Math.pow(1 - 6 / 45, 5) * 5; // approximate; not strictly hypergeometric
+            // 본문
+            let bodyHtml = '';
+            TW_LIST.forEach(a => {
+                bodyHtml += `<tr><th>${a}</th>`;
+                TW_LIST.forEach(b => {
+                    if (a === b) {
+                        bodyHtml += `<td class="cell diag">단독<br><strong style="color:#0F172A;font-size:14px">${solo[a]}</strong></td>`;
+                    } else {
+                        const key = a < b ? `${a}-${b}` : `${b}-${a}`;
+                        const cnt = pair[key];
+                        const ratio = pairExp > 0 ? cnt / pairExp : 0;
+                        const bg = cnt === 0 ? '#F8FAFC' : ratio > 1.3 ? '#FEE2E2' : ratio > 1.1 ? '#FEF3C7' : ratio < 0.7 ? '#DBEAFE' : '#F1F5F9';
+                        const tx = cnt === 0 ? '#94A3B8' : '#0F172A';
+                        bodyHtml += `<td class="cell" style="background:${bg};color:${tx}">
+                            <strong style="font-size:18px;font-weight:700">${cnt}</strong>
+                            <div style="font-size:10px;color:#94A3B8;margin-top:2px">${cnt > 0 ? ratio.toFixed(2) + '×' : '—'}</div>
+                        </td>`;
+                    }
+                });
+                bodyHtml += '</tr>';
+            });
+            body.innerHTML = bodyHtml;
+            // Note: 전체 4개 동반 (3개·4개 동시)
+            let triple = 0, quad = 0, anyTwo = 0;
+            cache.forEach(d => {
+                const c = TW_LIST.filter(t => d.numSet.has(t)).length;
+                if (c >= 2) anyTwo++;
+                if (c >= 3) triple++;
+                if (c >= 4) quad++;
+            });
+            const expAnyTwo = cache.length * (1 - Math.pow(1 - 4 / 45, 6) - 6 * (4 / 45) * Math.pow(1 - 4 / 45, 5));
+            if (note) note.innerHTML = `<span class="text-gray-400">2개+ 동반</span> <strong class="text-gray-900">${anyTwo}회</strong> <span class="text-gray-400">(기대 ${expAnyTwo.toFixed(1)})</span> &nbsp;·&nbsp; <span class="text-gray-400">3개+ 동반</span> <strong class="text-gray-900">${triple}회</strong> &nbsp;·&nbsp; <span class="text-gray-400">4개 모두</span> <strong class="text-gray-900">${quad}회</strong>`;
+        }
+
+        // ─── §5. 전멸 streak ───
+        let twStreakInst = null;
+        function renderTwStreak() {
+            const canvas = document.getElementById('twStreakChart');
+            const tbody = document.getElementById('twStreakBody');
+            if (!canvas || !tbody) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getTwCache().slice(0, range).slice().reverse();
+            if (cache.length === 0) return;
+            const zeroStreaks = [];
+            let cur = 0;
+            cache.forEach(d => {
+                if (d.twCount === 0) cur++;
+                else { if (cur > 0) zeroStreaks.push(cur); cur = 0; }
+            });
+            // 현재 streak (chronological 끝에서 0 연속)
+            let currentStreak = 0;
+            for (let i = cache.length - 1; i >= 0; i--) {
+                if (cache[i].twCount === 0) currentStreak++;
+                else break;
+            }
+            const maxLen = zeroStreaks.length > 0 ? Math.min(15, Math.max(...zeroStreaks)) : 1;
+            const labels = [], values = [];
+            for (let len = 1; len <= maxLen; len++) {
+                labels.push(`${len}회`);
+                values.push(zeroStreaks.filter(s => s === len).length);
+            }
+            const above = zeroStreaks.filter(s => s > maxLen).length;
+            if (above > 0) { labels.push(`${maxLen}+`); values.push(above); }
+            if (twStreakInst) twStreakInst.destroy();
+            twStreakInst = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: { labels, datasets: [{ label: '발생 횟수', data: values, backgroundColor: '#94A3B8', borderRadius: 4 }] },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: TW_GRID, drawBorder: false }, ticks: { color: TW_INK_3, font: { size: 11 } } },
+                        x: { grid: { display: false }, ticks: { color: TW_INK_2, font: { size: 10 } }, title: { display: true, text: '전멸 streak 길이', color: TW_INK_3, font: { size: 11 } } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+            const meanStreak = zeroStreaks.length > 0 ? zeroStreaks.reduce((a, b) => a + b, 0) / zeroStreaks.length : 0;
+            const maxStreak = zeroStreaks.length > 0 ? Math.max(...zeroStreaks) : 0;
+            const totalZero = zeroStreaks.reduce((a, b) => a + b, 0);
+            const csColor = currentStreak > meanStreak * 1.5 ? 'text-red-600' : currentStreak > meanStreak ? 'text-orange-600' : 'text-gray-900';
+            tbody.innerHTML = `
+                <tr><td class="text-gray-500">현재 전멸 streak</td><td class="text-right font-bold ${csColor}">${currentStreak}회</td></tr>
+                <tr><td class="text-gray-500">평균 streak 길이</td><td class="text-right font-semibold text-gray-900">${meanStreak.toFixed(1)}회</td></tr>
+                <tr><td class="text-gray-500">최장 streak</td><td class="text-right font-semibold text-gray-900">${maxStreak}회</td></tr>
+                <tr><td class="text-gray-500">총 streak 발생</td><td class="text-right font-semibold text-gray-900">${zeroStreaks.length}회</td></tr>
+                <tr><td class="text-gray-500">전멸 회차 합계</td><td class="text-right font-semibold text-gray-900">${totalZero}회</td></tr>
+            `;
+        }
 
     </script>
 

@@ -4,6 +4,9 @@
 <head>
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <title>Lotto Lab - 제곱수 (Supabase AI)</title>
     <link href="css/tailwind.css" rel="stylesheet" />
 
@@ -32,6 +35,8 @@
 
     <!-- NLP Modules -->
     <script src="js/NLPProcessor.js"></script>
+    <script src="js/AutoNLPMatcher.js"></script>
+    <script src="js/auto_nlp_loader.js" defer></script>
     <script src="js/NLPInputComponent.js"></script>
     <script src="js/BasicAnalysisNLP.js"></script>
 
@@ -290,6 +295,58 @@
         #aiQnaContent p {
             font-size: 1.125rem !important;
         }
+
+        /* [fix-333] 제곱수 보조 분석 — impeccable 가이드 */
+        .sq-input {
+            background: transparent; border: 0; border-bottom: 1px solid #E5E7EB;
+            padding: 4px 18px 4px 6px; font-size: 13px; color: #0F172A;
+            outline: none; transition: border-color 180ms ease;
+            font-feature-settings: "tnum"; -moz-appearance: textfield;
+        }
+        .sq-input:focus { border-bottom-color: #3B82F6; }
+        .sq-input::-webkit-inner-spin-button, .sq-input::-webkit-outer-spin-button { opacity: 0.5; margin-left: 4px; }
+        #sqGapTable td, #sqLowHighTable td, #sqSpecialTable td, #sqStreakTable td { padding: 8px 8px; border-bottom: 1px solid #F3F4F6; }
+        #sqGapTable tbody tr:hover, #sqLowHighTable tbody tr:hover, #sqSpecialTable tbody tr:hover, #sqStreakTable tbody tr:hover { background: #FAFAFA; }
+        .sq-pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 600; line-height: 1.4; }
+        .sq-pill-hot { background: #FEF2F2; color: #DC2626; }
+        .sq-pill-cold { background: #ECFEFF; color: #0E7490; }
+        .sq-pill-warm { background: #FFF7ED; color: #C2410C; }
+        .sq-pill-norm { background: #F1F5F9; color: #475569; }
+        .sq-num-chip { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%; font-size: 13px; font-weight: 700; font-feature-settings: "tnum"; }
+        .sq-num-chip.low { background: #FCE7F3; color: #BE185D; }
+        .sq-num-chip.high { background: #E0E7FF; color: #3730A3; }
+        .sq-num-chip.special { background: #FEF3C7; color: #92400E; box-shadow: 0 0 0 2px #F59E0B inset; }
+
+        /* [fix-335c] 제곱수 카운트 캘린더 v2 — 컴팩트 (ultra-sparse) */
+        .sq-cal-stats {
+            display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+            font-size: 11px; color: #94A3B8; font-feature-settings: "tnum";
+            margin-bottom: 12px; padding: 8px 12px;
+            background: #FAFAFA; border-radius: 8px;
+        }
+        .sq-cal-stats strong { color: #0F172A; font-weight: 700; font-size: 12px; }
+        .sq-cal-row { display: grid; grid-template-columns: 56px 1fr; gap: 8px; align-items: center; margin-bottom: 3px; }
+        .sq-cal-label { font-size: 10px; color: #94A3B8; font-feature-settings: "tnum"; text-align: right; padding-right: 2px; line-height: 1.15; }
+        .sq-cal-label strong { display: block; color: #0F172A; font-weight: 700; font-size: 11px; }
+        .sq-cal-label .meta { display: block; font-size: 9px; color: #CBD5E1; margin-top: 1px; }
+        .sq-cal-cells { display: grid; grid-template-columns: repeat(10, 1fr); gap: 3px; }
+        .sq-cal-cell {
+            height: 30px; border-radius: 4px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 12px; font-weight: 700; font-feature-settings: "tnum";
+            transition: transform 120ms ease, box-shadow 120ms ease;
+            cursor: default;
+        }
+        .sq-cal-cell:hover { transform: scale(1.15); box-shadow: 0 4px 14px rgba(15,23,42,0.18); z-index: 5; }
+        /* 제곱수: 평균 0.80 — 0=흔함, 1=중간, 2=above avg, 3+=드문 */
+        .sq-cal-cell.cnt-0 { background: #FAFAFA; color: #94A3B8; }
+        .sq-cal-cell.cnt-1 { background: #FCE7F3; color: #BE185D; }
+        .sq-cal-cell.cnt-2 { background: #EC4899; color: #FFFFFF; }
+        .sq-cal-cell.cnt-3p { background: #9D174D; color: #FBBF24; }
+        .sq-cal-cell.is-latest { box-shadow: 0 0 0 2px #0F172A; }
+        .sq-cal-empty { height: 30px; }
+        .sq-cal-legend { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; margin-top: 10px; font-size: 11px; color: #94A3B8; }
+        .sq-cal-legend .legend-cell { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 3px; font-size: 10px; font-weight: 700; font-feature-settings: "tnum"; }
     </style>
     <script src="js/deep_insight_panel_v3.js?v=20260502c"></script>
 </head>
@@ -408,6 +465,148 @@
                         </div>
                     </div>
 
+                    <!-- ════════════════════════════════════════════════ -->
+                    <!-- [fix-333] 제곱수 보조 분석 6종 — 단일 흰 박스 통합  -->
+                    <!-- ════════════════════════════════════════════════ -->
+                    <div class="bg-white rounded-xl border border-gray-200 mb-6 overflow-hidden">
+
+                        <!-- §1. 시계열 추세 -->
+                        <div class="p-8">
+                            <div class="flex items-baseline justify-between mb-6">
+                                <div>
+                                    <h3 class="text-lg font-bold text-gray-900 tracking-tight">시계열 추세</h3>
+                                    <p class="text-xs text-gray-500 mt-1">제곱수 카운트(0~3) 이동평균 + ±1σ · 평균선 0.80 (이항 6/45 × 6 기대값) · ultra-sparse 도메인</p>
+                                </div>
+                                <div class="flex items-baseline gap-2 text-xs text-gray-500">
+                                    <label>MA 윈도우</label>
+                                    <input type="number" id="sqMaWindow" value="20" min="3" max="50"
+                                        oninput="renderSqMa()" class="sq-input w-16 text-center tabular-nums">
+                                    <span>회</span>
+                                </div>
+                            </div>
+                            <div class="h-64 mb-6"><canvas id="sqMaChart"></canvas></div>
+                            <div class="pt-6 border-t border-gray-100">
+                                <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-3">
+                                    제곱수 카운트 캘린더 (좌=과거, 우=최신)
+                                </div>
+                                <div id="sqCalendar"></div>
+                            </div>
+                        </div>
+
+                        <!-- §2. 카운트 분포 0~3 + 전멸률 강조 -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">카운트 분포 (전멸률 강조)</h3>
+                            <p class="text-xs text-gray-500 mb-4">제곱수는 ultra-sparse — 0개가 약 45% / 1개가 약 36% / 2개+ 약 19%</p>
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
+                                <div class="md:col-span-2">
+                                    <div class="h-56"><canvas id="sqCountDist"></canvas></div>
+                                </div>
+                                <div class="text-center">
+                                    <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">현재 전멸률</div>
+                                    <div class="text-5xl font-bold text-gray-900 tabular-nums" id="sqZeroPct">—</div>
+                                    <div class="text-xs text-gray-500 mt-2">이론 <span id="sqZeroExp" class="tabular-nums">—</span></div>
+                                    <div class="mt-4 pt-4 border-t border-gray-100">
+                                        <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">관측 평균</div>
+                                        <div class="text-2xl font-bold text-gray-900 tabular-nums" id="sqObsMean">—</div>
+                                        <div class="text-xs text-gray-500 mt-1">이론 <span id="sqExpMean" class="tabular-nums">0.80</span></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- §3. 6개 per-element 갭·핫콜드 -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">6개 제곱수 · 미출현 갭 + 핫·콜드</h3>
+                            <p class="text-xs text-gray-500 mb-4">각 제곱수의 출현 + 평균 갭 + z-score · 핫 = 최근 5회차 ≥ 2회 / 콜드 = 최근 30회차 0회 · sparse 도메인은 갭 추적이 핵심</p>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-sm tabular-nums" id="sqGapTable">
+                                    <thead>
+                                        <tr class="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                            <th class="py-2 pr-3 border-b border-gray-200">번호</th>
+                                            <th class="py-2 px-3 border-b border-gray-200">속성</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">출현/회</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">평균 갭</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">현재 갭</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">z-score</th>
+                                            <th class="py-2 pl-3 border-b border-gray-200 text-center">상태</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="sqGapBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- §4. 저(1,4,9) vs 고(16,25,36) 분리 -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">저 제곱수 vs 고 제곱수</h3>
+                            <p class="text-xs text-gray-500 mb-4">한 자리 {1, 4, 9} vs 두 자리 {16, 25, 36} 그룹별 출현 추세 · 풀 균등(3·3)이라 단순 비교 가능</p>
+                            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                <div class="lg:col-span-2">
+                                    <div class="h-56"><canvas id="sqLowHighChart"></canvas></div>
+                                </div>
+                                <div>
+                                    <div class="overflow-x-auto">
+                                        <table class="w-full text-sm tabular-nums" id="sqLowHighTable">
+                                            <thead>
+                                                <tr class="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                                    <th class="py-2 pr-3 border-b border-gray-200">그룹</th>
+                                                    <th class="py-2 px-3 border-b border-gray-200 text-right">평균/회</th>
+                                                    <th class="py-2 pl-3 border-b border-gray-200 text-right">기대</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="sqLowHighBody"></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- §5. 36 = 제곱+삼각 / 1 = 제곱+삼각 동시 -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">제곱+삼각 교집합 분석 · 1 · 36</h3>
+                            <p class="text-xs text-gray-500 mb-4">1 = 1² 이자 첫 삼각수 / 36 = 6² 이자 8번째 삼각수 · 두 교집합 값의 출현 + 동반 + 6개 제곱수 안에서의 비중</p>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-sm tabular-nums" id="sqSpecialTable">
+                                    <thead>
+                                        <tr class="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                            <th class="py-2 pr-3 border-b border-gray-200">번호</th>
+                                            <th class="py-2 px-3 border-b border-gray-200">속성</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">출현</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">기대</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">현재 갭</th>
+                                            <th class="py-2 pl-3 border-b border-gray-200 text-right">상태</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="sqSpecialBody"></tbody>
+                                </table>
+                                <div id="sqSpecialNote" class="mt-4 text-xs text-gray-600 tabular-nums"></div>
+                            </div>
+                        </div>
+
+                        <!-- §6. 전멸 streak 분석 -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">전멸(0개) streak 분석</h3>
+                            <p class="text-xs text-gray-500 mb-4">제곱수 0개 연속 회차 분포 · ultra-sparse 도메인의 핵심 지표 · 현재 streak가 평균 대비 길수록 출현 임박</p>
+                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch">
+                                <div class="relative" style="min-height: 220px"><canvas id="sqStreakChart"></canvas></div>
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-sm tabular-nums" id="sqStreakTable">
+                                        <thead>
+                                            <tr class="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                                <th class="py-2 pr-3 border-b border-gray-200">지표</th>
+                                                <th class="py-2 pl-3 border-b border-gray-200 text-right">값</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="sqStreakBody"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- ════════════════════════════════════════════════ -->
+                    <!-- [/fix-333] 단일 박스 통합 끝                       -->
+                    <!-- ════════════════════════════════════════════════ -->
+
                     <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
                         <div class="flex items-center justify-between mb-4">
                             <h3 class="text-xl font-bold text-gray-900">조합 필터</h3>
@@ -465,9 +664,9 @@
                         </div>
                     </div>
 
-                    <!-- [표준화] 리스트 섹션 (Integrated Header) -->
-                    <div class="rounded-xl overflow-hidden mt-6">
-                        <div class="flex items-center justify-between mb-4 px-2">
+                    <!-- [fix-398] 리스트 섹션 — 헤더 + 표 흰 박스 일체화 -->
+                    <div class="bg-white rounded-xl border border-gray-200 mt-6 overflow-hidden">
+                        <div class="flex items-center justify-between px-8 pt-6 pb-4 border-b border-gray-100">
                             <div>
                                 <h3 class="text-xl font-bold text-gray-900 mb-1">회차별 당첨번호 및 제곱수</h3>
                                 <p class="text-sm text-gray-600">최근 <span id="displayedCount"
@@ -479,7 +678,7 @@
                             </button>
                         </div>
 
-                        <div class="overflow-x-auto custom-scrollbar border border-gray-200 rounded-xl bg-white"
+                        <div class="overflow-x-auto custom-scrollbar"
                             style="max-height: 600px;">
                             <table class="w-full text-sm">
                                 <thead
@@ -706,6 +905,9 @@
             if (save) {
                 await saveFilterSettings();
             }
+
+            // [fix-333] 보조 분석 6종 갱신
+            if (typeof renderAllSqSupp === 'function') renderAllSqSupp();
         }
 
         // [New] 필터 플래그 업데이트
@@ -861,6 +1063,10 @@
                 updateSliderBackground(currentRange);
                 await initDeepInsight(); // [수정] await 추가
                 applyRecent10Highlight();
+
+                // [fix-333] 보조 분석 6종 초기 렌더링
+                if (typeof invalidateSqCache === 'function') invalidateSqCache();
+                if (typeof renderAllSqSupp === 'function') renderAllSqSupp();
 
                 // 🆕 신규 회차 데이터 감지 및 자동 필터 초기화
                 checkAndResetOnNewDraw();
@@ -1719,6 +1925,449 @@ ${contextData}
             squareChart.data.labels = data.labels;
             squareChart.data.datasets[0].data = data.values;
             squareChart.update();
+        }
+
+        // ════════════════════════════════════════════════════════════
+        // [fix-333] 제곱수 보조 분석 6종 — impeccable 가이드 (sparse)
+        // ════════════════════════════════════════════════════════════
+        const SQ_ACCENT = '#3B82F6';
+        const SQ_ACCENT_LIGHT = 'rgba(59, 130, 246, 0.08)';
+        const SQ_GRID = '#F1F5F9';
+        const SQ_INK_2 = '#475569';
+        const SQ_INK_3 = '#94A3B8';
+        const SQ_PINK = '#EC4899';
+
+        const SQ_LIST = [1, 4, 9, 16, 25, 36];
+        const SQ_LOW = [1, 4, 9];
+        const SQ_HIGH = [16, 25, 36];
+        const SQ_TRI_INTERSECT = [1, 36]; // 제곱+삼각 교집합
+
+        let _sqCache = null;
+        function getSqCache() {
+            if (_sqCache) return _sqCache;
+            const data = window.allDrawData || allDrawData || [];
+            _sqCache = data.map(d => {
+                const nums = d.numbers || [];
+                const numSet = new Set(nums);
+                const sqCount = nums.filter(n => squareNumbers.has(n)).length;
+                const lowCount = nums.filter(n => SQ_LOW.includes(n)).length;
+                const highCount = nums.filter(n => SQ_HIGH.includes(n)).length;
+                return { round: d.round, nums, numSet, sqCount, lowCount, highCount };
+            });
+            return _sqCache;
+        }
+        function invalidateSqCache() { _sqCache = null; }
+
+        function renderAllSqSupp() {
+            try {
+                if (!allDrawData || allDrawData.length === 0) return;
+                invalidateSqCache();
+                renderSqMa();
+                renderSqCalendar();
+                renderSqCountDist();
+                renderSqGap();
+                renderSqLowHigh();
+                renderSqSpecial();
+                renderSqStreak();
+            } catch (e) { console.warn('[sq-supp]', e); }
+        }
+
+        // ─── §1-A. 시계열 추세 ───
+        let sqMaInst = null;
+        function renderSqMa() {
+            const canvas = document.getElementById('sqMaChart');
+            if (!canvas) return;
+            const win = Math.max(3, Math.min(50, parseInt(document.getElementById('sqMaWindow')?.value) || 20));
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getSqCache().slice(0, range).slice().reverse();
+            if (cache.length === 0) return;
+            const labels = cache.map(d => d.round);
+            const counts = cache.map(d => d.sqCount);
+            const ma = [], up = [], lo = [];
+            for (let i = 0; i < counts.length; i++) {
+                const s = Math.max(0, i - win + 1);
+                const sl = counts.slice(s, i + 1);
+                const m = sl.reduce((a, b) => a + b, 0) / sl.length;
+                const v = sl.reduce((a, b) => a + (b - m) ** 2, 0) / sl.length;
+                ma.push(m); up.push(m + Math.sqrt(v)); lo.push(m - Math.sqrt(v));
+            }
+            const expected = 6 * 6 / 45; // 0.80
+            if (sqMaInst) sqMaInst.destroy();
+            sqMaInst = new Chart(canvas.getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels, datasets: [
+                        { label: '제곱수 카운트', data: counts, borderColor: 'rgba(15,23,42,0.35)', borderWidth: 1, pointRadius: 0, fill: false, tension: 0.25 },
+                        { label: `이동평균 ${win}회`, data: ma, borderColor: SQ_ACCENT, borderWidth: 2, pointRadius: 0, fill: false, tension: 0.25 },
+                        { label: '±1σ', data: up, borderColor: 'rgba(59,130,246,0.25)', borderWidth: 1, pointRadius: 0, borderDash: [3, 3], fill: '+1', backgroundColor: SQ_ACCENT_LIGHT },
+                        { label: ' ', data: lo, borderColor: 'rgba(59,130,246,0.25)', borderWidth: 1, pointRadius: 0, borderDash: [3, 3], fill: false },
+                        { label: '평균 0.80', data: Array(counts.length).fill(expected), borderColor: 'rgba(15,23,42,0.35)', borderDash: [4, 4], borderWidth: 1, pointRadius: 0, fill: false }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top', align: 'end', labels: { boxWidth: 6, font: { size: 11, family: 'Pretendard' }, color: SQ_INK_2 } } },
+                    scales: {
+                        y: { min: 0, max: 3, grid: { color: SQ_GRID, drawBorder: false }, ticks: { color: SQ_INK_3, font: { size: 11 }, stepSize: 1 } },
+                        x: { grid: { display: false }, ticks: { color: SQ_INK_3, font: { size: 11 }, display: range < 80, autoSkip: true, maxRotation: 0 } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+        }
+
+        // ─── §1-B. 카운트 캘린더 v2 — 10회차 그룹 + 카운트 숫자 표시 ───
+        function renderSqCalendar() {
+            const c = document.getElementById('sqCalendar');
+            if (!c) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getSqCache().slice(0, range);
+            if (cache.length === 0) { c.innerHTML = ''; return; }
+
+            const chrono = cache.slice().reverse();
+            const latestRound = cache[0].round;
+            const oldestRound = chrono[0].round;
+            const counts = chrono.map(d => d.sqCount);
+            const total = counts.length;
+            const obs0 = counts.filter(x => x === 0).length;
+            const max = Math.max(...counts);
+            const mean = counts.reduce((a, b) => a + b, 0) / total;
+
+            function cellClass(cnt) {
+                if (cnt === 0) return 'cnt-0';
+                if (cnt === 1) return 'cnt-1';
+                if (cnt === 2) return 'cnt-2';
+                return 'cnt-3p';
+            }
+
+            const groups = new Map();
+            chrono.forEach(d => {
+                const groupStart = Math.floor(d.round / 10) * 10;
+                if (!groups.has(groupStart)) groups.set(groupStart, []);
+                groups.get(groupStart).push(d);
+            });
+
+            let html = `<div class="sq-cal-stats">
+                <span><span class="text-gray-400">분석 범위</span> <strong>${oldestRound} ~ ${latestRound}회</strong> <span class="text-gray-400">(${total}회)</span></span>
+                <span><span class="text-gray-400">평균</span> <strong>${mean.toFixed(2)}</strong></span>
+                <span><span class="text-gray-400">최대</span> <strong>${max}개</strong></span>
+                <span><span class="text-gray-400">전멸(0개)</span> <strong>${obs0}회</strong> <span class="text-gray-400">(${(obs0/total*100).toFixed(1)}%)</span></span>
+            </div><div>`;
+
+            const sortedKeys = Array.from(groups.keys()).sort((a, b) => a - b);
+            sortedKeys.forEach(start => {
+                const draws = groups.get(start);
+                const drawByRound = new Map(draws.map(d => [d.round, d]));
+                const groupMean = draws.reduce((a, d) => a + d.sqCount, 0) / draws.length;
+                html += `<div class="sq-cal-row">
+                    <div class="sq-cal-label">
+                        <strong>${start}~</strong>
+                        <span class="meta">평균 ${groupMean.toFixed(1)}</span>
+                    </div>
+                    <div class="sq-cal-cells">`;
+                for (let i = 0; i < 10; i++) {
+                    const round = start + i;
+                    const d = drawByRound.get(round);
+                    if (!d) {
+                        html += `<div class="sq-cal-empty"></div>`;
+                    } else {
+                        const isLatest = round === latestRound ? ' is-latest' : '';
+                        const sortedNums = [...d.nums].sort((a, b) => a - b);
+                        const sqList = sortedNums.filter(n => squareNumbers.has(n));
+                        const tooltip = `${round}회 · 제곱수 ${d.sqCount}개\n전체: ${sortedNums.join(', ')}\n제곱수: ${sqList.length > 0 ? sqList.join(', ') : '없음'}`;
+                        html += `<div class="sq-cal-cell ${cellClass(d.sqCount)}${isLatest}" title="${tooltip}">${d.sqCount}</div>`;
+                    }
+                }
+                html += `</div></div>`;
+            });
+            html += `</div>`;
+
+            const legendData = [
+                { cnt: 0, cls: 'cnt-0' },
+                { cnt: 1, cls: 'cnt-1' },
+                { cnt: 2, cls: 'cnt-2' },
+                { cnt: '3+', cls: 'cnt-3p' }
+            ];
+            html += `<div class="sq-cal-legend">
+                <span class="text-gray-500 mr-1">제곱수 개수:</span>
+                ${legendData.map(L => `<span class="legend-cell ${L.cls}">${L.cnt}</span>`).join('')}
+                <span class="ml-3 flex items-center gap-1.5">
+                    <span style="display:inline-block;width:16px;height:16px;border:2px solid #0F172A;border-radius:3px"></span>
+                    <span>최신</span>
+                </span>
+            </div>`;
+
+            c.innerHTML = html;
+        }
+
+        // ─── §2. 카운트 분포 + 전멸률 강조 ───
+        let sqCountDistInst = null;
+        function renderSqCountDist() {
+            const canvas = document.getElementById('sqCountDist');
+            if (!canvas) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getSqCache().slice(0, range);
+            const obs = [0, 0, 0, 0]; // 0~3
+            cache.forEach(d => { if (d.sqCount >= 0 && d.sqCount <= 3) obs[d.sqCount]++; });
+            const N = cache.length || 1;
+            const p = 6 / 45;
+            const C = [1, 6, 15, 20];
+            const exp = [0, 1, 2, 3].map(k => C[k] * Math.pow(p, k) * Math.pow(1 - p, 6 - k) * N);
+            if (sqCountDistInst) sqCountDistInst.destroy();
+            sqCountDistInst = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: ['0개 (전멸)', '1개', '2개', '3개+'],
+                    datasets: [
+                        { label: '관측', data: obs, backgroundColor: ['#94A3B8', SQ_PINK, SQ_PINK, SQ_PINK], borderRadius: 4 },
+                        { label: '이론(이항)', data: exp.map(v => +v.toFixed(2)), type: 'line', borderColor: 'rgba(15,23,42,0.5)', borderDash: [4, 4], borderWidth: 1.5, pointRadius: 3, pointBackgroundColor: 'rgba(15,23,42,0.5)', fill: false }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top', align: 'end', labels: { boxWidth: 6, font: { size: 11, family: 'Pretendard' }, color: SQ_INK_2 } } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: SQ_GRID, drawBorder: false }, ticks: { color: SQ_INK_3, font: { size: 11 } } },
+                        x: { grid: { display: false }, ticks: { color: SQ_INK_2, font: { size: 11 } } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+            const obsMean = obs.reduce((a, b, i) => a + b * i, 0) / N;
+            const expMean = exp.reduce((a, b, i) => a + b * i, 0) / N;
+            const zeroPct = (obs[0] / N * 100).toFixed(1);
+            const expZeroPct = (Math.pow(1 - p, 6) * 100).toFixed(1);
+            const elZ = document.getElementById('sqZeroPct'); if (elZ) elZ.textContent = zeroPct + '%';
+            const elZE = document.getElementById('sqZeroExp'); if (elZE) elZE.textContent = expZeroPct + '%';
+            const elM = document.getElementById('sqObsMean'); if (elM) elM.textContent = obsMean.toFixed(2);
+        }
+
+        // ─── §3. 6개 per-element 갭·핫콜드 ───
+        function renderSqGap() {
+            const tbody = document.getElementById('sqGapBody');
+            if (!tbody) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getSqCache().slice(0, range);
+            if (cache.length === 0) return;
+            const latestRound = cache[0].round;
+            const recent5 = cache.slice(0, 5);
+            const recent30 = cache.slice(0, Math.min(30, cache.length));
+            const rows = SQ_LIST.map(s => {
+                let appearances = 0;
+                let lastRound = null;
+                const gaps = [];
+                let prevRound = null;
+                const chrono = cache.slice().reverse();
+                chrono.forEach(d => {
+                    if (d.numSet.has(s)) {
+                        appearances++;
+                        if (prevRound !== null) gaps.push(d.round - prevRound);
+                        prevRound = d.round;
+                        lastRound = d.round;
+                    }
+                });
+                const meanGap = gaps.length > 0 ? gaps.reduce((a, b) => a + b, 0) / gaps.length : range;
+                const sdGap = gaps.length > 1 ? Math.sqrt(gaps.reduce((a, b) => a + (b - meanGap) ** 2, 0) / gaps.length) : 0;
+                const currentGap = lastRound !== null ? latestRound - lastRound : range;
+                const z = sdGap > 0 ? (currentGap - meanGap) / sdGap : 0;
+                const r5 = recent5.filter(d => d.numSet.has(s)).length;
+                const r30 = recent30.filter(d => d.numSet.has(s)).length;
+                let label, cls;
+                if (r5 >= 2) { label = '🔥 핫'; cls = 'sq-pill sq-pill-hot'; }
+                else if (r30 === 0) { label = '🧊 콜드'; cls = 'sq-pill sq-pill-cold'; }
+                else if (r5 === 1) { label = '온화'; cls = 'sq-pill sq-pill-warm'; }
+                else { label = '평이'; cls = 'sq-pill sq-pill-norm'; }
+                const isSpecial = SQ_TRI_INTERSECT.includes(s);
+                const chipCls = isSpecial ? 'special' : (SQ_LOW.includes(s) ? 'low' : 'high');
+                const attr = isSpecial
+                    ? (s === 1 ? '1² · 첫 삼각수' : '6² · 8번째 삼각수')
+                    : `${Math.sqrt(s)}² (${SQ_LOW.includes(s) ? '저' : '고'})`;
+                return { s, attr, chipCls, appearances, meanGap, currentGap, z, label, cls };
+            });
+            tbody.innerHTML = rows.map(r => {
+                const zColor = r.z > 1.5 ? 'text-red-600' : r.z < -1.0 ? 'text-blue-600' : 'text-gray-700';
+                return `<tr>
+                    <td><span class="sq-num-chip ${r.chipCls}">${r.s}</span></td>
+                    <td class="text-xs text-gray-600">${r.attr}</td>
+                    <td class="text-right text-gray-600">${r.appearances}회</td>
+                    <td class="text-right text-gray-600">${r.meanGap.toFixed(1)}</td>
+                    <td class="text-right text-gray-900 font-semibold">${r.currentGap}</td>
+                    <td class="text-right ${zColor}">${r.z >= 0 ? '+' : ''}${r.z.toFixed(2)}</td>
+                    <td class="text-center"><span class="${r.cls}">${r.label}</span></td>
+                </tr>`;
+            }).join('');
+        }
+
+        // ─── §4. 저(1,4,9) vs 고(16,25,36) ───
+        let sqLowHighInst = null;
+        function renderSqLowHigh() {
+            const canvas = document.getElementById('sqLowHighChart');
+            const tbody = document.getElementById('sqLowHighBody');
+            if (!canvas || !tbody) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getSqCache().slice(0, range).slice().reverse();
+            if (cache.length === 0) return;
+            const win = 30;
+            const labels = cache.map(d => d.round);
+            const lowSeries = [], highSeries = [];
+            const lowArr = cache.map(d => d.lowCount);
+            const highArr = cache.map(d => d.highCount);
+            for (let i = 0; i < cache.length; i++) {
+                const s = Math.max(0, i - win + 1);
+                lowSeries.push(lowArr.slice(s, i + 1).reduce((a, b) => a + b, 0) / (i - s + 1));
+                highSeries.push(highArr.slice(s, i + 1).reduce((a, b) => a + b, 0) / (i - s + 1));
+            }
+            if (sqLowHighInst) sqLowHighInst.destroy();
+            sqLowHighInst = new Chart(canvas.getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels, datasets: [
+                        { label: '저(1,4,9) 30회 MA', data: lowSeries, borderColor: '#EC4899', borderWidth: 2, pointRadius: 0, fill: false, tension: 0.25 },
+                        { label: '고(16,25,36) 30회 MA', data: highSeries, borderColor: '#3730A3', borderWidth: 2, pointRadius: 0, fill: false, tension: 0.25 }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top', align: 'end', labels: { boxWidth: 6, font: { size: 11, family: 'Pretendard' }, color: SQ_INK_2 } } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: SQ_GRID, drawBorder: false }, ticks: { color: SQ_INK_3, font: { size: 11 } } },
+                        x: { grid: { display: false }, ticks: { color: SQ_INK_3, font: { size: 11 }, display: range < 80, autoSkip: true, maxRotation: 0 } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+            const total = cache.length || 1;
+            const lowAvg = cache.reduce((a, d) => a + d.lowCount, 0) / total;
+            const highAvg = cache.reduce((a, d) => a + d.highCount, 0) / total;
+            const expGroup = 3 * 6 / 45; // 0.40
+            tbody.innerHTML = `
+                <tr>
+                    <td class="font-bold text-gray-900"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#EC4899;margin-right:6px"></span>저 (1,4,9)</td>
+                    <td class="text-right text-gray-900 font-semibold">${lowAvg.toFixed(2)}</td>
+                    <td class="text-right text-gray-500">${expGroup.toFixed(2)}</td>
+                </tr>
+                <tr>
+                    <td class="font-bold text-gray-900"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#3730A3;margin-right:6px"></span>고 (16,25,36)</td>
+                    <td class="text-right text-gray-900 font-semibold">${highAvg.toFixed(2)}</td>
+                    <td class="text-right text-gray-500">${expGroup.toFixed(2)}</td>
+                </tr>
+            `;
+        }
+
+        // ─── §5. 1, 36 = 제곱+삼각 교집합 ───
+        function renderSqSpecial() {
+            const tbody = document.getElementById('sqSpecialBody');
+            const note = document.getElementById('sqSpecialNote');
+            if (!tbody) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getSqCache().slice(0, range);
+            if (cache.length === 0) return;
+            const latestRound = cache[0].round;
+            const expected = cache.length * 6 / 45;
+            const recent5 = cache.slice(0, 5);
+            const recent30 = cache.slice(0, Math.min(30, cache.length));
+            const specials = [
+                { num: 1, attr: '1² = 첫 삼각수 (제곱+삼각 교집합)' },
+                { num: 36, attr: '6² = 8번째 삼각수 (제곱+삼각 교집합)' }
+            ];
+            tbody.innerHTML = specials.map(({ num, attr }) => {
+                let cnt = 0, lastRound = null;
+                cache.forEach(d => {
+                    if (d.numSet.has(num)) {
+                        cnt++;
+                        if (lastRound === null) lastRound = d.round;
+                    }
+                });
+                const currentGap = lastRound !== null ? latestRound - lastRound : range;
+                const r5 = recent5.filter(d => d.numSet.has(num)).length;
+                const r30 = recent30.filter(d => d.numSet.has(num)).length;
+                let label, cls;
+                if (r5 >= 2) { label = '🔥 핫'; cls = 'sq-pill sq-pill-hot'; }
+                else if (r30 === 0) { label = '🧊 콜드'; cls = 'sq-pill sq-pill-cold'; }
+                else if (r5 === 1) { label = '온화'; cls = 'sq-pill sq-pill-warm'; }
+                else { label = '평이'; cls = 'sq-pill sq-pill-norm'; }
+                return `<tr>
+                    <td><span class="sq-num-chip special">${num}</span></td>
+                    <td class="text-xs text-gray-600">${attr}</td>
+                    <td class="text-right text-gray-900 font-semibold">${cnt}회</td>
+                    <td class="text-right text-gray-500">${expected.toFixed(1)}</td>
+                    <td class="text-right text-gray-900 font-semibold">${currentGap}회</td>
+                    <td class="text-right"><span class="${cls}">${label}</span></td>
+                </tr>`;
+            }).join('');
+            // 1, 36 동시 출현
+            let bothCount = 0, bothLast = null;
+            cache.forEach(d => {
+                if (d.numSet.has(1) && d.numSet.has(36)) {
+                    bothCount++;
+                    if (bothLast === null) bothLast = d.round;
+                }
+            });
+            const bothExp = cache.length * (6 / 45) * (5 / 44);
+            // 6개 제곱수 안에서 교집합 비중
+            const totalSqInRange = cache.reduce((a, d) => a + d.sqCount, 0);
+            const intersectInRange = cache.reduce((a, d) => a + (d.numSet.has(1) ? 1 : 0) + (d.numSet.has(36) ? 1 : 0), 0);
+            const intersectPct = totalSqInRange > 0 ? (intersectInRange / totalSqInRange * 100).toFixed(1) : '0';
+            if (note) {
+                note.innerHTML = `<span class="text-gray-400">1·36 동시 출현</span> <strong class="text-gray-900">${bothCount}회</strong> <span class="text-gray-400">(기대 ${bothExp.toFixed(1)})</span> &nbsp;·&nbsp; <span class="text-gray-400">마지막 동반</span> <strong class="text-gray-900">${bothLast !== null ? bothLast + '회' : '없음'}</strong> &nbsp;·&nbsp; <span class="text-gray-400">전체 제곱수 출현 중 교집합 비중</span> <strong class="text-gray-900">${intersectPct}%</strong> <span class="text-gray-400">(이론 33.3%)</span>`;
+            }
+        }
+
+        // ─── §6. 전멸 streak 분석 ───
+        let sqStreakInst = null;
+        function renderSqStreak() {
+            const canvas = document.getElementById('sqStreakChart');
+            const tbody = document.getElementById('sqStreakBody');
+            if (!canvas || !tbody) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getSqCache().slice(0, range).slice().reverse(); // chronological
+            if (cache.length === 0) return;
+            // 0개 streak 만 추적
+            const zeroStreaks = [];
+            let cur = 0;
+            cache.forEach(d => {
+                if (d.sqCount === 0) cur++;
+                else { if (cur > 0) zeroStreaks.push(cur); cur = 0; }
+            });
+            // 현재 streak (chronological 끝에서 0 연속)
+            let currentStreak = 0;
+            for (let i = cache.length - 1; i >= 0; i--) {
+                if (cache[i].sqCount === 0) currentStreak++;
+                else break;
+            }
+            const maxLen = zeroStreaks.length > 0 ? Math.min(10, Math.max(...zeroStreaks)) : 1;
+            const labels = [], values = [];
+            for (let len = 1; len <= maxLen; len++) {
+                labels.push(`${len}회`);
+                values.push(zeroStreaks.filter(s => s === len).length);
+            }
+            const above = zeroStreaks.filter(s => s > maxLen).length;
+            if (above > 0) { labels.push(`${maxLen}+`); values.push(above); }
+            if (sqStreakInst) sqStreakInst.destroy();
+            sqStreakInst = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: { labels, datasets: [{ label: '발생 횟수', data: values, backgroundColor: '#94A3B8', borderRadius: 4 }] },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: SQ_GRID, drawBorder: false }, ticks: { color: SQ_INK_3, font: { size: 11 } } },
+                        x: { grid: { display: false }, ticks: { color: SQ_INK_2, font: { size: 11 } }, title: { display: true, text: '전멸 streak 길이', color: SQ_INK_3, font: { size: 11 } } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+            const meanStreak = zeroStreaks.length > 0 ? zeroStreaks.reduce((a, b) => a + b, 0) / zeroStreaks.length : 0;
+            const maxStreak = zeroStreaks.length > 0 ? Math.max(...zeroStreaks) : 0;
+            const totalZero = zeroStreaks.reduce((a, b) => a + b, 0);
+            const csColor = currentStreak > meanStreak * 1.5 ? 'text-red-600' : currentStreak > meanStreak ? 'text-orange-600' : 'text-gray-900';
+            tbody.innerHTML = `
+                <tr><td class="text-gray-500">현재 전멸 streak</td><td class="text-right font-bold ${csColor}">${currentStreak}회</td></tr>
+                <tr><td class="text-gray-500">평균 streak 길이</td><td class="text-right font-semibold text-gray-900">${meanStreak.toFixed(1)}회</td></tr>
+                <tr><td class="text-gray-500">최장 streak</td><td class="text-right font-semibold text-gray-900">${maxStreak}회</td></tr>
+                <tr><td class="text-gray-500">총 streak 발생</td><td class="text-right font-semibold text-gray-900">${zeroStreaks.length}회</td></tr>
+                <tr><td class="text-gray-500">전멸 회차 합계</td><td class="text-right font-semibold text-gray-900">${totalZero}회</td></tr>
+            `;
         }
 
     </script>

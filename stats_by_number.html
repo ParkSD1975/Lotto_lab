@@ -29,6 +29,8 @@
 
     <!-- NLP Modules -->
     <script src="js/NLPProcessor.js"></script>
+    <script src="js/AutoNLPMatcher.js"></script>
+    <script src="js/auto_nlp_loader.js" defer></script>
     <script src="js/NLPInputComponent.js"></script>
     <script src="js/BasicAnalysisNLP.js"></script>
 
@@ -1332,13 +1334,8 @@ ${userPrompt}
             return '#48B05A';
         }
 
+        // [fix-239] 스켈레톤을 새 인사이트 디자인 형태로 변경 — 모델 바 차트 폐기
         function _xaiSkeleton(num) {
-            const bars = _XAI_MODELS.map(m => `
-                <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px; opacity:0.4;">
-                    <span style="font-size:0.68rem; font-weight:400; color:#64748b; width:110px; flex-shrink:0;">${m.label}</span>
-                    <div style="flex:1; background:#e2e8f0; height:10px; border-radius:5px;"></div>
-                    <span style="width:28px;"></span>
-                </div>`).join('');
             return `
             <div style="background:white; border-radius:24px; border:1px solid #e2e8f0; overflow:hidden; box-shadow:0 4px 16px rgba(15,23,42,0.04);">
                 <div style="background:#0f172a; padding:1rem 1.5rem; display:flex; align-items:center; gap:12px;">
@@ -1346,22 +1343,67 @@ ${userPrompt}
                         <span class="material-symbols-outlined" style="font-size:20px; color:#38bdf8;">psychology</span>
                     </div>
                     <div style="flex:1; min-width:0;">
-                        <div style="font-size:0.95rem; font-weight:900; color:white; letter-spacing:-0.3px;">AI 딥러닝 XAI 모델 분석</div>
-                        <div style="font-size:0.62rem; color:#94a3b8; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; margin-top:1px;">INTELLIGENT ANALYSIS — ${num}번 분석 중...</div>
+                        <div style="font-size:0.95rem; font-weight:900; color:white; letter-spacing:-0.3px;">AI 번호별 인사이트</div>
+                        <div style="font-size:0.62rem; color:#94a3b8; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; margin-top:1px;">${num}번 · 분석 중...</div>
                     </div>
                 </div>
-                <div style="padding:1.25rem 1.5rem; background:#f8fafc;">${bars}</div>
-                <div style="padding:1.25rem 1.5rem;">
-                    <div style="background:#0f172a; border-radius:14px; padding:1.25rem; text-align:center; color:#475569; font-size:0.8rem;">
-                        <span class="material-symbols-outlined" style="color:#38bdf8; font-size:20px; display:block; margin:0 auto 8px; animation:spin 1.2s linear infinite;">progress_activity</span>
-                        AI 심층 분석 리포트 불러오는 중...
-                    </div>
+                <div style="padding:2rem; text-align:center; color:#94a3b8;">
+                    <span class="material-symbols-outlined" style="color:#38bdf8; font-size:24px; display:block; margin:0 auto 10px; animation:spin 1.2s linear infinite;">progress_activity</span>
+                    <span style="font-size:0.8rem;">데이터 불러오는 중...</span>
                 </div>
             </div>`;
         }
 
+        // [fix-243] supabaseClient 가용 대기 헬퍼 (common_v2.js 비동기 init 대응)
+        async function _waitForSupabase(maxMs = 3000) {
+            const start = Date.now();
+            while (!window.supabaseClient || typeof window.supabaseClient.from !== 'function') {
+                if (Date.now() - start > maxMs) return null;
+                await new Promise(r => setTimeout(r, 50));
+            }
+            return window.supabaseClient;
+        }
+
+        // [fix-239] supabase 직접 preload — V3 API 라운드트립 제거
+        let _xaiPreloadPromise = null;
+        async function _preloadXaiPayload() {
+            if (_xaiData) return _xaiData;
+            if (_xaiPreloadPromise) return _xaiPreloadPromise;
+            _xaiPreloadPromise = (async () => {
+                try {
+                    const sb = await _waitForSupabase();
+                    if (!sb) return null;
+                    // 최신 1회차 분석 데이터
+                    const { data } = await sb
+                        .from('deep_analysis_history')
+                        .select('analysis_data, target_round')
+                        .order('target_round', { ascending: false })
+                        .limit(1)
+                        .maybeSingle();
+                    if (!data || !data.analysis_data) return null;
+                    let ad = data.analysis_data;
+                    if (typeof ad === 'string') { try { ad = JSON.parse(ad); } catch(_) { return null; } }
+                    if (!ad) return null;
+                    _xaiData = {
+                        target_round: data.target_round,
+                        analysis: ad.analysis || ad,
+                        top_5: ad.top_5 || [],
+                        exclude_10: ad.exclude_10 || [],
+                        evidence: ad.evidence || {}
+                    };
+                    return _xaiData;
+                } catch (e) { console.warn('[XAI preload]', e); return null; }
+                finally { _xaiPreloadPromise = null; }
+            })();
+            return _xaiPreloadPromise;
+        }
+
         async function _loadXAIData() {
             if (_xaiData) return _xaiData;
+            // [fix-239] supabase preload 우선 — 즉시 로딩
+            const fast = await _preloadXaiPayload();
+            if (fast) return fast;
+            // fallback: V3 API
             if (!window.AIProxy) return null;
             try {
                 const raw = await window.AIProxy.getDeepAnalysis();
@@ -1369,6 +1411,134 @@ ${userPrompt}
                 if (d && d.analysis) { _xaiData = d; return d; }
             } catch (e) { console.warn('[XAI]', e); }
             return null;
+        }
+
+        // ════════════════════════════════════════════════
+        // [fix-237] 진짜 인사이트 헬퍼 — 도메인/합의도/시계열/동반/회귀
+        // ════════════════════════════════════════════════
+        const _PRIMES = new Set([2,3,5,7,11,13,17,19,23,29,31,37,41,43]);
+        const _COMPOSITES = new Set([4,6,8,9,10,12,14,15,16,18,20,21,22,24,25,26,27,28,30,32,33,34,35,36,38,39,40,42,44,45]);
+        const _TRIANGLES = new Set([1,3,6,10,15,21,28,36,45]);
+        const _SQUARES = new Set([1,4,9,16,25,36]);
+        const _TWINS = new Set([11,22,33,44]);
+
+        function _getDomainAttrs(n) {
+            const attrs = [];
+            // 번호대
+            const decade = n <= 10 ? '1번대' : n <= 20 ? '2번대' : n <= 30 ? '3번대' : n <= 40 ? '4번대' : '5번대';
+            attrs.push({ label: decade, color: '#0f172a' });
+            // 짝홀
+            attrs.push({ label: n % 2 === 0 ? '짝수' : '홀수', color: n % 2 === 0 ? '#3B82F6' : '#EC4899' });
+            // 저고
+            attrs.push({ label: n <= 22 ? '저번호' : '고번호', color: n <= 22 ? '#10B981' : '#F97316' });
+            // 끝수
+            attrs.push({ label: `끝수 ${n % 10}`, color: '#6366F1' });
+            // 소수/합성수
+            if (_PRIMES.has(n)) attrs.push({ label: '소수', color: '#A855F7' });
+            else if (_COMPOSITES.has(n)) attrs.push({ label: '합성수', color: '#94a3b8' });
+            // 특수수
+            if (_TRIANGLES.has(n)) attrs.push({ label: '삼각수', color: '#14B8A6' });
+            if (_SQUARES.has(n)) attrs.push({ label: '제곱수', color: '#EF4444' });
+            if (_TWINS.has(n)) attrs.push({ label: '쌍둥이', color: '#F59E0B' });
+            return attrs;
+        }
+
+        // weekly_number_xai 합의도 (10 base 중 TOP10 / BOTTOM10에 포함시킨 모델 수)
+        let _weeklyXaiCache = null;
+        async function _loadWeeklyXai(targetRound) {
+            if (_weeklyXaiCache && _weeklyXaiCache.round === targetRound) return _weeklyXaiCache.data;
+            if (!targetRound) return null;
+            const sb = await _waitForSupabase();
+            if (!sb) return null;
+            try {
+                const M = ['xgboost','catboost','tabnet','cnn','gnn','markov','autoencoder','tft','mhn','bayesian_nn'];
+                const cols = ['number', ...M.flatMap(m => [`${m}_pct`, `${m}_rank`])].join(',');
+                const { data } = await sb.from('weekly_number_xai').select(cols).eq('target_round', targetRound);
+                if (Array.isArray(data) && data.length >= 30) {
+                    _weeklyXaiCache = { round: targetRound, data };
+                    return data;
+                }
+            } catch (e) { console.warn('[XAI weekly]', e); }
+            return null;
+        }
+
+        function _getConsensus(num, weeklyXai) {
+            if (!weeklyXai) return null;
+            const M = ['xgboost','catboost','tabnet','cnn','gnn','markov','autoencoder','tft','mhn','bayesian_nn'];
+            const row = weeklyXai.find(r => Number(r.number) === num);
+            if (!row) return null;
+            let topCount = 0, botCount = 0;
+            M.forEach(m => {
+                const r = Number(row[`${m}_rank`] || 45);
+                if (r >= 1 && r <= 10) topCount++;
+                else if (r >= 36) botCount++;
+            });
+            return { topCount, botCount, total: 10 };
+        }
+
+        function _getRecentSparkline(num, allDraws, span = 100) {
+            if (!Array.isArray(allDraws)) return { hits: 0, pattern: [], avgGap: null, currentGap: null, gapMultiple: null };
+            const recent = allDraws.slice(0, span); // 최신순
+            const pattern = recent.map(d => {
+                const nums = (d.numbers || []).map(Number);
+                return nums.includes(num) ? 1 : 0;
+            }).reverse(); // 시간 순서 (오래된→최신)
+            const hits = pattern.reduce((a,b) => a+b, 0);
+            // [fix-239] 평균 출현 간격 + 현재 미출현 간격 + 비율
+            // 평균 출현 간격 = span / hits (예: 100회 중 8회 등장 → 평균 12.5회마다 1회)
+            const avgGap = hits > 0 ? span / hits : null;
+            // 현재 미출현: 최신부터 거꾸로 num 등장하는 첫 회차까지
+            let currentGap = 0;
+            for (let i = 0; i < recent.length; i++) {
+                const nums = (recent[i].numbers || []).map(Number);
+                if (nums.includes(num)) break;
+                currentGap++;
+            }
+            const gapMultiple = (avgGap && avgGap > 0) ? (currentGap / avgGap) : null;
+            return { hits, pattern, avgGap, currentGap, gapMultiple };
+        }
+
+        function _getCoOccurrence(num, allDraws, topN = 3) {
+            if (!Array.isArray(allDraws)) return [];
+            const cooc = {};
+            let myAppearances = 0;
+            allDraws.forEach(d => {
+                const nums = (d.numbers || []).map(Number);
+                if (nums.includes(num)) {
+                    myAppearances++;
+                    nums.forEach(n => {
+                        if (n !== num) cooc[n] = (cooc[n] || 0) + 1;
+                    });
+                }
+            });
+            if (myAppearances === 0) return [];
+            return Object.entries(cooc)
+                .map(([n, c]) => ({ num: Number(n), pct: Math.round(c / myAppearances * 100), count: c }))
+                .sort((a,b) => b.pct - a.pct)
+                .slice(0, topN);
+        }
+
+        function _getRegressionContext(num, allDraws, currentRound) {
+            if (!Array.isArray(allDraws)) return null;
+            // 가장 최근 num이 등장한 회차 찾기
+            for (let i = 0; i < allDraws.length; i++) {
+                const d = allDraws[i];
+                const nums = (d.numbers || []).map(Number);
+                if (nums.includes(num)) {
+                    const lastRound = d.round;
+                    const N = currentRound - lastRound;
+                    return { N, lastRound };
+                }
+            }
+            return { N: null, lastRound: null };
+        }
+
+        function _renderSparkline(pattern) {
+            // [fix-246] flex:1로 cell 균등 분배 — 컨테이너 너비 100% 채움
+            const cells = pattern.map(v =>
+                `<span style="flex:1;min-width:0;height:18px;border-radius:2px;background:${v ? '#3B82F6' : '#e2e8f0'}"></span>`
+            ).join('');
+            return `<div style="display:flex;align-items:center;flex-wrap:nowrap;gap:1px;width:100%;line-height:1">${cells}</div>`;
         }
 
         async function renderNumberXAI(num) {
@@ -1391,6 +1561,7 @@ ${userPrompt}
             const item = matrixSrc.find(m => m.num === num);
             const top5 = data.top_5 || [];
             const exclude10 = data.exclude_10 || [];
+            const targetRound = data.target_round || 0;
             const isRecommended = top5.includes(num);
             const isExcluded = exclude10.includes(num);
 
@@ -1401,33 +1572,47 @@ ${userPrompt}
                 ? 'background:#fee2e2; color:#dc2626; border:1px solid #fecaca;'
                 : 'background:#f1f5f9; color:#475569; border:1px solid #e2e8f0;';
 
-            // total은 내부 랭킹 점수(0~100,000 규모) — 최고점 대비 상대 비율(0~100)로 정규화
-            const maxTotal = matrixSrc.length > 0 ? Math.max(matrixSrc[0].total || 1, 1) : 1;
-            const scoreNorm = item ? Math.min(100, Math.round((item.total || 0) / maxTotal * 100)) : 0;
-            // 전체 순위
-            const rank = matrixSrc.findIndex(m => m.num === num) + 1;
-            const gap    = item ? item.gap : '--';
-            const freq   = item ? (item.freq * 100).toFixed(1) : '--';
-            const hasBoost   = item && item.boost > 1.0;
-            const hasPenalty = item && item.penalty < 1.0;
+            // 핵심 지표
+            const gap = item ? Number(item.gap || 0) : 0;
+            const avgGap = item ? Number(item.personal_avg_gap || 7.5) : 7.5;
+            const freqPct = item ? (Number(item.freq || 0) * 100).toFixed(1) : '--';
+            const hasBoost = item && Number(item.boost || 1.0) > 1.0;
+            const hasPenalty = item && Number(item.penalty || 1.0) < 1.0;
+            const gapStatus = gap > avgGap ? '임박' : gap > avgGap * 0.5 ? '정상' : '직후';
+            const gapStatusColor = gap > avgGap ? '#059669' : gap > avgGap * 0.5 ? '#475569' : '#94a3b8';
 
-            const modelBars = _XAI_MODELS.map(m => {
-                const mVal = (item && item.models) ? (item.models[m.key] || {}) : {};
-                const score = mVal.score || 0;
-                return `
-                <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
-                    <span style="font-size:0.68rem; font-weight:400; color:#64748b; width:110px; flex-shrink:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${m.label}</span>
-                    <div style="flex:1; background:#f1f5f9; height:10px; border-radius:5px; overflow:hidden;">
-                        <div style="width:${score}%; height:100%; border-radius:5px; background:${m.color}; transition:width 0.6s cubic-bezier(0.4,0,0.2,1);"></div>
-                    </div>
-                    <span style="font-size:0.75rem; font-weight:900; color:#1e293b; width:28px; text-align:right;">${score}</span>
-                </div>`;
-            }).join('');
+            // 도메인 속성
+            const attrs = _getDomainAttrs(num);
+            const attrsChips = attrs.map(a =>
+                `<span style="background:${a.color}15;color:${a.color};font-size:0.68rem;font-weight:700;padding:3px 9px;border-radius:14px;border:1px solid ${a.color}30;white-space:nowrap;">${a.label}</span>`
+            ).join('');
 
+            // 합의도 (비동기)
+            const weeklyXai = await _loadWeeklyXai(targetRound);
+            if (_xaiCurrentNum !== num) return;
+            const consensus = _getConsensus(num, weeklyXai);
+            const consensusVerdict = consensus
+                ? (consensus.topCount >= 7 ? { label: '강력 합의', color: '#059669' }
+                   : consensus.topCount >= 4 ? { label: '의견 일치', color: '#3B82F6' }
+                   : consensus.botCount >= 5 ? { label: '제외 합의', color: '#dc2626' }
+                   : { label: '의견 분산', color: '#94a3b8' })
+                : { label: '집계 중', color: '#94a3b8' };
+
+            // 시계열 (최근 100회) + 평균 출현 간격
+            const draws = (typeof allData !== 'undefined' && Array.isArray(allData)) ? allData : [];
+            const sparkData = _getRecentSparkline(num, draws, 100);
+
+            // [fix-246] 동반 출현 top10 (최근 100회 기준)
+            const coocList = _getCoOccurrence(num, draws.slice(0, 100), 10);
+
+            // 회귀 컨텍스트
+            const regCtx = _getRegressionContext(num, draws, targetRound);
+
+            // 보정 배지
             const corrBadge = hasPenalty
-                ? `<span style="background:#fee2e2; color:#dc2626; font-size:0.65rem; font-weight:800; padding:2px 8px; border-radius:20px; border:1px solid #fecaca; margin-left:4px;">⚠️ 과출현 제어</span>`
+                ? `<span style="background:#fee2e2;color:#dc2626;font-size:0.65rem;font-weight:800;padding:2px 8px;border-radius:20px;border:1px solid #fecaca;margin-left:4px;">⚠️ 과출현 제어</span>`
                 : hasBoost
-                ? `<span style="background:#d1fae5; color:#059669; font-size:0.65rem; font-weight:800; padding:2px 8px; border-radius:20px; border:1px solid #a7f3d0; margin-left:4px;">⚡ 주기임박</span>`
+                ? `<span style="background:#d1fae5;color:#059669;font-size:0.65rem;font-weight:800;padding:2px 8px;border-radius:20px;border:1px solid #a7f3d0;margin-left:4px;">⚡ 주기임박</span>`
                 : '';
 
             el.innerHTML = `
@@ -1438,84 +1623,187 @@ ${userPrompt}
                         <span class="material-symbols-outlined" style="font-size:20px; color:#38bdf8;">psychology</span>
                     </div>
                     <div style="flex:1; min-width:0;">
-                        <div style="font-size:0.95rem; font-weight:900; color:white; letter-spacing:-0.3px;">AI 딥러닝 XAI 모델 분석</div>
-                        <div style="font-size:0.62rem; color:#94a3b8; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; margin-top:1px;">INTELLIGENT ANALYSIS — ${num}번 분석결과</div>
+                        <div style="font-size:0.95rem; font-weight:900; color:white; letter-spacing:-0.3px;">AI 번호별 인사이트</div>
+                        <div style="font-size:0.62rem; color:#94a3b8; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; margin-top:1px;">${num}번 · ${targetRound}회차 분석</div>
                     </div>
                 </div>
-                <!-- 번호 요약 -->
+
+                <!-- 1. 번호 프로필 + 도메인 속성 -->
                 <div style="background:#f8fafc; border-bottom:1px solid #f1f5f9; padding:1.25rem 1.5rem;">
-                    <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
-                        <span style="width:52px; height:52px; border-radius:50%; background:${_xaiBallColor(num)}; color:white; font-size:1.2rem; font-weight:900; display:flex; align-items:center; justify-content:center; box-shadow:0 4px 12px rgba(0,0,0,0.15); flex-shrink:0;">${num}</span>
+                    <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:12px;">
+                        <span style="width:56px; height:56px; border-radius:50%; background:${_xaiBallColor(num)}; color:white; font-size:1.3rem; font-weight:900; display:flex; align-items:center; justify-content:center; box-shadow:0 4px 12px rgba(0,0,0,0.15); flex-shrink:0;">${num}</span>
                         <div style="flex:1; min-width:0;">
-                            <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:4px;">
-                                <span style="font-size:1rem; font-weight:900; color:#1e293b;">${num}번 분석결과</span>
+                            <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                                <span style="font-size:1.05rem; font-weight:900; color:#1e293b;">${num}번</span>
                                 <span style="${statusStyle} font-size:0.7rem; font-weight:800; padding:3px 10px; border-radius:20px;">${statusText}</span>
                                 ${corrBadge}
                             </div>
-                            <span style="font-size:0.82rem; color:#64748b; font-weight:600;">AI 종합 점수: <strong style="color:#2563eb; font-size:0.95rem; font-weight:900;">${scoreNorm}점</strong> <span style="font-size:0.72rem; color:#94a3b8; font-weight:600;">(45번 중 ${rank}위)</span></span>
+                            <div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px;">${attrsChips}</div>
                         </div>
                     </div>
-                    <div style="display:flex; gap:10px; margin-top:12px; flex-wrap:wrap;">
-                        <span style="font-size:0.75rem; color:#64748b; font-weight:700; background:white; padding:4px 12px; border-radius:8px; border:1px solid #e2e8f0;">Gap: <strong style="color:#1e293b;">${gap}</strong></span>
-                        <span style="font-size:0.75rem; color:#64748b; font-weight:700; background:white; padding:4px 12px; border-radius:8px; border:1px solid #e2e8f0;">빈도: <strong style="color:#1e293b;">${freq}%</strong></span>
+                </div>
+
+                <!-- 2. 핵심 지표: 미출현 / 최근 100회 / (합의도 조건부) -->
+                ${(() => {
+                    // [fix-239] 합의도가 있을 때만 3카드, 없으면 2카드 + 평균미출현 비교 카드
+                    const cards = [];
+                    // 카드 1: 평균 미출현 비교 (최근 100회 기준)
+                    const sp = sparkData;
+                    const mult = sp.gapMultiple;
+                    const multTxt = mult != null
+                        ? (mult >= 1.5 ? `평균의 <span style="color:#dc2626;">${mult.toFixed(1)}배 초과</span>`
+                          : mult >= 1.0 ? `평균의 <span style="color:#059669;">${mult.toFixed(1)}배 (임박)</span>`
+                          : mult >= 0.5 ? `평균의 <span style="color:#475569;">${mult.toFixed(1)}배</span>`
+                          : `평균의 <span style="color:#94a3b8;">${mult.toFixed(1)}배 (직후)</span>`)
+                        : '<span style="color:#94a3b8;">데이터 부족</span>';
+                    cards.push(`
+                        <div style="padding:1.1rem 1rem; text-align:center;">
+                            <div style="font-size:0.62rem; font-weight:800; color:#94a3b8; text-transform:uppercase; letter-spacing:1px; margin-bottom:5px;">미출현 vs 평균</div>
+                            <div style="font-size:1.4rem; font-weight:900; color:#0f172a; line-height:1.1;">
+                                <span style="color:#dc2626">${sp.currentGap}</span><span style="font-size:0.7rem; font-weight:700; color:#64748b; margin-left:2px;">회</span>
+                                <span style="color:#cbd5e1; margin:0 4px;">/</span>
+                                <span style="color:#475569">${sp.avgGap != null ? sp.avgGap.toFixed(1) : '—'}</span><span style="font-size:0.7rem; font-weight:700; color:#64748b; margin-left:2px;">회</span>
+                            </div>
+                            <div style="font-size:0.66rem; font-weight:700; margin-top:5px;">${multTxt}</div>
+                        </div>`);
+                    // 카드 2: 최근 100회 등장 + 빈도
+                    cards.push(`
+                        <div style="padding:1.1rem 1rem; text-align:center; border-left:1px solid #f1f5f9;">
+                            <div style="font-size:0.62rem; font-weight:800; color:#94a3b8; text-transform:uppercase; letter-spacing:1px; margin-bottom:5px;">최근 100회</div>
+                            <div style="font-size:1.6rem; font-weight:900; color:#0f172a; line-height:1;">${sp.hits}<span style="font-size:0.7rem; font-weight:700; color:#64748b; margin-left:2px;">회</span></div>
+                            <div style="font-size:0.65rem; color:#475569; font-weight:700; margin-top:4px;">빈도 ${(sp.hits / 100 * 100).toFixed(1)}%</div>
+                        </div>`);
+                    // 카드 3: 10 base 합의 — 데이터 있을 때만 표시 (없으면 카드 자체 미렌더)
+                    if (consensus && (consensus.topCount > 0 || consensus.botCount > 0)) {
+                        cards.push(`
+                            <div style="padding:1.1rem 1rem; text-align:center; border-left:1px solid #f1f5f9;">
+                                <div style="font-size:0.62rem; font-weight:800; color:#94a3b8; text-transform:uppercase; letter-spacing:1px; margin-bottom:5px;">10 base 합의</div>
+                                <div style="font-size:1.6rem; font-weight:900; color:${consensusVerdict.color}; line-height:1;">${consensus.topCount}<span style="font-size:0.7rem; font-weight:700; color:#64748b; margin-left:2px;">/10</span></div>
+                                <div style="font-size:0.65rem; color:${consensusVerdict.color}; font-weight:700; margin-top:4px;">${consensusVerdict.label}</div>
+                            </div>`);
+                    }
+                    return `<div style="display:grid; grid-template-columns:repeat(${cards.length}, 1fr); border-bottom:1px solid #f1f5f9;">${cards.join('')}</div>`;
+                })()}
+
+                <!-- 3. 최근 100회 시계열 sparkline (좌우 100% 채움) -->
+                <div style="padding:1rem 1.5rem; background:#f8fafc; border-bottom:1px solid #f1f5f9;">
+                    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+                        <span style="font-size:0.7rem; font-weight:800; color:#475569; letter-spacing:1px; text-transform:uppercase;">최근 100회 등장 패턴</span>
+                        <span style="font-size:0.65rem; color:#94a3b8;">왼쪽=오래된 · 오른쪽=최신 · ${sparkData.hits}회 등장</span>
                     </div>
+                    <div style="width:100%;">${_renderSparkline(sparkData.pattern)}</div>
                 </div>
-                <!-- 모델별 기여도 -->
-                <div style="padding:1.25rem 1.5rem; background:#f8fafc; border-bottom:1px solid #f1f5f9;">
-                    <div style="font-size:0.7rem; color:#64748b; font-weight:800; letter-spacing:1px; text-transform:uppercase; margin-bottom:12px;">7개 모델별 기여도</div>
-                    ${modelBars}
-                </div>
-                <!-- AI 심층 분석 리포트 -->
+
+                <!-- 4. 동반 출현 top 10 (최근 100회 기준) -->
+                ${coocList.length ? `
+                <div style="padding:1rem 1.5rem; border-bottom:1px solid #f1f5f9;">
+                    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+                        <span style="font-size:0.7rem; font-weight:800; color:#475569; letter-spacing:1px; text-transform:uppercase;">🔗 ${num}번과 함께 자주 등장한 번호</span>
+                        <span style="font-size:0.62rem; color:#94a3b8; font-weight:600;">최근 100회 기준 · TOP ${coocList.length}</span>
+                    </div>
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(110px, 1fr)); gap:10px;">
+                        ${coocList.map((c, i) => {
+                            const rankColor = i === 0 ? '#dc2626' : i < 3 ? '#f97316' : i < 6 ? '#3b82f6' : '#94a3b8';
+                            return `<div style="display:flex; align-items:center; gap:8px; padding:6px 8px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px;">
+                                <span style="font-size:0.6rem; font-weight:900; color:${rankColor}; width:18px; text-align:center;">#${i+1}</span>
+                                <span style="width:32px; height:32px; border-radius:50%; background:${_xaiBallColor(c.num)}; color:white; font-size:0.78rem; font-weight:900; display:flex; align-items:center; justify-content:center; flex-shrink:0;">${c.num}</span>
+                                <div style="flex:1; min-width:0;">
+                                    <div style="font-size:0.78rem; font-weight:900; color:#0f172a; line-height:1;">${c.pct}<span style="font-size:0.6rem; color:#94a3b8; margin-left:1px;">%</span></div>
+                                    <div style="font-size:0.6rem; color:#94a3b8; margin-top:2px;">${c.count}회 동반</div>
+                                </div>
+                            </div>`;
+                        }).join('')}
+                    </div>
+                </div>` : ''}
+
+                <!-- 5. 회귀 컨텍스트 -->
+                ${regCtx && regCtx.N != null ? `
+                <div style="padding:1rem 1.5rem; background:#f8fafc; border-bottom:1px solid #f1f5f9;">
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <span class="material-symbols-outlined" style="font-size:18px; color:#6366F1;">repeat</span>
+                        <div style="flex:1;">
+                            <div style="font-size:0.7rem; font-weight:800; color:#475569; letter-spacing:1px; text-transform:uppercase; margin-bottom:3px;">회귀 컨텍스트</div>
+                            <div style="font-size:0.82rem; color:#0f172a; font-weight:700;">
+                                ${regCtx.N === 0 ? `<span style="color:#dc2626;">직전 회차(${regCtx.lastRound}회) 등장 — 연속 출현 가능성 낮음</span>`
+                                  : `${regCtx.lastRound}회에 마지막 등장 → 이번 회차 <span style="color:#3B82F6;">회귀 ${regCtx.N}</span>`}
+                            </div>
+                        </div>
+                    </div>
+                </div>` : ''}
+
+                <!-- 6. AI 종합 인사이트 (LLM 또는 자동 생성) -->
                 <div style="padding:1.25rem 1.5rem;">
                     <div style="background:#0f172a; border-radius:14px; padding:1.25rem;">
                         <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
                             <span class="material-symbols-outlined" style="color:#38bdf8; font-size:18px;">auto_awesome</span>
-                            <span style="font-size:0.78rem; font-weight:800; color:white; letter-spacing:0.5px;">AI 심층 분석 리포트</span>
+                            <span style="font-size:0.78rem; font-weight:800; color:white; letter-spacing:0.5px;">AI 종합 인사이트</span>
                         </div>
                         <div id="xai-evidence-slot" style="color:#94a3b8; font-size:0.78rem; display:flex; align-items:center; gap:8px;">
                             <span class="material-symbols-outlined" style="font-size:16px; color:#38bdf8; animation:spin 1.2s linear infinite;">progress_activity</span>
-                            리포트 불러오는 중...
+                            인사이트 생성 중...
                         </div>
                     </div>
                 </div>
             </div>`;
 
-            // evidence 비동기 로드
-            // 클라이언트 폴백 리포트 생성 (API 실패 시에도 항상 표시)
+            // [fix-237/239] consensus/cooc/sparkData closure 변수 — _buildClientReport 호출 시 활용
+            const _consensusForReport = consensus;
+            const _coocForReport = coocList;
+            const _sparkForReport = sparkData;
+
+            // 강화된 클라이언트 인사이트 — 도메인/합의도/동반/회귀 모두 활용
             function _buildClientReport(item, num, matrixSrc, isRecommended, isExcluded) {
                 const lines = [];
                 if (!item) return ['분석 데이터가 없습니다.'];
 
-                // 순위
+                // 1. 종합 등급
                 const r = matrixSrc.findIndex(m => m.num === num) + 1;
-                const statusStr = isRecommended ? '강력 추천 번호' : isExcluded ? '제외 예상 번호' : '일반 번호';
-                lines.push(`${num}번은 45개 번호 중 AI 종합 점수 ${r}위 — ${statusStr}로 분류됩니다.`);
+                const grade = isRecommended ? 'S 등급 (강력 추천)' : r <= 10 ? 'A 등급 (추천)' : isExcluded ? 'D 등급 (제외)' : r <= 25 ? 'B 등급 (관망)' : 'C 등급 (소극)';
+                lines.push(`${num}번은 45개 중 ${r}위 — ${grade}로 분류됩니다.`);
 
-                // Gap / 빈도
-                const gapStr = item.gap > 0 ? `${item.gap}회 연속 미출현` : '직전 회차 당첨';
-                const freqPct = (item.freq * 100).toFixed(1);
-                const avgGap = item.personal_avg_gap ? item.personal_avg_gap.toFixed(1) : '7.5';
-                const gapStatus = item.gap > (item.personal_avg_gap || 7.5) ? '개인 평균 초과 — 출현 임박 신호' : '아직 개인 평균 이하';
-                lines.push(`현재 ${gapStr}(개인 평균 ${avgGap}회), ${gapStatus}. 최근 50회 출현 빈도 ${freqPct}%.`);
+                // 2. 미출현 진단 — 최근 100회 평균 출현 간격 vs 현재 미출현 (sparkData 우선 활용)
+                if (typeof _sparkForReport !== 'undefined' && _sparkForReport && _sparkForReport.avgGap != null) {
+                    const sp = _sparkForReport;
+                    const m = sp.gapMultiple;
+                    const cycleStatus = m >= 1.5 ? `평균의 ${m.toFixed(1)}배 초과 — 출현 임박 신호 강함`
+                                      : m >= 1.0 ? `평균의 ${m.toFixed(1)}배 — 출현 임박`
+                                      : m >= 0.5 ? `평균의 ${m.toFixed(1)}배 — 정상 주기`
+                                      : `평균의 ${m.toFixed(1)}배 — 직후 재출현 가능성 낮음`;
+                    lines.push(`최근 100회에서 ${sp.hits}회 등장 (평균 ${sp.avgGap.toFixed(1)}회마다 1회). 현재 ${sp.currentGap}회 미출현 — ${cycleStatus}.`);
+                } else {
+                    const gapNum = Number(item.gap || 0);
+                    const avgGap = Number(item.personal_avg_gap || 7.5);
+                    const ratio = avgGap > 0 ? (gapNum / avgGap) : 1;
+                    const cycleStatus = ratio > 1.4 ? '평균을 크게 초과 — 출현 임박 신호 강함'
+                                      : ratio > 1.0 ? '평균 초과 — 출현 임박'
+                                      : ratio > 0.5 ? '평균 이내 — 정상 주기'
+                                      : '직후 — 단기 재출현 가능성 낮음';
+                    lines.push(`${gapNum}회 미출현 (개인 평균 ${avgGap.toFixed(1)}회) — ${cycleStatus}.`);
+                }
 
-                // 보정 정보
+                // 3. 보정
                 if (item.penalty < 1.0) {
-                    const penPct = Math.round((1 - item.penalty) * 100);
-                    lines.push(`최근 과출현 감지 — 모델 점수 ${penPct}% 하향 보정(과출현 제어). 단기간 재출현 가능성이 통계적으로 낮습니다.`);
+                    lines.push(`과출현 감지 — 모델 점수 ${Math.round((1 - item.penalty) * 100)}% 하향 보정. 단기 재출현 가능성 통계상 낮음.`);
                 } else if (item.boost > 1.0) {
-                    const boostPct = Math.round((item.boost - 1) * 100);
-                    lines.push(`출현 주기 초과 감지 — 모델 점수 ${boostPct}% 상향 보정(주기임박). 가까운 회차 출현 가능성이 높습니다.`);
+                    lines.push(`주기 초과 감지 — 모델 점수 ${Math.round((item.boost - 1) * 100)}% 상향 보정. 임박 신호 강화.`);
                 }
 
-                // 최고 기여 모델
-                if (item.models) {
-                    const topModel = _XAI_MODELS
-                        .map(m => ({ label: m.label, score: (item.models[m.key] || {}).score || 0 }))
-                        .sort((a, b) => b.score - a.score)[0];
-                    if (topModel && topModel.score > 0) {
-                        lines.push(`7개 AI 모델 중 ${topModel.label}이 ${topModel.score}점으로 가장 높은 기여도를 보입니다.`);
-                    }
+                // 4. 합의도 (consensus은 호출부에서 closure로 접근 — _consensusForReport 변수)
+                if (typeof _consensusForReport !== 'undefined' && _consensusForReport) {
+                    const c = _consensusForReport;
+                    const verdict = c.topCount >= 7 ? '10개 모델 강력 합의 추천'
+                                  : c.topCount >= 4 ? `${c.topCount}/10 모델이 TOP10에 포함 — 다수 의견 추천`
+                                  : c.botCount >= 5 ? `${c.botCount}/10 모델이 BOTTOM10에 포함 — 다수 의견 제외`
+                                  : '의견 분산 — 모델 간 합의 부족';
+                    lines.push(verdict + '.');
                 }
+
+                // 5. 동반 출현
+                if (typeof _coocForReport !== 'undefined' && Array.isArray(_coocForReport) && _coocForReport.length) {
+                    const top = _coocForReport[0];
+                    lines.push(`${num}번 등장 시 ${top.num}번 동반율 ${top.pct}% (${top.count}회) — 그룹 추천 시 함께 고려.`);
+                }
+
                 return lines;
             }
 
@@ -1582,14 +1870,16 @@ ${userPrompt}
             if (m) renderNumberXAI(parseInt(m[1]));
         }
 
-        // 딥러닝 인사이트 패널 초기화 (placeholder — 실제 로드는 autoLoadFirstXAI)
+        // 딥러닝 인사이트 패널 초기화 — [fix-239] 백그라운드 preload 시작 (첫 번호 클릭 시 즉시 사용)
         function initDeepInsight() {
             const el = document.getElementById('dlInsightContainer');
             if (el) el.innerHTML = `
                 <div style="padding:2.5rem; text-align:center; color:#94a3b8;">
                     <span class="material-symbols-outlined" style="font-size:2.5rem; color:#cbd5e1; display:block; margin-bottom:8px;">psychology</span>
-                    <p style="font-size:0.85rem; font-weight:600; color:#64748b;">AI 딥러닝 XAI 분석 준비 중...</p>
+                    <p style="font-size:0.85rem; font-weight:600; color:#64748b;">AI 번호별 인사이트 — 번호를 클릭하세요</p>
                 </div>`;
+            // 백그라운드 preload — 첫 번호 클릭 전에 데이터 준비
+            _preloadXaiPayload().catch(() => {});
         }
 
         async function executeAnalysis() {

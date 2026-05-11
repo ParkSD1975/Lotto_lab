@@ -33,6 +33,8 @@
 
     <!-- NLP Modules -->
     <script src="js/NLPProcessor.js"></script>
+    <script src="js/AutoNLPMatcher.js"></script>
+    <script src="js/auto_nlp_loader.js" defer></script>
     <script src="js/NLPInputComponent.js"></script>
     <script src="js/BasicAnalysisNLP.js"></script>
 
@@ -448,9 +450,9 @@
                         </div>
                     </div>
 
-                    <!-- [표준화] 리스트 섹션 (Integrated Header) -->
-                    <div class="rounded-xl overflow-hidden mt-6">
-                        <div class="flex items-center justify-between mb-4 px-2">
+                    <!-- [fix-402] 리스트 섹션 — 헤더 + 표 흰 박스 일체화 -->
+                    <div class="bg-white rounded-xl border border-gray-200 mt-6 overflow-hidden">
+                        <div class="flex items-center justify-between px-8 pt-6 pb-4 border-b border-gray-100">
                             <div>
                                 <h3 class="text-xl font-bold text-gray-900 mb-1">최근 당첨번호 및 이월수</h3>
                                 <p class="text-sm text-gray-600">
@@ -460,7 +462,7 @@
                             </div>
                         </div>
 
-                        <div class="overflow-x-auto custom-scrollbar border border-gray-200 rounded-xl bg-white"
+                        <div class="overflow-x-auto custom-scrollbar"
                             style="max-height: 1200px;">
                             <table class="w-full text-sm text-center">
                                 <thead
@@ -481,6 +483,163 @@
                             </table>
                         </div>
                     </div>
+
+                    <!-- ════════════════════════════════════════════════════════════ -->
+                    <!-- [fix-356] 보조지표 — 이월수 도메인 특화 7섹션                          -->
+                    <!-- ════════════════════════════════════════════════════════════ -->
+                    <div id="carryoverAuxIndicators" class="mt-16 space-y-16" style="font-feature-settings:'tnum';letter-spacing:-0.01em">
+
+                        <!-- Section 1: 핵심 메트릭 (박스화) -->
+                        <div class="bg-white rounded-xl border border-gray-200 p-8">
+                            <div class="flex items-baseline justify-between mb-6">
+                                <h3 class="text-lg font-bold tracking-tight">핵심 메트릭</h3>
+                                <span class="text-xs text-gray-400">최근 100회 · 전체 누적</span>
+                            </div>
+                            <div class="grid grid-cols-2 sm:grid-cols-4 gap-x-8 gap-y-6">
+                                <div><div class="text-[10px] uppercase tracking-wider text-gray-400 mb-1">최근 평균</div><div class="text-3xl font-black text-blue-700"><span id="cyAvgRecent">—</span></div></div>
+                                <div><div class="text-[10px] uppercase tracking-wider text-gray-400 mb-1">전체 평균</div><div class="text-3xl font-black text-slate-700"><span id="cyAvgAll">—</span></div></div>
+                                <div><div class="text-[10px] uppercase tracking-wider text-gray-400 mb-1">최대 이월</div><div class="flex items-baseline gap-1"><span id="cyMax" class="text-3xl font-black text-emerald-600">—</span><span class="text-xs text-gray-400">개</span></div></div>
+                                <div><div class="text-[10px] uppercase tracking-wider text-gray-400 mb-1">이월 0 회차</div><div class="flex items-baseline gap-1"><span id="cyZeroPct" class="text-3xl font-black text-rose-600">—</span><span class="text-xs text-gray-400">%</span></div></div>
+                            </div>
+                        </div>
+
+                        <!-- [Section 2 분포 히스토그램 제거 — 위 그래프 '당첨율' 탭과 중복] -->
+
+                        <!-- Section 3: 1~45 번호별 이월 핫맵 (박스화) -->
+                        <div class="bg-white rounded-xl border border-gray-200 p-8">
+                            <div class="flex items-baseline justify-between mb-2">
+                                <h3 class="text-lg font-bold tracking-tight">번호별 이월 빈도 (45 핫맵)</h3>
+                                <span class="text-xs text-gray-400">색상 강도 = 이월 횟수</span>
+                            </div>
+                            <p class="text-xs text-gray-500 mb-6">전 회차 기준 — 핫 이월수(자주 이월) ↔ 콜드(이월 없음)</p>
+                            <div id="carryoverHeatmap" class="grid gap-1.5" style="grid-template-columns:repeat(15, minmax(0, 1fr))"></div>
+                            <div class="flex items-center gap-4 mt-4 text-[11px] text-gray-500">
+                                <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded" style="background:#F1F5F9"></span>0회</span>
+                                <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded" style="background:#BFDBFE"></span>적음</span>
+                                <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded" style="background:#3B82F6"></span>보통</span>
+                                <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded" style="background:#1E3A8A"></span>많음</span>
+                            </div>
+                        </div>
+
+                        <!-- Section 4: 이월 빈도 ranking 표 (박스화) -->
+                        <div class="bg-white rounded-xl border border-gray-200 p-8">
+                            <div class="flex items-baseline justify-between mb-2">
+                                <h3 class="text-lg font-bold tracking-tight">이월 빈도 순위 (top 10 / bottom 10)</h3>
+                                <span class="text-xs text-gray-400">전 회차 누적</span>
+                            </div>
+                            <p class="text-xs text-gray-500 mb-6">상위 = 핫 이월수 · 하위 = 콜드 이월수</p>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-12">
+                                <div>
+                                    <div class="text-[11px] uppercase tracking-wider text-rose-600 font-bold mb-3">핫 이월수 TOP 10</div>
+                                    <table class="w-full text-sm">
+                                        <thead class="text-[10px] uppercase tracking-wider text-gray-400 border-b border-gray-200">
+                                            <tr><th class="py-2 text-left font-medium">#</th><th class="py-2 text-left font-medium">번호</th><th class="py-2 text-right font-medium">이월</th><th class="py-2 text-right font-medium">이월률</th><th class="py-2 text-right font-medium">최근</th></tr>
+                                        </thead>
+                                        <tbody id="carryoverHotTable" class="divide-y divide-gray-100"></tbody>
+                                    </table>
+                                </div>
+                                <div>
+                                    <div class="text-[11px] uppercase tracking-wider text-slate-500 font-bold mb-3">콜드 이월수 BOTTOM 10</div>
+                                    <table class="w-full text-sm">
+                                        <thead class="text-[10px] uppercase tracking-wider text-gray-400 border-b border-gray-200">
+                                            <tr><th class="py-2 text-left font-medium">#</th><th class="py-2 text-left font-medium">번호</th><th class="py-2 text-right font-medium">이월</th><th class="py-2 text-right font-medium">이월률</th><th class="py-2 text-right font-medium">최근</th></tr>
+                                        </thead>
+                                        <tbody id="carryoverColdTable" class="divide-y divide-gray-100"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Section 5: GAP & Streak 메트릭 (박스화) -->
+                        <div class="bg-white rounded-xl border border-gray-200 p-8">
+                            <div class="flex items-baseline justify-between mb-2">
+                                <h3 class="text-lg font-bold tracking-tight">이월 GAP / Streak</h3>
+                                <span class="text-xs text-gray-400">출현 임박 지수</span>
+                            </div>
+                            <p class="text-xs text-gray-500 mb-6">현재 GAP이 역대 최대에 가까울수록 이월 출현 임박 신호</p>
+                            <div class="grid grid-cols-2 sm:grid-cols-4 gap-x-8 gap-y-6">
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wider text-gray-400 mb-1">현재 GAP</div>
+                                    <div class="flex items-baseline gap-1"><span id="cyCurGap" class="text-3xl font-black text-rose-600">—</span><span class="text-xs text-gray-400">회차 연속 이월 0</span></div>
+                                </div>
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wider text-gray-400 mb-1">최대 GAP</div>
+                                    <div class="flex items-baseline gap-1"><span id="cyMaxGap" class="text-3xl font-black text-slate-700">—</span><span class="text-xs text-gray-400">역대</span></div>
+                                </div>
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wider text-gray-400 mb-1">현재 Streak</div>
+                                    <div class="flex items-baseline gap-1"><span id="cyCurStreak" class="text-3xl font-black text-emerald-600">—</span><span class="text-xs text-gray-400">회차 연속 이월 ≥1</span></div>
+                                </div>
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wider text-gray-400 mb-1">최대 Streak</div>
+                                    <div class="flex items-baseline gap-1"><span id="cyMaxStreak" class="text-3xl font-black text-slate-700">—</span><span class="text-xs text-gray-400">역대</span></div>
+                                </div>
+                            </div>
+                            <div class="mt-6 pt-6 border-t border-gray-100">
+                                <div class="text-[10px] uppercase tracking-wider text-gray-400 mb-2">출현 임박 지수</div>
+                                <div class="flex items-baseline gap-2 mb-2">
+                                    <span id="cyImminence" class="text-4xl font-black text-blue-700">—</span><span class="text-base text-gray-400 font-bold">%</span>
+                                </div>
+                                <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden"><div id="cyImminenceBar" class="h-full bg-gradient-to-r from-blue-400 to-blue-600 transition-all" style="width:0%"></div></div>
+                                <p class="text-[11px] text-gray-400 mt-2">현재 GAP / 최대 GAP × 100</p>
+                            </div>
+                        </div>
+
+                        <!-- Section 6: 동시 이월 페어 top 20 (박스화) -->
+                        <div class="bg-white rounded-xl border border-gray-200 p-8">
+                            <div class="flex items-baseline justify-between mb-2">
+                                <h3 class="text-lg font-bold tracking-tight">동시 이월 페어 TOP 20</h3>
+                                <span class="text-xs text-gray-400">2개 이상 이월된 회차에서 추출</span>
+                            </div>
+                            <p class="text-xs text-gray-500 mb-6">한 회차에서 함께 이월된 번호 쌍 — 동조 신호 강도</p>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-1">
+                                <table class="w-full text-sm">
+                                    <thead class="text-[10px] uppercase tracking-wider text-gray-400 border-b border-gray-200">
+                                        <tr><th class="py-2 text-left font-medium">#</th><th class="py-2 text-left font-medium">페어</th><th class="py-2 text-right font-medium">동시 이월</th><th class="py-2 text-right font-medium">최근 회차</th></tr>
+                                    </thead>
+                                    <tbody id="carryoverPairTable1" class="divide-y divide-gray-100"></tbody>
+                                </table>
+                                <table class="w-full text-sm">
+                                    <thead class="text-[10px] uppercase tracking-wider text-gray-400 border-b border-gray-200">
+                                        <tr><th class="py-2 text-left font-medium">#</th><th class="py-2 text-left font-medium">페어</th><th class="py-2 text-right font-medium">동시 이월</th><th class="py-2 text-right font-medium">최근 회차</th></tr>
+                                    </thead>
+                                    <tbody id="carryoverPairTable2" class="divide-y divide-gray-100"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- Section 7: 보너스 이월 트래킹 (박스화) -->
+                        <div class="bg-white rounded-xl border border-gray-200 p-8">
+                            <div class="flex items-baseline justify-between mb-2">
+                                <h3 class="text-lg font-bold tracking-tight">보너스 이월 트래킹</h3>
+                                <span class="text-xs text-gray-400">보너스볼의 다음 회차 운명</span>
+                            </div>
+                            <p class="text-xs text-gray-500 mb-6">A. main 진입 / B. bonus 자기 cycle / C. 사라짐 — 비율 분석</p>
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wider text-blue-600 font-bold mb-2">Track A · main 진입</div>
+                                    <div class="flex items-baseline gap-1 mb-2"><span id="cyBonusToMain" class="text-3xl font-black text-blue-700">—</span><span class="text-base text-gray-400 font-bold">%</span></div>
+                                    <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden"><div id="cyBonusToMainBar" class="h-full bg-blue-500 transition-all" style="width:0%"></div></div>
+                                    <p class="text-[11px] text-gray-400 mt-2">전 회차 보너스 → 다음 main에 등장한 횟수</p>
+                                </div>
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wider text-amber-600 font-bold mb-2">Track B · bonus 자기 cycle</div>
+                                    <div class="flex items-baseline gap-1 mb-2"><span id="cyBonusToBonus" class="text-3xl font-black text-amber-600">—</span><span class="text-base text-gray-400 font-bold">%</span></div>
+                                    <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden"><div id="cyBonusToBonusBar" class="h-full bg-amber-500 transition-all" style="width:0%"></div></div>
+                                    <p class="text-[11px] text-gray-400 mt-2">전 보너스 → 다음 보너스가 같은 번호</p>
+                                </div>
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-2">Track C · 사라짐</div>
+                                    <div class="flex items-baseline gap-1 mb-2"><span id="cyBonusGone" class="text-3xl font-black text-slate-700">—</span><span class="text-base text-gray-400 font-bold">%</span></div>
+                                    <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden"><div id="cyBonusGoneBar" class="h-full bg-slate-500 transition-all" style="width:0%"></div></div>
+                                    <p class="text-[11px] text-gray-400 mt-2">전 보너스가 다음 회차에서 등장 X</p>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                    <!-- ════════════════════════════════════════════════════════════ -->
+
                 </div>
             </main>
         </div>
@@ -532,6 +691,9 @@
                 }
 
                 updateRange(currentRange);
+
+                // [fix-356] 보조지표 7섹션 렌더링
+                try { renderCarryoverAuxIndicators(); } catch (e) { console.warn('[fix-356] aux render err', e); }
 
                 // AI 분석 자동 실행 (페이지 로드 시)
                 await initDeepInsight();
@@ -1694,6 +1856,189 @@ ${contextData}
                 updateCharts(filteredData);
             }
         });
+
+        // ════════════════════════════════════════════════════════════════════
+        // [fix-356] 보조지표 7섹션 — 이월수 도메인 특화
+        // ════════════════════════════════════════════════════════════════════
+        function renderCarryoverAuxIndicators() {
+            if (!Array.isArray(allDrawData) || allDrawData.length < 2) return;
+
+            // [fix-357] 컨테이너를 그래프 카드 바로 아래(조합 필터 위)로 이동
+            //   기존: 회차 테이블 아래 / 변경: 그래프·회차범위 카드와 조합 필터 사이
+            const aux = document.getElementById('carryoverAuxIndicators');
+            const filterSec = document.getElementById('filter-section');
+            if (aux && filterSec && filterSec.parentNode && aux.parentNode) {
+                if (aux.nextElementSibling !== filterSec) {
+                    filterSec.parentNode.insertBefore(aux, filterSec);
+                }
+            }
+
+            const all = allDrawData.filter(d => d && Array.isArray(d.numbers));
+            // index 0 = 최신 회차. processData는 prev = i+1 (이전 회차)로 carryover_count 계산.
+            // 마지막 row(=가장 옛 회차)는 prev 없음 → carryover_count=0이지만 의미 없음. 분석에서 제외.
+            const rows = all.slice(0, all.length - 1);  // 유효 (prev 존재)
+            const N = rows.length;
+
+            // ── Section 1: 핵심 메트릭만 (시계열은 위 그래프 탭과 중복 → 제거) ──
+            const recent = rows.slice(0, Math.min(100, N));
+            const recentVals = recent.map(r => r.carryover_count);
+            const recentAvg = recentVals.length ? (recentVals.reduce((a, b) => a + b, 0) / recentVals.length) : 0;
+            const allAvg = N ? (rows.reduce((s, r) => s + r.carryover_count, 0) / N) : 0;
+            const maxC = N ? Math.max(...rows.map(r => r.carryover_count)) : 0;
+            const zeroPct = N ? (rows.filter(r => r.carryover_count === 0).length / N * 100) : 0;
+            setText('cyAvgRecent', recentAvg.toFixed(2));
+            setText('cyAvgAll', allAvg.toFixed(2));
+            setText('cyMax', maxC);
+            setText('cyZeroPct', zeroPct.toFixed(1));
+
+            // ── Section 2 분포 히스토그램 제거 (위 그래프 '당첨율' 탭과 중복) ──
+
+            // ── Section 3: 1~45 핫맵 ─────────────────────────────
+            const numCarry = Array(46).fill(0);          // 1~45 이월 횟수
+            const lastCarryRound = Array(46).fill(null);  // 마지막 이월 회차
+            rows.forEach(r => {
+                (r.carryoverNumbers || []).forEach(n => {
+                    if (n >= 1 && n <= 45) {
+                        numCarry[n]++;
+                        if (lastCarryRound[n] === null || r.round > lastCarryRound[n]) lastCarryRound[n] = r.round;
+                    }
+                });
+            });
+            const maxCarry = Math.max(...numCarry.slice(1));
+            const heat = document.getElementById('carryoverHeatmap');
+            if (heat) {
+                heat.innerHTML = Array.from({ length: 45 }, (_, i) => {
+                    const n = i + 1;
+                    const cnt = numCarry[n];
+                    const ratio = maxCarry > 0 ? cnt / maxCarry : 0;
+                    let bg, color;
+                    if (cnt === 0) { bg = '#F1F5F9'; color = '#94A3B8'; }
+                    else if (ratio < 0.33) { bg = '#BFDBFE'; color = '#1E40AF'; }
+                    else if (ratio < 0.66) { bg = '#3B82F6'; color = '#FFFFFF'; }
+                    else { bg = '#1E3A8A'; color = '#FFFFFF'; }
+                    return `<div class="rounded-md flex flex-col items-center justify-center py-2 transition-transform hover:scale-105 cursor-default" style="background:${bg};color:${color};box-shadow:0 1px 2px rgba(0,0,0,0.04)" title="${n}번 — ${cnt}회 이월 / 최근 ${lastCarryRound[n] || '-'}회">
+                        <div class="text-[13px] font-black leading-none">${n}</div>
+                        <div class="text-[9px] font-bold opacity-80 mt-0.5">${cnt}</div>
+                    </div>`;
+                }).join('');
+            }
+
+            // ── Section 4: ranking 표 ────────────────────────────
+            const ranking = Array.from({ length: 45 }, (_, i) => ({
+                num: i + 1,
+                count: numCarry[i + 1],
+                rate: N ? (numCarry[i + 1] / N * 100) : 0,
+                lastRound: lastCarryRound[i + 1]
+            })).sort((a, b) => b.count - a.count || a.num - b.num);
+            const topRows = ranking.slice(0, 10);
+            const bottomRows = ranking.slice(-10).reverse();
+            const renderRankRow = (r, rank) => `<tr class="hover:bg-slate-50 transition-colors">
+                <td class="py-2 text-left text-[11px] text-gray-400 font-bold">${rank}</td>
+                <td class="py-2 text-left"><span class="inline-flex items-center justify-center w-7 h-7 rounded-full text-[11px] font-black" style="background:${getBallBg(r.num)};color:#fff;box-shadow:0 1px 2px rgba(0,0,0,0.1)">${r.num}</span></td>
+                <td class="py-2 text-right text-sm font-black text-slate-700">${r.count}</td>
+                <td class="py-2 text-right text-xs font-bold text-blue-600">${r.rate.toFixed(1)}%</td>
+                <td class="py-2 text-right text-[11px] text-gray-500">${r.lastRound || '-'}</td>
+            </tr>`;
+            const hotEl = document.getElementById('carryoverHotTable');
+            const coldEl = document.getElementById('carryoverColdTable');
+            if (hotEl) hotEl.innerHTML = topRows.map((r, i) => renderRankRow(r, i + 1)).join('');
+            if (coldEl) coldEl.innerHTML = bottomRows.map((r, i) => renderRankRow(r, i + 1)).join('');
+
+            // ── Section 5: GAP / Streak ──────────────────────────
+            // rows[0]=최신. 현재 GAP=최신부터 이월 0 연속 / Streak=최신부터 이월≥1 연속.
+            let curGap = 0, curStreak = 0, maxGap = 0, maxStreak = 0;
+            let runGap = 0, runStreak = 0;
+            while (curGap < rows.length && rows[curGap].carryover_count === 0) curGap++;
+            while (curStreak < rows.length && rows[curStreak].carryover_count >= 1) curStreak++;
+            // 역대 max
+            rows.forEach(r => {
+                if (r.carryover_count === 0) { runGap++; runStreak = 0; if (runGap > maxGap) maxGap = runGap; }
+                else { runStreak++; runGap = 0; if (runStreak > maxStreak) maxStreak = runStreak; }
+            });
+            setText('cyCurGap', curGap);
+            setText('cyMaxGap', maxGap);
+            setText('cyCurStreak', curStreak);
+            setText('cyMaxStreak', maxStreak);
+            const imminence = maxGap > 0 ? Math.min(100, Math.round(curGap / maxGap * 100)) : 0;
+            setText('cyImminence', imminence);
+            const bar = document.getElementById('cyImminenceBar');
+            if (bar) bar.style.width = imminence + '%';
+
+            // ── Section 6: 동시 이월 페어 top 20 ──────────────────
+            const pairMap = new Map();   // key="a,b" → {count, lastRound}
+            rows.forEach(r => {
+                const carry = (r.carryoverNumbers || []).slice().sort((a, b) => a - b);
+                if (carry.length < 2) return;
+                for (let i = 0; i < carry.length; i++) {
+                    for (let j = i + 1; j < carry.length; j++) {
+                        const k = `${carry[i]},${carry[j]}`;
+                        const e = pairMap.get(k) || { count: 0, lastRound: 0 };
+                        e.count++;
+                        if (r.round > e.lastRound) e.lastRound = r.round;
+                        pairMap.set(k, e);
+                    }
+                }
+            });
+            const pairs = [...pairMap.entries()]
+                .map(([k, v]) => { const [a, b] = k.split(',').map(Number); return { a, b, count: v.count, lastRound: v.lastRound }; })
+                .sort((x, y) => y.count - x.count || x.a - y.a)
+                .slice(0, 20);
+            const renderPairRow = (p, rank) => `<tr class="hover:bg-slate-50 transition-colors">
+                <td class="py-2 text-left text-[11px] text-gray-400 font-bold">${rank}</td>
+                <td class="py-2 text-left">
+                    <span class="inline-flex items-center gap-1">
+                        <span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-black" style="background:${getBallBg(p.a)};color:#fff">${p.a}</span>
+                        <span class="text-gray-300 text-xs">+</span>
+                        <span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-black" style="background:${getBallBg(p.b)};color:#fff">${p.b}</span>
+                    </span>
+                </td>
+                <td class="py-2 text-right text-sm font-black text-blue-700">${p.count}<span class="text-[10px] text-gray-400 font-bold ml-0.5">회</span></td>
+                <td class="py-2 text-right text-[11px] text-gray-500">${p.lastRound || '-'}</td>
+            </tr>`;
+            const half = Math.ceil(pairs.length / 2);
+            const p1 = document.getElementById('carryoverPairTable1');
+            const p2 = document.getElementById('carryoverPairTable2');
+            if (p1) p1.innerHTML = pairs.slice(0, half).map((p, i) => renderPairRow(p, i + 1)).join('') || '<tr><td colspan="4" class="text-center py-6 text-gray-400 text-xs italic">동시 이월 페어 없음</td></tr>';
+            if (p2) p2.innerHTML = pairs.slice(half).map((p, i) => renderPairRow(p, i + half + 1)).join('') || '';
+
+            // ── Section 7: 보너스 이월 트래킹 ─────────────────────
+            // rows의 prev = all[i+1]. all[i].numbers / bonus = 다음 회차 (현재).
+            // 즉 "이전 회차 보너스 → 이번 회차"의 운명을 추적.
+            let bonusToMain = 0, bonusToBonus = 0, bonusGone = 0, bonusTotal = 0;
+            for (let i = 0; i < all.length - 1; i++) {
+                const cur = all[i], prev = all[i + 1];
+                if (prev.bonus == null) continue;
+                bonusTotal++;
+                const inMain = (cur.numbers || []).includes(prev.bonus);
+                const isBonus = cur.bonus === prev.bonus;
+                if (inMain) bonusToMain++;
+                else if (isBonus) bonusToBonus++;
+                else bonusGone++;
+            }
+            const pctA = bonusTotal ? (bonusToMain / bonusTotal * 100) : 0;
+            const pctB = bonusTotal ? (bonusToBonus / bonusTotal * 100) : 0;
+            const pctC = bonusTotal ? (bonusGone / bonusTotal * 100) : 0;
+            setText('cyBonusToMain', pctA.toFixed(1));
+            setText('cyBonusToBonus', pctB.toFixed(1));
+            setText('cyBonusGone', pctC.toFixed(1));
+            const setBar = (id, p) => { const el = document.getElementById(id); if (el) el.style.width = Math.min(100, p) + '%'; };
+            setBar('cyBonusToMainBar', pctA);
+            setBar('cyBonusToBonusBar', pctB);
+            setBar('cyBonusGoneBar', pctC);
+
+            console.log(`[fix-356] 보조지표 렌더링 완료 — 분석 회차 ${N} / 페어 ${pairs.length} / 보너스 추적 ${bonusTotal}`);
+        }
+
+        function setText(id, val) { const el = document.getElementById(id); if (el) el.textContent = val; }
+
+        // 표준 lotto 색상
+        function getBallBg(n) {
+            if (n <= 10) return 'linear-gradient(135deg,#FBBF24,#F59E0B)';      // 노랑
+            if (n <= 20) return 'linear-gradient(135deg,#60A5FA,#2563EB)';      // 파랑
+            if (n <= 30) return 'linear-gradient(135deg,#F87171,#DC2626)';      // 빨강
+            if (n <= 40) return 'linear-gradient(135deg,#9CA3AF,#4B5563)';      // 회색
+            return 'linear-gradient(135deg,#34D399,#059669)';                    // 초록
+        }
     </script>
 
     <!-- AI Q&A Sidebar Modal -->

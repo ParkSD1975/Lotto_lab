@@ -1,256 +1,1267 @@
 <!DOCTYPE html>
 <html class="light" lang="ko">
-
 <head>
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
-    <title>커스텀 연산 시뮬레이터</title>
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎯</text></svg>">
+    <title>Lotto Lab - 커스텀 시뮬레이터</title>
     <link href="css/tailwind.css" rel="stylesheet" />
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js"></script>
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
-    <link as="style" crossorigin="" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" rel="stylesheet" />
-
-    <style>
-        body {
-            font-family: 'Pretendard', sans-serif;
-            background-color: #F9FAFB;
-            color: #111827;
-        }
-
-        .custom-scrollbar::-webkit-scrollbar { width: 5px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #D1D5DB; border-radius: 20px; }
-
-        .card {
-            background: white;
-            border-radius: 20px;
-            border: 1px solid #F3F4F6;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02);
-            transition: all 0.2s ease;
-        }
-        .card:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05); }
-
-        .card-header {
-            padding: 20px 24px;
-            border-bottom: 1px solid #F3F4F6;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            border-radius: 20px 20px 0 0;
-        }
-
-        .connected-tab {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 8px 16px;
-            font-weight: 600;
-            font-size: 0.85rem;
-            color: #6B7280;
-            border-radius: 9999px;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        .connected-tab-active {
-            background-color: #1F2937 !important;
-            color: white !important;
-        }
-
-        .ball-common {
-            display: inline-flex;
-            width: 28px;
-            height: 28px;
-            align-items: center;
-            justify-content: center;
-            border-radius: 50%;
-            color: white;
-            font-weight: 700;
-            font-size: 12px;
-            box-shadow: inset 0 -2px 4px rgba(0, 0, 0, 0.15);
-            text-shadow: 0 1px 1px rgba(0, 0, 0, 0.1);
-            margin: 1px;
-        }
-
-        .ball-y { background: linear-gradient(135deg, #f59e0b, #d97706); }
-        .ball-b { background: linear-gradient(135deg, #3b82f6, #2563eb); }
-        .ball-r { background: linear-gradient(135deg, #ef4444, #dc2626); }
-        .ball-g { background: linear-gradient(135deg, #6b7280, #4b5563); }
-        .ball-gr { background: linear-gradient(135deg, #10b981, #059669); }
-
-        /* Formula Input Style */
-        .formula-input {
-            font-family: 'Fira Code', monospace;
-            background: #F3F4F6;
-            border: 2px solid #E5E7EB;
-            border-radius: 12px;
-            padding: 12px;
-            width: 100%;
-            font-size: 1.1rem;
-            color: #1F2937;
-            transition: border-color 0.2s;
-        }
-        .formula-input:focus { border-color: #6366F1; outline: none; }
-
-        .btn-primary {
-            background: #4F46E5;
-            color: white;
-            padding: 10px 20px;
-            border-radius: 12px;
-            font-weight: 600;
-            transition: background 0.2s;
-        }
-        .btn-primary:hover { background: #4338CA; }
-
-        .table-container {
-            border-radius: 12px;
-            overflow: hidden;
-            border: 1px solid #E5E7EB;
-        }
-
-        /* 럭셔리 카드 뱃지 */
-        .badge-indigo { background: #EEF2FF; color: #4F46E5; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 700; }
-        
-        .hit-high { color: #059669; font-weight: 800; }
-        .hit-mid { color: #D97706; font-weight: 700; }
-        .hit-low { color: #9CA3AF; }
-    </style>
-</head>
-
-<body class="text-slate-900 h-screen flex flex-col font-sans">
-    <div id="gnb-container"></div>
-
-    <main class="flex-1 overflow-hidden flex flex-col w-full mx-auto px-4 pt-8 pb-4 max-w-7xl">
-        <header class="mb-6 shrink-0">
-            <div class="flex items-end justify-between mb-5">
-                <div class="flex items-center gap-3">
-                    <span class="material-symbols-outlined text-3xl text-indigo-600">science</span>
-                    <div>
-                        <h1 class="text-2xl font-black text-gray-900 tracking-tight">커스텀 연산 시뮬레이터</h1>
-                        <p class="text-xs text-gray-500 mt-0.5">나만의 수식으로 검증하는 로또 전략</p>
-                    </div>
-                </div>
-            </div>
-
-            <div class="flex border-b border-gray-200 pb-1 gap-1">
-                <button onclick="CustomSim.switchTab('simulator')" id="btn-simulator" class="connected-tab connected-tab-active">
-                    <span class="material-symbols-outlined text-sm">precision_manufacturing</span> 시뮬레이터
-                </button>
-                <button onclick="CustomSim.switchTab('dashboard')" id="btn-dashboard" class="connected-tab">
-                    <span class="material-symbols-outlined text-sm">dashboard</span> 저장된 필터
-                </button>
-            </div>
-        </header>
-
-        <section id="content-area" class="flex-1 overflow-y-auto custom-scrollbar">
-            <!-- 1. 시뮬레이터 탭 -->
-            <div id="tab-simulator" class="space-y-6 pb-10">
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    <!-- 설정 카드 -->
-                    <div class="card lg:col-span-1">
-                        <div class="card-header">
-                            <span class="material-symbols-outlined text-blue-500">settings</span>
-                            <h3 class="font-bold text-sm">시뮬레이션 설정</h3>
-                        </div>
-                        <div class="card-body space-y-5">
-                            <div>
-                                <label class="block text-[10px] font-bold text-gray-400 mb-2 uppercase tracking-wider">대상 데이터베이스</label>
-                                <select id="dbSelect" class="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-semibold focus:ring-2 focus:ring-indigo-500 outline-none">
-                                    <option value="korea">동행복권 (한국 6/45)</option>
-                                    <optgroup label="해외 로또" id="globalLottoGroup"></optgroup>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-[10px] font-bold text-gray-400 mb-2 uppercase tracking-wider">슬라이딩 윈도우 (N회차)</label>
-                                <div class="flex items-center gap-4">
-                                    <input type="range" id="windowSlider" min="1" max="10" value="3" class="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-600">
-                                    <span id="windowDisplay" class="text-lg font-black text-indigo-600 w-6">3</span>
-                                </div>
-                                <p class="text-[10px] text-gray-400 mt-2">최근 N회차의 당첨번호 합집합을 기준으로 시뮬레이션합니다.</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 수식 입력 카드 -->
-                    <div class="card lg:col-span-2">
-                        <div class="card-header">
-                            <span class="material-symbols-outlined text-purple-500">functions</span>
-                            <h3 class="font-bold text-sm">수식 정의</h3>
-                            <button onclick="CustomSim.showGuide()" class="ml-auto text-[10px] text-indigo-600 font-bold hover:underline">수식 가이드</button>
-                        </div>
-                        <div class="card-body">
-                            <input type="text" id="formulaInput" class="formula-input mb-4" placeholder="예: N-1[1] + N-2[3] - drawNo.digitSum" value="N-1[1] + N-1[2]">
-                            <div class="flex gap-3">
-                                <button onclick="CustomSim.run()" class="btn-primary flex-1 text-sm">
-                                    <span class="material-symbols-outlined text-[18px] align-middle mr-1">play_arrow</span> 시뮬레이션 실행
-                                </button>
-                                <button onclick="CustomSim.saveFilter()" class="bg-emerald-500 hover:bg-emerald-600 text-white px-6 py-2.5 rounded-xl font-bold transition-all text-sm">
-                                    <span class="material-symbols-outlined text-[18px] align-middle mr-1">bookmark</span> 필터 저장
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 결과 리스트 -->
-                <div id="resultCard" class="card hidden">
-                    <div class="card-header flex justify-between">
-                        <div class="flex items-center gap-2">
-                            <span class="material-symbols-outlined text-amber-500">analytics</span>
-                            <h3 class="font-bold text-sm">시뮬레이션 결과 (행렬)</h3>
-                        </div>
-                        <div class="flex items-center gap-4">
-                            <div class="text-right">
-                                <span class="text-[10px] text-gray-400 font-bold uppercase">평균 Hit율</span>
-                                <div class="text-xl font-black text-indigo-600" id="avgHitRate">- %</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="card-body overflow-x-auto">
-                        <table class="w-full text-sm">
-                            <thead>
-                                <tr class="bg-gray-50 border-b border-gray-100">
-                                    <th class="px-4 py-3 text-left text-[11px] text-gray-400 uppercase font-bold">회차</th>
-                                    <th class="px-4 py-3 text-left text-[11px] text-gray-400 uppercase font-bold">대상 번호 (합집합)</th>
-                                    <th class="px-4 py-3 text-left text-[11px] text-gray-400 uppercase font-bold">실제 당첨</th>
-                                    <th class="px-4 py-3 text-center text-[11px] text-gray-400 uppercase font-bold">Hit</th>
-                                    <th class="px-4 py-3 text-center text-[11px] text-gray-400 uppercase font-bold">적중률</th>
-                                </tr>
-                            </thead>
-                            <tbody id="resultBody" class="divide-y divide-gray-50">
-                                <!-- Dynamic rows -->
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-
-            <!-- 2. 대시보드 탭 -->
-            <div id="tab-dashboard" class="hidden pb-10">
-                <div id="dashboardGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <!-- Filter Cards -->
-                    <div class="col-span-full py-20 text-center text-gray-400" id="emptyDashboard">
-                        <span class="material-symbols-outlined text-5xl mb-4">folder_off</span>
-                        <p>저장된 커스텀 필터가 없습니다.</p>
-                    </div>
-                </div>
-            </div>
-        </section>
-    </main>
-
-    <!-- 로딩 오버레이 -->
-    <div id="loadingOverlay" class="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[9999] hidden flex flex-col items-center justify-center">
-        <div class="w-16 h-16 border-4 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin mb-4"></div>
-        <p class="text-white font-bold animate-pulse">연산 엔진 가동 중...</p>
-    </div>
-
-    <!-- SDK & Scripts -->
+    <link rel="icon" href="data:,">
+    <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
     <script src="js/config.js"></script>
     <script src="js/theme.js"></script>
     <script src="js/common_v2.js"></script>
     <script src="js/layout.js"></script>
-    <script src="js/customSimulator.js"></script>
+
+    <style>
+        /* ============================================================
+           CUSTOM SIMULATOR — 프리미엄 미니멀 디자인 시스템 (S1)
+           원칙: 박스 X, 분리선만, 단일 액센트, 고급 ball, 부드러운 인터랙션
+        ============================================================ */
+        :root {
+            --ink-primary:    #0f172a;
+            --ink-secondary:  #475569;
+            --ink-tertiary:   #94a3b8;
+            --ink-quaternary: #cbd5e1;
+            --accent:         #4f46e5;
+            --accent-soft:    #eef2ff;
+            --accent-mid:     #a5b4fc;
+            --success:        #059669;
+            --success-soft:   #d1fae5;
+            --danger:         #dc2626;
+            --warning:        #d97706;
+            --warning-soft:   #fef3c7;
+            --divider:        #f1f5f9;
+            --divider-strong: #e2e8f0;
+            --bg:             #ffffff;
+        }
+
+        body {
+            font-family: 'Pretendard', system-ui, -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--ink-secondary);
+            -webkit-font-smoothing: antialiased;
+            font-feature-settings: "tnum" on, "lnum" on;
+        }
+
+        /* ── 타이포 위계 ── */
+        .h-section {
+            font-size: 11px;
+            font-weight: 400;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: #000;
+        }
+        .h-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--ink-primary);
+            letter-spacing: -0.01em;
+        }
+        .h-emphasis {
+            font-size: 28px;
+            font-weight: 800;
+            color: var(--ink-primary);
+            letter-spacing: -0.03em;
+        }
+        .meta {
+            font-size: 11px;
+            color: var(--ink-tertiary);
+            font-weight: 500;
+        }
+
+        /* ── 분리선 ── */
+        .divider-h { border-top: 1px solid var(--divider); }
+        .divider-v { border-left: 1px solid var(--divider); }
+
+        /* ============================================================
+           BALL — 프리미엄 ball
+        ============================================================ */
+        .ball {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 30px; height: 30px;
+            border-radius: 50%;
+            font-size: 11px;
+            font-weight: 800;
+            color: #fff;
+            box-shadow:
+                inset 0 -1.5px 3px rgba(0,0,0,0.18),
+                0 1px 2px rgba(0,0,0,0.06);
+            transition: transform 180ms cubic-bezier(0.4, 0, 0.2, 1);
+            user-select: none;
+            flex-shrink: 0;
+        }
+        .ball:hover { transform: translateY(-1px); }
+
+        .ball-sm { width: 24px; height: 24px; font-size: 10px; }
+        .ball-md { width: 30px; height: 30px; font-size: 11px; }
+        .ball-lg { width: 36px; height: 36px; font-size: 13px; }
+
+        /* 번호대별 색상 (gradient) */
+        .ball-y  { background: linear-gradient(135deg, #fbbf24, #f59e0b); }   /* 1-10 */
+        .ball-b  { background: linear-gradient(135deg, #60a5fa, #3b82f6); }   /* 11-20 */
+        .ball-r  { background: linear-gradient(135deg, #f87171, #ef4444); }   /* 21-30 */
+        .ball-gr { background: linear-gradient(135deg, #94a3b8, #64748b); }   /* 31-40 */
+        .ball-g  { background: linear-gradient(135deg, #34d399, #10b981); }   /* 41-45 */
+
+        /* Hit 상태 — outline + soft glow */
+        .ball-hit {
+            outline: 2px solid var(--success);
+            outline-offset: 2px;
+            box-shadow:
+                inset 0 -1.5px 3px rgba(0,0,0,0.18),
+                0 0 0 4px rgba(5, 150, 105, 0.18),
+                0 1px 2px rgba(0,0,0,0.06);
+            animation: hit-pulse 600ms cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        @keyframes hit-pulse {
+            0%   { transform: scale(1); }
+            50%  { transform: scale(1.08); }
+            100% { transform: scale(1); }
+        }
+
+        /* Bonus 표시 — 번호대별 색상 유지 + 우상단 'B' 배지만 추가 */
+        .ball-bonus {
+            position: relative;
+        }
+        .ball-bonus::after {
+            content: 'B';
+            position: absolute;
+            top: -3px; right: -3px;
+            background: var(--accent);
+            color: #fff;
+            font-size: 8px;
+            font-weight: 900;
+            width: 13px; height: 13px;
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+            border: 1.5px solid #fff;
+        }
+
+        /* ============================================================
+           CHIP — 수식 빌더 토큰 (박스 X, 밑줄만)
+        ============================================================ */
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 8px;
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--ink-primary);
+            background: transparent;
+            border: 0;
+            border-bottom: 1.5px solid var(--ink-quaternary);
+            border-radius: 0;
+            cursor: pointer;
+            font-family: 'JetBrains Mono', 'D2Coding', monospace;
+            transition: all 180ms cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .chip:hover {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
+        }
+        .chip-operator {
+            color: var(--accent);
+            font-weight: 800;
+            border-bottom: 0;
+            padding: 4px 4px;
+            cursor: default;
+        }
+        .chip-operator:hover { color: var(--accent); border-bottom: 0; }
+        .chip-const {
+            color: var(--warning);
+            border-bottom-color: var(--warning);
+        }
+        .chip-const:hover {
+            color: var(--warning);
+            border-bottom-color: var(--warning);
+        }
+        .chip-error {
+            color: var(--danger);
+            border-bottom-color: var(--danger);
+        }
+
+        /* ============================================================
+           DB 라디오 chip (Korea / Mega / Powerball / Belgium)
+        ============================================================ */
+        .db-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--ink-tertiary);
+            background: transparent;
+            border-radius: 999px;
+            border: 1px solid var(--divider-strong);
+            cursor: pointer;
+            transition: all 180ms;
+            white-space: nowrap;
+        }
+        .db-chip:hover { color: var(--ink-secondary); border-color: var(--ink-tertiary); }
+        .db-chip-active {
+            color: var(--accent);
+            background: var(--accent-soft);
+            border-color: var(--accent-mid);
+        }
+
+        /* ============================================================
+           INPUT — 미니멀 밑줄
+        ============================================================ */
+        .input-underline {
+            background: transparent;
+            border: 0;
+            border-bottom: 1.5px solid var(--ink-quaternary);
+            padding: 4px 2px;
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--ink-primary);
+            text-align: center;
+            outline: none;
+            transition: border-color 180ms;
+        }
+        .input-underline:focus { border-bottom-color: var(--accent); }
+        .input-underline::placeholder { color: var(--ink-quaternary); font-weight: 500; }
+
+        /* ── select 밑줄 ── */
+        .select-underline {
+            background: transparent;
+            border: 0;
+            border-bottom: 1.5px solid var(--ink-quaternary);
+            padding: 4px 18px 4px 4px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--ink-primary);
+            outline: none;
+            cursor: pointer;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%2394a3b8' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+            background-position: right 4px center;
+            background-repeat: no-repeat;
+            transition: border-color 180ms;
+        }
+        .select-underline:focus { border-bottom-color: var(--accent); }
+
+        /* ============================================================
+           BUTTON — 단순화
+        ============================================================ */
+        .btn-primary {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 18px;
+            font-size: 13px;
+            font-weight: 700;
+            color: #fff;
+            background: var(--accent);
+            border-radius: 8px;
+            border: 0;
+            cursor: pointer;
+            transition: all 180ms;
+        }
+        .btn-primary:hover { background: #4338ca; transform: translateY(-1px); }
+        .btn-primary:active { transform: translateY(0); }
+
+        .btn-ghost {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--ink-tertiary);
+            background: transparent;
+            border-radius: 6px;
+            border: 0;
+            cursor: pointer;
+            transition: color 180ms;
+        }
+        .btn-ghost:hover { color: var(--accent); }
+
+        /* ============================================================
+           SLIDER — accent 색
+        ============================================================ */
+        .range-accent {
+            -webkit-appearance: none;
+            appearance: none;
+            background: var(--divider-strong);
+            height: 3px;
+            border-radius: 999px;
+            outline: none;
+        }
+        .range-accent::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px; height: 16px;
+            border-radius: 50%;
+            background: var(--accent);
+            cursor: pointer;
+            border: 2px solid #fff;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+            transition: transform 180ms;
+        }
+        .range-accent::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+            box-shadow: 0 0 0 6px rgba(79,70,229,0.15), 0 1px 3px rgba(0,0,0,0.2);
+        }
+
+        /* ============================================================
+           가상 스크롤 컨테이너
+        ============================================================ */
+        .scroll-area {
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: var(--ink-quaternary) transparent;
+        }
+        .scroll-area::-webkit-scrollbar { width: 6px; }
+        .scroll-area::-webkit-scrollbar-track { background: transparent; }
+        .scroll-area::-webkit-scrollbar-thumb { background: var(--ink-quaternary); border-radius: 999px; }
+        .scroll-area::-webkit-scrollbar-thumb:hover { background: var(--ink-tertiary); }
+
+        /* ============================================================
+           회차 행 (좌측 리스트)
+        ============================================================ */
+        .draw-row {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--divider);
+            cursor: pointer;
+            transition: background 180ms;
+        }
+        .draw-row:hover { background: var(--accent-soft); }
+        .draw-row.active {
+            background: var(--accent-soft);
+            box-shadow: inset 3px 0 0 var(--accent);
+        }
+
+        /* ============================================================
+           KPI / 결과 카드 (박스 X, 분리선만)
+        ============================================================ */
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 0;
+        }
+        .kpi-cell {
+            padding: 16px 20px;
+            border-right: 1px solid var(--divider);
+        }
+        .kpi-cell:last-child { border-right: 0; }
+        .kpi-value {
+            font-size: 24px;
+            font-weight: 800;
+            color: var(--ink-primary);
+            line-height: 1.2;
+            letter-spacing: -0.02em;
+        }
+        .kpi-label {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--ink-tertiary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-top: 4px;
+        }
+
+        /* 보정 표시 — 부드러운 amber 강조 */
+        .normalize-note {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 8px;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--warning);
+            background: var(--warning-soft);
+            border-radius: 4px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* ============================================================
+           스켈레톤 (로딩)
+        ============================================================ */
+        .skel {
+            background: linear-gradient(90deg, var(--divider) 25%, #f8fafc 50%, var(--divider) 75%);
+            background-size: 200% 100%;
+            animation: skel-shine 1.5s ease-in-out infinite;
+            border-radius: 4px;
+        }
+        @keyframes skel-shine {
+            0%   { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+
+        /* ============================================================
+           Layout — 상단 설정 / 하단 2-column (좌: 회차 데이터, 우: 계산값)
+        ============================================================ */
+        .sim-bottom {
+            display: grid;
+            grid-template-columns: minmax(280px, 24%) 1fr;  /* 너비 확대: 칩 줄바꿈 방지 */
+            gap: 0;
+            min-height: 500px;
+        }
+        @media (max-width: 1024px) {
+            .sim-bottom { grid-template-columns: 1fr; }
+        }
+        /* 회차 데이터 섹션 — 좁은 너비에 맞게 패딩/간격 압축 */
+        .sim-bottom aside .draw-row {
+            padding: 8px 10px !important;
+        }
+        .sim-bottom aside .ball-sm {
+            width: 22px !important;
+            height: 22px !important;
+            font-size: 10px !important;
+        }
+        .sim-bottom aside .draw-chip {
+            padding: 1px 5px;
+            font-size: 9px;
+        }
+        /* 상단 설정 섹션 — [fix-259] 구분선 한 단계 더 진하게 (#94a3b8 → #475569) */
+        .settings-section {
+            padding: 20px 32px;
+            border-bottom: 1px solid #475569;
+        }
+        .settings-section:last-of-type { border-bottom: 0; }
+        /* [fix-259] 작업공간 / 저장된 필터 섹션 외관 박스 강조 */
+        .settings-section.boxed {
+            background: #f8fafc;
+            border: 1px solid #475569;
+            border-radius: 12px;
+            margin: 12px 16px;
+            padding: 18px 22px;
+            box-shadow: 0 2px 6px rgba(15, 23, 42, 0.1), inset 0 1px 0 rgba(255,255,255,0.6);
+        }
+
+        /* ── 모바일 반응형 (S12) ── */
+        @media (max-width: 768px) {
+            .settings-section { padding: 16px 16px; }
+            .sim-bottom aside { border-right: 0; border-bottom: 1px solid var(--divider); }
+            .sim-bottom aside,
+            .sim-bottom section { max-height: none !important; }
+            .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+            .kpi-cell:nth-child(1), .kpi-cell:nth-child(2) {
+                border-bottom: 1px solid var(--divider);
+            }
+            .kpi-cell:nth-child(2) { border-right: 0; }
+            header { padding: 16px !important; }
+            .h-emphasis { font-size: 22px; }
+            .kpi-value { font-size: 20px; }
+        }
+        @media (max-width: 480px) {
+            .settings-section { padding: 14px 12px; }
+            .ball { width: 26px; height: 26px; font-size: 10px; }
+            .ball-sm { width: 22px; height: 22px; font-size: 9px; }
+            #db-select-overseas { min-width: 140px !important; }
+        }
+
+        /* 연산자 버튼 (토큰 빌더용) */
+        .op-btn {
+            width: 30px; height: 30px;
+            display: inline-flex; align-items: center; justify-content: center;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 800;
+            color: var(--ink-secondary);
+            background: var(--accent-soft);
+            border: 0;
+            cursor: pointer;
+            transition: all 150ms;
+        }
+        .op-btn:hover {
+            background: var(--accent);
+            color: #fff;
+            transform: translateY(-1px);
+        }
+
+        /* 삭제 가능한 chip (빌더 영역) */
+        .chip-removable {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--ink-primary);
+            background: var(--accent-soft);
+            border-radius: 6px;
+            border: 1px solid var(--accent-mid);
+            cursor: pointer;
+            font-family: 'JetBrains Mono', 'D2Coding', monospace;
+            transition: all 180ms;
+        }
+        .chip-removable:hover {
+            background: #fee2e2;
+            border-color: #fca5a5;
+            color: var(--danger);
+        }
+        .chip-removable::after {
+            content: '✕';
+            font-size: 10px;
+            opacity: 0.4;
+            transition: opacity 180ms;
+        }
+        .chip-removable:hover::after { opacity: 1; }
+
+        .chip-op-display {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 24px;
+            font-size: 16px;
+            font-weight: 800;
+            color: var(--accent);
+            cursor: pointer;
+            padding: 4px 6px;
+            border-radius: 4px;
+            transition: background 150ms;
+        }
+        .chip-op-display:hover {
+            background: #fee2e2;
+            color: var(--danger);
+        }
+
+        /* 프리셋 chip */
+        .preset-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 6px 12px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--ink-secondary);
+            background: #f8fafc;
+            border: 1px solid var(--divider-strong);
+            border-radius: 999px;
+            cursor: pointer;
+            transition: all 150ms;
+        }
+        .preset-chip:hover {
+            background: var(--accent-soft);
+            border-color: var(--accent-mid);
+            color: var(--accent);
+            transform: translateY(-1px);
+        }
+
+        /* 저장된 필터 행 */
+        .saved-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 150ms;
+            border-left: 2px solid transparent;
+        }
+        .saved-row:hover {
+            background: var(--accent-soft);
+            border-left-color: var(--accent);
+        }
+        .saved-row .saved-name {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--ink-primary);
+        }
+        .saved-row .saved-meta {
+            font-size: 11px;
+            color: var(--ink-tertiary);
+        }
+        .saved-row .saved-type {
+            display: inline-flex;
+            padding: 2px 6px;
+            font-size: 10px;
+            font-weight: 700;
+            border-radius: 3px;
+        }
+        .saved-type-custom {
+            background: #fce7f3;
+            color: #be185d;
+        }
+        .saved-type-manual {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+
+        /* 저장 모달 — 기본 숨김 (.hidden 우선) */
+        .modal-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.5);
+            backdrop-filter: blur(4px);
+            z-index: 100;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-backdrop.hidden { display: none !important; }
+        .modal-backdrop:not(.hidden) { display: flex; }
+        .modal-card {
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+            width: 90%;
+            max-width: 480px;
+            padding: 24px;
+        }
+        .save-type-card {
+            cursor: pointer;
+            padding: 16px;
+            border: 2px solid var(--divider-strong);
+            border-radius: 10px;
+            transition: all 180ms;
+        }
+        .save-type-card:hover { border-color: var(--accent-mid); }
+        .save-type-card.selected {
+            border-color: var(--accent);
+            background: var(--accent-soft);
+        }
+
+        /* ============================================================
+           v5 — 드래그앤드롭 작업 공간 + chip
+        ============================================================ */
+        /* 좌측 회차 행 카테고리 chip (drag source) */
+        .draw-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
+            padding: 2px 7px;
+            font-size: 10px;
+            font-weight: 700;
+            color: var(--ink-secondary);
+            background: #fff;
+            border: 1px solid var(--divider-strong);
+            border-radius: 4px;
+            cursor: grab;
+            user-select: none;
+            transition: all 150ms;
+        }
+        .draw-chip:hover {
+            color: var(--accent);
+            border-color: var(--accent-mid);
+            background: var(--accent-soft);
+            transform: translateY(-1px);
+        }
+        .draw-chip:active { cursor: grabbing; }
+        .draw-chip-line { color: #4f46e5; border-color: #c7d2fe; }
+        .draw-chip-num  { color: #059669; border-color: #6ee7b7; }
+        .draw-chip-rnd  { color: #d97706; border-color: #fcd34d; }
+        .draw-chip-date { color: #db2777; border-color: #f9a8d4; }
+        .draw-chip-pos  { color: #7c3aed; border-color: #ddd6fe; }
+        .draw-chip-bonus{ color: #f59e0b; border-color: #fcd34d; }
+        .draw-chip-tail { color: #0d9488; border-color: #5eead4; background: #f0fdfa; }
+
+        /* 본번호 / 끝수 모드 토글 */
+        .data-mode-btn {
+            color: #94a3b8;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            cursor: pointer;
+            transition: all 150ms;
+        }
+        .data-mode-btn:hover { background: #f1f5f9; color: #475569; }
+        .data-mode-btn.data-mode-active {
+            color: #4f46e5;
+            background: #eef2ff;
+            border-color: #c7d2fe;
+        }
+
+        /* 끝수 패널 카드 */
+        .tail-card {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            background: #fff;
+            cursor: grab;
+            transition: all 150ms;
+            margin-bottom: 6px;
+        }
+        .tail-card:hover {
+            border-color: #5eead4;
+            background: #f0fdfa;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+        }
+        .tail-card:active { cursor: grabbing; }
+        .tail-card .tail-label {
+            font-size: 10px;
+            font-weight: 700;
+            color: #0d9488;
+            background: #ccfbf1;
+            padding: 2px 6px;
+            border-radius: 3px;
+            flex-shrink: 0;
+        }
+
+        /* 작업공간 drop hover */
+        #ws-dropzone.drop-active {
+            border-color: var(--accent);
+            background: var(--accent-soft);
+        }
+
+        /* 작업공간 카드 (드래그된 결과) */
+        .ws-card {
+            display: inline-flex;
+            flex-direction: column;
+            gap: 3px;
+            padding: 8px 10px;
+            background: #fff;
+            border: 1px solid var(--divider-strong);
+            border-radius: 8px;
+            min-width: 110px;
+            position: relative;
+        }
+        .ws-card-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 4px;
+            font-size: 10px;
+            font-weight: 700;
+            color: var(--ink-tertiary);
+            text-transform: uppercase;
+        }
+        .ws-card-body {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--ink-primary);
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .ws-card-meta {
+            font-size: 10px;
+            color: var(--ink-tertiary);
+        }
+        .ws-card-x {
+            cursor: pointer;
+            color: var(--ink-quaternary);
+            transition: color 150ms;
+        }
+        .ws-card-x:hover { color: var(--danger); }
+
+        /* Stage 6-5-1: op 토큰 badge 스타일 */
+        .ws-op-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            padding: 6px 12px;
+            background: #eef2ff;
+            color: #4f46e5;
+            font-size: 16px;
+            font-weight: 900;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 180ms;
+            position: relative;
+            user-select: none;
+        }
+        .ws-op-badge:hover {
+            background: #e0e7ff;
+            transform: scale(1.05);
+        }
+        .ws-op-badge-x {
+            font-size: 11px;
+            color: #cbd5e1;
+            margin-left: 2px;
+            transition: color 150ms;
+        }
+        .ws-op-badge:hover .ws-op-badge-x {
+            color: #dc2626;
+        }
+
+        /* 변환 버튼 */
+        .ws-tx-btn {
+            padding: 4px 12px;
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--ink-secondary);
+            background: var(--accent-soft);
+            border: 0;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 150ms;
+        }
+        .ws-tx-btn:hover {
+            background: var(--accent);
+            color: #fff;
+            transform: translateY(-1px);
+        }
+        .ws-tx-btn-active {
+            background: var(--accent) !important;
+            color: #fff !important;
+            border-color: var(--accent) !important;
+        }
+
+        /* 적용된 변환 chip */
+        .ws-tx-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 8px;
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--accent);
+            background: var(--accent-soft);
+            border-radius: 4px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .ws-tx-chip-x {
+            cursor: pointer;
+            color: var(--ink-quaternary);
+            font-size: 10px;
+        }
+        .ws-tx-chip-x:hover { color: var(--danger); }
+
+        /* 집합 연산 버튼 */
+        .ws-setop-btn {
+            padding: 4px 10px;
+            font-size: 11px;
+            font-weight: 700;
+            color: #4f46e5;
+            background: #eef2ff;
+            border: 1px solid #c7d2fe;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 150ms;
+        }
+        .ws-setop-btn:hover {
+            background: #4f46e5;
+            color: #fff;
+            border-color: #4f46e5;
+            transform: translateY(-1px);
+        }
+        .ws-setop-btn-active {
+            background: #4f46e5 !important;
+            color: #fff !important;
+            border-color: #4338ca !important;
+            box-shadow: 0 0 0 3px rgba(99,102,241,0.25);
+        }
+        /* 집합 연산 결과 영역 */
+        .ws-setop-result {
+            background: #f5f3ff;
+            border: 1px solid #e0e7ff;
+            border-radius: 6px;
+            padding: 6px 10px;
+            min-height: 32px;
+        }
+
+        /* ── v5-multi: 다중 워크스페이스 블록 ── */
+        .ws-block {
+            border: 1px solid var(--divider);
+            border-radius: 8px;
+            padding: 12px;
+            background: #fff;
+            transition: all 180ms;
+        }
+        /* .ws-block.active 제거됨 — 활성/비활성 의미 없는 기능 폐기 */
+        /* [fix-267] regref 전용 워크스페이스 — 시각적으로 minor (최종 결합 제외) */
+        .ws-block.ws-hidden-output {
+            background: #f8fafc;
+            border-style: dashed;
+            opacity: 0.85;
+        }
+        .ws-block.ws-hidden-output .ws-block-head {
+            border-bottom-color: #cbd5e1;
+        }
+        .ws-block-head {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 10px;
+            padding-bottom: 8px;
+            border-bottom: 1px dashed var(--divider);
+        }
+        .ws-label-input {
+            font-weight: 700;
+            font-size: 12px;
+            color: var(--ink-primary);
+            border: 0;
+            border-bottom: 1px solid transparent;
+            padding: 2px 4px;
+            width: 80px;
+            background: transparent;
+        }
+        .ws-label-input:focus {
+            outline: none;
+            border-bottom-color: var(--accent);
+        }
+        .ws-dropzone {
+            min-height: 80px;
+            padding: 10px;
+            border: 2px dashed var(--divider);
+            border-radius: 8px;
+            background: var(--bg);
+            transition: all 200ms;
+        }
+        .ws-dropzone.drop-active {
+            border-color: var(--accent);
+            background: var(--accent-soft);
+        }
+        .ws-empty-hint {
+            /* placeholder */
+        }
+        .ws-cards {
+            /* cards container */
+        }
+        .ws-tx-controls {
+            /* transform controls */
+        }
+        .ws-tx-chain {
+            /* transform chain */
+        }
+        .ws-reset {
+            font-size: 11px;
+            color: var(--ink-tertiary);
+            cursor: pointer;
+            background: transparent;
+            border: 0;
+            padding: 2px 6px;
+            border-radius: 4px;
+            transition: color 150ms;
+        }
+        .ws-reset:hover {
+            color: var(--danger);
+            background: var(--danger-soft);
+        }
+        .ws-remove {
+            font-size: 14px;
+            color: var(--ink-tertiary);
+            cursor: pointer;
+            background: transparent;
+            border: 0;
+            padding: 2px 6px;
+            border-radius: 4px;
+            transition: all 150ms;
+        }
+        .ws-remove:hover {
+            color: var(--danger);
+            background: #fee2e2;
+        }
+        .ws-active-btn {
+            font-size: 10px;
+            font-weight: 600;
+            border: 0;
+            cursor: pointer;
+            transition: all 150ms;
+        }
+        .ws-mode-toggle {
+            cursor: pointer;
+            transition: color 150ms;
+        }
+        .ws-mode-toggle:hover {
+            color: var(--accent);
+        }
+    </style>
+</head>
+
+<body class="text-slate-900 min-h-screen flex flex-col bg-white">
+    <div id="gnb-container"></div>
+
+    <main class="flex-1 overflow-y-auto">
+        <!-- ============================================================
+             상단 헤더 (얇게)
+        ============================================================ -->
+        <header class="px-8 py-5 flex items-center justify-between border-b border-slate-100">
+            <div>
+                <h1 class="h-title">커스텀 시뮬레이터</h1>
+                <p class="meta mt-0.5">나만의 수식으로 검증하는 로또 전략</p>
+            </div>
+            <div class="flex items-center gap-2">
+                <!-- 저장은 선택사항 — 사용자가 마음에 드는 수식을 만든 뒤에만 클릭 -->
+                <button id="btn-save" class="btn-ghost text-xs" disabled title="작업한 수식을 필터로 저장 (선택사항)">
+                    <span class="material-symbols-outlined text-[14px]">bookmark</span>
+                    필터로 저장 (선택)
+                </button>
+            </div>
+        </header>
+
+        <!-- ============================================================
+             상단: 설정 영역 (전체 가로)
+        ============================================================ -->
+        <div class="bg-white">
+            <!-- ── §1. 데이터 소스 ── -->
+            <div class="settings-section">
+                <div class="h-section mb-3">데이터 소스</div>
+                <div class="flex items-center gap-3 flex-wrap">
+                    <button id="db-chip-korea" class="db-chip db-chip-active" data-db="korea">
+                        🇰🇷 한국
+                    </button>
+                    <span class="text-slate-200">|</span>
+                    <select id="db-select-overseas" class="select-underline min-w-[200px]">
+                        <option value="">해외 로또 선택...</option>
+                    </select>
+                </div>
+                <div id="db-meta" class="meta mt-2 hidden">
+                    <span id="db-meta-format"></span> · 보너스 <span id="db-meta-bonus"></span>개 · <span id="db-meta-max"></span>까지
+                </div>
+            </div>
+
+            <!-- ── §2. 작업 공간 (드래그앤드롭 + 패턴 자동 감지) — v5 재설계 ── -->
+            <div class="settings-section boxed">
+                <div class="flex items-center justify-between mb-3">
+                    <div class="h-section">수식 작업 공간</div>
+                    <span class="meta">좌측 회차의 chip을 끌어 놓으세요 — 패턴 자동 감지</span>
+                </div>
+
+                <!-- 다중 워크스페이스 컨테이너 (v5-multi) -->
+                <div id="ws-container" class="space-y-3"></div>
+
+                <!-- 결합 영역 (ws가 2개 이상일 때만 표시) -->
+                <div id="ws-combine-bar" class="hidden mt-4 p-3 border-t border-slate-100">
+                    <div class="text-xs font-bold text-slate-500 mb-2">워크스페이스 결합 (좌→우 누적)</div>
+                    <div id="ws-combine-ops" class="flex items-center gap-2 flex-wrap"></div>
+
+                    <!-- 결합 후 변환 (Post-combine) -->
+                    <div id="ws-combine-post" class="hidden mt-3 pt-2 border-t border-slate-100">
+                        <div class="text-[10px] font-bold text-slate-400 mb-1.5 tracking-wide uppercase">결합 후 변환</div>
+                        <!-- 변환 체인 표시 -->
+                        <div class="flex items-center gap-1.5 flex-wrap mb-2">
+                            <div id="ws-post-chain" class="flex items-center gap-1 flex-wrap"></div>
+                        </div>
+                        <!-- 퀵 버튼 + 끝수 expand -->
+                        <div class="flex items-center gap-1 flex-wrap">
+                            <span class="text-[10px] text-slate-400 mr-0.5">퀵</span>
+                            <button class="ws-tx-btn ws-post-tx-btn" data-op="%" data-value="10" title="결합값 % 10 (끝수 숫자)">끝수(%10)</button>
+                            <button class="ws-tx-btn ws-post-tx-btn" data-op="+" data-value="1">+1</button>
+                            <button class="ws-tx-btn ws-post-tx-btn" data-op="-" data-value="1">−1</button>
+                            <span class="text-slate-200 mx-0.5">|</span>
+                            <select id="ws-post-tx-op" class="select-underline text-xs">
+                                <option value="+">+</option>
+                                <option value="-">−</option>
+                                <option value="*">×</option>
+                                <option value="/">÷</option>
+                                <option value="%">%</option>
+                            </select>
+                            <input id="ws-post-tx-val" class="input-underline w-12 text-xs" type="number" placeholder="값" min="0">
+                            <button id="ws-post-tx-add" class="btn-ghost text-[10px] px-2 py-1">
+                                <span class="material-symbols-outlined text-[12px]">add</span>추가
+                            </button>
+                            <span class="text-slate-200 mx-0.5">|</span>
+                            <button id="ws-post-tail-btn" class="ws-tx-btn" title="결합값의 끝자리 → {끝자리같은 1~45 전체}&#10;예) W1(4)+W2(34)=38 → 8끝 → {8,18,28,38}">끝수 expand</button>
+                            <button id="ws-post-reset-btn" class="hidden text-[10px] text-red-400 hover:text-red-600 font-medium px-2 py-0.5 rounded">✕ 초기화</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 패턴 감지 결과 -->
+                <div id="ws-pattern-hint" class="hidden mt-3 px-4 py-3 border-l-4 border-emerald-400 bg-emerald-50/50 rounded-r-lg">
+                    <div class="flex items-center justify-between gap-3">
+                        <div class="flex-1">
+                            <div class="text-sm font-bold text-emerald-700" id="ws-pattern-title">💡 패턴 감지됨</div>
+                            <div class="text-xs text-emerald-600 mt-0.5" id="ws-pattern-desc">—</div>
+                        </div>
+                        <div class="flex items-center gap-2 flex-shrink-0">
+                            <button id="ws-pattern-apply" class="btn-primary text-xs py-1.5 px-3">
+                                <span class="material-symbols-outlined text-[14px]">check</span>패턴 적용
+                            </button>
+                            <button id="ws-pattern-skip" class="btn-ghost text-xs">건너뛰기</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 작업 공간 액션 -->
+                <div class="flex items-center justify-between mt-3">
+                    <div class="flex items-center gap-2">
+                        <button id="ws-add" class="btn-ghost text-xs" style="font-weight:400;color:#000;">
+                            <span class="material-symbols-outlined text-[14px]">add</span>작업공간 추가
+                        </button>
+                        <span class="text-xs text-slate-300">|</span>
+                        <span class="text-xs text-slate-500 font-bold">선택 모드:</span>
+                        <button id="ws-mode-line" class="px-2 py-1 rounded text-[11px] font-bold bg-indigo-50 text-indigo-600">전라인</button>
+                        <button id="ws-mode-num" class="px-2 py-1 rounded text-[11px] font-bold bg-slate-50 text-slate-500 hover:bg-slate-100">개별 번호</button>
+                    </div>
+                    <button id="ws-reset-all" class="btn-ghost text-xs">
+                        <span class="material-symbols-outlined text-[14px]">restart_alt</span>전체 초기화
+                    </button>
+                </div>
+            </div>
+
+            <!-- ── §3. 저장된 시뮬레이터 필터 (접기 가능) ── -->
+            <div class="settings-section boxed">
+                <div class="flex items-center justify-between mb-3">
+                    <button id="btn-toggle-saved" class="flex items-center gap-2 hover:opacity-80 transition-opacity" type="button">
+                        <span id="saved-toggle-icon" class="material-symbols-outlined text-[18px] text-slate-400 transition-transform">expand_more</span>
+                        <div class="h-section">저장된 시뮬레이터 필터</div>
+                        <span id="saved-count-badge" class="text-[10px] text-slate-400 font-medium">(0)</span>
+                    </button>
+                    <button id="btn-refresh-saved" class="btn-ghost text-xs">
+                        <span class="material-symbols-outlined text-[14px]">refresh</span>새로고침
+                    </button>
+                </div>
+                <div id="saved-filters-wrapper" class="overflow-hidden transition-all duration-200">
+                    <div id="saved-filters-area" class="space-y-1" style="max-height: 480px; overflow-y: auto; padding-right: 4px;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================================================
+             하단: 2-column (좌=회차 데이터 / 우=계산값+적중현황)
+        ============================================================ -->
+        <div class="sim-bottom">
+            <!-- ── 좌측: 회차 데이터 ── -->
+            <aside class="border-r border-slate-100 flex flex-col overflow-hidden border-t border-slate-100">
+                <div class="px-3 py-3 flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/30">
+                    <div class="h-section">회차 데이터</div>
+                    <select id="draws-regression" class="select-underline text-[11px]" title="회귀 간격 — K회귀: K회차씩 건너뛰며 표시 (1~200)">
+                        <!-- 1~200 옵션은 JS에서 동적 생성 -->
+                    </select>
+                </div>
+                <div class="px-3 py-1.5 flex items-center gap-1 border-b border-slate-100 bg-white">
+                    <button id="data-mode-rounds" class="data-mode-btn data-mode-active text-[11px] px-2 py-1 rounded font-bold" data-mode="rounds">본번호</button>
+                    <button id="data-mode-tails" class="data-mode-btn text-[11px] px-2 py-1 rounded font-bold" data-mode="tails">끝수</button>
+                </div>
+                <div class="px-3 py-1 flex items-center justify-end border-b border-slate-100 bg-slate-50/30">
+                    <span id="draw-count-badge" class="meta">로딩 중...</span>
+                </div>
+                <div id="draws-list" class="scroll-area flex-1" style="max-height: 700px;">
+                    <!-- 스켈레톤 -->
+                    <div class="px-6 py-4 space-y-3" id="draws-skeleton">
+                        <div class="skel h-4 w-32"></div>
+                        <div class="flex gap-1">
+                            <div class="skel w-7 h-7 rounded-full"></div>
+                            <div class="skel w-7 h-7 rounded-full"></div>
+                            <div class="skel w-7 h-7 rounded-full"></div>
+                            <div class="skel w-7 h-7 rounded-full"></div>
+                            <div class="skel w-7 h-7 rounded-full"></div>
+                            <div class="skel w-7 h-7 rounded-full"></div>
+                        </div>
+                        <div class="skel h-4 w-32 mt-4"></div>
+                        <div class="flex gap-1">
+                            <div class="skel w-7 h-7 rounded-full"></div>
+                            <div class="skel w-7 h-7 rounded-full"></div>
+                            <div class="skel w-7 h-7 rounded-full"></div>
+                            <div class="skel w-7 h-7 rounded-full"></div>
+                            <div class="skel w-7 h-7 rounded-full"></div>
+                            <div class="skel w-7 h-7 rounded-full"></div>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- ── 우측: 계산값 + 적중현황 (전체 회차 매트릭스) ── -->
+            <section class="scroll-area border-t border-slate-100" style="max-height: 800px;">
+                <div class="pl-3 pr-1 py-4">
+                    <div class="flex items-center justify-between mb-3">
+                        <div class="h-section">계산값 + 당첨개수 현황</div>
+                        <span class="meta">수식 적용 → 모든 회차 자동 계산</span>
+                    </div>
+                    <div id="preview-area" class="text-sm text-slate-400 italic py-12 text-center">
+                        수식을 정의하면 모든 회차에 대해 산출값과 적중수를 자동 계산합니다.
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <!-- ── 전체 시뮬레이션 결과 (S11 — 실행 시 펼쳐짐) ── -->
+        <div id="full-results" class="hidden bg-white border-t border-slate-100">
+            <div class="px-8 py-6">
+                <div class="h-section mb-4">전체 회차 시뮬레이션</div>
+                <div class="kpi-grid border-y border-slate-100">
+                    <div class="kpi-cell">
+                        <div id="kpi-avg-hit" class="kpi-value">- %</div>
+                        <div class="kpi-label">평균 적중률</div>
+                    </div>
+                    <div class="kpi-cell">
+                        <div id="kpi-max-hit" class="kpi-value">-</div>
+                        <div class="kpi-label">최고 Hit</div>
+                    </div>
+                    <div class="kpi-cell">
+                        <div id="kpi-hit3-rate" class="kpi-value">- %</div>
+                        <div class="kpi-label">Hit≥3 비율</div>
+                    </div>
+                    <div class="kpi-cell">
+                        <div id="kpi-zero-rate" class="kpi-value">- %</div>
+                        <div class="kpi-label">0-Hit 회차</div>
+                    </div>
+                </div>
+                <div id="results-table-area" class="mt-6"></div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 로딩 오버레이 -->
+    <div id="loading-overlay" class="fixed inset-0 bg-white/80 backdrop-blur-sm z-50 hidden flex items-center justify-center">
+        <div class="flex flex-col items-center gap-3">
+            <div class="w-10 h-10 border-2 border-slate-200 border-t-indigo-600 rounded-full animate-spin"></div>
+            <p class="meta">계산 중...</p>
+        </div>
+    </div>
+
+    <!-- 저장 모달 -->
+    <div id="save-modal" class="modal-backdrop hidden">
+        <div class="modal-card">
+            <div class="flex items-center justify-between mb-5">
+                <h3 class="h-title">필터 저장</h3>
+                <button id="modal-close" class="btn-ghost p-1">
+                    <span class="material-symbols-outlined text-[20px]">close</span>
+                </button>
+            </div>
+
+            <!-- 필터명 -->
+            <div class="mb-5">
+                <label class="text-xs font-bold text-slate-500 mb-1.5 block">필터명 *</label>
+                <input id="modal-title" type="text" placeholder="예: 끝수합산 전략"
+                    class="w-full input-underline text-left">
+            </div>
+
+            <!-- 저장 형태 선택 -->
+            <div class="mb-5">
+                <label class="text-xs font-bold text-slate-500 mb-2 block">저장 형태</label>
+                <div class="grid grid-cols-2 gap-3">
+                    <div id="type-custom" class="save-type-card selected" data-type="custom">
+                        <div class="flex items-center gap-2 mb-1">
+                            <span class="material-symbols-outlined text-pink-500 text-[18px]">auto_awesome</span>
+                            <span class="text-sm font-bold text-slate-900">커스텀필터</span>
+                        </div>
+                        <p class="text-[11px] text-slate-500 leading-snug">자동 분석 페이지 + 검증 + 대시보드 통합</p>
+                    </div>
+                    <div id="type-manual" class="save-type-card" data-type="manual">
+                        <div class="flex items-center gap-2 mb-1">
+                            <span class="material-symbols-outlined text-blue-500 text-[18px]">filter_alt</span>
+                            <span class="text-sm font-bold text-slate-900">수동필터</span>
+                        </div>
+                        <p class="text-[11px] text-slate-500 leading-snug">단순 번호 매칭 (1~6 매치 카운트)</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Min/Max 매치 -->
+            <div class="mb-5">
+                <label class="text-xs font-bold text-slate-500 mb-1.5 block">매치 범위 (적중수)</label>
+                <div class="flex items-center gap-2">
+                    <input id="modal-min" type="number" min="0" max="6" value="1" class="input-underline w-16">
+                    <span class="text-xs text-slate-400">~</span>
+                    <input id="modal-max" type="number" min="0" max="6" value="6" class="input-underline w-16">
+                    <span class="text-xs text-slate-400 ml-2">개 적중 시 통과</span>
+                </div>
+            </div>
+
+            <!-- 메모 -->
+            <div class="mb-6">
+                <label class="text-xs font-bold text-slate-500 mb-1.5 block">메모 (선택)</label>
+                <textarea id="modal-notes" rows="2" placeholder="필터 의도나 메모..."
+                    class="w-full input-underline text-left text-sm" style="text-align:left; resize:vertical;"></textarea>
+            </div>
+
+            <!-- 액션 -->
+            <div class="flex items-center justify-end gap-2">
+                <button id="modal-cancel" class="btn-ghost">취소</button>
+                <button id="modal-submit" class="btn-primary">
+                    <span class="material-symbols-outlined text-[16px]">save</span>저장
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/simulator_evaluator.js"></script>
+    <script src="js/customSimulator.js?v=v4-s1"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             if (window.Layout) window.Layout.init();

@@ -33,6 +33,8 @@
     <script src="js/aiProxy.js?v=20260502c"></script>
     <script src="js/NLPInputComponent.js"></script>
     <script src="js/NLPProcessor.js"></script>
+    <script src="js/AutoNLPMatcher.js"></script>
+    <script src="js/auto_nlp_loader.js" defer></script>
     <script src="js/BasicAnalysisNLP.js"></script>
 
     <script>
@@ -381,6 +383,23 @@
             background-repeat: no-repeat;
         }
 
+        /* [fix-294] 보조 분석 전용 — impeccable 가이드 (underline-only, tabular-nums, 박스 일변도 회피) */
+        .ts-input {
+            background: transparent;
+            border: 0;
+            border-bottom: 1px solid #E5E7EB;
+            padding: 4px 6px;
+            font-size: 13px;
+            color: #0F172A;
+            outline: none;
+            transition: border-color 180ms ease;
+            font-feature-settings: "tnum";
+        }
+        .ts-input:focus { border-bottom-color: #3B82F6; }
+        .tabular-nums { font-feature-settings: "tnum"; letter-spacing: -0.01em; }
+        #tsCrossTable td, #tsGapTable td { padding: 10px 8px; border-bottom: 1px solid #F3F4F6; }
+        #tsCrossTable tbody tr:hover, #tsGapTable tbody tr:hover { background: #FAFAFA; }
+
         input[type="range"]::-webkit-slider-thumb {
             -webkit-appearance: none;
             appearance: none;
@@ -607,7 +626,162 @@
                         </div>
                     </div>
 
-                    <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
+                    <!-- ════════════════════════════════════════════════ -->
+                    <!-- [fix-294c] 끝수합 보조 분석 6종 — 단일 흰 박스 통합   -->
+                    <!-- ════════════════════════════════════════════════ -->
+                    <div class="bg-white rounded-xl border border-gray-200 mt-6 overflow-hidden">
+
+                        <!-- §1. 시계열 추세 (이동평균 + 캘린더 히트맵) -->
+                        <div class="p-8">
+                            <div class="flex items-baseline justify-between mb-6">
+                                <div>
+                                    <h3 class="text-lg font-bold text-gray-900 tracking-tight">시계열 추세</h3>
+                                    <p class="text-xs text-gray-500 mt-1">이동평균과 ±1σ 신뢰구간 · 하단 캘린더 (좌=과거, 우=최신)</p>
+                                </div>
+                                <div class="flex items-baseline gap-2 text-xs text-gray-500">
+                                    <label>MA 윈도우</label>
+                                    <input type="number" id="tsMaWindow" value="10" min="3" max="50" oninput="renderTsMa()"
+                                        class="ts-input w-12 text-center tabular-nums">
+                                    <span>회</span>
+                                </div>
+                            </div>
+                            <div class="h-64 mb-6"><canvas id="tsMaChart"></canvas></div>
+                            <div class="pt-6 border-t border-gray-100">
+                                <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-3">캘린더 히트맵</div>
+                                <div id="tsCalendar"></div>
+                            </div>
+                        </div>
+
+                        <!-- §2 + §3 : 끝자리 분포 + 끝자리 다양성 (2분할, 박스 안 구분선으로 분리) -->
+                        <div class="border-t border-gray-100 grid grid-cols-1 lg:grid-cols-2 lg:divide-x lg:divide-gray-100">
+                            <div class="p-8">
+                                <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">끝자리 분포</h3>
+                                <p class="text-xs text-gray-500 mb-4">0~9 끝자리 평균 출현 횟수 · 평균선 0.6 (= 6/10)</p>
+                                <div class="h-56"><canvas id="tsDigitDist"></canvas></div>
+                                <div id="tsDigitDistStats" class="mt-3 text-xs text-gray-600 tabular-nums"></div>
+                            </div>
+                            <div class="p-8 border-t lg:border-t-0 border-gray-100">
+                                <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">끝자리 다양성</h3>
+                                <p class="text-xs text-gray-500 mb-4">한 회차의 unique 끝자리 개수 (1~6) 분포</p>
+                                <div class="h-56"><canvas id="tsUniqueDist"></canvas></div>
+                                <div id="tsUniqueDistStats" class="mt-3 text-xs text-gray-600 tabular-nums"></div>
+                            </div>
+                        </div>
+
+                        <!-- §4. 교차 분석 -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">교차 분석</h3>
+                            <p class="text-xs text-gray-500 mb-4">끝수합 5분위(Q1~Q5) × 6 속성 평균 · 양/음 상관 시그널</p>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-sm tabular-nums" id="tsCrossTable">
+                                    <thead>
+                                        <tr class="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                            <th class="py-3 pr-4 border-b border-gray-200">속성</th>
+                                            <th class="py-3 px-2 border-b border-gray-200 text-right">Q1 (저)</th>
+                                            <th class="py-3 px-2 border-b border-gray-200 text-right">Q2</th>
+                                            <th class="py-3 px-2 border-b border-gray-200 text-right">Q3</th>
+                                            <th class="py-3 px-2 border-b border-gray-200 text-right">Q4</th>
+                                            <th class="py-3 px-2 border-b border-gray-200 text-right">Q5 (고)</th>
+                                            <th class="py-3 pl-4 border-b border-gray-200 text-right">추세</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="tsCrossBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- §5. 시퀀스 패턴 검색 -->
+                        <div class="p-8 border-t border-gray-100">
+                            <div class="flex items-baseline justify-between mb-1">
+                                <h3 class="text-lg font-bold text-gray-900 tracking-tight">시퀀스 패턴 검색</h3>
+                                <div class="flex items-baseline gap-2 text-xs text-gray-500">
+                                    <label>시퀀스 길이</label>
+                                    <input type="number" id="tsSeqLen" value="3" min="2" max="10" oninput="renderTsSeq()"
+                                        class="ts-input w-12 text-center tabular-nums">
+                                </div>
+                            </div>
+                            <p class="text-xs text-gray-500 mb-4">최근 N개 끝수합 시퀀스와 동일한 과거 패턴 → 다음 회차 분포</p>
+                            <div id="tsSeqPanel"></div>
+                        </div>
+
+                        <!-- §6. 11빈 미출현 갭 -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">11빈 미출현 갭</h3>
+                            <p class="text-xs text-gray-500 mb-4">끝수합 0~54를 11구간 → 마지막 출현 후 경과 + z-score</p>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-sm tabular-nums" id="tsGapTable">
+                                    <thead>
+                                        <tr class="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                            <th class="py-2 pr-3 border-b border-gray-200">구간</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">출현</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">경과</th>
+                                            <th class="py-2 pl-3 border-b border-gray-200 text-right">z-score</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="tsGapBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                    </div>
+                    <!-- ════════════════════════════════════════════════ -->
+                    <!-- [/fix-294c] 단일 박스 통합 끝                       -->
+                    <!-- ════════════════════════════════════════════════ -->
+
+                    <!-- ════════════════════════════════════════════════ -->
+                    <!-- [fix-393] 다음 회차 방향 예측 (전회차 끝수합 ±N 통계) -->
+                    <!-- ════════════════════════════════════════════════ -->
+                    <div class="bg-white rounded-xl border border-gray-200 p-6 mt-6" style="font-feature-settings:'tnum'">
+                        <div class="flex items-baseline justify-between flex-wrap gap-3 mb-4">
+                            <div>
+                                <h3 class="text-lg text-gray-900">다음 회차 방향 예측</h3>
+                                <p class="text-xs text-gray-500 mt-1">전회차 끝수합 기준 ±N 범위에 있던 과거 회차들의 다음 회차 변동 통계</p>
+                            </div>
+                            <div class="flex items-center gap-2 text-[12px] text-gray-500">
+                                <span>±</span>
+                                <input type="number" id="tailNextDirRange" min="1" max="20" value="3" class="w-12 text-center text-[12px] border-0 border-b border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent" style="font-feature-settings:'tnum'">
+                                <span>범위</span>
+                            </div>
+                        </div>
+                        <div class="flex items-baseline flex-wrap gap-x-8 gap-y-2 pb-4 mb-4 border-b border-gray-100">
+                            <div class="flex items-baseline gap-2"><span class="text-[10px] uppercase tracking-wider text-gray-400">전회차 끝수합</span><span class="text-xl text-slate-700" id="tailNextDirPrevSum">—</span></div>
+                            <div class="flex items-baseline gap-2"><span class="text-[10px] uppercase tracking-wider text-gray-400">분석 범위</span><span class="text-xl text-slate-700" id="tailNextDirRangeText">—</span></div>
+                            <div class="flex items-baseline gap-2"><span class="text-[10px] uppercase tracking-wider text-gray-400">매칭 회차수</span><span class="text-xl text-blue-700" id="tailNextDirMatchN">—</span></div>
+                            <div class="flex items-baseline gap-2"><span class="text-[10px] uppercase tracking-wider text-gray-400">평균 변동</span><span class="text-xl text-slate-700" id="tailNextDirAvgDelta">—</span></div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                            <div>
+                                <div class="text-[10px] uppercase tracking-wider mb-2" style="color:#059669">↑ 상승</div>
+                                <div class="flex items-baseline gap-1 mb-2"><span id="tailNextDirUpPct" class="text-3xl" style="color:#059669">—</span><span class="text-xs text-gray-400">%</span></div>
+                                <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden mb-2"><div id="tailNextDirUpBar" class="h-full transition-all" style="background:#10B981;width:0%"></div></div>
+                                <div class="text-[11px] text-gray-500"><span id="tailNextDirUpN">0</span>회 / 평균 <span id="tailNextDirUpAvg">0</span></div>
+                            </div>
+                            <div>
+                                <div class="text-[10px] uppercase tracking-wider mb-2" style="color:#E11D48">↓ 하락</div>
+                                <div class="flex items-baseline gap-1 mb-2"><span id="tailNextDirDownPct" class="text-3xl" style="color:#E11D48">—</span><span class="text-xs text-gray-400">%</span></div>
+                                <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden mb-2"><div id="tailNextDirDownBar" class="h-full transition-all" style="background:#F43F5E;width:0%"></div></div>
+                                <div class="text-[11px] text-gray-500"><span id="tailNextDirDownN">0</span>회 / 평균 <span id="tailNextDirDownAvg">0</span></div>
+                            </div>
+                            <div>
+                                <div class="text-[10px] uppercase tracking-wider text-slate-500 mb-2">— 유지</div>
+                                <div class="flex items-baseline gap-1 mb-2"><span id="tailNextDirFlatPct" class="text-3xl text-slate-500">—</span><span class="text-xs text-gray-400">%</span></div>
+                                <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden mb-2"><div id="tailNextDirFlatBar" class="h-full transition-all" style="background:#94A3B8;width:0%"></div></div>
+                                <div class="text-[11px] text-gray-500"><span id="tailNextDirFlatN">0</span>회 / Δ=0</div>
+                            </div>
+                        </div>
+                        <div class="border-t border-gray-100 pt-4">
+                            <div class="flex items-baseline justify-between mb-2">
+                                <span class="text-[11px] uppercase tracking-wider text-gray-400">변동폭 분포</span>
+                                <span class="text-[10px] text-gray-400">매칭 회차의 다음 회차 끝수합 변동(Δ) 히스토그램</span>
+                            </div>
+                            <div class="relative" style="height:200px"><canvas id="tailNextDirChart"></canvas></div>
+                        </div>
+                        <div id="tailNextDirInsight" class="mt-4 p-3 bg-blue-50/40 border border-blue-100 rounded-lg text-[12px] text-slate-700"></div>
+                    </div>
+                    <!-- ════════════════════════════════════════════════ -->
+
+                    <!-- [fix-294] 조합 필터 — 리스트 바로 위로 이동 -->
+                    <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm mt-16">
                         <div class="flex items-center justify-between mb-4">
                             <h3 class="text-lg font-bold text-gray-900">조합 필터</h3>
 
@@ -619,29 +793,21 @@
 
                         </div>
                         <div class="flex flex-col sm:flex-row items-start sm:items-end gap-6 justify-between">
-                            <div class="flex items-end gap-3">
-                                <div class="flex items-center gap-2">
-                                    <div class="flex flex-col"><span
-                                            class="text-xs text-gray-500 mb-1 ml-1">Min</span><input type="number"
-                                            id="minFilter" placeholder="0" onchange="applyFilterManual()"
-                                            class="w-72 px-3 py-2 text-center border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-bold" />
-                                    </div>
-                                    <span class="text-gray-400 mb-3">~</span>
-                                    <div class="flex flex-col"><span
-                                            class="text-xs text-gray-500 mb-1 ml-1">Max</span><input type="number"
-                                            id="maxFilter" placeholder="0" onchange="applyFilterManual()"
-                                            class="w-72 px-3 py-2 text-center border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-bold" />
-                                    </div>
-                                </div>
+                            <div class="flex items-center gap-2 flex-1">
+                                <input type="number" id="minFilter" placeholder="0" onchange="applyFilterManual()"
+                                    class="w-20 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent" />
+                                <span class="text-xs text-gray-400">~</span>
+                                <input type="number" id="maxFilter" placeholder="0" onchange="applyFilterManual()"
+                                    class="w-20 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent" />
                             </div>
 
                             <div class="flex items-center gap-3 ml-auto">
                                 <button onclick="applyRecent10Filters()" id="recent10FilterBtn"
-                                    style="min-width: 210px;"
-                                    class="flex items-center justify-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 transition-all active:scale-95 text-sm font-black mr-2">
-                                    <span class="material-symbols-outlined text-[18px]">auto_fix_high</span>
+                                    class="flex items-center gap-2 px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-all">
+                                    <span class="material-symbols-outlined text-[16px]">auto_fix_high</span>
                                     <span id="recent10BtnText">직전 끝수합 자동 제외</span>
                                 </button>
+                                <span class="text-sm text-gray-700 whitespace-nowrap">필터 적용</span>
                                 <label class="relative inline-flex items-center cursor-pointer">
                                     <input type="checkbox" id="applyFilterCheck" onchange="applyFilter()"
                                         class="sr-only peer" checked>
@@ -649,8 +815,6 @@
                                         class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600">
                                     </div>
                                 </label>
-                                <label for="applyFilterCheck"
-                                    class="text-sm font-medium text-gray-700 cursor-pointer text-nowrap">필터 적용</label>
                             </div>
                         </div>
 
@@ -946,6 +1110,9 @@
 
                 // 5. 🔥 로딩 종료 (데이터 준비 완료)
                 document.getElementById('loadingOverlay').style.display = 'none';
+
+                // [fix-294] 보조 분석 6종 초기 렌더
+                if (typeof renderAllTsSupp === 'function') renderAllTsSupp();
 
                 initDeepInsight();
 
@@ -1801,6 +1968,8 @@ ${contextData}
             changeChartMode(chartMode);
             const draws = allDrawData.slice(0, currentRange);
             renderDrawsList(draws);
+            // [fix-294] 보조 분석 6종 갱신
+            if (typeof renderAllTsSupp === 'function') renderAllTsSupp();
         }
 
         function setRange(value) {
@@ -1892,7 +2061,483 @@ ${contextData}
             if (typeof renderExcludedSumsBadges === 'function') {
                 renderExcludedSumsBadges();
             }
+            // [fix-294] 보조 분석 6종 갱신
+            if (typeof renderAllTsSupp === 'function') renderAllTsSupp();
         }
+
+        // ════════════════════════════════════════════════════════════
+        // [fix-294] 끝수합 보조 분석 6종 — impeccable 가이드
+        // 라이트 모드, 단일 액센트(#3B82F6), tabular-nums, 박스 일변도 회피
+        // ════════════════════════════════════════════════════════════
+        const TS_ACCENT = '#3B82F6';
+        const TS_ACCENT_LIGHT = 'rgba(59, 130, 246, 0.08)';
+        const TS_GRID = '#F1F5F9';
+        const TS_INK_1 = '#0F172A';
+        const TS_INK_2 = '#475569';
+        const TS_INK_3 = '#94A3B8';
+
+        let _tsCache = null;
+        function getTsCache() {
+            if (_tsCache) return _tsCache;
+            _tsCache = allDrawData.map(d => {
+                const tails = d.numbers.map(n => n % 10);
+                const tailSum = d.tail_sum;
+                const uniqueDigits = new Set(tails).size;
+                const digitCounts = new Array(10).fill(0);
+                tails.forEach(t => digitCounts[t]++);
+                // 다른 속성 (교차분석용)
+                const sorted = [...d.numbers].sort((a,b)=>a-b);
+                const total = d.numbers.reduce((a,b)=>a+b, 0);
+                const odd = d.numbers.filter(x => x%2).length;
+                const low = d.numbers.filter(x => x<=22).length;
+                let cons = 0;
+                for (let i=0;i<sorted.length-1;i++) if (sorted[i+1]===sorted[i]+1) cons++;
+                const dec=[0,0,0,0,0]; d.numbers.forEach(x=>dec[Math.min(Math.floor((x-1)/10),4)]++);
+                const dMean = dec.reduce((a,b)=>a+b,0)/5;
+                const decVar = dec.reduce((a,b)=>a+(b-dMean)**2,0)/5;
+                const diffs = new Set();
+                for (let i=0;i<d.numbers.length;i++) for (let j=i+1;j<d.numbers.length;j++) diffs.add(Math.abs(d.numbers[i]-d.numbers[j]));
+                const ac = diffs.size - 5;
+                return { round: d.round, tailSum, tails, uniqueDigits, digitCounts, total, odd, low, cons, decVar, ac };
+            });
+            return _tsCache;
+        }
+
+        function renderAllTsSupp() {
+            try {
+                renderTsMa();
+                renderTsCalendar();
+                renderTsDigitDist();
+                renderTsUniqueDist();
+                renderTsCross();
+                renderTsSeq();
+                renderTsGap();
+                renderTailNextDirPredictor();   // [fix-393] 다음 회차 방향 예측
+            } catch (e) { console.warn('[ts-supp]', e); }
+        }
+
+        // ─────────────────────────────────────────────
+        // [fix-393] 다음 회차 방향 예측 — 끝수합 ±N 통계
+        // ─────────────────────────────────────────────
+        let tailNextDirChartInstance = null;
+        function renderTailNextDirPredictor() {
+            if (!allDrawData || allDrawData.length < 30) return;
+            const range = Math.max(1, Math.min(20, parseInt(document.getElementById('tailNextDirRange')?.value) || 3));
+
+            const prevSum = allDrawData[0].tail_sum;
+            const lower = prevSum - range;
+            const upper = prevSum + range;
+
+            const matches = [];
+            for (let i = 1; i < allDrawData.length - 1; i++) {
+                const sum_i = allDrawData[i].tail_sum;
+                if (sum_i == null) continue;
+                if (sum_i >= lower && sum_i <= upper) {
+                    const sum_next = allDrawData[i - 1].tail_sum;
+                    if (sum_next == null) continue;
+                    matches.push({ round: allDrawData[i].round, sum: sum_i, nextSum: sum_next, delta: sum_next - sum_i });
+                }
+            }
+
+            const ups = matches.filter(m => m.delta > 0);
+            const downs = matches.filter(m => m.delta < 0);
+            const flats = matches.filter(m => m.delta === 0);
+            const N = matches.length;
+            const avgDelta = N ? matches.reduce((s,m) => s + m.delta, 0) / N : 0;
+            const upAvg = ups.length ? ups.reduce((s,m) => s + m.delta, 0) / ups.length : 0;
+            const downAvg = downs.length ? downs.reduce((s,m) => s + m.delta, 0) / downs.length : 0;
+            const upPct = N ? (ups.length / N * 100) : 0;
+            const downPct = N ? (downs.length / N * 100) : 0;
+            const flatPct = N ? (flats.length / N * 100) : 0;
+
+            const setText = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+            const setBar = (id, p) => { const el = document.getElementById(id); if (el) el.style.width = Math.min(100, p) + '%'; };
+            setText('tailNextDirPrevSum', prevSum);
+            setText('tailNextDirRangeText', `${lower}~${upper}`);
+            setText('tailNextDirMatchN', N);
+            setText('tailNextDirAvgDelta', `${avgDelta >= 0 ? '+' : ''}${avgDelta.toFixed(1)}`);
+            setText('tailNextDirUpPct', upPct.toFixed(1));
+            setText('tailNextDirDownPct', downPct.toFixed(1));
+            setText('tailNextDirFlatPct', flatPct.toFixed(1));
+            setText('tailNextDirUpN', ups.length);
+            setText('tailNextDirDownN', downs.length);
+            setText('tailNextDirFlatN', flats.length);
+            setText('tailNextDirUpAvg', `+${upAvg.toFixed(1)}`);
+            setText('tailNextDirDownAvg', downAvg.toFixed(1));
+            setBar('tailNextDirUpBar', upPct);
+            setBar('tailNextDirDownBar', downPct);
+            setBar('tailNextDirFlatBar', flatPct);
+
+            const canvas = document.getElementById('tailNextDirChart');
+            if (canvas && N > 0) {
+                // 끝수합 변동폭은 -54 ~ +54 → bin=2 적당
+                const binW = 2;
+                const minD = Math.min(...matches.map(m => m.delta));
+                const maxD = Math.max(...matches.map(m => m.delta));
+                const startBin = Math.floor(minD / binW) * binW;
+                const endBin = Math.ceil(maxD / binW) * binW;
+                const bins = [];
+                for (let v = startBin; v <= endBin; v += binW) bins.push(v);
+                const counts = bins.map(b => matches.filter(m => m.delta >= b && m.delta < b + binW).length);
+                const colors = bins.map(b => b + binW / 2 > 0 ? '#10B981' : (b + binW / 2 < 0 ? '#F43F5E' : '#94A3B8'));
+
+                if (tailNextDirChartInstance) tailNextDirChartInstance.destroy();
+                tailNextDirChartInstance = new Chart(canvas.getContext('2d'), {
+                    type: 'bar',
+                    data: {
+                        labels: bins.map(b => `${b >= 0 ? '+' : ''}${b}`),
+                        datasets: [{ label: '회차수', data: counts, backgroundColor: colors, borderRadius: 3, barPercentage: 0.85 }]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    title: (items) => `Δ ${items[0].label} ~ ${parseInt(items[0].label) + binW}`,
+                                    label: (item) => `${item.parsed.y}회차`
+                                }
+                            },
+                            datalabels: { display: false }
+                        },
+                        scales: {
+                            x: { grid: { display: false }, ticks: { color: '#94A3B8', font: { size: 9 }, maxRotation: 0 } },
+                            y: { grid: { color: '#F1F5F9' }, ticks: { color: '#94A3B8', font: { size: 9 }, stepSize: 1 } }
+                        }
+                    }
+                });
+            }
+
+            const insightEl = document.getElementById('tailNextDirInsight');
+            if (insightEl) {
+                if (N === 0) {
+                    insightEl.innerHTML = `<span class="text-gray-400">전회차 끝수합 ${prevSum} ±${range} 범위(${lower}~${upper})에 해당하는 과거 회차가 없습니다.</span>`;
+                } else {
+                    const dominantDir = upPct > downPct ? '상승' : downPct > upPct ? '하락' : '균형';
+                    const dirColor = upPct > downPct ? '#059669' : downPct > upPct ? '#E11D48' : '#475569';
+                    const expectedAvg = prevSum + avgDelta;
+                    const expectedUp = ups.length ? prevSum + upAvg : null;
+                    const expectedDown = downs.length ? prevSum + downAvg : null;
+                    const nextSums = matches.map(m => m.nextSum).slice().sort((a, b) => a - b);
+                    const p10 = nextSums[Math.max(0, Math.floor(N * 0.10))];
+                    const p25 = nextSums[Math.max(0, Math.floor(N * 0.25))];
+                    const p75 = nextSums[Math.min(N - 1, Math.floor(N * 0.75))];
+                    const p90 = nextSums[Math.min(N - 1, Math.ceil(N * 0.90) - 1)];
+                    insightEl.innerHTML = `
+                        과거 끝수합 <span style="color:#1e293b">${lower}~${upper}</span> 범위(${N}회차)에서 다음 회차는
+                        <span style="color:${dirColor}">${dominantDir}</span> 우세 —
+                        평균 변동 <span style="color:#1e293b">${avgDelta >= 0 ? '+' : ''}${avgDelta.toFixed(1)}</span>
+                        (상승 시 <span style="color:#059669">+${upAvg.toFixed(1)}</span> · 하락 시 <span style="color:#E11D48">${downAvg.toFixed(1)}</span>).
+                        <div class="mt-2 pt-2 border-t border-blue-100/60 text-[12px]">
+                            <span class="text-gray-500">▸ 다음 회차 예상 끝수합</span>
+                            <div class="mt-1 grid grid-cols-1 sm:grid-cols-3 gap-x-6 gap-y-1">
+                                <div>평균 진행 시 → <span style="color:#1e293b">${expectedAvg.toFixed(1)}</span></div>
+                                ${expectedUp != null ? `<div>상승 시 → <span style="color:#059669">${expectedUp.toFixed(1)}</span></div>` : ''}
+                                ${expectedDown != null ? `<div>하락 시 → <span style="color:#E11D48">${expectedDown.toFixed(1)}</span></div>` : ''}
+                            </div>
+                            <div class="mt-2 pt-2 border-t border-blue-100/60">
+                                <span class="text-gray-500">▸ 신뢰 구간</span>
+                                <span class="ml-2">중간 50% (P25~P75) <span style="color:#2563EB">${p25}~${p75}</span></span>
+                                <span class="mx-2 text-gray-300">·</span>
+                                <span>폭넓게 80% (P10~P90) <span style="color:#475569">${p10}~${p90}</span></span>
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const inp = document.getElementById('tailNextDirRange');
+            if (inp) inp.addEventListener('input', () => renderTailNextDirPredictor());
+        });
+
+        // ─── §1-A. 시계열 추세 (이동평균 + ±1σ) ───
+        let tsMaInst = null;
+        function renderTsMa() {
+            const canvas = document.getElementById('tsMaChart');
+            if (!canvas) return;
+            const win = Math.max(3, Math.min(50, parseInt(document.getElementById('tsMaWindow').value) || 10));
+            const data = allDrawData.slice(0, currentRange).slice().reverse();
+            const sums = data.map(d => d.tail_sum);
+            const labels = data.map(d => d.round);
+            const ma = [], up = [], lo = [];
+            for (let i = 0; i < sums.length; i++) {
+                const s = Math.max(0, i - win + 1);
+                const sl = sums.slice(s, i + 1);
+                const m = sl.reduce((a,b)=>a+b,0)/sl.length;
+                const v = sl.reduce((a,b)=>a+(b-m)**2,0)/sl.length;
+                const sd = Math.sqrt(v);
+                ma.push(m); up.push(m+sd); lo.push(m-sd);
+            }
+            if (tsMaInst) tsMaInst.destroy();
+            tsMaInst = new Chart(canvas.getContext('2d'), {
+                type: 'line',
+                data: { labels, datasets: [
+                    { label: '끝수합', data: sums, borderColor: 'rgba(15,23,42,0.35)', borderWidth: 1, pointRadius: 0, fill: false, tension: 0.25 },
+                    { label: `이동평균 ${win}회`, data: ma, borderColor: TS_ACCENT, borderWidth: 2, pointRadius: 0, fill: false, tension: 0.25 },
+                    { label: '±1σ', data: up, borderColor: 'rgba(59,130,246,0.25)', borderWidth: 1, pointRadius: 0, borderDash: [3,3], fill: '+1', backgroundColor: TS_ACCENT_LIGHT },
+                    { label: ' ', data: lo, borderColor: 'rgba(59,130,246,0.25)', borderWidth: 1, pointRadius: 0, borderDash: [3,3], fill: false }
+                ]},
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top', align: 'end', labels: { boxWidth: 6, font: { size: 11, family: 'Pretendard' }, color: TS_INK_2 }, display: true } },
+                    scales: {
+                        y: { grid: { color: TS_GRID, drawBorder: false }, ticks: { color: TS_INK_3, font: { size: 11 } } },
+                        x: { grid: { display: false }, ticks: { color: TS_INK_3, font: { size: 11 }, display: currentRange < 80, autoSkip: true, maxRotation: 0 } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+        }
+
+        // ─── §1-B. 캘린더 히트맵 ───
+        function renderTsCalendar() {
+            const c = document.getElementById('tsCalendar');
+            if (!c) return;
+            const data = allDrawData.slice(0, currentRange).slice().reverse();
+            const cols = currentRange <= 50 ? 10 : currentRange <= 100 ? 20 : currentRange <= 300 ? 25 : 30;
+            const colorOf = (s) => {
+                if (s == null) return '#F8FAFC';
+                if (s < 20) return '#DBEAFE';
+                if (s < 28) return '#93C5FD';
+                if (s < 35) return '#3B82F6';
+                return '#1E3A8A';
+            };
+            const fgOf = (s) => s != null && s >= 28 ? '#fff' : TS_INK_1;
+            const fontMain = cols >= 25 ? 11 : 12;
+            const fontRd = cols >= 25 ? 8 : 9;
+            const pad = cols >= 25 ? '4px 0 3px' : '6px 0 4px';
+            let html = `<div style="display:grid;grid-template-columns:repeat(${cols},minmax(0,1fr));gap:2px">`;
+            for (const d of data) {
+                html += `<div title="${d.round}회 · 끝수합 ${d.tail_sum}" style="background:${colorOf(d.tail_sum)};color:${fgOf(d.tail_sum)};text-align:center;padding:${pad};border-radius:2px;line-height:1.05;font-feature-settings:'tnum'">
+                    <div style="font-size:${fontMain}px;font-weight:700">${d.tail_sum}</div>
+                    <div style="font-size:${fontRd}px;font-weight:500;opacity:0.65;letter-spacing:-0.02em">${d.round}</div>
+                </div>`;
+            }
+            c.innerHTML = html + '</div>';
+        }
+
+        // ─── §2. 끝자리 분포 (0~9) ───
+        let tsDigDistInst = null;
+        function renderTsDigitDist() {
+            const canvas = document.getElementById('tsDigitDist');
+            const statsEl = document.getElementById('tsDigitDistStats');
+            if (!canvas) return;
+            const cache = getTsCache().slice(0, currentRange);
+            const totals = new Array(10).fill(0);
+            cache.forEach(d => d.digitCounts.forEach((c, i) => totals[i] += c));
+            const avgPerDraw = totals.map(t => t / cache.length);
+            const expected = 0.6;
+            const colors = avgPerDraw.map(v => {
+                const z = (v - expected) / 0.2;  // 대략 σ
+                if (z >= 1.0) return TS_ACCENT;
+                if (z <= -1.0) return 'rgba(15,23,42,0.25)';
+                return 'rgba(59,130,246,0.45)';
+            });
+            if (tsDigDistInst) tsDigDistInst.destroy();
+            tsDigDistInst = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: { labels: ['0','1','2','3','4','5','6','7','8','9'],
+                    datasets: [
+                        { label: '평균 출현', data: avgPerDraw, backgroundColor: colors, borderRadius: 2, borderSkipped: false },
+                        { label: '기대값', data: Array(10).fill(expected), type: 'line', borderColor: 'rgba(15,23,42,0.35)', borderDash: [3,3], borderWidth: 1, pointRadius: 0, fill: false }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { grid: { color: TS_GRID, drawBorder: false }, ticks: { color: TS_INK_3, font: { size: 11 } } },
+                        x: { grid: { display: false }, ticks: { color: TS_INK_2, font: { size: 11 } } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+            // 통계 한 줄
+            const top = avgPerDraw.map((v, i) => ({ d: i, v })).sort((a,b)=>b.v-a.v);
+            const hottest = top[0], coldest = top[top.length - 1];
+            statsEl.innerHTML = `
+                <span class="text-gray-500">최다</span> <b style="color:${TS_ACCENT}">끝자리 ${hottest.d}</b> (${hottest.v.toFixed(2)}/회)
+                <span class="text-gray-300 mx-2">·</span>
+                <span class="text-gray-500">최소</span> <b>끝자리 ${coldest.d}</b> (${coldest.v.toFixed(2)}/회)
+            `;
+        }
+
+        // ─── §3. 끝자리 다양성 분포 (1~6) ───
+        let tsUqDistInst = null;
+        function renderTsUniqueDist() {
+            const canvas = document.getElementById('tsUniqueDist');
+            const statsEl = document.getElementById('tsUniqueDistStats');
+            if (!canvas) return;
+            const cache = getTsCache().slice(0, currentRange);
+            const dist = new Array(7).fill(0); // index 1~6
+            cache.forEach(d => dist[d.uniqueDigits]++);
+            const labels = [1,2,3,4,5,6];
+            const values = labels.map(i => dist[i]);
+            const total = cache.length;
+            const mean = cache.reduce((a,b)=>a+b.uniqueDigits,0) / total;
+            if (tsUqDistInst) tsUqDistInst.destroy();
+            tsUqDistInst = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: { labels: labels.map(String),
+                    datasets: [{ label: '회차 수', data: values, backgroundColor: TS_ACCENT, borderRadius: 2, borderSkipped: false }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { grid: { color: TS_GRID, drawBorder: false }, ticks: { color: TS_INK_3, font: { size: 11 } } },
+                        x: { grid: { display: false }, ticks: { color: TS_INK_2, font: { size: 11 } }, title: { display: true, text: 'unique 끝자리 개수', color: TS_INK_3, font: { size: 11 } } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+            const allDifferent = ((dist[6] / total) * 100).toFixed(1);
+            statsEl.innerHTML = `
+                <span class="text-gray-500">평균</span> <b style="color:${TS_ACCENT}">${mean.toFixed(2)}</b> 개
+                <span class="text-gray-300 mx-2">·</span>
+                <span class="text-gray-500">6개 모두 다른 끝자리</span> <b>${allDifferent}%</b>
+                (${dist[6]}회 / ${total}회)
+            `;
+        }
+
+        // ─── §4. 교차 분석 (5분위 × 6 속성) — 표 형태 ───
+        function renderTsCross() {
+            const tbody = document.getElementById('tsCrossBody');
+            if (!tbody) return;
+            const cache = getTsCache().slice(0, currentRange);
+            const sums = cache.map(d => d.tailSum).sort((a,b)=>a-b);
+            const q = (p) => sums[Math.floor(sums.length * p)];
+            const breaks = [q(0.2), q(0.4), q(0.6), q(0.8)];
+            const groupOf = (s) => s < breaks[0] ? 0 : s < breaks[1] ? 1 : s < breaks[2] ? 2 : s < breaks[3] ? 3 : 4;
+            const groups = [[],[],[],[],[]];
+            cache.forEach(d => groups[groupOf(d.tailSum)].push(d));
+            const avg = (arr, k) => arr.length === 0 ? 0 : arr.reduce((a,b)=>a+b[k],0)/arr.length;
+            const attrs = [
+                { k: 'ac', label: 'AC값', dec: 2 },
+                { k: 'total', label: '총합', dec: 1 },
+                { k: 'odd', label: '홀수 개수', dec: 2 },
+                { k: 'low', label: '저번호 (≤22)', dec: 2 },
+                { k: 'cons', label: '연번 쌍수', dec: 2 },
+                { k: 'decVar', label: '번호대 분산', dec: 2 }
+            ];
+            const fmt = (v, dec) => Number.isFinite(v) ? v.toFixed(dec) : '−';
+            tbody.innerHTML = attrs.map(a => {
+                const vals = [0,1,2,3,4].map(i => avg(groups[i], a.k));
+                const trend = vals[4] - vals[0];
+                const baseline = Math.abs(vals[2]) * 0.15 + 0.1;
+                let trendLabel = '미약', trendStyle = `color:${TS_INK_3}`;
+                if (Math.abs(trend) > baseline) {
+                    if (trend > 0) { trendLabel = '↑ 양의 상관'; trendStyle = `color:${TS_ACCENT};font-weight:600`; }
+                    else { trendLabel = '↓ 음의 상관'; trendStyle = 'color:#F43F5E;font-weight:600'; }
+                }
+                return `<tr>
+                    <td class="font-medium" style="color:${TS_INK_1}">${a.label}</td>
+                    <td class="text-right" style="color:${TS_INK_2}">${fmt(vals[0], a.dec)}</td>
+                    <td class="text-right" style="color:${TS_INK_2}">${fmt(vals[1], a.dec)}</td>
+                    <td class="text-right" style="color:${TS_INK_2}">${fmt(vals[2], a.dec)}</td>
+                    <td class="text-right" style="color:${TS_INK_2}">${fmt(vals[3], a.dec)}</td>
+                    <td class="text-right" style="color:${TS_INK_2}">${fmt(vals[4], a.dec)}</td>
+                    <td class="text-right" style="${trendStyle}">${trendLabel}</td>
+                </tr>`;
+            }).join('');
+        }
+
+        // ─── §5. 시퀀스 패턴 검색 ───
+        function renderTsSeq() {
+            const panel = document.getElementById('tsSeqPanel');
+            if (!panel) return;
+            const len = Math.max(2, Math.min(10, parseInt(document.getElementById('tsSeqLen').value) || 3));
+            const asc = allDrawData.slice().reverse();
+            if (asc.length < len + 1) { panel.innerHTML = '<div class="text-sm text-gray-400">데이터 부족</div>'; return; }
+            const recent = asc.slice(-len).map(d => d.tail_sum);
+            const recentStr = recent.join(',');
+            const matches = [];
+            for (let i = 0; i < asc.length - len; i++) {
+                const slice = asc.slice(i, i+len).map(d => d.tail_sum);
+                if (slice.join(',') === recentStr && i + len < asc.length - len) {
+                    matches.push({
+                        startRound: asc[i].round,
+                        endRound: asc[i+len-1].round,
+                        nextRound: asc[i+len].round,
+                        nextSum: asc[i+len].tail_sum
+                    });
+                }
+            }
+            const dist = {};
+            matches.forEach(m => { dist[m.nextSum] = (dist[m.nextSum]||0)+1; });
+            const distSorted = Object.entries(dist).sort((a,b)=>b[1]-a[1]);
+            let html = `<div class="mb-4 text-xs"><span class="text-gray-500">최근 ${len}개 시퀀스 →</span> `;
+            html += recent.map(v => `<span class="inline-block px-2 py-0.5 rounded mx-0.5 tabular-nums" style="background:${TS_ACCENT_LIGHT};color:${TS_ACCENT};font-weight:600">${v}</span>`).join('<span class="text-gray-300 mx-0.5">→</span>');
+            html += '</div>';
+            if (matches.length === 0) {
+                html += `<div class="text-sm text-gray-400 italic py-3">동일 시퀀스 없음. 길이를 줄여보세요.</div>`;
+            } else {
+                html += `<div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">다음 회차 끝수합 분포 (${matches.length}건)</div>`;
+                html += '<div class="space-y-1.5">';
+                distSorted.forEach(([s, c]) => {
+                    const pct = (c / matches.length * 100).toFixed(0);
+                    html += `<div class="flex items-center gap-3 text-xs tabular-nums">
+                        <span class="w-10 text-right" style="color:${TS_INK_2}">${s}</span>
+                        <div class="flex-1 h-1.5 rounded-full overflow-hidden" style="background:${TS_GRID}">
+                            <div style="background:${TS_ACCENT};height:100%;width:${pct}%"></div>
+                        </div>
+                        <span class="w-12 text-right" style="color:${TS_INK_3}">${c}회 (${pct}%)</span>
+                    </div>`;
+                });
+                html += '</div>';
+            }
+            panel.innerHTML = html;
+        }
+
+        // ─── §6. 11빈 미출현 갭 ───
+        function renderTsGap() {
+            const tbody = document.getElementById('tsGapBody');
+            if (!tbody) return;
+            const data = allDrawData.slice(0, currentRange);
+            const minS = 0, maxS = 54;
+            const binCount = 11;
+            const binSize = (maxS - minS) / binCount;
+            const bins = [];
+            for (let i = 0; i < binCount; i++) {
+                bins.push({ lo: Math.round(minS + i*binSize), hi: Math.round(minS + (i+1)*binSize) });
+            }
+            const rows = bins.map(bin => {
+                const indices = [];
+                data.forEach((d, idx) => { if (d.tail_sum >= bin.lo && d.tail_sum < bin.hi) indices.push(idx); });
+                if (indices.length === 0) return null;
+                const currentGap = indices[0];
+                let avgGap = null, sigma = null;
+                if (indices.length >= 2) {
+                    const ints = [];
+                    for (let i = 1; i < indices.length; i++) ints.push(indices[i] - indices[i-1]);
+                    avgGap = ints.reduce((a,b)=>a+b,0)/ints.length;
+                    sigma = Math.sqrt(ints.reduce((a,b)=>a+(b-avgGap)**2,0)/ints.length);
+                }
+                const z = (avgGap !== null && sigma > 0) ? (currentGap - avgGap) / sigma : null;
+                return { bin, count: indices.length, currentGap, avgGap, z };
+            }).filter(Boolean);
+            tbody.innerHTML = rows.map(r => {
+                let zStyle = `color:${TS_INK_3}`, zLabel = '−';
+                if (r.z !== null) {
+                    zLabel = (r.z > 0 ? '+' : '') + r.z.toFixed(1) + 'σ';
+                    if (r.z >= 1.5) zStyle = 'color:#F43F5E;font-weight:600';
+                    else if (r.z >= 0.5) zStyle = `color:${TS_ACCENT}`;
+                    else if (r.z <= -0.5) zStyle = 'color:#10B981';
+                    else zStyle = `color:${TS_INK_2}`;
+                }
+                return `<tr>
+                    <td style="color:${TS_INK_1}">${r.bin.lo}~${r.bin.hi-1}</td>
+                    <td class="text-right" style="color:${TS_INK_3}">${r.count}회</td>
+                    <td class="text-right" style="color:${TS_INK_1};font-weight:600">${r.currentGap}회 전</td>
+                    <td class="text-right" style="${zStyle}">${zLabel}</td>
+                </tr>`;
+            }).join('');
+        }
+        // ════════════════════════════════════════════════════════════
+        // [/fix-294]
+        // ════════════════════════════════════════════════════════════
 
         function openStatsModal() { document.getElementById('statsModal').classList.remove('hidden'); document.getElementById('statsRangeSlider').value = currentRange; updateStatsRange(currentRange); }
         function closeStatsModal() { document.getElementById('statsModal').classList.add('hidden'); }

@@ -315,6 +315,46 @@ class LottoNBeats:
         if self.model is not None:
             self.model.load_state_dict(ckpt["state_dict"])
 
+    @classmethod
+    def load_from_checkpoint(cls, model_dir: str, filename: str = "nbeats_sum.pt") -> "LottoNBeats":
+        """saved_models/nbeats_sum.pt 로드 + 인스턴스 반환.
+
+        Args:
+            model_dir: 모델 디렉토리 (config.MODEL_DIR)
+            filename: 모델 파일명 (기본 nbeats_sum.pt)
+
+        Returns:
+            학습된 가중치를 로드한 LottoNBeats 인스턴스
+        """
+        path = os.path.join(model_dir, filename)
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"NBeats model not found: {path}")
+
+        ckpt = torch.load(path, map_location="cpu", weights_only=False)
+
+        # 저장된 하이퍼파라미터로 인스턴스 생성
+        seq_length = ckpt.get("seq_length", 50)
+        prediction_length = ckpt.get("prediction_length", 1)
+
+        instance = cls(
+            seq_length=seq_length,
+            prediction_length=prediction_length,
+            device="cpu",
+        )
+
+        # 모델 구조 재구성을 위해 dummy dataset 필요 (최소 시계열 생성)
+        dummy_series = np.zeros(seq_length + prediction_length, dtype=np.float32)
+        df = instance._series_to_df(dummy_series, group_id="dummy")
+        dataset = instance._build_dataset(df, is_train=True)
+        instance.training_dataset = dataset
+        instance._build_model_from_dataset(dataset)
+
+        # state_dict 로드
+        instance.model.load_state_dict(ckpt["state_dict"])
+        instance.model.eval()
+
+        return instance
+
 
 def _smoke_test() -> int:
     """smoke 테스트: 가짜 1D 시계열 200스텝으로 1 epoch 학습."""

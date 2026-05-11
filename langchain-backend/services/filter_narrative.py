@@ -43,6 +43,191 @@ _MODEL_KO = {
     "tft": "TFT", "nbeats": "N-BEATS", "mhn": "MHN", "bayesian_nn": "Bayesian",
 }
 
+# 필터별 단위 (숫자 뒤에 붙는 단위)
+_FILTER_UNITS: dict[str, str] = {
+    "sum": "",       "tail_sum": "",
+    "ac": "점",
+    "odd": "개",     "high": "개",
+    "prime": "개",   "composite": "개",
+    "prime_hot": "개", "prime_cold": "개",
+    "composite_hot": "개", "composite_cold": "개",
+    "consecutive": "개", "square": "개", "triangular": "개", "twin": "개",
+    "mul3": "개",   "mul4": "개",   "mul5": "개",
+    "mul7": "개",   "mul8": "개",
+    "mul34": "개",  "mul35": "개",  "mul45": "개",
+    "non_multiple": "개",
+    "neighbor": "개", "carryover": "개",
+    "hot10": "개",  "neutral10": "개", "cold10": "개",
+    "missing": "개",
+}
+
+
+def _parse_range_str(s) -> "tuple[float | None, float | None]":
+    """'[109, 160]', '3~5', '2-4', '3 ~ 5', '114 ~ 168' 등을 (lo, hi)로 파싱."""
+    if not s:
+        return None, None
+    s = str(s).strip()
+    if s in ("미설정", "None", "null", ""):
+        return None, None
+    m = re.match(r"\[?\s*(-?\d+\.?\d*)\s*[,~\-–]\s*(-?\d+\.?\d*)\s*\]?", s)
+    if m:
+        return float(m.group(1)), float(m.group(2))
+    m = re.match(r"\[?\s*(-?\d+\.?\d*)\s*\]?", s)
+    if m:
+        v = float(m.group(1))
+        return v, v
+    return None, None
+
+
+def _parse_ci(ensemble_ci) -> "tuple[float | None, float | None]":
+    """ensemble_ci dict에서 80% CI (lo, hi) 추출."""
+    if not ensemble_ci or not isinstance(ensemble_ci, dict):
+        return None, None
+    # 'band': '114 ~ 168'
+    if "band" in ensemble_ci:
+        lo, hi = _parse_range_str(ensemble_ci["band"])
+        if lo is not None:
+            return lo, hi
+    # lo_p10 / hi_p90
+    lo = ensemble_ci.get("lo_p10") or ensemble_ci.get("lo")
+    hi = ensemble_ci.get("hi_p90") or ensemble_ci.get("hi")
+    if lo is not None and hi is not None:
+        return float(lo), float(hi)
+    return None, None
+
+
+def _eun_neun(word: str) -> str:
+    """단어 마지막 한글 음절의 받침(종성) 유무에 따라 '은'/'는' 반환.
+
+    괄호·특수문자로 끝나는 경우(예: '홀짝(홀수 개수)') 마지막 한글 음절을 역탐색.
+    """
+    for ch in reversed(word):
+        code = ord(ch)
+        if 0xAC00 <= code <= 0xD7A3:
+            has_jongseong = (code - 0xAC00) % 28 != 0
+            return "은" if has_jongseong else "는"
+    # 한글 없는 경우 (영어·숫자만)
+    return "은"
+
+
+def synthesize_filter_evidence(
+    filter_key: str,
+    ens_min,
+    ens_max,
+    ensemble_ci,
+    user_range_str: str,
+    task_weights: dict,
+) -> str:
+    """[fix-evidence-det] 결정론적 3문장 필터 분석 생성.
+
+    LLM 없이 각 필터의 실제 수치를 기반으로 항상 필터별로 다른 분석 텍스트를 생성한다.
+    매 필터마다 다른 예측 범위·신뢰구간·사용자 설정 값이 반영되므로 내용이 구별된다.
+    """
+    label = _FILTER_LABELS.get(filter_key, filter_key)
+    unit = _FILTER_UNITS.get(filter_key, "")
+    josa = _eun_neun(label)  # 은/는 조사 자동 선택
+
+    # ── 주도 모델 ──
+    DEPRECATED = {"lstm", "transformer"}
+    active_w = {k: v for k, v in (task_weights or {}).items()
+                if k not in DEPRECATED and v > 0}
+    sorted_w = sorted(active_w.items(), key=lambda x: x[1], reverse=True)
+    primary = sorted_w[0][0] if sorted_w else "xgboost"
+    primary_ko = _MODEL_KO.get(primary, primary)
+    primary_w = (sorted_w[0][1] * 100) if sorted_w else 0.0
+    top3_str = ", ".join(
+        f"{_MODEL_KO.get(m, m)} {w * 100:.1f}%"
+        for m, w in sorted_w[:3]
+    ) if sorted_w else f"{primary_ko} {primary_w:.1f}%"
+
+    def _fmt(v: float) -> str:
+        f = float(v)
+        return str(int(f)) if f == int(f) else f"{f:.1f}"
+
+    ci_lo, ci_hi = _parse_ci(ensemble_ci)
+    usr_lo, usr_hi = _parse_range_str(user_range_str)
+
+    # ── 문장 1: 예측 범위 + 주도 모델 ──
+    if ens_min is not None and ens_max is not None:
+        ens_min_f = max(0, float(ens_min))  # 음수 clamp (count 필터)
+        ens_max_f = float(ens_max)
+        if ens_min_f == ens_max_f:
+            s1 = (f"{label}{josa} AI 앙상블 기준 {_fmt(ens_min_f)}{unit}으로 예측되며, "
+                  f"{primary_ko}가 {primary_w:.1f}% 비중으로 분석을 주도합니다.")
+        else:
+            s1 = (f"{label}{josa} AI 앙상블 기준 {_fmt(ens_min_f)}~{_fmt(ens_max_f)}{unit} 범위로 예측되며, "
+                  f"{primary_ko}가 {primary_w:.1f}% 비중으로 분석을 주도합니다.")
+    else:
+        s1 = (f"{label} 분석에서 {top3_str} 순으로 모델 가중치가 높게 나타나고 있습니다.")
+
+    # ── 문장 2: 신뢰구간 vs 사용자 설정 ──
+    if ci_lo is not None and ci_hi is not None:
+        ci_str = f"{_fmt(ci_lo)}~{_fmt(ci_hi)}{unit}"
+        if usr_lo is not None and usr_hi is not None:
+            usr_str = f"{_fmt(usr_lo)}~{_fmt(usr_hi)}{unit}"
+            inside   = (usr_lo >= ci_lo and usr_hi <= ci_hi)
+            too_low  = usr_hi < ci_lo
+            too_high = usr_lo > ci_hi
+            if inside:
+                s2 = (f"80% 신뢰구간 {ci_str} 내에 사용자 설정 {usr_str}가 포함되어 "
+                      f"AI 예측과 정합성이 높습니다.")
+            elif too_low:
+                diff = _fmt(ci_lo - usr_hi)
+                s2 = (f"80% 신뢰구간 {ci_str}에 비해 사용자 설정 {usr_str}가 "
+                      f"{diff}{unit} 낮게 벗어나 있습니다.")
+            elif too_high:
+                diff = _fmt(usr_lo - ci_hi)
+                s2 = (f"80% 신뢰구간 {ci_str}에 비해 사용자 설정 {usr_str}가 "
+                      f"{diff}{unit} 높게 벗어나 있습니다.")
+            else:
+                # 부분 겹침
+                if usr_lo < ci_lo:
+                    s2 = (f"80% 신뢰구간 {ci_str}과 사용자 설정 {usr_str}가 일부 겹치나, "
+                          f"하단 {_fmt(ci_lo - usr_lo)}{unit}은 AI 예측 범위를 벗어납니다.")
+                else:
+                    s2 = (f"80% 신뢰구간 {ci_str}과 사용자 설정 {usr_str}가 일부 겹치나, "
+                          f"상단 {_fmt(usr_hi - ci_hi)}{unit}은 AI 예측 범위를 넘습니다.")
+        else:
+            s2 = (f"80% 신뢰구간은 {ci_str}이며, "
+                  f"사용자 설정이 없어 AI 권장 범위를 그대로 활용합니다.")
+    else:
+        if ens_min is not None and ens_max is not None:
+            usr_str = f"{_fmt(usr_lo)}~{_fmt(usr_hi)}{unit}" if usr_lo is not None else "미설정"
+            s2 = (f"AI 앙상블 예측 범위 {_fmt(ens_min)}~{_fmt(ens_max)}{unit}을 기준으로 "
+                  f"사용자 설정 {usr_str}과 비교하여 참고 지표로 활용합니다.")
+        else:
+            s2 = (f"{label}에 대한 통계적 신뢰구간 계산이 진행 중이며, "
+                  f"다음 회차 갱신 시 반영됩니다.")
+
+    # ── 문장 3: 결론 ──
+    if usr_lo is not None and usr_hi is not None and ci_lo is not None and ci_hi is not None:
+        inside   = (usr_lo >= ci_lo and usr_hi <= ci_hi)
+        too_low  = usr_hi < ci_lo
+        too_high = usr_lo > ci_hi
+        usr_width = usr_hi - usr_lo
+        ci_width  = ci_hi - ci_lo
+
+        if inside:
+            s3 = (f"종합적으로 사용자 설정이 AI 신뢰구간 내에 있어 최적이며, "
+                  f"현재 설정을 유지하는 것을 권장합니다.")
+        elif too_low:
+            s3 = (f"종합적으로 AI 예측보다 낮게 설정되어 있어 "
+                  f"{_fmt(ci_lo)}~{_fmt(ci_hi)}{unit} 방향으로 상향 조정을 고려해볼 수 있습니다.")
+        elif too_high:
+            s3 = (f"종합적으로 AI 예측보다 높게 설정되어 있어 "
+                  f"{_fmt(ci_lo)}~{_fmt(ci_hi)}{unit} 방향으로 하향 조정을 고려해볼 수 있습니다.")
+        elif usr_width > ci_width * 1.5:
+            s3 = (f"종합적으로 사용자 설정이 AI 신뢰구간보다 넓어 저확률 구간을 포함할 수 있으므로, "
+                  f"{_fmt(ci_lo)}~{_fmt(ci_hi)}{unit}으로 좁히는 것을 검토해보세요.")
+        else:
+            s3 = (f"종합적으로 AI 신뢰구간 {_fmt(ci_lo)}~{_fmt(ci_hi)}{unit}를 참고하여 "
+                  f"설정 범위 조정을 검토해볼 수 있습니다.")
+    else:
+        s3 = (f"종합적으로 {label}은 매주 갱신되는 AI 앙상블 예측 범위를 참고하여 "
+              f"설정하는 것을 권장합니다.")
+
+    return f"{s1} {s2} {s3}"
+
 
 _FILTER_PROMPT = """You are a Korean lottery analyst. Write exactly 3 natural Korean sentences analyzing the filter below. Output only the 3 sentences in Korean — no preamble, no English explanation, no bullet points, no labels.
 
@@ -320,67 +505,71 @@ def _clean_response(text: str, current_filter_key: Optional[str] = None) -> str:
     return text.strip()
 
 
-async def build_all_filter_narratives(range_analysis: dict, ensemble) -> dict:
-    """
-    26개 필터 evidence_text 일괄 생성.
-
-    Args:
-        range_analysis: weekly_pipeline_v2의 range_analysis dict
-        ensemble: LottoEnsemble instance (task_weights 추출용)
-
-    Returns:
-        {filter_key: evidence_text or None}
-    """
-    if not range_analysis:
-        return {}
-
+def _extract_task_weights(fdata: dict) -> dict:
+    """range_analysis 항목에서 task_weights 추출 헬퍼."""
     try:
         from models.ensemble import TASK_WEIGHTS
     except Exception:
         TASK_WEIGHTS = {}
+    task = fdata.get("primary_task", "filter_count_attr")
+    tw = TASK_WEIGHTS.get(task, {})
+    if not tw:
+        me = fdata.get("model_expectations") or {}
+        tw = {k: v.get("weight", 0) for k, v in me.items()
+              if isinstance(v, dict) and k != "__ensemble__"}
+    return tw
 
-    sem = asyncio.Semaphore(2)
+
+def _extract_user_range_str(fdata: dict) -> str:
+    """range_analysis 항목에서 사용자 range 문자열 추출."""
+    # filter_value (DB 저장 형식) 우선
+    fv = fdata.get("filter_value")
+    if fv:
+        return str(fv)
+    rng = fdata.get("range")
+    if isinstance(rng, str):
+        return rng
+    if isinstance(rng, (list, tuple)) and len(rng) == 2:
+        return f"{rng[0]} ~ {rng[1]}"
+    return "미설정"
+
+
+async def build_all_filter_narratives(range_analysis: dict, ensemble) -> dict:
+    """
+    [fix-evidence-det] 26개 필터 evidence_text 일괄 생성.
+
+    결정론적 synthesize_filter_evidence()를 PRIMARY로 사용한다.
+    LLM 호출은 제거 — 모든 필터에 동일한 결론이 출력되는 버그를 근본 해결.
+
+    Args:
+        range_analysis: weekly_pipeline_v2의 range_analysis dict
+        ensemble: LottoEnsemble instance (하위 호환을 위해 유지, 현재 미사용)
+
+    Returns:
+        {filter_key: evidence_text}  — 항상 전 필터 반환 (실패 시 빈 문자열)
+    """
+    if not range_analysis:
+        return {}
+
     results = {}
-
-    async def _one(fk: str, fdata: dict):
-        async with sem:
-            try:
-                ens_min = fdata.get("ensemble_min")
-                ens_max = fdata.get("ensemble_max")
-                ci = fdata.get("ensemble_ci") or {}
-                ci_band = ci.get("band") if isinstance(ci, dict) else None
-                # raw filter_value
-                rng = fdata.get("range")
-                if isinstance(rng, str):
-                    user_range = rng
-                elif isinstance(rng, (list, tuple)) and len(rng) == 2:
-                    user_range = f"{rng[0]} ~ {rng[1]}"
-                else:
-                    user_range = "미설정"
-                # task_weights
-                task = fdata.get("primary_task", "filter_count_attr")
-                tw = TASK_WEIGHTS.get(task, {})
-                if not tw:
-                    # fallback: model_expectations 에서 weight 추출
-                    me = fdata.get("model_expectations") or {}
-                    tw = {k: v.get("weight", 0) for k, v in me.items()
-                          if isinstance(v, dict) and k != "__ensemble__"}
-
-                text = await _generate_one(
-                    filter_key=fk,
-                    ens_min=ens_min, ens_max=ens_max,
-                    ci_band=ci_band, user_range=user_range,
-                    model_expectations=fdata.get("model_expectations") or {},
-                    task_weights=tw,
-                )
-                ko_count = len(re.findall(r"[가-힣]", text or ""))
-                if ko_count >= 30:
-                    results[fk] = text
-                    logger.info(f"  [filter_narrative] {fk} OK ({len(text)}자)")
-                else:
-                    logger.warning(f"  [filter_narrative] {fk} 한국어 부족({ko_count}자), skip")
-            except Exception as e:
-                logger.warning(f"  [filter_narrative] {fk} 오류: {e}")
-
-    await asyncio.gather(*[_one(fk, fdata) for fk, fdata in range_analysis.items()])
+    for fk, fdata in range_analysis.items():
+        try:
+            tw = _extract_task_weights(fdata)
+            user_range_str = _extract_user_range_str(fdata)
+            text = synthesize_filter_evidence(
+                filter_key=fk,
+                ens_min=fdata.get("ensemble_min"),
+                ens_max=fdata.get("ensemble_max"),
+                ensemble_ci=fdata.get("ensemble_ci"),
+                user_range_str=user_range_str,
+                task_weights=tw,
+            )
+            ko_count = len(re.findall(r"[가-힣]", text))
+            if ko_count >= 20:
+                results[fk] = text
+                logger.info(f"  [filter_narrative] {fk} OK ({len(text)}자)")
+            else:
+                logger.warning(f"  [filter_narrative] {fk} 한국어 부족({ko_count}자), skip")
+        except Exception as e:
+            logger.warning(f"  [filter_narrative] {fk} 오류: {e}")
     return results

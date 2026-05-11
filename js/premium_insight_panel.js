@@ -28,7 +28,19 @@
     } catch (_) {}
 
     function _payloadSync() {
-        return (_payloadCache && (Date.now() - _payloadCache.ts) < _CACHE_TTL) ? _payloadCache.data : null;
+        if (_payloadCache && (Date.now() - _payloadCache.ts) < _CACHE_TTL) return _payloadCache.data;
+        // [fix-242] sessionStorage 재확인 — 외부 코드(예: regression.html preload)가 write한 cache 활용
+        try {
+            const raw = sessionStorage.getItem(_SS_KEY);
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                if (parsed && parsed.data && (Date.now() - parsed.ts) < _CACHE_TTL) {
+                    _payloadCache = parsed;
+                    return parsed.data;
+                }
+            }
+        } catch (_) {}
+        return null;
     }
 
     // V4 필터 데이터 → payload 호환 형식 변환
@@ -77,17 +89,24 @@
         'ratio_analysis',
         'hot_cold_data',
         'missing_group_data',
+        // [fix-238] regression_analysis 추가 — regression.html에서 2~200 회귀 step resolver에 필요
+        // 누락 시 _regressionStepResolver가 항상 null 반환 → "데이터를 불러오지 못했습니다" 에러
+        'regression_analysis',
+        'matrix_data',
     ];
-    function _hasAnyV3Field(payload) {
-        if (!payload || !payload.analysis) return false;
-        return V3_MERGE_FIELDS.some(f => {
+    // [fix-238] 누락된 필드만 식별 — _hasAnyV3Field 대체
+    function _missingV3Fields(payload) {
+        if (!payload || !payload.analysis) return V3_MERGE_FIELDS.slice();
+        return V3_MERGE_FIELDS.filter(f => {
             const v = payload.analysis[f];
-            return Array.isArray(v) ? v.length > 0 : (v && Object.keys(v).length > 0);
+            const has = Array.isArray(v) ? v.length > 0 : (v && Object.keys(v).length > 0);
+            return !has;
         });
     }
     async function _ensureV3Merged(payload) {
         if (!payload || !payload.analysis) return payload;
-        if (_hasAnyV3Field(payload)) return payload;  // 이미 있음
+        const missing = _missingV3Fields(payload);
+        if (missing.length === 0) return payload;  // 모든 필드 충족
         if (_v3MergeInflight) {
             await _v3MergeInflight;
             return payload;
@@ -100,7 +119,8 @@
                 const v3Analysis = v3?.analysis;
                 if (!v3Analysis) return;
                 let merged = 0;
-                V3_MERGE_FIELDS.forEach(f => {
+                // [fix-238] 누락된 필드만 merge (이전엔 V3 응답에 한 필드라도 있으면 전체 skip)
+                missing.forEach(f => {
                     if (v3Analysis[f] != null) {
                         payload.analysis[f] = v3Analysis[f];
                         merged++;
@@ -111,7 +131,7 @@
                         sessionStorage.setItem(_SS_KEY, JSON.stringify(_payloadCache));
                     }
                 } catch (_) {}
-                console.log(`[PremiumInsightPanel] v3 ${merged}개 필드 lazy merge 완료`);
+                console.log(`[PremiumInsightPanel] v3 ${merged}/${missing.length}개 필드 lazy merge 완료 (누락: ${missing.join(',')})`);
             } catch (e) {
                 console.warn('[PremiumInsightPanel] v3 lazy merge 실패:', e);
             } finally {
@@ -1091,11 +1111,12 @@
         const tabs = (opts && opts.tabs) ? opts.tabs : null;
         const el = document.getElementById(containerId);
         if (!el) return;
-        // 캐시가 있으면 스켈레톤 건너뛰고 즉시 렌더 (탭 전환 체감속도 개선)
-        // [fix-81] digit 키는 warm path 건너뛰고 정식 path로 (tail_analysis lazy fetch 필요)
+        // [fix-234] 캐시가 있으면 skipMenuFetch 옵션 무관하게 즉시 동기 렌더
+        // → "AI 프리미엄 전략 리포트는 DB 값 불러오는 거니 즉시 로딩" 사용자 요구 반영
+        // 이전엔 skipMenuFetch=true일 때만 즉시 렌더 → 일반 호출 시 항상 _skeleton 거쳐 깜빡거림 발생
         const isDigitKey = /^digit\d$/.test(filterKey);
         const warmPayload = _payloadSync();
-        if (warmPayload && skipMenuFetch && !isDigitKey) {
+        if (warmPayload && !isDigitKey) {
             const resolved = _resolvePayload(warmPayload, filterKey);
             if (resolved && resolved.modelExp && Object.keys(resolved.modelExp).length > 0) {
                 const ensemble = _ensembleOf(resolved.modelExp);
@@ -1115,6 +1136,30 @@
                 _wireTabs(containerId, tabs);
                 return;
             }
+        }
+        // [fix-295] digit 키 + warm cache는 있지만 tail_analysis 누락 → v4 fetch 스킵하고 v3 merge 직행
+        // 이전엔 _getPayload()를 통해 v4 fetch 먼저 (불필요) → v3 merge → 재해석. 2 fetch 필요.
+        // 신규: warm cache 있으면 v4 스킵하고 v3 merge만 수행 → 1 fetch로 단축.
+        if (warmPayload && skipMenuFetch && isDigitKey) {
+            el.innerHTML = _skeleton(filterLabel, tabs, containerId);
+            _wireTabs(containerId, tabs);
+            (async () => {
+                try {
+                    await _ensureV3Merged(warmPayload);
+                    const r = _resolvePayload(warmPayload, filterKey);
+                    if (r && r.modelExp && Object.keys(r.modelExp).length > 0) {
+                        const ensemble = _ensembleOf(r.modelExp);
+                        el.innerHTML = _buildHTML(filterLabel, r.targetRound || '', r.modelExp, ensemble, recentValues, tabs, containerId, r.ratioData || null, filterKey);
+                        _wireTabs(containerId, tabs);
+                    } else {
+                        el.innerHTML = _error(filterLabel, '잠시 후 다시 시도해주세요.');
+                    }
+                } catch (e) {
+                    console.error('[PremiumInsightPanel fast-digit-v3]', e);
+                    el.innerHTML = _error(filterLabel, e.message);
+                }
+            })();
+            return;
         }
         el.innerHTML = _skeleton(filterLabel, tabs, containerId);
         _wireTabs(containerId, tabs);
@@ -1169,9 +1214,18 @@
         }
     }
 
+    // [fix-242] 외부에서 cache 미리 주입 가능한 public API
+    function setPayloadCache(payload) {
+        if (!payload || !payload.analysis) return false;
+        _payloadCache = { ts: Date.now(), data: payload };
+        try { sessionStorage.setItem(_SS_KEY, JSON.stringify(_payloadCache)); } catch(_) {}
+        return true;
+    }
+
     window.PremiumInsightPanel = {
         render,
-        refresh: render
+        refresh: render,
+        setPayloadCache  // [신규] 외부 preload 시 사용
     };
 
     console.log('🌟 [PremiumInsightPanel] 로드 완료');

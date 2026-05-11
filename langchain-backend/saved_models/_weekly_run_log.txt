@@ -1,0 +1,684 @@
+INFO:WeeklyPipelineV2:[WeeklyPipelineV2] 파이프라인 시작
+INFO:httpx:HTTP Request: GET https://dkcflmyoscudawleglzb.supabase.co/rest/v1/lotto_draws?select=%2A&order=round.desc "HTTP/2 200 OK"
+INFO:WeeklyPipelineV2:  target_round=1222, history=1221회차
+INFO:WeeklyPipelineV2:[Phase A] 이전 회차 검증 시작...
+INFO:httpx:HTTP Request: GET https://dkcflmyoscudawleglzb.supabase.co/rest/v1/lotto_draws?select=numbers&round=eq.1221 "HTTP/2 200 OK"
+INFO:httpx:HTTP Request: GET https://dkcflmyoscudawleglzb.supabase.co/rest/v1/weekly_predictions?select=id%2C%20top_5%2C%20exclude_10&target_round=eq.1221 "HTTP/2 200 OK"
+INFO:httpx:HTTP Request: GET https://dkcflmyoscudawleglzb.supabase.co/rest/v1/weekly_recommendations?select=id%2C%20number&target_round=eq.1221 "HTTP/2 200 OK"
+INFO:httpx:HTTP Request: GET https://dkcflmyoscudawleglzb.supabase.co/rest/v1/weekly_filter_predictions?select=id%2C%20filter_key%2C%20ensemble_min%2C%20ensemble_max&target_round=eq.1221 "HTTP/2 200 OK"
+INFO:httpx:HTTP Request: GET https://dkcflmyoscudawleglzb.supabase.co/rest/v1/model_performance_log?select=id%2C%20predicted_numbers&round=eq.1221 "HTTP/2 200 OK"
+INFO:WeeklyPipelineV2:  검증 완료 (actual=[6, 13, 18, 28, 30, 36])
+INFO:WeeklyPipelineV2:[Phase B] 딥러닝 분석 실행 중...
+INFO:WeeklyPipelineV2:  [B0] predictor_pipeline (Phase 1~4) 학습/추론...
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:27:48] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+Found only 4 unique classes in the data, but have defined 7 classes. Probably something is wrong with data.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:687: UserWarning: No early stopping will be performed, last training weights will be used.
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:28:15] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+Found only 4 unique classes in the data, but have defined 7 classes. Probably something is wrong with data.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:687: UserWarning: No early stopping will be performed, last training weights will be used.
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:28:40] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+Found only 5 unique classes in the data, but have defined 7 classes. Probably something is wrong with data.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:687: UserWarning: No early stopping will be performed, last training weights will be used.
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:29:09] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+Found only 5 unique classes in the data, but have defined 7 classes. Probably something is wrong with data.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:687: UserWarning: No early stopping will be performed, last training weights will be used.
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:29:37] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+Found only 5 unique classes in the data, but have defined 7 classes. Probably something is wrong with data.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:687: UserWarning: No early stopping will be performed, last training weights will be used.
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:30:05] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+Found only 5 unique classes in the data, but have defined 7 classes. Probably something is wrong with data.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:687: UserWarning: No early stopping will be performed, last training weights will be used.
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:30:33] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+Found only 4 unique classes in the data, but have defined 7 classes. Probably something is wrong with data.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:687: UserWarning: No early stopping will be performed, last training weights will be used.
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:30:57] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+Found only 4 unique classes in the data, but have defined 7 classes. Probably something is wrong with data.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:687: UserWarning: No early stopping will be performed, last training weights will be used.
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:31:22] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+Found only 4 unique classes in the data, but have defined 7 classes. Probably something is wrong with data.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:687: UserWarning: No early stopping will be performed, last training weights will be used.
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:31:47] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+Found only 4 unique classes in the data, but have defined 7 classes. Probably something is wrong with data.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:687: UserWarning: No early stopping will be performed, last training weights will be used.
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:32:11] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+Found only 6 unique classes in the data, but have defined 7 classes. Probably something is wrong with data.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:687: UserWarning: No early stopping will be performed, last training weights will be used.
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:32:43] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+Found only 6 unique classes in the data, but have defined 7 classes. Probably something is wrong with data.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:687: UserWarning: No early stopping will be performed, last training weights will be used.
+  warnings.warn(wrn_msg)
+Found only 6 unique classes in the data, but have defined 7 classes. Probably something is wrong with data.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:687: UserWarning: No early stopping will be performed, last training weights will be used.
+  warnings.warn(wrn_msg)
+Found only 6 unique classes in the data, but have defined 7 classes. Probably something is wrong with data.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:687: UserWarning: No early stopping will be performed, last training weights will be used.
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:34:21] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+Found only 5 unique classes in the data, but have defined 7 classes. Probably something is wrong with data.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:687: UserWarning: No early stopping will be performed, last training weights will be used.
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:34:50] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+Found only 5 unique classes in the data, but have defined 7 classes. Probably something is wrong with data.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:687: UserWarning: No early stopping will be performed, last training weights will be used.
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:35:19] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+Found only 4 unique classes in the data, but have defined 7 classes. Probably something is wrong with data.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:687: UserWarning: No early stopping will be performed, last training weights will be used.
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:35:43] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+Found only 5 unique classes in the data, but have defined 7 classes. Probably something is wrong with data.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:687: UserWarning: No early stopping will be performed, last training weights will be used.
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:36:11] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+Found only 5 unique classes in the data, but have defined 7 classes. Probably something is wrong with data.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:687: UserWarning: No early stopping will be performed, last training weights will be used.
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:36:40] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+Found only 4 unique classes in the data, but have defined 7 classes. Probably something is wrong with data.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:687: UserWarning: No early stopping will be performed, last training weights will be used.
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:37:07] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+Found only 4 unique classes in the data, but have defined 7 classes. Probably something is wrong with data.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:687: UserWarning: No early stopping will be performed, last training weights will be used.
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:37:33] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+Found only 5 unique classes in the data, but have defined 7 classes. Probably something is wrong with data.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:687: UserWarning: No early stopping will be performed, last training weights will be used.
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:38:04] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+Found only 5 unique classes in the data, but have defined 7 classes. Probably something is wrong with data.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:687: UserWarning: No early stopping will be performed, last training weights will be used.
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:38:34] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+Found only 4 unique classes in the data, but have defined 7 classes. Probably something is wrong with data.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:687: UserWarning: No early stopping will be performed, last training weights will be used.
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:39:01] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:687: UserWarning: No early stopping will be performed, last training weights will be used.
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:39:40] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+Found only 6 unique classes in the data, but have defined 7 classes. Probably something is wrong with data.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:687: UserWarning: No early stopping will be performed, last training weights will be used.
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:40:14] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+Found only 4 unique classes in the data, but have defined 7 classes. Probably something is wrong with data.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:687: UserWarning: No early stopping will be performed, last training weights will be used.
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:40:41] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+Found only 3 unique classes in the data, but have defined 7 classes. Probably something is wrong with data.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:687: UserWarning: No early stopping will be performed, last training weights will be used.
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:41:03] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+Found only 1 unique classes in the data, but have defined 7 classes. Probably something is wrong with data.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:687: UserWarning: No early stopping will be performed, last training weights will be used.
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:41:13] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:687: UserWarning: No early stopping will be performed, last training weights will be used.
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:41:52] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:42:04] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:42:16] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:687: UserWarning: No early stopping will be performed, last training weights will be used.
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:42:39] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:687: UserWarning: No early stopping will be performed, last training weights will be used.
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:43:01] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:687: UserWarning: No early stopping will be performed, last training weights will be used.
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:43:25] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:43:37] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:43:50] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:44:03] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:44:07] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:44:20] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:44:32] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:44:41] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\callbacks.py:172: UserWarning: Best weights from best epoch are automatically used!
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:44:46] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\callbacks.py:172: UserWarning: Best weights from best epoch are automatically used!
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:44:56] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\callbacks.py:172: UserWarning: Best weights from best epoch are automatically used!
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:45:05] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\callbacks.py:172: UserWarning: Best weights from best epoch are automatically used!
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:45:15] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\callbacks.py:172: UserWarning: Best weights from best epoch are automatically used!
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:45:19] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\callbacks.py:172: UserWarning: Best weights from best epoch are automatically used!
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:45:23] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\callbacks.py:172: UserWarning: Best weights from best epoch are automatically used!
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:45:27] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\callbacks.py:172: UserWarning: Best weights from best epoch are automatically used!
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:45:29] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\callbacks.py:172: UserWarning: Best weights from best epoch are automatically used!
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:45:33] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\callbacks.py:172: UserWarning: Best weights from best epoch are automatically used!
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:45:36] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\callbacks.py:172: UserWarning: Best weights from best epoch are automatically used!
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:45:40] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\callbacks.py:172: UserWarning: Best weights from best epoch are automatically used!
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:45:43] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\callbacks.py:172: UserWarning: Best weights from best epoch are automatically used!
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:45:46] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\callbacks.py:172: UserWarning: Best weights from best epoch are automatically used!
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:45:50] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\callbacks.py:172: UserWarning: Best weights from best epoch are automatically used!
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:45:53] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\callbacks.py:172: UserWarning: Best weights from best epoch are automatically used!
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:45:58] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\callbacks.py:172: UserWarning: Best weights from best epoch are automatically used!
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:46:01] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\callbacks.py:172: UserWarning: Best weights from best epoch are automatically used!
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:46:05] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\callbacks.py:172: UserWarning: Best weights from best epoch are automatically used!
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:46:07] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\callbacks.py:172: UserWarning: Best weights from best epoch are automatically used!
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:46:11] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\callbacks.py:172: UserWarning: Best weights from best epoch are automatically used!
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:46:14] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\callbacks.py:172: UserWarning: Best weights from best epoch are automatically used!
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:46:16] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\callbacks.py:172: UserWarning: Best weights from best epoch are automatically used!
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:46:19] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\callbacks.py:172: UserWarning: Best weights from best epoch are automatically used!
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:46:22] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\callbacks.py:172: UserWarning: Best weights from best epoch are automatically used!
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:46:26] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\callbacks.py:172: UserWarning: Best weights from best epoch are automatically used!
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:46:29] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\callbacks.py:172: UserWarning: Best weights from best epoch are automatically used!
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:46:32] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\callbacks.py:172: UserWarning: Best weights from best epoch are automatically used!
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:46:36] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\callbacks.py:172: UserWarning: Best weights from best epoch are automatically used!
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\training.py:199: UserWarning: [02:46:41] WARNING: C:\actions-runner\_work\xgboost\xgboost\src\learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\callbacks.py:172: UserWarning: Best weights from best epoch are automatically used!
+  warnings.warn(wrn_msg)
+C:\Users\psdet\Documents\lottoanalysis\langchain-backend\models\bayesian_nn_model.py:370: UserWarning: The given NumPy array is not writable, and PyTorch does not support non-writable tensors. This means writing to this tensor will result in undefined behavior. You may want to copy the array to protect its data or make it writable before converting it to a tensor. This type of warning will be suppressed for the rest of this program. (Triggered internally at C:\actions-runner\_work\pytorch\pytorch\builder\windows\pytorch\torch\csrc\utils\tensor_numpy.cpp:212.)
+  x_tensor = torch.from_numpy(X_arr).to(self.device)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\lightning\pytorch\utilities\parsing.py:213: Attribute 'loss' is an instance of `nn.Module` and is already saved during checkpointing. It is recommended to ignore them using `self.save_hyperparameters(ignore=['loss'])`.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\lightning\pytorch\utilities\parsing.py:213: Attribute 'logging_metrics' is an instance of `nn.Module` and is already saved during checkpointing. It is recommended to ignore them using `self.save_hyperparameters(ignore=['logging_metrics'])`.
+INFO: GPU available: True (cuda), used: True
+INFO:lightning.pytorch.utilities.rank_zero:GPU available: True (cuda), used: True
+INFO: TPU available: False, using: 0 TPU cores
+INFO:lightning.pytorch.utilities.rank_zero:TPU available: False, using: 0 TPU cores
+INFO: 💡 Tip: For seamless cloud logging and experiment tracking, try installing [litlogger](https://pypi.org/project/litlogger/) to enable LitLogger, which logs metrics and artifacts automatically to the Lightning Experiments platform.
+INFO:lightning.pytorch.utilities.rank_zero:💡 Tip: For seamless cloud logging and experiment tracking, try installing [litlogger](https://pypi.org/project/litlogger/) to enable LitLogger, which logs metrics and artifacts automatically to the Lightning Experiments platform.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\lightning\pytorch\trainer\configuration_validator.py:70: You defined a `validation_step` but have no `val_dataloader`. Skipping val loop.
+INFO: LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+INFO:lightning.pytorch.accelerators.cuda:LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\lightning\pytorch\trainer\connectors\data_connector.py:434: The 'train_dataloader' does not have many workers which may be a bottleneck. Consider increasing the value of the `num_workers` argument` to `num_workers=5` in the `DataLoader` to improve performance.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\lightning\pytorch\loops\training_epoch_loop.py:500: ReduceLROnPlateau conditioned on metric val_loss which is not available but strict is set to `False`. Skipping learning rate update.
+INFO: `Trainer.fit` stopped: `max_epochs=30` reached.
+INFO:lightning.pytorch.utilities.rank_zero:`Trainer.fit` stopped: `max_epochs=30` reached.
+INFO: GPU available: True (cuda), used: True
+INFO:lightning.pytorch.utilities.rank_zero:GPU available: True (cuda), used: True
+INFO: TPU available: False, using: 0 TPU cores
+INFO:lightning.pytorch.utilities.rank_zero:TPU available: False, using: 0 TPU cores
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\lightning\pytorch\trainer\connectors\logger_connector\logger_connector.py:76: Starting from v1.9.0, `tensorboardX` has been removed as a dependency of the `lightning.pytorch` package, due to potential conflicts with other packages in the ML ecosystem. For this reason, `logger=True` will use `CSVLogger` as the default logger, unless the `tensorboard` or `tensorboardX` packages are found. Please `pip install lightning[extra]` or one of them to enable TensorBoard support by default
+INFO: 💡 Tip: For seamless cloud logging and experiment tracking, try installing [litlogger](https://pypi.org/project/litlogger/) to enable LitLogger, which logs metrics and artifacts automatically to the Lightning Experiments platform.
+INFO:lightning.pytorch.utilities.rank_zero:💡 Tip: For seamless cloud logging and experiment tracking, try installing [litlogger](https://pypi.org/project/litlogger/) to enable LitLogger, which logs metrics and artifacts automatically to the Lightning Experiments platform.
+INFO: 💡 Tip: For seamless cloud uploads and versioning, try installing [litmodels](https://pypi.org/project/litmodels/) to enable LitModelCheckpoint, which syncs automatically with the Lightning model registry.
+INFO:lightning.pytorch.utilities.rank_zero:💡 Tip: For seamless cloud uploads and versioning, try installing [litmodels](https://pypi.org/project/litmodels/) to enable LitModelCheckpoint, which syncs automatically with the Lightning model registry.
+INFO: LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+INFO:lightning.pytorch.accelerators.cuda:LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\lightning\pytorch\trainer\connectors\data_connector.py:434: The 'predict_dataloader' does not have many workers which may be a bottleneck. Consider increasing the value of the `num_workers` argument` to `num_workers=5` in the `DataLoader` to improve performance.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\lightning\pytorch\utilities\parsing.py:213: Attribute 'loss' is an instance of `nn.Module` and is already saved during checkpointing. It is recommended to ignore them using `self.save_hyperparameters(ignore=['loss'])`.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\lightning\pytorch\utilities\parsing.py:213: Attribute 'logging_metrics' is an instance of `nn.Module` and is already saved during checkpointing. It is recommended to ignore them using `self.save_hyperparameters(ignore=['logging_metrics'])`.
+INFO: GPU available: True (cuda), used: True
+INFO:lightning.pytorch.utilities.rank_zero:GPU available: True (cuda), used: True
+INFO: TPU available: False, using: 0 TPU cores
+INFO:lightning.pytorch.utilities.rank_zero:TPU available: False, using: 0 TPU cores
+INFO: 💡 Tip: For seamless cloud logging and experiment tracking, try installing [litlogger](https://pypi.org/project/litlogger/) to enable LitLogger, which logs metrics and artifacts automatically to the Lightning Experiments platform.
+INFO:lightning.pytorch.utilities.rank_zero:💡 Tip: For seamless cloud logging and experiment tracking, try installing [litlogger](https://pypi.org/project/litlogger/) to enable LitLogger, which logs metrics and artifacts automatically to the Lightning Experiments platform.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\lightning\pytorch\trainer\configuration_validator.py:70: You defined a `validation_step` but have no `val_dataloader`. Skipping val loop.
+INFO: LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+INFO:lightning.pytorch.accelerators.cuda:LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\lightning\pytorch\trainer\connectors\data_connector.py:434: The 'train_dataloader' does not have many workers which may be a bottleneck. Consider increasing the value of the `num_workers` argument` to `num_workers=5` in the `DataLoader` to improve performance.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\lightning\pytorch\loops\training_epoch_loop.py:500: ReduceLROnPlateau conditioned on metric val_loss which is not available but strict is set to `False`. Skipping learning rate update.
+INFO: `Trainer.fit` stopped: `max_epochs=30` reached.
+INFO:lightning.pytorch.utilities.rank_zero:`Trainer.fit` stopped: `max_epochs=30` reached.
+INFO: GPU available: True (cuda), used: True
+INFO:lightning.pytorch.utilities.rank_zero:GPU available: True (cuda), used: True
+INFO: TPU available: False, using: 0 TPU cores
+INFO:lightning.pytorch.utilities.rank_zero:TPU available: False, using: 0 TPU cores
+INFO: 💡 Tip: For seamless cloud logging and experiment tracking, try installing [litlogger](https://pypi.org/project/litlogger/) to enable LitLogger, which logs metrics and artifacts automatically to the Lightning Experiments platform.
+INFO:lightning.pytorch.utilities.rank_zero:💡 Tip: For seamless cloud logging and experiment tracking, try installing [litlogger](https://pypi.org/project/litlogger/) to enable LitLogger, which logs metrics and artifacts automatically to the Lightning Experiments platform.
+INFO: 💡 Tip: For seamless cloud uploads and versioning, try installing [litmodels](https://pypi.org/project/litmodels/) to enable LitModelCheckpoint, which syncs automatically with the Lightning model registry.
+INFO:lightning.pytorch.utilities.rank_zero:💡 Tip: For seamless cloud uploads and versioning, try installing [litmodels](https://pypi.org/project/litmodels/) to enable LitModelCheckpoint, which syncs automatically with the Lightning model registry.
+INFO: LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+INFO:lightning.pytorch.accelerators.cuda:LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\lightning\pytorch\trainer\connectors\data_connector.py:434: The 'predict_dataloader' does not have many workers which may be a bottleneck. Consider increasing the value of the `num_workers` argument` to `num_workers=5` in the `DataLoader` to improve performance.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\lightning\pytorch\utilities\parsing.py:213: Attribute 'loss' is an instance of `nn.Module` and is already saved during checkpointing. It is recommended to ignore them using `self.save_hyperparameters(ignore=['loss'])`.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\lightning\pytorch\utilities\parsing.py:213: Attribute 'logging_metrics' is an instance of `nn.Module` and is already saved during checkpointing. It is recommended to ignore them using `self.save_hyperparameters(ignore=['logging_metrics'])`.
+INFO: GPU available: True (cuda), used: True
+INFO:lightning.pytorch.utilities.rank_zero:GPU available: True (cuda), used: True
+INFO: TPU available: False, using: 0 TPU cores
+INFO:lightning.pytorch.utilities.rank_zero:TPU available: False, using: 0 TPU cores
+INFO: 💡 Tip: For seamless cloud logging and experiment tracking, try installing [litlogger](https://pypi.org/project/litlogger/) to enable LitLogger, which logs metrics and artifacts automatically to the Lightning Experiments platform.
+INFO:lightning.pytorch.utilities.rank_zero:💡 Tip: For seamless cloud logging and experiment tracking, try installing [litlogger](https://pypi.org/project/litlogger/) to enable LitLogger, which logs metrics and artifacts automatically to the Lightning Experiments platform.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\lightning\pytorch\trainer\configuration_validator.py:70: You defined a `validation_step` but have no `val_dataloader`. Skipping val loop.
+INFO: LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+INFO:lightning.pytorch.accelerators.cuda:LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\lightning\pytorch\trainer\connectors\data_connector.py:434: The 'train_dataloader' does not have many workers which may be a bottleneck. Consider increasing the value of the `num_workers` argument` to `num_workers=5` in the `DataLoader` to improve performance.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\lightning\pytorch\loops\training_epoch_loop.py:500: ReduceLROnPlateau conditioned on metric val_loss which is not available but strict is set to `False`. Skipping learning rate update.
+INFO: `Trainer.fit` stopped: `max_epochs=30` reached.
+INFO:lightning.pytorch.utilities.rank_zero:`Trainer.fit` stopped: `max_epochs=30` reached.
+INFO: GPU available: True (cuda), used: True
+INFO:lightning.pytorch.utilities.rank_zero:GPU available: True (cuda), used: True
+INFO: TPU available: False, using: 0 TPU cores
+INFO:lightning.pytorch.utilities.rank_zero:TPU available: False, using: 0 TPU cores
+INFO: 💡 Tip: For seamless cloud logging and experiment tracking, try installing [litlogger](https://pypi.org/project/litlogger/) to enable LitLogger, which logs metrics and artifacts automatically to the Lightning Experiments platform.
+INFO:lightning.pytorch.utilities.rank_zero:💡 Tip: For seamless cloud logging and experiment tracking, try installing [litlogger](https://pypi.org/project/litlogger/) to enable LitLogger, which logs metrics and artifacts automatically to the Lightning Experiments platform.
+INFO: 💡 Tip: For seamless cloud uploads and versioning, try installing [litmodels](https://pypi.org/project/litmodels/) to enable LitModelCheckpoint, which syncs automatically with the Lightning model registry.
+INFO:lightning.pytorch.utilities.rank_zero:💡 Tip: For seamless cloud uploads and versioning, try installing [litmodels](https://pypi.org/project/litmodels/) to enable LitModelCheckpoint, which syncs automatically with the Lightning model registry.
+INFO: LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+INFO:lightning.pytorch.accelerators.cuda:LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\lightning\pytorch\trainer\connectors\data_connector.py:434: The 'predict_dataloader' does not have many workers which may be a bottleneck. Consider increasing the value of the `num_workers` argument` to `num_workers=5` in the `DataLoader` to improve performance.
+INFO: GPU available: True (cuda), used: True
+INFO:lightning.pytorch.utilities.rank_zero:GPU available: True (cuda), used: True
+INFO: TPU available: False, using: 0 TPU cores
+INFO:lightning.pytorch.utilities.rank_zero:TPU available: False, using: 0 TPU cores
+INFO: 💡 Tip: For seamless cloud logging and experiment tracking, try installing [litlogger](https://pypi.org/project/litlogger/) to enable LitLogger, which logs metrics and artifacts automatically to the Lightning Experiments platform.
+INFO:lightning.pytorch.utilities.rank_zero:💡 Tip: For seamless cloud logging and experiment tracking, try installing [litlogger](https://pypi.org/project/litlogger/) to enable LitLogger, which logs metrics and artifacts automatically to the Lightning Experiments platform.
+INFO: 💡 Tip: For seamless cloud uploads and versioning, try installing [litmodels](https://pypi.org/project/litmodels/) to enable LitModelCheckpoint, which syncs automatically with the Lightning model registry.
+INFO:lightning.pytorch.utilities.rank_zero:💡 Tip: For seamless cloud uploads and versioning, try installing [litmodels](https://pypi.org/project/litmodels/) to enable LitModelCheckpoint, which syncs automatically with the Lightning model registry.
+INFO: LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+INFO:lightning.pytorch.accelerators.cuda:LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\lightning\pytorch\trainer\connectors\data_connector.py:434: The 'predict_dataloader' does not have many workers which may be a bottleneck. Consider increasing the value of the `num_workers` argument` to `num_workers=5` in the `DataLoader` to improve performance.
+INFO: GPU available: True (cuda), used: True
+INFO:lightning.pytorch.utilities.rank_zero:GPU available: True (cuda), used: True
+INFO: TPU available: False, using: 0 TPU cores
+INFO:lightning.pytorch.utilities.rank_zero:TPU available: False, using: 0 TPU cores
+INFO: 💡 Tip: For seamless cloud logging and experiment tracking, try installing [litlogger](https://pypi.org/project/litlogger/) to enable LitLogger, which logs metrics and artifacts automatically to the Lightning Experiments platform.
+INFO:lightning.pytorch.utilities.rank_zero:💡 Tip: For seamless cloud logging and experiment tracking, try installing [litlogger](https://pypi.org/project/litlogger/) to enable LitLogger, which logs metrics and artifacts automatically to the Lightning Experiments platform.
+INFO: 💡 Tip: For seamless cloud uploads and versioning, try installing [litmodels](https://pypi.org/project/litmodels/) to enable LitModelCheckpoint, which syncs automatically with the Lightning model registry.
+INFO:lightning.pytorch.utilities.rank_zero:💡 Tip: For seamless cloud uploads and versioning, try installing [litmodels](https://pypi.org/project/litmodels/) to enable LitModelCheckpoint, which syncs automatically with the Lightning model registry.
+INFO: LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+INFO:lightning.pytorch.accelerators.cuda:LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\lightning\pytorch\trainer\connectors\data_connector.py:434: The 'predict_dataloader' does not have many workers which may be a bottleneck. Consider increasing the value of the `num_workers` argument` to `num_workers=5` in the `DataLoader` to improve performance.
+INFO: GPU available: True (cuda), used: True
+INFO:lightning.pytorch.utilities.rank_zero:GPU available: True (cuda), used: True
+INFO: TPU available: False, using: 0 TPU cores
+INFO:lightning.pytorch.utilities.rank_zero:TPU available: False, using: 0 TPU cores
+INFO: 💡 Tip: For seamless cloud logging and experiment tracking, try installing [litlogger](https://pypi.org/project/litlogger/) to enable LitLogger, which logs metrics and artifacts automatically to the Lightning Experiments platform.
+INFO:lightning.pytorch.utilities.rank_zero:💡 Tip: For seamless cloud logging and experiment tracking, try installing [litlogger](https://pypi.org/project/litlogger/) to enable LitLogger, which logs metrics and artifacts automatically to the Lightning Experiments platform.
+INFO: 💡 Tip: For seamless cloud uploads and versioning, try installing [litmodels](https://pypi.org/project/litmodels/) to enable LitModelCheckpoint, which syncs automatically with the Lightning model registry.
+INFO:lightning.pytorch.utilities.rank_zero:💡 Tip: For seamless cloud uploads and versioning, try installing [litmodels](https://pypi.org/project/litmodels/) to enable LitModelCheckpoint, which syncs automatically with the Lightning model registry.
+INFO: LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+INFO:lightning.pytorch.accelerators.cuda:LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\lightning\pytorch\trainer\connectors\data_connector.py:434: The 'predict_dataloader' does not have many workers which may be a bottleneck. Consider increasing the value of the `num_workers` argument` to `num_workers=5` in the `DataLoader` to improve performance.
+INFO:WeeklyPipelineV2:  [B1] 앙상블 예측...
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:82: UserWarning: Device used : cuda
+  warnings.warn(f"Device used : {self.device}")
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:454: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
+  saved_state_dict = torch.load(f, map_location=self.device)
+INFO:WeeklyPipelineV2:  [B2] 통계 보정값 계산...
+INFO:WeeklyPipelineV2:  [B3] 필터 범위 분석...
+INFO:WeeklyPipelineV2:  [B4] 회귀분석...
+INFO:WeeklyPipelineV2:  [B5] 조합 생성...
+INFO:WeeklyPipelineV2:[Phase C] weekly_* 테이블 저장 중...
+INFO:httpx:HTTP Request: POST https://dkcflmyoscudawleglzb.supabase.co/rest/v1/weekly_predictions?on_conflict=target_round "HTTP/2 200 OK"
+INFO:WeeklyPipelineV2:  [C1] weekly_predictions 저장: top_5=[13, 14, 16, 41, 25]
+INFO:httpx:HTTP Request: DELETE https://dkcflmyoscudawleglzb.supabase.co/rest/v1/weekly_number_xai?target_round=eq.1222 "HTTP/2 200 OK"
+INFO:httpx:HTTP Request: POST https://dkcflmyoscudawleglzb.supabase.co/rest/v1/weekly_number_xai?columns=%22cnn_pct%22%2C%22target_round%22%2C%22gnn_pct%22%2C%22catboost_pct%22%2C%22tabnet_pct%22%2C%22top_model%22%2C%22number%22%2C%22probability%22%2C%22mhn_pct%22%2C%22bayesian_nn_pct%22%2C%22markov_pct%22%2C%22veto%22%2C%22transformer_pct%22%2C%22autoencoder_pct%22%2C%22tft_pct%22%2C%22xgboost_pct%22%2C%22lstm_pct%22 "HTTP/2 201 Created"
+INFO:WeeklyPipelineV2:  [C2] weekly_number_xai 저장: 45행
+INFO:httpx:HTTP Request: DELETE https://dkcflmyoscudawleglzb.supabase.co/rest/v1/weekly_filter_predictions?target_round=eq.1222 "HTTP/2 200 OK"
+INFO:httpx:HTTP Request: POST https://dkcflmyoscudawleglzb.supabase.co/rest/v1/weekly_filter_predictions?columns=%22target_round%22%2C%22filter_value%22%2C%22ensemble_max%22%2C%22filter_key%22%2C%22ensemble_min%22%2C%22primary_task%22%2C%22model_expectations%22%2C%22ensemble_ci%22 "HTTP/2 201 Created"
+INFO:WeeklyPipelineV2:  [C3] weekly_filter_predictions 저장: 26행
+INFO:httpx:HTTP Request: DELETE https://dkcflmyoscudawleglzb.supabase.co/rest/v1/weekly_regression_analysis?target_round=eq.1222 "HTTP/2 200 OK"
+INFO:httpx:HTTP Request: POST https://dkcflmyoscudawleglzb.supabase.co/rest/v1/weekly_regression_analysis?columns=%22target_round%22%2C%22confidence%22%2C%22model_exp%22%2C%22primary_method%22%2C%22step%22%2C%22predicted_numbers%22%2C%22window_type%22 "HTTP/2 201 Created"
+INFO:WeeklyPipelineV2:  [C4] weekly_regression_analysis 저장: 199행
+INFO:httpx:HTTP Request: DELETE https://dkcflmyoscudawleglzb.supabase.co/rest/v1/weekly_recommendations?target_round=eq.1222 "HTTP/2 200 OK"
+INFO:httpx:HTTP Request: POST https://dkcflmyoscudawleglzb.supabase.co/rest/v1/weekly_recommendations?columns=%22rank%22%2C%22target_round%22%2C%22confidence_level%22%2C%22number%22%2C%22ci_lower%22%2C%22ci_upper%22%2C%22consensus_count%22%2C%22probability%22 "HTTP/2 201 Created"
+INFO:WeeklyPipelineV2:  [C5] weekly_recommendations 저장: 5행
+INFO:httpx:HTTP Request: DELETE https://dkcflmyoscudawleglzb.supabase.co/rest/v1/weekly_combinations?target_round=eq.1222 "HTTP/2 200 OK"
+INFO:httpx:HTTP Request: POST https://dkcflmyoscudawleglzb.supabase.co/rest/v1/weekly_combinations?columns=%22target_round%22%2C%22high_count%22%2C%22numbers%22%2C%22combo_rank%22%2C%22total_sum%22%2C%22odd_count%22 "HTTP/2 201 Created"
+INFO:WeeklyPipelineV2:  [C6] weekly_combinations 저장: 10행
+INFO:WeeklyPipelineV2:[WeeklyPipelineV2] 완료 (1494.06초)
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+ANTIGRAVITY DEBUG: deep_analysis_v3.py LOADED
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+  [GNN] adjacency counts 불러옴
+[Stage 1-4-D-2] catboost registered (input_dim=n/a)
+[Stage 1-4-D-2] tabnet registered (input_dim=65)
+[Stage 1-4-D-2] tft registered (input_dim=65)
+[Stage 1-4-D-2] mhn registered (input_dim=65)
+[Stage 1-4-D-2] bayesian_nn registered (input_dim=65)
+🧠 [Meta-Learning] 진화된 동적 가중치 로드 완료: {'xgboost': 0.24, 'lstm': 0.0, 'cnn': 0.132, 'transformer': 0.0, 'gnn': 0.109, 'markov': 0.052, 'autoencoder': 0.141, 'catboost': 0.027, 'tabnet': 0.027, 'tft': 0.14, 'mhn': 0.053, 'bayesian_nn': 0.08}
+  [ICP] decade_distribution cat=2 xgboost train fail: Invalid classes inferred from unique values of `y`.  Expected: [0 1 2 3 4 5], got [0 1 2 3 4 6]
+  [ICP] decade_distribution cat=3 xgboost train fail: Invalid classes inferred from unique values of `y`.  Expected: [0 1 2 3 4 5], got [0 1 2 3 4 6]
+  [ICP] multiple_distribution cat=4 catboost train fail: catboost/libs/metrics/metric.cpp:7011: All train targets are equal
+
+Early stopping occurred at epoch 23 with best_epoch = 8 and best_val_accuracy = 0.324
+
+Early stopping occurred at epoch 55 with best_epoch = 40 and best_val_accuracy = 0.4
+
+Early stopping occurred at epoch 51 with best_epoch = 36 and best_val_accuracy = 0.584
+
+Early stopping occurred at epoch 45 with best_epoch = 30 and best_val_accuracy = 0.524
+
+Early stopping occurred at epoch 21 with best_epoch = 6 and best_val_accuracy = 0.48659
+
+Early stopping occurred at epoch 39 with best_epoch = 24 and best_val_accuracy = 0.35249
+
+Early stopping occurred at epoch 20 with best_epoch = 5 and best_val_accuracy = 0.74713
+
+Early stopping occurred at epoch 17 with best_epoch = 2 and best_val_accuracy = 0.48276
+
+Early stopping occurred at epoch 22 with best_epoch = 7 and best_val_accuracy = 0.23755
+
+Early stopping occurred at epoch 16 with best_epoch = 1 and best_val_accuracy = 0.39464
+
+Early stopping occurred at epoch 29 with best_epoch = 14 and best_val_accuracy = 0.4751
+
+Early stopping occurred at epoch 16 with best_epoch = 1 and best_val_accuracy = 0.34866
+
+Early stopping occurred at epoch 18 with best_epoch = 3 and best_val_accuracy = 0.48659
+
+Early stopping occurred at epoch 22 with best_epoch = 7 and best_val_accuracy = 0.49425
+
+Early stopping occurred at epoch 18 with best_epoch = 3 and best_val_accuracy = 0.29885
+
+Early stopping occurred at epoch 20 with best_epoch = 5 and best_val_accuracy = 0.39847
+
+Early stopping occurred at epoch 18 with best_epoch = 3 and best_val_accuracy = 0.34643
+
+Early stopping occurred at epoch 32 with best_epoch = 17 and best_val_accuracy = 0.51071
+
+Early stopping occurred at epoch 16 with best_epoch = 1 and best_val_accuracy = 0.45714
+
+Early stopping occurred at epoch 32 with best_epoch = 17 and best_val_accuracy = 0.36071
+
+Early stopping occurred at epoch 15 with best_epoch = 0 and best_val_accuracy = 0.45714
+
+Early stopping occurred at epoch 16 with best_epoch = 1 and best_val_accuracy = 0.525
+
+Early stopping occurred at epoch 21 with best_epoch = 6 and best_val_accuracy = 0.53929
+
+Early stopping occurred at epoch 21 with best_epoch = 6 and best_val_accuracy = 0.53571
+
+Early stopping occurred at epoch 36 with best_epoch = 21 and best_val_accuracy = 0.53214
+
+Early stopping occurred at epoch 16 with best_epoch = 1 and best_val_accuracy = 0.52857
+
+Early stopping occurred at epoch 22 with best_epoch = 7 and best_val_accuracy = 0.39643
+
+Early stopping occurred at epoch 36 with best_epoch = 21 and best_val_accuracy = 0.43929
+
+Early stopping occurred at epoch 42 with best_epoch = 27 and best_val_accuracy = 0.53571
+
+Early stopping occurred at epoch 21 with best_epoch = 6 and best_val_accuracy = 0.52143
+  [endings] tft train fail: 'numpy.ndarray' object has no attribute 'columns'
+  [ac] tft train fail: 'numpy.ndarray' object has no attribute 'columns'
+  [sum] tft train fail: 'numpy.ndarray' object has no attribute 'columns'
+⚠️ lstm 예측 실패: Error(s) in loading state_dict for LottoLSTM:
+	Unexpected key(s) in state_dict: "lstm.weight_ih_l0_reverse", "lstm.weight_hh_l0_reverse", "lstm.bias_ih_l0_reverse", "lstm.bias_hh_l0_reverse", "lstm.weight_ih_l1", "lstm.weight_hh_l1", "lstm.bias_ih_l1", "lstm.bias_hh_l1", "lstm.weight_ih_l1_reverse", "lstm.weight_hh_l1_reverse", "lstm.bias_ih_l1_reverse", "lstm.bias_hh_l1_reverse". 
+	size mismatch for lstm.weight_ih_l0: copying a param with shape torch.Size([512, 65]) from checkpoint, the shape in current model is torch.Size([256, 65]).
+	size mismatch for lstm.weight_hh_l0: copying a param with shape torch.Size([512, 128]) from checkpoint, the shape in current model is torch.Size([256, 64]).
+	size mismatch for lstm.bias_ih_l0: copying a param with shape torch.Size([512]) from checkpoint, the shape in current model is torch.Size([256]).
+	size mismatch for lstm.bias_hh_l0: copying a param with shape torch.Size([512]) from checkpoint, the shape in current model is torch.Size([256]).
+	size mismatch for attention.0.weight: copying a param with shape torch.Size([128, 256]) from checkpoint, the shape in current model is torch.Size([64, 64]).
+	size mismatch for attention.0.bias: copying a param with shape torch.Size([128]) from checkpoint, the shape in current model is torch.Size([64]).
+	size mismatch for attention.2.weight: copying a param with shape torch.Size([1, 128]) from checkpoint, the shape in current model is torch.Size([1, 64]).
+	size mismatch for fc.0.weight: copying a param with shape torch.Size([128, 256]) from checkpoint, the shape in current model is torch.Size([64, 64]).
+	size mismatch for fc.0.bias: copying a param with shape torch.Size([128]) from checkpoint, the shape in current model is torch.Size([64]).
+	size mismatch for fc.3.weight: copying a param with shape torch.Size([45, 128]) from checkpoint, the shape in current model is torch.Size([45, 64]).
+  [MetaLearner] 모델 로드 완료: saved_models\meta_learner.pkl
+
+=== True ===
+elapsed: 1494.06
+error: None
+save: {'weekly_predictions': 'OK', 'weekly_number_xai': 'OK (45rows)', 'weekly_filter_predictions': 'OK (26rows)', 'weekly_regression_analysis': 'OK (199rows)', 'weekly_recommendations': 'OK (5rows)', 'weekly_combinations': 'OK (10rows)'}

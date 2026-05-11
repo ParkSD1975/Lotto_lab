@@ -203,33 +203,64 @@ class SSLPretrainer:
 # ────────────────── CLI ──────────────────
 
 
-def main():
-    """python -m langchain-backend.models.ssl_pretrainer --epochs 50.
+def _load_real_features() -> np.ndarray:
+    """Supabase의 lotto_draws에서 전체 회차를 로드 → 65-dim 회차 feature 행렬.
 
-    Stage 0 검증 게이트: SSL pretrain 1 epoch 완주 확인.
+    Stage 0-8: 실 데이터 통합. _draws_adapter._draw_to_features_65 재사용.
+    """
+    from db.supabase_client import fetch_all_draws
+    from models._draws_adapter import _draw_to_features_65
+
+    draws = fetch_all_draws()  # round DESC
+    if not draws:
+        raise RuntimeError("Supabase에서 draws를 가져올 수 없습니다. 환경변수/네트워크 확인.")
+
+    chronological = list(reversed(draws))  # 과거 → 최신 (시계열 순서)
+    features = np.stack(
+        [_draw_to_features_65(d) for d in chronological], axis=0
+    ).astype(np.float32)
+    return features
+
+
+def main():
+    """python -m models.ssl_pretrainer --epochs 50 (실 학습).
+    python -m models.ssl_pretrainer --smoke (1 epoch 회로 검증).
+
+    Stage 0 검증 게이트: SSL pretrain 완주 + ssl_backbone.pt 저장.
     """
     import argparse
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--epochs", type=int, default=config.SSL_PRETRAIN_EPOCHS)
-    parser.add_argument("--smoke", action="store_true", help="1 epoch 검증")
+    parser.add_argument("--smoke", action="store_true", help="1 epoch + random 데이터 (회로 검증)")
+    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--lr", type=float, default=1e-4)
     args = parser.parse_args()
 
-    # TODO Stage 0-8: 실 데이터 로드 — db.repository에서 회차 feature 추출
-    # 임시 smoke test: 1100×65 랜덤 데이터로 1 epoch 학습 가능 검증
     if args.smoke:
         print("[SSL] smoke test - random 1100x65 data, 1 epoch")
         rng = np.random.default_rng(config.RANDOM_SEED)
         features = rng.standard_normal((1100, 65)).astype(np.float32)
         trainer = SSLPretrainer()
-        history = trainer.train(features, epochs=1, batch_size=16)
+        trainer.train(features, epochs=1, batch_size=16)
         path = trainer.save_backbone()
         print(f"[SSL] smoke done. backbone saved: {path}")
         return
 
-    raise NotImplementedError(
-        "real-data training: deferred to Stage 0-8 (db.repository integration). use --smoke for now."
-    )
+    # ── 실 학습: Supabase 1100+ 회차 로드 → 65-dim feature → 마스킹+대조학습 ──
+    print(f"[SSL] 실 데이터 학습 시작 (epochs={args.epochs}, batch={args.batch_size})")
+    print("[SSL] Supabase 회차 로드 중...")
+    features = _load_real_features()
+    print(f"[SSL] 로드 완료: {features.shape[0]} 회차, dim={features.shape[1]}")
+    if features.shape[0] < 100:
+        raise RuntimeError(f"회차 수가 너무 적습니다: {features.shape[0]}회. 최소 100회 필요.")
+
+    trainer = SSLPretrainer(input_dim=features.shape[1])
+    print(f"[SSL] device={trainer.device}")
+    history = trainer.train(features, epochs=args.epochs, batch_size=args.batch_size, lr=args.lr)
+    path = trainer.save_backbone()
+    print(f"[SSL] 학습 완료. backbone saved: {path}")
+    print(f"[SSL] 최종 손실 - recon={history['recon'][-1]:.4f}  contrastive={history['contrastive'][-1]:.4f}  total={history['total'][-1]:.4f}")
 
 
 if __name__ == "__main__":

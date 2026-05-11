@@ -1,0 +1,62 @@
+# Self-Discovery NLP Phase 1: 수동 정의 operations/statistics/time_windows
+# Stage 6-1-A-4
+
+version: "1.0.0"
+
+operations:
+  - key: union
+    name_kr: 합집합
+    aliases: [합집합, 유니온, union, 또는, or, U]
+    description: 두 필터 결과의 합집합
+
+  - key: intersection
+    name_kr: 교집합
+    aliases: [교집합, 인터섹션, intersection, 그리고, and, 교차, ∩]
+    description: 두 필터 결과의 교집합
+
+  - key: ranking_top
+    name_kr: 상위
+    aliases: [상위, 톱, top, 높은, high, 많은]
+    description: 순위 상위 N개
+
+  - key: ranking_bottom
+    name_kr: 하위
+    aliases: [하위, 바텀, bottom, 낮은, low, 적은]
+    description: 순위 하위 N개
+
+  - key: grouping
+    name_kr: 그룹화
+    aliases: [그룹화, grouping, 묶기, 분류]
+    description: 필터별 그룹화
+
+statistics:
+  - key: average
+    name_kr: 평균
+    aliases: [평균, 평균값, avg, average, mean]
+    description: 평균 통계
+
+  - key: frequency
+    name_kr: 빈도
+    aliases: [빈도, 빈도수, freq, frequency, 출현빈도, 출현]
+    description: 출현 빈도
+
+  - key: probability
+    name_kr: 확률
+    aliases: [확률, prob, probability, 가능성, 출현확률]
+    description: 출현 확률
+
+time_windows:
+  - key: recent_n
+    name_kr: 최근 N회
+    aliases: [최근, recent, 최근N회, 최근N, 지난N회]
+    description: 최근 N회차 범위
+
+  - key: missing_n
+    name_kr: 미출 N회
+    aliases: [미출, missing, 미출현, N회미출, N주미출]
+    description: N회 동안 미출현
+
+  - key: all_time
+    name_kr: 전체
+    aliases: [전체, 모든, all, 전체회차, 전기간]
+    description: 전체 회차 범위

@@ -1,0 +1,98 @@
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:82: UserWarning: Device used : cuda
+  warnings.warn(f"Device used : {self.device}")
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:454: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
+  saved_state_dict = torch.load(f, map_location=self.device)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:454: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
+  saved_state_dict = torch.load(f, map_location=self.device)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\callbacks.py:172: UserWarning: Best weights from best epoch are automatically used!
+  warnings.warn(wrn_msg)
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\lightning\pytorch\utilities\parsing.py:213: Attribute 'loss' is an instance of `nn.Module` and is already saved during checkpointing. It is recommended to ignore them using `self.save_hyperparameters(ignore=['loss'])`.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\lightning\pytorch\utilities\parsing.py:213: Attribute 'logging_metrics' is an instance of `nn.Module` and is already saved during checkpointing. It is recommended to ignore them using `self.save_hyperparameters(ignore=['logging_metrics'])`.
+GPU available: True (cuda), used: True
+TPU available: False, using: 0 TPU cores
+💡 Tip: For seamless cloud logging and experiment tracking, try installing [litlogger](https://pypi.org/project/litlogger/) to enable LitLogger, which logs metrics and artifacts automatically to the Lightning Experiments platform.
+LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\lightning\pytorch\trainer\connectors\data_connector.py:434: The 'val_dataloader' does not have many workers which may be a bottleneck. Consider increasing the value of the `num_workers` argument` to `num_workers=5` in the `DataLoader` to improve performance.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\lightning\pytorch\trainer\connectors\data_connector.py:434: The 'train_dataloader' does not have many workers which may be a bottleneck. Consider increasing the value of the `num_workers` argument` to `num_workers=5` in the `DataLoader` to improve performance.
+`Trainer.fit` stopped: `max_epochs=10` reached.
+🚀 [MLOps] 자동 파인튜닝(증분 학습) 파이프라인 가동 시작...
+📊 최신 1221회차까지 총 1221개의 데이터를 확인했습니다.
+🧠 7중 앙상블 모델에 최신 데이터를 주입하여 파인튜닝을 시작합니다...
+  [GNN] adjacency counts 불러옴
+[Stage 1-4-D-2] catboost registered (input_dim=n/a)
+[Stage 1-4-D-2] tabnet registered (input_dim=65)
+[Stage 1-4-D-2] tft registered (input_dim=65)
+[Stage 1-4-D-2] mhn registered (input_dim=65)
+[Stage 1-4-D-2] bayesian_nn registered (input_dim=65)
+🧠 [Meta-Learning] 진화된 동적 가중치 로드 완료: {'xgboost': 0.299, 'lstm': 0.0, 'cnn': 0.146, 'transformer': 0.0, 'gnn': 0.153, 'markov': 0.077, 'autoencoder': 0.164, 'catboost': 0.0, 'tabnet': 0.0, 'tft': 0.161, 'mhn': 0.0, 'bayesian_nn': 0.0}
+🧠 [딥러닝 엔진] 7중 앙상블 파인튜닝(증분 학습) 시작...
+🧠 [Meta-Learning] 최신 당첨 번호로 모델별 모의고사를 실시합니다...
+    - [XGBOOST] 모의고사 적중: 3개 (보상 +0.15)
+    - [LSTM] 평가 보류: Error(s) in loading state_dict for LottoLSTM:
+	Unexpected key(s) in state_dict: "lstm.weight_ih_l0_reverse", "lstm.weight_hh_l0_reverse", "lstm.bias_ih_l0_reverse", "lstm.bias_hh_l0_reverse", "lstm.weight_ih_l1", "lstm.weight_hh_l1", "lstm.bias_ih_l1", "lstm.bias_hh_l1", "lstm.weight_ih_l1_reverse", "lstm.weight_hh_l1_reverse", "lstm.bias_ih_l1_reverse", "lstm.bias_hh_l1_reverse". 
+	size mismatch for lstm.weight_ih_l0: copying a param with shape torch.Size([512, 65]) from checkpoint, the shape in current model is torch.Size([256, 65]).
+	size mismatch for lstm.weight_hh_l0: copying a param with shape torch.Size([512, 128]) from checkpoint, the shape in current model is torch.Size([256, 64]).
+	size mismatch for lstm.bias_ih_l0: copying a param with shape torch.Size([512]) from checkpoint, the shape in current model is torch.Size([256]).
+	size mismatch for lstm.bias_hh_l0: copying a param with shape torch.Size([512]) from checkpoint, the shape in current model is torch.Size([256]).
+	size mismatch for attention.0.weight: copying a param with shape torch.Size([128, 256]) from checkpoint, the shape in current model is torch.Size([64, 64]).
+	size mismatch for attention.0.bias: copying a param with shape torch.Size([128]) from checkpoint, the shape in current model is torch.Size([64]).
+	size mismatch for attention.2.weight: copying a param with shape torch.Size([1, 128]) from checkpoint, the shape in current model is torch.Size([1, 64]).
+	size mismatch for fc.0.weight: copying a param with shape torch.Size([128, 256]) from checkpoint, the shape in current model is torch.Size([64, 64]).
+	size mismatch for fc.0.bias: copying a param with shape torch.Size([128]) from checkpoint, the shape in current model is torch.Size([64]).
+	size mismatch for fc.3.weight: copying a param with shape torch.Size([45, 128]) from checkpoint, the shape in current model is torch.Size([45, 64]).
+    - [CNN] 모의고사 적중: 2개 (보상 +0.10)
+    - [TRANSFORMER] 모의고사 적중: 2개 (보상 +0.10)
+    - [AUTOENCODER] 모의고사 적중: 2개 (보상 +0.10)
+    - [GNN] 모의고사 적중: 1개 (보상 +0.05)
+    - [CATBOOST] 모의고사 적중: 1개 (보상 +0.05)
+    - [TABNET] 모의고사 적중: 1개 (보상 +0.05)
+    - [TFT] 모의고사 적중: 2개 (보상 +0.10)
+    - [MHN] 모의고사 적중: 2개 (보상 +0.10)
+    - [BAYESIAN_NN] 모의고사 적중: 3개 (보상 +0.15)
+✅ [Meta-Learning] 새로운 메타 가중치: {'xgboost': 0.24, 'lstm': 0.0, 'cnn': 0.132, 'transformer': 0.0, 'gnn': 0.109, 'markov': 0.052, 'autoencoder': 0.141, 'catboost': 0.027, 'tabnet': 0.027, 'tft': 0.14, 'mhn': 0.053, 'bayesian_nn': 0.08}
+  ▶ XGBOOST 진짜 모델 파인튜닝 진행 중...
+  Training XGBoost on 500 recent draws...
+  [XGB] 1번 트리 증분 학습 완료
+  [XGB] 45번 트리 증분 학습 완료
+  ▶ LSTM 진짜 모델 파인튜닝 진행 중...
+  ❌ lstm 모델 파인튜닝 실패: Error(s) in loading state_dict for LottoLSTM:
+	Unexpected key(s) in state_dict: "lstm.weight_ih_l0_reverse", "lstm.weight_hh_l0_reverse", "lstm.bias_ih_l0_reverse", "lstm.bias_hh_l0_reverse", "lstm.weight_ih_l1", "lstm.weight_hh_l1", "lstm.bias_ih_l1", "lstm.bias_hh_l1", "lstm.weight_ih_l1_reverse", "lstm.weight_hh_l1_reverse", "lstm.bias_ih_l1_reverse", "lstm.bias_hh_l1_reverse". 
+	size mismatch for lstm.weight_ih_l0: copying a param with shape torch.Size([512, 65]) from checkpoint, the shape in current model is torch.Size([256, 65]).
+	size mismatch for lstm.weight_hh_l0: copying a param with shape torch.Size([512, 128]) from checkpoint, the shape in current model is torch.Size([256, 64]).
+	size mismatch for lstm.bias_ih_l0: copying a param with shape torch.Size([512]) from checkpoint, the shape in current model is torch.Size([256]).
+	size mismatch for lstm.bias_hh_l0: copying a param with shape torch.Size([512]) from checkpoint, the shape in current model is torch.Size([256]).
+	size mismatch for attention.0.weight: copying a param with shape torch.Size([128, 256]) from checkpoint, the shape in current model is torch.Size([64, 64]).
+	size mismatch for attention.0.bias: copying a param with shape torch.Size([128]) from checkpoint, the shape in current model is torch.Size([64]).
+	size mismatch for attention.2.weight: copying a param with shape torch.Size([1, 128]) from checkpoint, the shape in current model is torch.Size([1, 64]).
+	size mismatch for fc.0.weight: copying a param with shape torch.Size([128, 256]) from checkpoint, the shape in current model is torch.Size([64, 64]).
+	size mismatch for fc.0.bias: copying a param with shape torch.Size([128]) from checkpoint, the shape in current model is torch.Size([64]).
+	size mismatch for fc.3.weight: copying a param with shape torch.Size([45, 128]) from checkpoint, the shape in current model is torch.Size([45, 64]).
+  ▶ CNN 진짜 모델 파인튜닝 진행 중...
+  [CNN] 기존 뇌(.pt) 가중치를 성공적으로 불러와 파인튜닝을 시작합니다.
+  ▶ TRANSFORMER 진짜 모델 파인튜닝 진행 중...
+  [Transformer] 기존 뇌(.pt) 가중치를 성공적으로 불러와 파인튜닝을 시작합니다.
+  [Transformer] Epoch  10 | Train Loss: 1.153662 | Val Loss: 1.224805 | LR: 0.000488
+  [Transformer] Early stopping at epoch 17
+  ▶ AUTOENCODER 진짜 모델 파인튜닝 진행 중...
+  ▶ GNN 진짜 모델 파인튜닝 진행 중...
+  [GNN] model 인스턴스 재생성 (None → 새 LottoGNNModel)
+  [GNN] Graph Attention Network 학습 시작...
+  [GNN] 학습 샘플 수: 1171
+  [GNN] PowerTransformer fit 완료 (52695 rows × 6 cols)
+  [GNN] 기존 모델 가중치 불러옴 (파인튜닝)
+  [GNN] Early stopping at epoch 18
+  [GNN] 학습 완료 → best_loss=4.1669  저장: C:\Users\psdet\Documents\lottoanalysis\langchain-backend\saved_models\gnn_model.pt
+  ▶ CATBOOST 진짜 모델 파인튜닝 진행 중...
+[catboost_model] fine_tune: prior weights loaded
+  ▶ TABNET 진짜 모델 파인튜닝 진행 중...
+[tabnet_model] fine_tune: prior weights loaded
+Stop training because you reached max_epochs = 30 with best_epoch = 29 and best_val_rmse = 0.34174
+Successfully saved model at C:\Users\psdet\Documents\lottoanalysis\langchain-backend\saved_models\tabnet_main45.zip
+  ▶ TFT 진짜 모델 파인튜닝 진행 중...
+[tft_model] fine_tune: TFT raw load before fit not natively supported — train from scratch with prior dataset
+  ▶ MHN 진짜 모델 파인튜닝 진행 중...
+[mhn_model] fine_tune: prior weights loaded
+  ▶ BAYESIAN_NN 진짜 모델 파인튜닝 진행 중...
+[bayesian_nn_model] fine_tune: prior weights loaded
+  ▶ MARKOV 모델 확률 행렬 업데이트 중...
+✅ [MLOps] 파인튜닝 완료! 모든 모델의 뇌(.pt, .pkl, .json)가 업데이트되었습니다.

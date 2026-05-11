@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+    <title>Lotto Lab — 분석 매트릭스</title>
+    <link rel="icon" href="data:,">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Symbols+Outlined" rel="stylesheet">
+
+    <!-- Supabase -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="js/config.js"></script>
+    <script src="js/theme.js"></script>
+    <script src="js/common_v2.js"></script>
+    <script src="js/layout.js"></script>
+    <!-- [fix-379] simulator_evaluator — 커스텀 simulator_custom 회차별 재계산용 -->
+    <script src="js/simulator_evaluator.js?v=20260510b"></script>
+
+    <style>
+        body { font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif; font-feature-settings: 'tnum'; letter-spacing: -0.01em; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
+
+        /* [fix-364] 1~45 셀 그리드 — 한 줄 (45 cols) */
+        .num-grid-wrap { overflow-x: auto; padding-bottom: 4px; }
+        .num-grid { display: grid; grid-template-columns: repeat(45, minmax(20px, 1fr)); gap: 3px; min-width: 0; }
+        .num-cell {
+            aspect-ratio: 1 / 1;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 10px; font-weight: 800;
+            border-radius: 5px;
+            transition: transform 0.15s;
+        }
+        .num-cell.active { color: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.12); }
+        .num-cell.inactive { background: #F8FAFC; color: #CBD5E1; border: 1px solid #F1F5F9; }
+        .num-cell:hover { transform: scale(1.15); z-index: 1; }
+        /* [fix-407/408/409] 바스켓 하이라이트 — 고정수(초록 링) / 제외수(빨강 링 + 사선) — inactive 배경/글씨 연회색 */
+        .num-cell { position: relative; }
+        .num-cell.basket-fixed { box-shadow: 0 0 0 2px #10B981, 0 1px 2px rgba(0,0,0,0.12); }
+        .num-cell.basket-fixed.inactive { background: #F1F5F9; color: #CBD5E1; border-color: #E2E8F0; }
+        .num-cell.basket-exclude { box-shadow: 0 0 0 2px #E11D48, 0 1px 2px rgba(0,0,0,0.12); opacity: 0.65; }
+        .num-cell.basket-exclude.inactive { background: #F1F5F9; color: #CBD5E1; border-color: #E2E8F0; opacity: 1; }
+        /* 제외수 — active/inactive 모두 적색 사선 오버레이 */
+        .num-cell.basket-exclude::after {
+            content: ''; position: absolute; inset: 0; pointer-events: none;
+            background: linear-gradient(135deg, transparent 45%, #E11D48 47%, #E11D48 53%, transparent 55%);
+            border-radius: 5px;
+        }
+        /* 매트릭스 표 당첨번호 ball-chip 바스켓 표식 */
+        .ball-chip-basket-fixed { box-shadow: 0 0 0 2px #10B981, 0 1px 2px rgba(0,0,0,0.12) !important; }
+        .ball-chip-basket-exclude { box-shadow: 0 0 0 2px #E11D48, 0 1px 2px rgba(0,0,0,0.12) !important; }
+        /* [fix-364] 분석 row 헤더 제목 — 줄바꿈 허용, 잘림 X */
+        .row-title { word-break: keep-all; overflow-wrap: anywhere; white-space: normal; line-height: 1.3; }
+
+        /* [fix-366] 매트릭스 리스트 회차 범위 버튼 */
+        .range-btn { background: #F1F5F9; color: #64748B; transition: all 0.15s; }
+        .range-btn:hover { background: #E2E8F0; color: #1e293b; }
+        .range-btn.active { background: #3B82F6; color: #fff; }
+        /* [fix-366/373] 회차 × 분석 매트릭스 — sticky 회차 컬럼 + 모든 셀 중앙 정렬 */
+        .matrix-cell { padding: 8px 10px; text-align: center; font-feature-settings: 'tnum'; vertical-align: middle; white-space: nowrap; }
+        .matrix-cell-round { position: sticky; left: 0; background: #fff; z-index: 10; box-shadow: 1px 0 0 0 #e5e7eb; font-weight: 400; color: #1e293b; text-align: center; }
+        .matrix-cell-round-th { position: sticky; left: 0; top: 0; background: #0f172a; z-index: 25; }
+        .matrix-cell-balls { position: sticky; left: 70px; background: #fff; z-index: 9; box-shadow: 1px 0 0 0 #f1f5f9; padding: 6px 12px; text-align: center; }
+        .matrix-cell-balls-th { position: sticky; left: 70px; top: 0; background: #0f172a; z-index: 24; }
+        .matrix-cell-th { padding: 10px 10px; white-space: nowrap; min-width: 70px; text-align: center; }
+        /* [fix-374] 적중 셀 — bold / 컬러 단계 제거. 단일 톤 + 최대값만 미세 강조 */
+        .hit-0 { color: #CBD5E1; }
+        .hit-mid { color: #475569; }
+        .hit-max { color: #2563EB; }   /* 가능 최대 적중만 단일 강조색 */
+
+        /* 메트릭 카드 */
+        .metric-cell { display: flex; flex-direction: column; gap: 2px; min-width: 60px; }
+        .metric-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; color: #94A3B8; font-weight: 600; }
+        .metric-value { font-size: 18px; font-weight: 900; color: #1e293b; line-height: 1; }
+        .metric-value.hit { color: #059669; }
+        .metric-value.miss { color: #94A3B8; }
+
+        /* 분석 row 카드 */
+        .row-card { background: #fff; border: 1px solid #E5E7EB; border-radius: 12px; padding: 24px; }
+        .row-card.op { background: #FAFBFC; border-color: #E2E8F0; }
+        .row-card.op-union { border-left: 3px solid #A78BFA; }
+        .row-card.op-intersection { border-left: 3px solid #10B981; }
+        .row-card.op-difference { border-left: 3px solid #F97316; }
+        .row-card.op-symdiff { border-left: 3px solid #EC4899; }
+        .row-card.op-complement { border-left: 3px solid #94A3B8; }
+
+        /* 모달 */
+        .modal-overlay { position: fixed; inset: 0; background: rgba(15,23,42,0.4); backdrop-filter: blur(4px); z-index: 200; display: none; align-items: center; justify-content: center; }
+        .modal-overlay.open { display: flex; }
+        .modal-content { background: #fff; border-radius: 16px; max-width: 720px; width: 92%; max-height: 80vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.15); }
+
+        .tab-btn { padding: 8px 16px; border-radius: 8px; font-size: 12px; font-weight: 700; transition: all 0.15s; }
+        .tab-btn.active { background: #3B82F6; color: #fff; }
+        .tab-btn:not(.active) { color: #64748B; }
+        .tab-btn:not(.active):hover { background: #F1F5F9; }
+
+        .analysis-pick { padding: 12px 14px; border-radius: 10px; cursor: pointer; transition: all 0.15s; border: 1px solid transparent; }
+        .analysis-pick:hover { background: #F1F5F9; border-color: #E2E8F0; }
+        .analysis-pick.disabled { opacity: 0.4; cursor: not-allowed; pointer-events: none; }
+
+        /* [fix-374/375] op-toggle pill — BOLD 제거 + action 변형 추가 */
+        .op-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; font-size: 11px; font-weight: 400; border: 1px solid #E2E8F0; background: #fff; color: #64748B; cursor: pointer; transition: all 0.15s; line-height: 1; }
+        .op-toggle:hover { background: #F8FAFC; color: #1e293b; }
+        .op-toggle.active { color: #fff; border-color: transparent; }
+        .op-toggle.active.union { background: #A78BFA; }
+        .op-toggle.active.intersection { background: #10B981; }
+        .op-toggle.active.difference { background: #F97316; }
+        .op-toggle.active.symdiff { background: #EC4899; }
+        .op-toggle.active.complement { background: #94A3B8; }
+        /* [fix-375] action 변형 — 분석 추가(파랑 채움) / 저장/불러오기(회색) / 비우기(rose) */
+        .op-toggle.action-add { background: #3B82F6; color: #fff; border-color: transparent; }
+        .op-toggle.action-add:hover { background: #2563EB; color: #fff; }
+        .op-toggle.action-neutral { color: #475569; }
+        .op-toggle.action-neutral:hover { background: #EFF6FF; color: #2563EB; border-color: #BFDBFE; }
+        .op-toggle.action-danger { color: #E11D48; border-color: #FECACA; }
+        .op-toggle.action-danger:hover { background: #FEF2F2; color: #BE123C; }
+    </style>
+</head>
+
+<body class="bg-[#F9FAFB] antialiased">
+    <div class="flex flex-col min-h-screen">
+        <div id="gnb-container"></div>
+
+        <div class="flex flex-1 overflow-hidden">
+            <!-- [fix-386] LNB 제거 — 분석 매트릭스는 자체 모달/컨트롤만 사용 -->
+            <!--<aside id="lnb-container"></aside>-->
+
+            <main class="flex-1 overflow-y-auto p-8 custom-scrollbar">
+                <div class="max-w-7xl mx-auto space-y-6">
+
+                    <!-- Header -->
+                    <div class="flex items-baseline justify-between">
+                        <div>
+                            <h1 class="text-3xl font-bold text-gray-900 mb-1">분석 매트릭스</h1>
+                            <p class="text-sm text-gray-600">여러 분석의 대상 번호를 행으로 비교하고 집합 연산으로 결합 분석합니다.</p>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <span class="text-xs text-gray-400">대상 회차</span>
+                            <span id="targetRoundDisplay" class="text-2xl font-black text-blue-700">—</span>
+                            <span class="text-sm text-gray-400">회</span>
+                        </div>
+                    </div>
+
+                    <!-- [fix-368/375] 컨트롤 바 — underline 형태, 모든 버튼 op-toggle 스타일로 통일 -->
+                    <div class="flex flex-wrap items-center gap-2 py-4 border-b border-gray-200">
+                        <button id="btnAddAnalysis" class="op-toggle action-add">
+                            <span class="material-symbols-outlined text-[14px]">add</span>분석 추가
+                        </button>
+                        <span class="h-4 w-px bg-gray-200 mx-1"></span>
+                        <span class="text-[11px] uppercase tracking-wider text-gray-400">집합 연산</span>
+                        <button class="op-toggle active union" data-op="union">∪ 합집합</button>
+                        <button class="op-toggle active intersection" data-op="intersection">∩ 교집합</button>
+                        <button class="op-toggle active difference" data-op="difference">− 차집합</button>
+                        <button class="op-toggle active symdiff" data-op="symdiff">△ 대칭차</button>
+                        <button class="op-toggle active complement" data-op="complement">∁ 미포함</button>
+                        <span class="h-4 w-px bg-gray-200 mx-1"></span>
+                        <button id="btnSave" class="op-toggle action-neutral">
+                            <span class="material-symbols-outlined text-[14px]">bookmark_add</span>저장
+                        </button>
+                        <button id="btnLoad" class="op-toggle action-neutral">
+                            <span class="material-symbols-outlined text-[14px]">folder_open</span>불러오기
+                        </button>
+                        <button id="btnClear" class="op-toggle action-danger ml-auto">
+                            <span class="material-symbols-outlined text-[14px]">delete_sweep</span>전체 비우기
+                        </button>
+                    </div>
+
+                    <!-- 빈 상태 -->
+                    <div id="emptyState" class="bg-white rounded-xl border border-dashed border-gray-300 p-16 text-center">
+                        <div class="inline-flex items-center justify-center w-16 h-16 bg-blue-50 rounded-2xl mb-4">
+                            <span class="material-symbols-outlined text-blue-500 text-[32px]">grid_view</span>
+                        </div>
+                        <p class="text-base font-bold text-gray-900 mb-1">분석을 추가하여 시작하세요</p>
+                        <p class="text-sm text-gray-500">정적 분석(소수, 합성수 등) · 동적 분석(핫·콜드, 이월 등) · 커스텀 분석을 결합하여 매트릭스를 구성합니다.</p>
+                    </div>
+
+                    <!-- 분석 row 컨테이너 -->
+                    <div id="analysisRows" class="space-y-4"></div>
+
+                    <!-- 집합 연산 row 컨테이너 -->
+                    <div id="operationRows" class="space-y-4"></div>
+
+                    <!-- [fix-366] 회차 × 분석 매트릭스 — 역대 회차별 분석/연산 적중 -->
+                    <div id="comparisonTableWrap" class="bg-white rounded-xl border border-gray-200 overflow-hidden" style="display:none">
+                        <div class="px-8 pt-6 pb-4 border-b border-gray-100 flex items-baseline justify-between flex-wrap gap-3">
+                            <div>
+                                <h3 class="text-lg font-bold tracking-tight">분석 매트릭스 리스트</h3>
+                                <p class="text-xs text-gray-500 mt-1">역대 회차별 추첨번호 + 각 분석/연산 적중 통계</p>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="text-xs text-gray-400">조회 범위</span>
+                                <button class="range-btn px-2.5 py-1 text-[11px] font-bold rounded-lg" data-range="20">20회</button>
+                                <button class="range-btn px-2.5 py-1 text-[11px] font-bold rounded-lg active" data-range="50">50회</button>
+                                <button class="range-btn px-2.5 py-1 text-[11px] font-bold rounded-lg" data-range="100">100회</button>
+                                <button class="range-btn px-2.5 py-1 text-[11px] font-bold rounded-lg" data-range="200">200회</button>
+                            </div>
+                        </div>
+                        <!-- 합계 통계 (요약 strip) -->
+                        <div id="matrixSummary" class="px-8 py-3 bg-slate-50 border-b border-gray-100 text-[11px] text-slate-500"></div>
+                        <div class="overflow-x-auto custom-scrollbar" style="max-height: 800px">
+                            <table class="text-sm" style="width:100%; min-width: max-content; border-collapse: separate; border-spacing: 0">
+                                <thead id="matrixTableHead" class="sticky top-0 bg-slate-900 text-white text-[10px] uppercase tracking-wider z-30">
+                                    <!-- JS 동적 — 라벨 1행만 -->
+                                </thead>
+                                <tbody id="matrixTableBody" class="divide-y divide-gray-100">
+                                    <!-- JS 동적 -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- 분석 추가 모달 -->
+    <div id="analysisModal" class="modal-overlay" onclick="if(event.target===this) closeAnalysisModal()">
+        <div class="modal-content">
+            <div class="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
+                <div>
+                    <h3 class="text-lg font-bold text-gray-900">분석 선택</h3>
+                    <p class="text-xs text-gray-500 mt-0.5">대상 번호가 있는 분석만 매트릭스에 추가 가능</p>
+                </div>
+                <button onclick="closeAnalysisModal()" class="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400 hover:text-gray-600">
+                    <span class="material-symbols-outlined text-[20px]">close</span>
+                </button>
+            </div>
+            <div class="px-6 py-4 border-b border-gray-100 space-y-3">
+                <input type="text" id="analysisSearch" placeholder="분석명 검색…"
+                    class="w-full px-4 py-2.5 bg-gray-50 border border-transparent rounded-xl text-sm focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all">
+                <div class="flex gap-2 flex-wrap">
+                    <button class="tab-btn active" data-tab="all">전체</button>
+                    <button class="tab-btn" data-tab="static">정적</button>
+                    <button class="tab-btn" data-tab="dynamic">동적</button>
+                    <button class="tab-btn" data-tab="regression">회귀</button>
+                    <button class="tab-btn" data-tab="custom">커스텀</button>
+                </div>
+            </div>
+            <div id="analysisModalList" class="overflow-y-auto custom-scrollbar p-4 space-y-1" style="flex:1 1 auto; min-height:0; max-height:55vh">
+                <!-- JS 렌더 -->
+            </div>
+        </div>
+    </div>
+
+    <!-- 저장/불러오기 모달 -->
+    <div id="loadModal" class="modal-overlay" onclick="if(event.target===this) closeLoadModal()">
+        <div class="modal-content" style="max-width:520px">
+            <div class="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
+                <div>
+                    <h3 class="text-lg font-bold text-gray-900" id="loadModalTitle">저장된 매트릭스</h3>
+                    <p class="text-xs text-gray-500 mt-0.5" id="loadModalDesc">불러올 매트릭스를 선택하세요</p>
+                </div>
+                <button onclick="closeLoadModal()" class="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400 hover:text-gray-600">
+                    <span class="material-symbols-outlined text-[20px]">close</span>
+                </button>
+            </div>
+            <div id="saveModalForm" class="px-6 py-4 border-b border-gray-100 hidden">
+                <input type="text" id="saveNameInput" placeholder="매트릭스 이름…"
+                    class="w-full px-4 py-2.5 bg-gray-50 border border-transparent rounded-xl text-sm focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all">
+                <button id="confirmSaveBtn" class="mt-3 w-full px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold transition-all">저장</button>
+            </div>
+            <div id="loadModalList" class="overflow-y-auto custom-scrollbar p-4 space-y-1" style="flex:1; min-height:0; max-height:50vh">
+                <!-- JS 렌더 -->
+            </div>
+        </div>
+    </div>
+
+    <script src="js/analysis_matrix.js?v=20260510r"></script>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            if (window.Layout) window.Layout.init();
+        });
+    </script>
+</body>
+</html>

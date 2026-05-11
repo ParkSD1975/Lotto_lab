@@ -4,6 +4,9 @@
 <head>
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <title>Lotto Lab - 배수 (Supabase AI)</title>
     <link href="css/tailwind.css" rel="stylesheet" />
 
@@ -92,9 +95,16 @@
             '배수외': 'no_multiple_count'
         };
 
-        // [Fix] 필터 설정 저장 함수 — 배수 타입별 개별 키 저장
+        // [fix-299] 필터 설정 저장 — 대시보드 _saveDashboardFilter 패턴 미러링
+        //   1) NULL row (master fallback) 갱신 → localStorage + DB sync용
+        //   2) targetRound row (다음 회차 specific) 갱신 → 대시보드 specific 매치 일치 보장
+        // 양쪽 모두 갱신해야 분석페이지↔대시보드 양방향 동기화가 깨지지 않음.
         async function saveFilterSettings() {
             const enabled = document.getElementById('applyFilterCheck').checked;
+
+            // [fix-299] targetRound = 다음 회차 (대시보드 _saveDashboardFilter 패턴과 일치)
+            const latestRound = (typeof allDrawData !== 'undefined' && allDrawData && allDrawData[0]) ? allDrawData[0].round : null;
+            const targetRound = latestRound != null ? latestRound + 1 : null;
 
             if (window.Utils && window.Utils.saveFilter) {
                 try {
@@ -114,7 +124,14 @@
                             selectedValues: selectedValues,
                             recent10FilterActive: isRecentTenFilter
                         };
+                        // 1) NULL row 저장 (localStorage + DB master fallback)
                         await window.Utils.saveFilter(key, data, enabled);
+                        // 2) targetRound row 저장 (DB specific match)
+                        if (targetRound != null && window.filterService?.initialized && typeof window.filterService.saveSetting === 'function') {
+                            try {
+                                await window.filterService.saveSetting(key, data, enabled, targetRound);
+                            } catch (e) { /* 무시 */ }
+                        }
                     }
                 } finally {
                     _multipleSelfSaving = false;
@@ -358,6 +375,109 @@
             right: 1.5rem;
             width: 500px !important;
         }
+
+        /* [fix-336] 배수 보조 분석 — impeccable 가이드 */
+        .mp-input {
+            background: transparent; border: 0; border-bottom: 1px solid #E5E7EB;
+            padding: 4px 18px 4px 6px; font-size: 13px; color: #0F172A;
+            outline: none; transition: border-color 180ms ease;
+            font-feature-settings: "tnum"; -moz-appearance: textfield;
+        }
+        .mp-input:focus { border-bottom-color: #3B82F6; }
+        .mp-input::-webkit-inner-spin-button, .mp-input::-webkit-outer-spin-button { opacity: 0.5; margin-left: 4px; }
+        #mpDashTable td, #mpMembershipTable td, #mpIntersectTable td, #mpOutsideTable td, #mpDiversityTable td { padding: 8px 8px; border-bottom: 1px solid #F3F4F6; }
+        #mpDashTable tbody tr:hover, #mpMembershipTable tbody tr:hover,
+        #mpIntersectTable tbody tr:hover, #mpOutsideTable tbody tr:hover, #mpDiversityTable tbody tr:hover { background: #FAFAFA; }
+        .mp-pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 600; line-height: 1.4; }
+        .mp-pill-hot { background: #FEF2F2; color: #DC2626; }
+        .mp-pill-cold { background: #ECFEFF; color: #0E7490; }
+        .mp-pill-warm { background: #FFF7ED; color: #C2410C; }
+        .mp-pill-norm { background: #F1F5F9; color: #475569; }
+        .mp-pill-active { background: #DBEAFE; color: #1E40AF; }
+
+        /* §1 toggle row — sub-class 라인 표시 토글 (statCards 클릭과 동기) */
+        .mp-toggle-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+        .mp-toggle-chip {
+            display: inline-flex; align-items: center; gap: 5px;
+            padding: 5px 10px; border-radius: 9999px;
+            font-size: 11px; font-weight: 600; cursor: pointer;
+            background: #FAFAFA; color: #94A3B8;
+            border: 1px solid #E5E7EB;
+            transition: all 120ms ease;
+            font-feature-settings: "tnum";
+        }
+        .mp-toggle-chip:hover { background: #F1F5F9; color: #475569; }
+        .mp-toggle-chip.active { background: #FFFFFF; color: #0F172A; border-color: #0F172A; }
+        .mp-toggle-chip .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+        .mp-toggle-chip .avg { color: #94A3B8; font-weight: 500; font-size: 10px; }
+
+        /* §1 캘린더 v2 (다양성) */
+        .mp-cal-stats { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; font-size: 11px; color: #94A3B8; font-feature-settings: "tnum"; margin-bottom: 12px; padding: 8px 12px; background: #FAFAFA; border-radius: 8px; }
+        .mp-cal-stats strong { color: #0F172A; font-weight: 700; font-size: 12px; }
+        .mp-cal-row { display: grid; grid-template-columns: 56px 1fr; gap: 8px; align-items: center; margin-bottom: 3px; }
+        .mp-cal-label { font-size: 10px; color: #94A3B8; font-feature-settings: "tnum"; text-align: right; padding-right: 2px; line-height: 1.15; }
+        .mp-cal-label strong { display: block; color: #0F172A; font-weight: 700; font-size: 11px; }
+        .mp-cal-label .meta { display: block; font-size: 9px; color: #CBD5E1; margin-top: 1px; }
+        .mp-cal-cells { display: grid; grid-template-columns: repeat(10, 1fr); gap: 3px; }
+        .mp-cal-cell {
+            height: 30px; border-radius: 4px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 12px; font-weight: 700; font-feature-settings: "tnum";
+            transition: transform 120ms ease, box-shadow 120ms ease;
+            cursor: default;
+        }
+        .mp-cal-cell:hover { transform: scale(1.15); box-shadow: 0 4px 14px rgba(15,23,42,0.18); z-index: 5; }
+        /* 다양성 1~9 (배수 종류 수) — 회색→파랑→짙은 파랑 */
+        .mp-cal-cell.div-1 { background: #FAFAFA; color: #94A3B8; }
+        .mp-cal-cell.div-2 { background: #EFF6FF; color: #60A5FA; }
+        .mp-cal-cell.div-3 { background: #DBEAFE; color: #1E40AF; }
+        .mp-cal-cell.div-4 { background: #93C5FD; color: #FFFFFF; }
+        .mp-cal-cell.div-5 { background: #60A5FA; color: #FFFFFF; }
+        .mp-cal-cell.div-6 { background: #3B82F6; color: #FFFFFF; }
+        .mp-cal-cell.div-7p { background: #1E40AF; color: #FFFFFF; }
+        .mp-cal-cell.is-latest { box-shadow: 0 0 0 2px #0F172A; }
+        .mp-cal-empty { height: 30px; }
+        .mp-cal-legend { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; margin-top: 10px; font-size: 11px; color: #94A3B8; }
+        .mp-cal-legend .legend-cell { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 3px; font-size: 10px; font-weight: 700; font-feature-settings: "tnum"; }
+
+        /* §5 멤버십 매트릭스 (가로 — 5행 × 45열, 컨테이너 가득) */
+        .mp-matrix {
+            border-collapse: separate; border-spacing: 1.5px;
+            font-size: 10px; table-layout: fixed;
+            width: 100%; min-width: 900px;
+        }
+        .mp-matrix th, .mp-matrix td { padding: 0; text-align: center; height: 24px; vertical-align: middle; }
+        .mp-matrix .row-label {
+            font-weight: 700; font-size: 11px;
+            width: 42px; padding: 2px 4px;
+            background: #FAFAFA; border-radius: 3px;
+        }
+        .mp-matrix .num-header {
+            font-weight: 600; color: #475569; font-feature-settings: "tnum";
+            border-radius: 3px;
+            /* width auto — table-layout:fixed + width:100% 에서 균등 분배 */
+        }
+        .mp-matrix .num-header.highlighted { background: #FEF3C7; color: #92400E; box-shadow: 0 0 0 1.5px #F59E0B inset; }
+        .mp-matrix .check-cell { border-radius: 3px; }
+        .mp-matrix .check-cell.on { background: var(--col); color: #FFFFFF; font-weight: 700; }
+        .mp-matrix .check-cell.off { background: #FAFAFA; color: #CBD5E1; }
+        .mp-matrix .row-total {
+            font-weight: 700; color: #0F172A; background: #F1F5F9;
+            border-radius: 3px; font-size: 11px;
+            width: 42px;
+        }
+        .mp-matrix .total-cell {
+            font-weight: 700; color: #0F172A; background: #F1F5F9;
+            border-radius: 3px; font-size: 10px;
+        }
+        .mp-matrix .total-cell.highlighted { background: #FEF3C7; color: #92400E; }
+
+        /* §4·§7 sub-class 그리드 */
+        .mp-num-card { background: #FAFAFA; border-radius: 6px; padding: 4px 6px; display: flex; justify-content: space-between; align-items: center; font-size: 12px; }
+        .mp-num-card .num { font-weight: 700; font-feature-settings: "tnum"; color: #0F172A; }
+        .mp-num-card .gap { font-feature-settings: "tnum"; color: #94A3B8; font-size: 11px; }
+        .mp-subclass-col h4 { font-size: 12px; font-weight: 700; color: #0F172A; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #E5E7EB; display: flex; justify-content: space-between; align-items: center; }
+        .mp-subclass-col h4 .meta { font-size: 10px; font-weight: 500; color: #94A3B8; }
     </style>
 </head>
 
@@ -372,7 +492,7 @@
             </aside>
 
             <main class="flex-1 overflow-y-auto p-8 custom-scrollbar">
-                <div class="max-w-7xl mx-auto space-y-6">
+                <div class="max-w-screen-2xl mx-auto space-y-6">
                     <div>
                         <h1 class="text-3xl font-bold text-gray-900 mb-1">배수 분석</h1>
                         <p class="text-sm text-gray-600">당첨번호 중 3배수, 4배수, 5배수 및 복합배수의 출현 패턴을 분석합니다.</p>
@@ -445,40 +565,186 @@
                         </div>
                     </div>
 
+                    <!-- ════════════════════════════════════════════════ -->
+                    <!-- [fix-336] 배수 보조 분석 7종 — 단일 흰 박스 통합   -->
+                    <!-- ════════════════════════════════════════════════ -->
+                    <div class="bg-white rounded-xl border border-gray-200 mb-6 overflow-hidden">
 
-                    <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm" id="filter-multiple_3_count">
-                        <div class="flex items-center justify-between mb-6">
-                            <h3 class="text-xl font-bold text-gray-900">조합 필터</h3>
+                        <!-- §1. 시계열 추세 (9 sub-class 다중 라인) + 캘린더 (다양성) -->
+                        <div class="p-8">
+                            <div class="flex items-baseline justify-between mb-3">
+                                <div>
+                                    <h3 class="text-lg font-bold text-gray-900 tracking-tight">시계열 추세 (9 sub-class) + 다양성 캘린더</h3>
+                                    <p class="text-xs text-gray-500 mt-1">9개 배수 카테고리 카운트의 이동평균 · 칩 클릭으로 표시 토글 (위쪽 통계카드 선택과 동기) · 캘린더는 회차별 등장 sub-class 종류 수(다양성)</p>
+                                </div>
+                                <div class="flex items-baseline gap-2 text-xs text-gray-500">
+                                    <label>MA 윈도우</label>
+                                    <input type="number" id="mpMaWindow" value="20" min="5" max="100"
+                                        oninput="renderMpMa()" class="mp-input w-16 text-center tabular-nums">
+                                    <span>회</span>
+                                </div>
+                            </div>
+                            <div id="mpToggleRow" class="mp-toggle-row"></div>
+                            <div class="h-72 mb-6"><canvas id="mpMaChart"></canvas></div>
+                            <div class="pt-6 border-t border-gray-100">
+                                <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-3">배수 다양성 캘린더 (회차별 sub-class 종류 수)</div>
+                                <div id="mpCalendar"></div>
+                            </div>
+                        </div>
+
+                        <!-- §2. 9 sub-class 평균 출현 dashboard -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">9 sub-class · 평균 출현 dashboard</h3>
+                            <p class="text-xs text-gray-500 mb-4">단일 배수 5개(3·4·5·7·8) + 교집합 3개(3·4·3·5·4·5) + 배수외 1개 · 풀 비대칭 보정 후 평균/회 비교</p>
+                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch">
+                                <div class="relative" style="min-height: 280px"><canvas id="mpDashChart"></canvas></div>
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-sm tabular-nums" id="mpDashTable">
+                                        <thead>
+                                            <tr class="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                                <th class="py-2 pr-3 border-b border-gray-200">배수</th>
+                                                <th class="py-2 px-3 border-b border-gray-200 text-right">풀</th>
+                                                <th class="py-2 px-3 border-b border-gray-200 text-right">관측</th>
+                                                <th class="py-2 px-3 border-b border-gray-200 text-right">기대</th>
+                                                <th class="py-2 pl-3 border-b border-gray-200 text-right">기대 대비</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="mpDashBody"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- §3. 카운트 분포 stacked (단일 6개 sub-class) -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">카운트 분포 — Stacked %</h3>
+                            <p class="text-xs text-gray-500 mb-4">6개 단일 sub-class(3·4·5·7·8·배수외)의 카운트 분포를 100% stacked bar로 비교 · 각 색상 segment = 해당 카운트 회차의 비중</p>
+                            <div class="h-72"><canvas id="mpStackedChart"></canvas></div>
+                            <div id="mpStackedNote" class="mt-3 text-xs text-gray-600 tabular-nums"></div>
+                        </div>
+
+                        <!-- §4. 다중 멤버십 분석 ⭐ -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">다중 멤버십 분석</h3>
+                            <p class="text-xs text-gray-500 mb-4">한 번호가 여러 단일 배수에 동시 속함 · 1·2·3중 배수 멤버 식별 + 회차별 다중성 분포</p>
+                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch">
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-sm tabular-nums" id="mpMembershipTable">
+                                        <thead>
+                                            <tr class="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                                <th class="py-2 pr-3 border-b border-gray-200">다중성</th>
+                                                <th class="py-2 px-3 border-b border-gray-200">멤버</th>
+                                                <th class="py-2 px-3 border-b border-gray-200 text-right">크기</th>
+                                                <th class="py-2 px-3 border-b border-gray-200 text-right">관측 평균</th>
+                                                <th class="py-2 pl-3 border-b border-gray-200 text-right">기대</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="mpMembershipBody"></tbody>
+                                    </table>
+                                </div>
+                                <div class="relative" style="min-height: 240px"><canvas id="mpMembershipChart"></canvas></div>
+                            </div>
+                        </div>
+
+                        <!-- §5. 45×5 멤버십 매트릭스 ⭐ -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">45 × 5 멤버십 매트릭스</h3>
+                            <p class="text-xs text-gray-500 mb-4">전 번호 1~45를 행으로, 단일 배수 5개(3·4·5·7·8)를 열로 · 체크 = 멤버십 · 노란 행 = 최신 회차 등장 번호 · 하단 합계 = 컬럼 빈도</p>
+                            <div class="overflow-x-auto" id="mpMatrixWrap"></div>
+                        </div>
+
+                        <!-- §6. 교집합 카테고리 핫·콜드 ⭐ -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">교집합 카테고리 핫·콜드 (3·4 · 3·5 · 4·5)</h3>
+                            <p class="text-xs text-gray-500 mb-4">교집합 카테고리 8개 멤버 (3·4: 12,24,36 · 3·5: 15,30,45 · 4·5: 20,40)의 핫·콜드 + 카테고리별 출현률</p>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-sm tabular-nums" id="mpIntersectTable">
+                                    <thead>
+                                        <tr class="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                            <th class="py-2 pr-3 border-b border-gray-200">카테고리</th>
+                                            <th class="py-2 px-3 border-b border-gray-200">번호</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">출현/회</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">기대</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">현재 갭</th>
+                                            <th class="py-2 pl-3 border-b border-gray-200 text-center">상태</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="mpIntersectBody"></tbody>
+                                </table>
+                                <div id="mpIntersectNote" class="mt-3 text-xs text-gray-600 tabular-nums"></div>
+                            </div>
+                        </div>
+
+                        <!-- §7. 배수외 sub-분석 ⭐ -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">배수외 sub-분석 (16개 내부 구조)</h3>
+                            <p class="text-xs text-gray-500 mb-4">배수외 16개를 3 분류로: 특수(1·2) / 소수(11·13·17·19·23·29·31·37·41·43) / 2×소수(22·26·34·38) · 각 분류의 핫·콜드</p>
+                            <div class="overflow-x-auto mb-4">
+                                <table class="w-full text-sm tabular-nums" id="mpOutsideTable">
+                                    <thead>
+                                        <tr class="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                            <th class="py-2 pr-3 border-b border-gray-200">분류</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">크기</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">관측 평균</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">기대</th>
+                                            <th class="py-2 pl-3 border-b border-gray-200 text-right">기대 대비</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="mpOutsideBody"></tbody>
+                                </table>
+                            </div>
+                            <div id="mpOutsideHotcoldGrid" class="grid grid-cols-1 md:grid-cols-3 gap-6"></div>
+                        </div>
+                    </div>
+                    <!-- ════════════════════════════════════════════════ -->
+                    <!-- [/fix-336] 단일 박스 통합 끝                       -->
+                    <!-- ════════════════════════════════════════════════ -->
+
+
+                    <!-- [fix-401] 조합 필터 — padding 확대 + 내용 영역 넓힘 -->
+                    <div class="bg-white rounded-xl p-8 border border-gray-200 shadow-sm" id="filter-multiple_3_count">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-base font-semibold text-gray-800">조합 필터</h3>
                             <a href="filter.html#filter-multiple_3_count"
-                                class="text-sm font-medium text-slate-500 hover:text-blue-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
-                                <span class="material-symbols-outlined text-[18px]">tune</span>
+                                class="text-xs font-medium text-slate-500 hover:text-blue-600 flex items-center gap-1 transition-colors">
+                                <span class="material-symbols-outlined text-[16px]">tune</span>
                                 필터 페이지 가기
                             </a>
                         </div>
-                        <div class="space-y-6" id="filterContainer">
+                        <!-- [fix-337] 핫/콜드 점 범례 -->
+                        <div class="flex items-center gap-4 mb-5 text-xs text-gray-500">
+                            <span class="flex items-center gap-1.5">
+                                <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#EF4444;box-shadow:0 0 0 1.5px white"></span>
+                                <span>핫 — 최근 3회차 내 출현</span>
+                            </span>
+                            <span class="flex items-center gap-1.5">
+                                <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#3B82F6;box-shadow:0 0 0 1.5px white"></span>
+                                <span>콜드 — 최근 3회차 미출현</span>
+                            </span>
                         </div>
-                        <div class="flex items-center justify-between mt-6 pt-4 border-t border-gray-100">
-                            <div class="flex items-center gap-3">
+                        <div id="filterContainer" class="divide-y divide-gray-100">
+                        </div>
+                        <div class="flex items-center justify-between mt-6 pt-5 border-t border-gray-100">
+                            <div class="flex items-center gap-2.5">
+                                <span class="text-sm text-gray-700">필터 적용</span>
                                 <label class="relative inline-flex items-center cursor-pointer">
                                     <input type="checkbox" id="applyFilterCheck" onchange="applyFilter()"
                                         class="sr-only peer" checked>
-                                    <div
-                                        class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500">
+                                    <div class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600">
                                     </div>
                                 </label>
-                                <span class="text-sm font-bold text-gray-700">필터 적용</span>
                             </div>
                             <button onclick="applyRecent10Filters()" id="recent10FilterBtn"
-                                class="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 transition-all active:scale-95 text-sm font-black min-w-[240px] justify-center whitespace-nowrap">
-                                <span class="material-symbols-outlined text-[18px]">auto_fix_high</span>
+                                class="flex items-center gap-2 px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-all">
+                                <span class="material-symbols-outlined text-[16px]">auto_fix_high</span>
                                 <span id="recent10BtnText">최근 10회차 필터 적용</span>
                             </button>
                         </div>
                     </div>
 
-                    <!-- [표준화] 리스트 섹션 (Integrated Header) -->
-                    <div class="rounded-xl overflow-hidden mt-6">
-                        <div class="flex items-center justify-between mb-4 px-2">
+                    <!-- [fix-400] 리스트 섹션 — 헤더 + 표 흰 박스 일체화 -->
+                    <div class="bg-white rounded-xl border border-gray-200 mt-6 overflow-hidden">
+                        <div class="flex items-center justify-between px-8 pt-6 pb-4 border-b border-gray-100">
                             <div>
                                 <h3 class="text-xl font-bold text-gray-900 mb-1">회차별 당첨번호 및 배수 현황</h3>
                                 <p class="text-sm text-gray-600">최근 <span id="displayedCount"
@@ -486,7 +752,7 @@
                             </div>
                         </div>
 
-                        <div class="overflow-x-auto custom-scrollbar border border-gray-200 rounded-xl bg-white"
+                        <div class="overflow-x-auto custom-scrollbar"
                             style="max-height: 600px;">
                             <table class="w-full text-sm">
                                 <thead
@@ -580,6 +846,10 @@
                 // AI 프리미엄 전략 리포트 초기 렌더링
                 initDeepInsight();
 
+                // [fix-336] 보조 분석 7종 초기 렌더링
+                if (typeof invalidateMpCache === 'function') invalidateMpCache();
+                if (typeof renderAllMpSupp === 'function') renderAllMpSupp();
+
                 // [추가] 토요일인 경우 최근 10회차 필터 자동 적용
                 // [수정] 토요일 여부와 상관없이 새로운 회차가 업데이트되었을 때만 자동 필터 적용
                 const lastSeenRound = localStorage.getItem('last_seen_round_multiple');
@@ -654,8 +924,13 @@
 
         function initFilters() {
             const recent10 = allDrawData.slice(0, 10);
+            // [fix-337] 최근 3회차 출현 번호 set — 핫/콜드 판정용
+            const recent3 = allDrawData.slice(0, 3);
+            const recent3Set = new Set();
+            recent3.forEach(d => (d.numbers || []).forEach(n => recent3Set.add(n)));
             const container = document.getElementById('filterContainer');
             container.innerHTML = '';
+            container.className = 'divide-y divide-gray-100';  // 미니멀 — 행 사이 구분선
 
             Object.keys(multipleDefinitions).forEach(type => {
                 const counts = recent10.map(d => d.counts[type]);
@@ -664,38 +939,52 @@
 
                 filterState[type] = { min: minVal, max: maxVal };
 
-                const numbersHtml = multipleDefinitions[type].map(n =>
-                    `<span class="lotto-ball-mini" style="background-color: ${multipleColors[type]};">${String(n).padStart(2, '0')}</span>`
-                ).join('');
-
-                const gapClass = type === '배수외' ? 'gap-1.5' : 'gap-2';
+                // [fix-337] 각 번호 위에 핫/콜드 점 표시 (핫=빨강, 콜드=파랑)
+                const numbersHtml = multipleDefinitions[type].map(n => {
+                    const isHot = recent3Set.has(n);
+                    const dotColor = isHot ? '#EF4444' : '#3B82F6';
+                    const dotTitle = isHot ? '핫 — 최근 3회차 내 출현' : '콜드 — 최근 3회차 미출현';
+                    return `<span class="relative inline-block" title="${n} · ${dotTitle}">
+                        <span class="absolute z-10 w-2 h-2 rounded-full" style="background: ${dotColor}; top: -3px; left: 50%; transform: translateX(-50%); box-shadow: 0 0 0 1.5px white;"></span>
+                        <span class="w-8 h-8 inline-flex items-center justify-center rounded-full text-[11px] font-bold text-white shadow-sm" style="background-color: ${multipleColors[type]};">${String(n).padStart(2, '0')}</span>
+                    </span>`;
+                }).join('');
 
                 const div = document.createElement('div');
-                div.className = 'border-b border-gray-100 pb-4 last:border-0';
+                div.className = 'flex items-center justify-between gap-4 py-4';   // [fix-401] py-3→py-4 (호흡 확대)
+                // [fix-300] 대시보드에서 9개 배수 카드 클릭 시 해당 row로 스크롤하도록 anchor ID 부여
+                const anchorKey = MULTIPLE_KEY_MAP[type];
+                if (anchorKey) div.id = `filter-row-${anchorKey}`;
 
-                // [수정됨] input에 id 추가 및 onchange 이벤트 연결
+                // [fix-401] row 너비 확대 — 라벨 w-16→w-20, input w-12→w-16, gap 더 풍부히
                 div.innerHTML = `
-                    <div class="flex items-center justify-between gap-4">
-                        <div class="flex-1">
-                            <div class="flex items-center gap-2 mb-2">
-                                <span class="font-bold text-gray-700 w-16">${type}</span>
-                                <span class="text-xs text-gray-400">(${multipleDefinitions[type].length}개)</span>
-                            </div>
-                            <div class="flex flex-wrap ${gapClass}">
-                                ${numbersHtml}
-                            </div>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <span class="text-sm text-gray-500 font-bold">Min</span>
-                            <input type="number" id="min_${type}" oninput="applyFilterManual()" min="0" max="6" value="${minVal}" class="w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500">
-                            <span class="text-gray-400">~</span>
-                            <span class="text-sm text-gray-500 font-bold">Max</span>
-                            <input type="number" id="max_${type}" oninput="applyFilterManual()" min="0" max="6" value="${maxVal}" class="w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500">
-                        </div>
+                    <div class="flex items-center gap-4 min-w-0 flex-1">
+                        <span class="text-sm font-bold text-gray-800 w-20 flex-shrink-0">${type}</span>
+                        <div class="flex gap-2 items-center flex-wrap pt-2">${numbersHtml}</div>
+                    </div>
+                    <div class="flex items-center gap-3 flex-shrink-0 pl-4">
+                        <input type="number" id="min_${type}" oninput="applyFilterManual()" min="0" max="6" value="${minVal}"
+                            class="w-16 h-9 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent">
+                        <span class="text-sm text-gray-400">~</span>
+                        <input type="number" id="max_${type}" oninput="applyFilterManual()" min="0" max="6" value="${maxVal}"
+                            class="w-16 h-9 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent">
                     </div>
                 `;
                 container.appendChild(div);
             });
+
+            // [fix-300] URL hash가 있으면 해당 row로 부드럽게 스크롤 + 깜빡 하이라이트
+            const hash = (window.location.hash || '').replace('#', '');
+            if (hash && hash.startsWith('filter-row-')) {
+                requestAnimationFrame(() => {
+                    const target = document.getElementById(hash);
+                    if (!target) return;
+                    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    target.style.transition = 'background-color 0.6s ease';
+                    target.style.backgroundColor = '#EFF6FF';
+                    setTimeout(() => { target.style.backgroundColor = ''; }, 1500);
+                });
+            }
         }
 
         function initStatCards() {
@@ -731,6 +1020,10 @@
             renderDrawsList(displayData);
             updateCharts(displayData);
             initDeepInsight();
+
+            // [fix-336] §1 차트 emphasis 갱신 (statCards 선택 동기화)
+            if (typeof renderMpMa === 'function') renderMpMa();
+            if (typeof renderMpToggleRow === 'function') renderMpToggleRow();
         }
 
         function updateStatCardStyles() {
@@ -1125,23 +1418,10 @@
         }
 
 
-        // [추가] 필터링된 데이터 가져오기 (범위 + 배수 조건)
+        // [수정] 리스트 필터링 제거 — 조합 필터 설정은 저장하되 리스트에는 영향 없음
+        // (이전: applyFilterCheck.checked 시 min/max로 리스트 필터링)
         function getFilteredDraws() {
-            const isEnabled = document.getElementById('applyFilterCheck').checked;
-            const slicedData = allDrawData.slice(0, currentRange);
-
-            if (!isEnabled) return slicedData;
-
-            // 배수별 Min/Max 조건 적용
-            return slicedData.filter(draw => {
-                for (const type of Object.keys(multipleDefinitions)) {
-                    const min = parseInt(document.getElementById(`min_${type}`)?.value || 0);
-                    const max = parseInt(document.getElementById(`max_${type}`)?.value || 6);
-                    const count = draw.counts[type];
-                    if (count < min || count > max) return false;
-                }
-                return true;
-            });
+            return allDrawData.slice(0, currentRange);
         }
 
         function updatePresetButtons(value) {
@@ -1163,6 +1443,9 @@
             const displayData = getFilteredDraws();
             renderDrawsList(displayData);
             updateStats(displayData); // 필터링 결과에 따른 통계 갱신
+
+            // [fix-336] 보조 분석 7종 갱신
+            if (typeof renderAllMpSupp === 'function') renderAllMpSupp();
         }
 
         // ==========================================================
@@ -1594,6 +1877,623 @@ ${contextData}
                 }
             }
         });
+
+        // ════════════════════════════════════════════════════════════
+        // [fix-336] 배수 보조 분석 7종 — impeccable 가이드
+        // ════════════════════════════════════════════════════════════
+        const MP_ACCENT = '#3B82F6';
+        const MP_GRID = '#F1F5F9';
+        const MP_INK_2 = '#475569';
+        const MP_INK_3 = '#94A3B8';
+
+        // 9 sub-class 키 (multipleDefinitions의 키 순서)
+        const MP_KEYS = ['3배수', '4배수', '5배수', '7배수', '8배수', '3·4배수', '3·5배수', '4·5배수', '배수외'];
+        // 6개 단일 sub-class (분포·매트릭스용 — 교집합 + 배수외 중 단일 sub-class만)
+        const MP_SINGLE_KEYS = ['3배수', '4배수', '5배수', '7배수', '8배수', '배수외'];
+        const MP_SINGLE_NUMS = ['3배수', '4배수', '5배수', '7배수', '8배수']; // 5개 단일 (배수외 제외)
+        const MP_INTERSECT_KEYS = ['3·4배수', '3·5배수', '4·5배수'];
+
+        // 배수외 16개 sub-분류
+        const MP_OUTSIDE_SUB = {
+            special: { label: '특수', members: [1, 2], color: '#F59E0B' },
+            primes: { label: '소수 (≥11)', members: [11, 13, 17, 19, 23, 29, 31, 37, 41, 43], color: '#3B82F6' },
+            twoPrime: { label: '2 × 소수', members: [22, 26, 34, 38], color: '#A855F7' }
+        };
+        const MP_OUTSIDE_SUB_KEYS = ['special', 'primes', 'twoPrime'];
+
+        // 다중성 분류: 단일 5개 (3·4·5·7·8) 중 몇 개에 속하는지
+        function mpMembershipCount(n) {
+            let c = 0;
+            if (n % 3 === 0) c++;
+            if (n % 4 === 0) c++;
+            if (n % 5 === 0) c++;
+            if (n % 7 === 0) c++;
+            if (n % 8 === 0) c++;
+            return c;
+        }
+        // 1~45 다중성 분포
+        const MP_MEMBERSHIP_BY_N = {};
+        const MP_MEMBERSHIP_GROUPS = { 0: [], 1: [], 2: [], 3: [], 4: [], 5: [] };
+        for (let n = 1; n <= 45; n++) {
+            const c = mpMembershipCount(n);
+            MP_MEMBERSHIP_BY_N[n] = c;
+            MP_MEMBERSHIP_GROUPS[c].push(n);
+        }
+
+        let _mpCache = null;
+        function getMpCache() {
+            if (_mpCache) return _mpCache;
+            const data = window.allDrawData || allDrawData || [];
+            _mpCache = data.map(d => {
+                const nums = d.numbers || [];
+                const numSet = new Set(nums);
+                // 9 sub-class 카운트
+                const subCounts = {};
+                MP_KEYS.forEach(k => {
+                    subCounts[k] = nums.filter(n => multipleDefinitions[k].includes(n)).length;
+                });
+                // 다양성 = 한 회차에 등장한 sub-class 종류 수 (해당 sub-class 카운트 > 0)
+                const diversity = MP_KEYS.filter(k => subCounts[k] > 0).length;
+                // 다중성 합계 (한 회차의 6번호 다중성 총합)
+                const memSum = nums.reduce((s, n) => s + MP_MEMBERSHIP_BY_N[n], 0);
+                // 다중성별 카운트 (1중·2중·3중)
+                const memCounts = { 0: 0, 1: 0, 2: 0, 3: 0 };
+                nums.forEach(n => {
+                    const c = MP_MEMBERSHIP_BY_N[n];
+                    if (c <= 3) memCounts[c]++;
+                });
+                return { round: d.round, nums, numSet, subCounts, diversity, memSum, memCounts };
+            });
+            return _mpCache;
+        }
+        function invalidateMpCache() { _mpCache = null; }
+
+        function renderAllMpSupp() {
+            try {
+                if (!allDrawData || allDrawData.length === 0) return;
+                invalidateMpCache();
+                renderMpToggleRow();
+                renderMpMa();
+                renderMpCalendar();
+                renderMpDash();
+                renderMpStacked();
+                renderMpMembership();
+                renderMpMatrix();
+                renderMpIntersect();
+                renderMpOutside();
+            } catch (e) { console.warn('[mp-supp]', e); }
+        }
+
+        // ─── §1-A. 토글 칩 (statCards와 연계) ───
+        // statCards에서 selectedGraphType이 설정되면 그것만 emphasis,
+        // null이면 모든 9 라인 표시. 칩 클릭은 toggleStatCard 호출.
+        function renderMpToggleRow() {
+            const row = document.getElementById('mpToggleRow');
+            if (!row) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getMpCache().slice(0, range);
+            const total = cache.length || 1;
+            row.innerHTML = MP_KEYS.map(k => {
+                const avg = cache.reduce((a, d) => a + d.subCounts[k], 0) / total;
+                const isActive = (typeof selectedGraphType !== 'undefined' && selectedGraphType === k) ||
+                                 (typeof selectedGraphType === 'undefined' || !selectedGraphType);
+                const color = multipleColors[k];
+                return `<button class="mp-toggle-chip ${isActive ? 'active' : ''}" onclick="toggleStatCard('${k}', null)">
+                    <span class="dot" style="background:${color}"></span>
+                    <span>${k}</span>
+                    <span class="avg">${avg.toFixed(2)}</span>
+                </button>`;
+            }).join('');
+        }
+
+        // ─── §1-B. 시계열 추세 (9 라인) ───
+        let mpMaInst = null;
+        function renderMpMa() {
+            const canvas = document.getElementById('mpMaChart');
+            if (!canvas) return;
+            const win = Math.max(5, Math.min(100, parseInt(document.getElementById('mpMaWindow')?.value) || 20));
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getMpCache().slice(0, range).slice().reverse();
+            if (cache.length === 0) return;
+            const labels = cache.map(d => d.round);
+            const sel = (typeof selectedGraphType !== 'undefined') ? selectedGraphType : null;
+
+            const datasets = MP_KEYS.map(k => {
+                const counts = cache.map(d => d.subCounts[k]);
+                const ma = [];
+                for (let i = 0; i < counts.length; i++) {
+                    const s = Math.max(0, i - win + 1);
+                    const sl = counts.slice(s, i + 1);
+                    ma.push(sl.reduce((a, b) => a + b, 0) / sl.length);
+                }
+                const isHighlighted = !sel || sel === k;
+                return {
+                    label: k,
+                    data: ma.map(v => +v.toFixed(2)),
+                    borderColor: multipleColors[k],
+                    borderWidth: isHighlighted ? 2.5 : 1,
+                    pointRadius: 0,
+                    fill: false,
+                    tension: 0.25,
+                    borderColor: isHighlighted ? multipleColors[k] : multipleColors[k] + '40' // 25% opacity for non-highlighted
+                };
+            });
+
+            if (mpMaInst) mpMaInst.destroy();
+            mpMaInst = new Chart(canvas.getContext('2d'), {
+                type: 'line',
+                data: { labels, datasets },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        datalabels: { display: false }
+                    },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: MP_GRID, drawBorder: false }, ticks: { color: MP_INK_3, font: { size: 11 } }, title: { display: true, text: '카운트 MA', color: MP_INK_3, font: { size: 10 } } },
+                        x: { grid: { display: false }, ticks: { color: MP_INK_3, font: { size: 11 }, display: range < 80, autoSkip: true, maxRotation: 0 } }
+                    },
+                    animation: { duration: 200 },
+                    interaction: { mode: 'nearest', intersect: false }
+                }
+            });
+        }
+
+        // ─── §1-C. 다양성 캘린더 ───
+        function renderMpCalendar() {
+            const c = document.getElementById('mpCalendar');
+            if (!c) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getMpCache().slice(0, range);
+            if (cache.length === 0) { c.innerHTML = ''; return; }
+
+            const chrono = cache.slice().reverse();
+            const latestRound = cache[0].round;
+            const oldestRound = chrono[0].round;
+            const total = chrono.length;
+            const divs = chrono.map(d => d.diversity);
+            const meanDiv = divs.reduce((a, b) => a + b, 0) / total;
+            const maxDiv = Math.max(...divs);
+            const minDiv = Math.min(...divs);
+
+            function divClass(d) {
+                if (d <= 1) return 'div-1';
+                if (d === 2) return 'div-2';
+                if (d === 3) return 'div-3';
+                if (d === 4) return 'div-4';
+                if (d === 5) return 'div-5';
+                if (d === 6) return 'div-6';
+                return 'div-7p';
+            }
+
+            const groups = new Map();
+            chrono.forEach(d => {
+                const groupStart = Math.floor(d.round / 10) * 10;
+                if (!groups.has(groupStart)) groups.set(groupStart, []);
+                groups.get(groupStart).push(d);
+            });
+
+            let html = `<div class="mp-cal-stats">
+                <span><span class="text-gray-400">분석 범위</span> <strong>${oldestRound} ~ ${latestRound}회</strong> <span class="text-gray-400">(${total}회)</span></span>
+                <span><span class="text-gray-400">평균 다양성</span> <strong>${meanDiv.toFixed(2)}종</strong></span>
+                <span><span class="text-gray-400">최대</span> <strong>${maxDiv}종</strong></span>
+                <span><span class="text-gray-400">최소</span> <strong>${minDiv}종</strong></span>
+            </div><div>`;
+
+            const sortedKeys = Array.from(groups.keys()).sort((a, b) => a - b);
+            sortedKeys.forEach(start => {
+                const draws = groups.get(start);
+                const drawByRound = new Map(draws.map(d => [d.round, d]));
+                const groupMean = draws.reduce((a, d) => a + d.diversity, 0) / draws.length;
+                html += `<div class="mp-cal-row">
+                    <div class="mp-cal-label"><strong>${start}~</strong><span class="meta">평균 ${groupMean.toFixed(1)}</span></div>
+                    <div class="mp-cal-cells">`;
+                for (let i = 0; i < 10; i++) {
+                    const round = start + i;
+                    const d = drawByRound.get(round);
+                    if (!d) {
+                        html += `<div class="mp-cal-empty"></div>`;
+                    } else {
+                        const isLatest = round === latestRound ? ' is-latest' : '';
+                        const activeSubs = MP_KEYS.filter(k => d.subCounts[k] > 0).join(', ');
+                        const tooltip = `${round}회 · 다양성 ${d.diversity}종\n전체: ${[...d.nums].sort((a,b)=>a-b).join(', ')}\n등장 sub-class: ${activeSubs}`;
+                        html += `<div class="mp-cal-cell ${divClass(d.diversity)}${isLatest}" title="${tooltip}">${d.diversity}</div>`;
+                    }
+                }
+                html += `</div></div>`;
+            });
+            html += `</div>`;
+
+            const legendData = [
+                { d: 1, cls: 'div-1' }, { d: 2, cls: 'div-2' }, { d: 3, cls: 'div-3' },
+                { d: 4, cls: 'div-4' }, { d: 5, cls: 'div-5' }, { d: 6, cls: 'div-6' },
+                { d: '7+', cls: 'div-7p' }
+            ];
+            html += `<div class="mp-cal-legend">
+                <span class="text-gray-500 mr-1">sub-class 종류 수:</span>
+                ${legendData.map(L => `<span class="legend-cell ${L.cls}">${L.d}</span>`).join('')}
+                <span class="ml-3 flex items-center gap-1.5">
+                    <span style="display:inline-block;width:16px;height:16px;border:2px solid #0F172A;border-radius:3px"></span>
+                    <span>최신</span>
+                </span>
+            </div>`;
+            c.innerHTML = html;
+        }
+
+        // ─── §2. 9 sub-class 평균 출현 dashboard ───
+        let mpDashInst = null;
+        function renderMpDash() {
+            const canvas = document.getElementById('mpDashChart');
+            const tbody = document.getElementById('mpDashBody');
+            if (!canvas || !tbody) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getMpCache().slice(0, range);
+            const total = cache.length || 1;
+            const obs = {}, exp = {};
+            MP_KEYS.forEach(k => {
+                obs[k] = cache.reduce((a, d) => a + d.subCounts[k], 0) / total;
+                exp[k] = multipleDefinitions[k].length * 6 / 45;
+            });
+
+            if (mpDashInst) mpDashInst.destroy();
+            mpDashInst = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: MP_KEYS,
+                    datasets: [
+                        { label: '관측 평균/회', data: MP_KEYS.map(k => +obs[k].toFixed(2)), backgroundColor: MP_KEYS.map(k => multipleColors[k]), borderRadius: 4 },
+                        { label: '이론 평균/회', data: MP_KEYS.map(k => +exp[k].toFixed(2)), type: 'line', borderColor: 'rgba(15,23,42,0.5)', borderDash: [4, 4], borderWidth: 1.5, pointRadius: 4, pointBackgroundColor: 'rgba(15,23,42,0.5)', fill: false }
+                    ]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'top', align: 'end', labels: { boxWidth: 6, font: { size: 11, family: 'Pretendard' }, color: MP_INK_2 } },
+                        datalabels: { display: false }
+                    },
+                    scales: {
+                        x: { beginAtZero: true, grid: { color: MP_GRID, drawBorder: false }, ticks: { color: MP_INK_3, font: { size: 11 } } },
+                        y: { grid: { display: false }, ticks: { color: MP_INK_2, font: { size: 11 } } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+
+            tbody.innerHTML = MP_KEYS.map(k => {
+                const ratio = exp[k] > 0 ? obs[k] / exp[k] : 0;
+                const ratioColor = ratio > 1.15 ? 'text-red-600' : ratio < 0.85 ? 'text-blue-600' : 'text-gray-900';
+                const dot = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${multipleColors[k]};margin-right:6px"></span>`;
+                return `<tr>
+                    <td class="font-bold text-gray-900" style="white-space:nowrap">${dot}${k}</td>
+                    <td class="text-right text-gray-600">${multipleDefinitions[k].length}</td>
+                    <td class="text-right text-gray-900 font-semibold">${obs[k].toFixed(2)}</td>
+                    <td class="text-right text-gray-500">${exp[k].toFixed(2)}</td>
+                    <td class="text-right font-semibold ${ratioColor}">${ratio.toFixed(2)}×</td>
+                </tr>`;
+            }).join('');
+        }
+
+        // ─── §3. Stacked 카운트 분포 (단일 6 sub-class) ───
+        let mpStackedInst = null;
+        function renderMpStacked() {
+            const canvas = document.getElementById('mpStackedChart');
+            const note = document.getElementById('mpStackedNote');
+            if (!canvas) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getMpCache().slice(0, range);
+            const total = cache.length || 1;
+
+            // 각 단일 sub-class의 카운트 분포 (0~6)
+            // dist[subKey][count] = 회차 수
+            const dist = {};
+            MP_SINGLE_KEYS.forEach(k => {
+                dist[k] = [0, 0, 0, 0, 0, 0, 0];
+                cache.forEach(d => {
+                    const c = d.subCounts[k];
+                    if (c >= 0 && c <= 6) dist[k][c]++;
+                });
+            });
+
+            // 각 카운트 버킷별 dataset (0~6 카운트 = 7 datasets, stacked)
+            // 색상: 회색→해당 sub-class color (각 카운트별로 명도 조절)
+            const countColors = ['#FAFAFA', '#DBEAFE', '#93C5FD', '#3B82F6', '#1E40AF', '#1E3A8A', '#0F172A'];
+            const datasets = [0, 1, 2, 3, 4, 5, 6].map(cnt => ({
+                label: `${cnt}개`,
+                data: MP_SINGLE_KEYS.map(k => +(dist[k][cnt] / total * 100).toFixed(2)),
+                backgroundColor: countColors[cnt],
+                stack: 'count',
+                borderWidth: 0
+            }));
+
+            if (mpStackedInst) mpStackedInst.destroy();
+            mpStackedInst = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: { labels: MP_SINGLE_KEYS, datasets },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'top', align: 'end', labels: { boxWidth: 6, font: { size: 11, family: 'Pretendard' }, color: MP_INK_2 } },
+                        datalabels: { display: false },
+                        tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}%` } }
+                    },
+                    scales: {
+                        y: { stacked: true, beginAtZero: true, max: 100, grid: { color: MP_GRID, drawBorder: false }, ticks: { color: MP_INK_3, font: { size: 11 }, callback: v => v + '%' }, title: { display: true, text: '회차 비율 (%)', color: MP_INK_3, font: { size: 10 } } },
+                        x: { stacked: true, grid: { display: false }, ticks: { color: MP_INK_2, font: { size: 11 } } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+
+            // note: 각 sub-class의 평균 카운트 + 최빈값
+            if (note) {
+                const lines = MP_SINGLE_KEYS.map(k => {
+                    const mean = dist[k].reduce((a, b, i) => a + b * i, 0) / total;
+                    const mode = dist[k].indexOf(Math.max(...dist[k]));
+                    return `<span class="inline-block mr-4"><span style="color:${multipleColors[k]};font-weight:600">${k}</span> <span class="text-gray-400">평균</span> <strong class="text-gray-900">${mean.toFixed(2)}</strong> <span class="text-gray-400">최빈</span> <strong class="text-gray-900">${mode}개</strong></span>`;
+                });
+                note.innerHTML = lines.join('');
+            }
+        }
+
+        // ─── §4. 다중 멤버십 분석 ───
+        let mpMembershipInst = null;
+        function renderMpMembership() {
+            const tbody = document.getElementById('mpMembershipBody');
+            const canvas = document.getElementById('mpMembershipChart');
+            if (!tbody || !canvas) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getMpCache().slice(0, range);
+            const total = cache.length || 1;
+
+            // 다중성별 멤버 분류 (0~3중)
+            const memDistObs = { 0: 0, 1: 0, 2: 0, 3: 0 };
+            cache.forEach(d => {
+                d.nums.forEach(n => {
+                    const c = MP_MEMBERSHIP_BY_N[n];
+                    if (c <= 3) memDistObs[c]++;
+                });
+            });
+            // 평균 = total occurrences / total rounds
+            const memAvg = {};
+            [0, 1, 2, 3].forEach(c => { memAvg[c] = memDistObs[c] / total; });
+            // 기대값 = members.length * 6 / 45
+            const memExp = {};
+            [0, 1, 2, 3].forEach(c => { memExp[c] = MP_MEMBERSHIP_GROUPS[c].length * 6 / 45; });
+
+            const memberDisplay = {
+                0: '1, 2, 11, 13, 17, 19, 22, 23, 26, 29, 31, 34, 37, 38, 41, 43',
+                1: MP_MEMBERSHIP_GROUPS[1].join(', '),
+                2: MP_MEMBERSHIP_GROUPS[2].join(', '),
+                3: MP_MEMBERSHIP_GROUPS[3].length > 0 ? MP_MEMBERSHIP_GROUPS[3].join(', ') : '<span class="text-gray-400">없음</span>'
+            };
+            const memLabel = { 0: '0중 (배수외)', 1: '1중', 2: '2중', 3: '3중' };
+
+            tbody.innerHTML = [0, 1, 2, 3].map(c => `<tr>
+                <td class="font-bold text-gray-900">${memLabel[c]}</td>
+                <td class="text-xs text-gray-600" style="max-width: 320px; line-height: 1.4">${memberDisplay[c]}</td>
+                <td class="text-right text-gray-600">${MP_MEMBERSHIP_GROUPS[c].length}</td>
+                <td class="text-right text-gray-900 font-semibold">${memAvg[c].toFixed(2)}</td>
+                <td class="text-right text-gray-500">${memExp[c].toFixed(2)}</td>
+            </tr>`).join('');
+
+            // 차트: 회차별 다중성 합계 분포 (한 회차의 6번호 다중성 총합)
+            const memSums = cache.map(d => d.memSum);
+            const sumMin = Math.min(...memSums);
+            const sumMax = Math.max(...memSums);
+            const sumDist = {};
+            for (let s = sumMin; s <= sumMax; s++) sumDist[s] = 0;
+            memSums.forEach(s => { if (sumDist[s] !== undefined) sumDist[s]++; });
+            const labels = Object.keys(sumDist);
+            const data = Object.values(sumDist);
+
+            if (mpMembershipInst) mpMembershipInst.destroy();
+            mpMembershipInst = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: { labels, datasets: [{ label: '회차 수', data, backgroundColor: '#3B82F6', borderRadius: 4 }] },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false }, datalabels: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: MP_GRID, drawBorder: false }, ticks: { color: MP_INK_3, font: { size: 11 } } },
+                        x: { grid: { display: false }, ticks: { color: MP_INK_2, font: { size: 10 } }, title: { display: true, text: '회차 6번호 다중성 합계', color: MP_INK_3, font: { size: 10 } } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+        }
+
+        // ─── §5. 5 × 45 멤버십 매트릭스 (가로 변환) ───
+        function renderMpMatrix() {
+            const wrap = document.getElementById('mpMatrixWrap');
+            if (!wrap) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getMpCache().slice(0, range);
+            const latestNums = cache.length > 0 ? new Set(cache[0].nums) : new Set();
+
+            // 5 단일 배수가 행, 1~45가 열
+            const rowKeys = MP_SINGLE_NUMS; // ['3배수','4배수','5배수','7배수','8배수']
+            const rowLabels = ['3', '4', '5', '7', '8'];
+            const rowColors = rowKeys.map(k => multipleColors[k]);
+            // 행별 출현 합계 (해당 배수의 cache 내 누적 출현 수)
+            const rowFreq = rowKeys.map(k => cache.reduce((a, d) => a + d.subCounts[k], 0));
+
+            const allNums = Array.from({ length: 45 }, (_, i) => i + 1);
+
+            // header: 빈칸 + 1~45 + 출현
+            let html = `<table class="mp-matrix">
+                <thead>
+                    <tr>
+                        <th class="row-label" style="background:transparent">배수</th>
+                        ${allNums.map(n => {
+                            const isLatest = latestNums.has(n);
+                            return `<th class="num-header${isLatest ? ' highlighted' : ''}">${n}</th>`;
+                        }).join('')}
+                        <th class="row-label" style="background:transparent">출현</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+
+            // 5 행 (3·4·5·7·8)
+            rowKeys.forEach((rowKey, ri) => {
+                html += `<tr>
+                    <td class="row-label" style="color:${rowColors[ri]}">${rowLabels[ri]}</td>
+                    ${allNums.map(n => {
+                        const inSet = multipleDefinitions[rowKey].includes(n);
+                        return `<td class="check-cell ${inSet ? 'on' : 'off'}" style="--col:${rowColors[ri]}">${inSet ? '✓' : ''}</td>`;
+                    }).join('')}
+                    <td class="row-total" style="color:${rowColors[ri]}">${rowFreq[ri]}</td>
+                </tr>`;
+            });
+
+            // tfoot: 다중성 (각 번호의 5 단일 배수 멤버십 점수)
+            html += `</tbody><tfoot>
+                <tr>
+                    <td class="row-label" style="font-size:9px;color:#94A3B8">다중성</td>
+                    ${allNums.map(n => {
+                        const c = MP_MEMBERSHIP_BY_N[n];
+                        const isLatest = latestNums.has(n);
+                        return `<td class="total-cell${isLatest ? ' highlighted' : ''}">${c}</td>`;
+                    }).join('')}
+                    <td></td>
+                </tr>
+            </tfoot></table>`;
+
+            wrap.innerHTML = html;
+        }
+
+        // ─── §6. 교집합 카테고리 핫·콜드 ───
+        function renderMpIntersect() {
+            const tbody = document.getElementById('mpIntersectBody');
+            const note = document.getElementById('mpIntersectNote');
+            if (!tbody) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getMpCache().slice(0, range);
+            if (cache.length === 0) return;
+            const latestRound = cache[0].round;
+            const expected = cache.length * 6 / 45;
+            const recent5 = cache.slice(0, 5);
+            const recent30 = cache.slice(0, Math.min(30, cache.length));
+
+            const rows = [];
+            MP_INTERSECT_KEYS.forEach(catKey => {
+                multipleDefinitions[catKey].forEach(num => {
+                    let cnt = 0, lastRound = null;
+                    cache.forEach(d => {
+                        if (d.numSet.has(num)) {
+                            cnt++;
+                            if (lastRound === null) lastRound = d.round;
+                        }
+                    });
+                    const currentGap = lastRound !== null ? latestRound - lastRound : range;
+                    const r5 = recent5.filter(d => d.numSet.has(num)).length;
+                    const r30 = recent30.filter(d => d.numSet.has(num)).length;
+                    let label, cls;
+                    if (r5 >= 2) { label = '🔥 핫'; cls = 'mp-pill mp-pill-hot'; }
+                    else if (r30 === 0) { label = '🧊 콜드'; cls = 'mp-pill mp-pill-cold'; }
+                    else if (r5 === 1) { label = '온화'; cls = 'mp-pill mp-pill-warm'; }
+                    else { label = '평이'; cls = 'mp-pill mp-pill-norm'; }
+                    rows.push({ catKey, num, cnt, currentGap, label, cls });
+                });
+            });
+            tbody.innerHTML = rows.map(r => {
+                const dot = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${multipleColors[r.catKey]};margin-right:6px"></span>`;
+                return `<tr>
+                    <td class="font-bold text-gray-900" style="white-space:nowrap">${dot}${r.catKey}</td>
+                    <td class="font-bold text-gray-900">${r.num}</td>
+                    <td class="text-right text-gray-900 font-semibold">${r.cnt}회</td>
+                    <td class="text-right text-gray-500">${expected.toFixed(1)}</td>
+                    <td class="text-right text-gray-900 font-semibold">${r.currentGap}회</td>
+                    <td class="text-center"><span class="${r.cls}">${r.label}</span></td>
+                </tr>`;
+            }).join('');
+
+            // note: 카테고리별 출현률
+            const catNotes = MP_INTERSECT_KEYS.map(catKey => {
+                const cnt = cache.reduce((a, d) => a + d.subCounts[catKey], 0);
+                const exp = multipleDefinitions[catKey].length * 6 / 45 * cache.length;
+                const ratio = exp > 0 ? cnt / exp : 0;
+                const dot = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${multipleColors[catKey]};margin-right:4px"></span>`;
+                return `<span class="inline-block mr-4">${dot}<span class="text-gray-400">${catKey}</span> <strong class="text-gray-900">${cnt}회</strong> <span class="text-gray-400">(기대 ${exp.toFixed(1)}, ${ratio.toFixed(2)}×)</span></span>`;
+            });
+            if (note) note.innerHTML = catNotes.join('');
+        }
+
+        // ─── §7. 배수외 sub-분석 ───
+        function renderMpOutside() {
+            const tbody = document.getElementById('mpOutsideBody');
+            const grid = document.getElementById('mpOutsideHotcoldGrid');
+            if (!tbody || !grid) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getMpCache().slice(0, range);
+            if (cache.length === 0) return;
+            const total = cache.length;
+            const latestRound = cache[0].round;
+            const recent5 = cache.slice(0, 5);
+            const recent30 = cache.slice(0, Math.min(30, cache.length));
+
+            // sub-class별 평균 출현
+            const obs = {}, exp = {};
+            MP_OUTSIDE_SUB_KEYS.forEach(k => {
+                const members = MP_OUTSIDE_SUB[k].members;
+                obs[k] = cache.reduce((a, d) => a + members.filter(n => d.numSet.has(n)).length, 0) / total;
+                exp[k] = members.length * 6 / 45;
+            });
+
+            tbody.innerHTML = MP_OUTSIDE_SUB_KEYS.map(k => {
+                const sub = MP_OUTSIDE_SUB[k];
+                const ratio = exp[k] > 0 ? obs[k] / exp[k] : 0;
+                const ratioColor = ratio > 1.15 ? 'text-red-600' : ratio < 0.85 ? 'text-blue-600' : 'text-gray-900';
+                const dot = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${sub.color};margin-right:6px"></span>`;
+                return `<tr>
+                    <td class="font-bold text-gray-900" style="white-space:nowrap">${dot}${sub.label}</td>
+                    <td class="text-right text-gray-600">${sub.members.length}</td>
+                    <td class="text-right text-gray-900 font-semibold">${obs[k].toFixed(2)}</td>
+                    <td class="text-right text-gray-500">${exp[k].toFixed(2)}</td>
+                    <td class="text-right font-semibold ${ratioColor}">${ratio.toFixed(2)}×</td>
+                </tr>`;
+            }).join('');
+
+            // 핫·콜드 grid (3 컬럼)
+            function getStatus(num) {
+                let lastRound = null, appearances = 0;
+                cache.forEach(d => {
+                    if (d.numSet.has(num)) {
+                        appearances++;
+                        if (lastRound === null) lastRound = d.round;
+                    }
+                });
+                const currentGap = lastRound !== null ? latestRound - lastRound : range;
+                const r5 = recent5.filter(d => d.numSet.has(num)).length;
+                const r30 = recent30.filter(d => d.numSet.has(num)).length;
+                let label, cls;
+                if (r5 >= 2) { label = '🔥'; cls = 'mp-pill mp-pill-hot'; }
+                else if (r30 === 0) { label = '🧊'; cls = 'mp-pill mp-pill-cold'; }
+                else if (r5 === 1) { label = '온'; cls = 'mp-pill mp-pill-warm'; }
+                else { label = '평'; cls = 'mp-pill mp-pill-norm'; }
+                return { num, currentGap, label, cls };
+            }
+
+            grid.innerHTML = MP_OUTSIDE_SUB_KEYS.map(k => {
+                const sub = MP_OUTSIDE_SUB[k];
+                const items = sub.members.map(getStatus).sort((a, b) => b.currentGap - a.currentGap);
+                const colorBar = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${sub.color};margin-right:6px"></span>`;
+                return `<div class="mp-subclass-col">
+                    <h4>${colorBar}${sub.label}<span class="meta">${sub.members.length}개</span></h4>
+                    <div class="space-y-1.5">
+                        ${items.map(it => `
+                            <div class="mp-num-card">
+                                <span class="num">${it.num}</span>
+                                <div class="flex items-center gap-2">
+                                    <span class="gap">${it.currentGap}회</span>
+                                    <span class="${it.cls}">${it.label}</span>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>`;
+            }).join('');
+        }
     </script>
     <!-- AI QnA Sidebar -->
     <div id="aiQnaModal"
@@ -1633,6 +2533,8 @@ ${contextData}
     </div>
     <!-- NLP Modules -->
     <script src="js/NLPProcessor.js"></script>
+    <script src="js/AutoNLPMatcher.js"></script>
+    <script src="js/auto_nlp_loader.js" defer></script>
     <script src="js/NLPInputComponent.js"></script>
     <script src="js/BasicAnalysisNLP.js"></script>
 </body>

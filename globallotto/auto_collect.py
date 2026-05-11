@@ -37,6 +37,20 @@ HEADERS = {
 TODAY = date.today()
 BATCH_SIZE = 100
 
+# [fix-325] 백필 모드 — 환경변수 BACKFILL_DAYS=N 또는 --backfill-days N 지정 시
+#   last_date를 N일 전으로 강제 → 옛 회차 재수집 → upsert로 b2 등 누락 컬럼 갱신
+#   예: BACKFILL_DAYS=30 python auto_collect.py → 최근 30일 회차 모두 재import
+def _resolve_backfill_days() -> int:
+    if "--backfill-days" in sys.argv:
+        try:
+            i = sys.argv.index("--backfill-days")
+            return int(sys.argv[i+1])
+        except (IndexError, ValueError):
+            pass
+    return int(os.environ.get("BACKFILL_DAYS", "0") or 0)
+
+BACKFILL_DAYS = _resolve_backfill_days()
+
 MONTH_MAP = {
     "jan":1,"feb":2,"mar":3,"apr":4,"may":5,"jun":6,
     "jul":7,"aug":8,"sep":9,"oct":10,"nov":11,"dec":12,
@@ -115,15 +129,23 @@ def collect_via_guru(lottery_id: str, last_date: date | None,
     """lotteryguru.com 기반 공통 수집 함수"""
     draws = []
     # 보통 최신 데이터는 1~2페이지 내에 있음
-    for page in range(1, 3): 
+    for page in range(1, 3):
         url = f"https://lotteryguru.com/{country_path}/{slug}/{slug}-results-history?page={page}"
         try:
             r = requests.get(url, headers=HEADERS, timeout=15)
-            if r.status_code != 200: break
+            # [fix-325] HTTP 응답 디버깅 강화 (네덜란드 등 slug 변경/페이지 이동 감지)
+            if r.status_code != 200:
+                print(f"    [WARN] {slug} page={page} HTTP {r.status_code} → 중단")
+                break
             soup = BeautifulSoup(r.text, "lxml")
-            
+
             blocks = soup.select("div.lg-line")
-            if not blocks: break
+            if not blocks:
+                # [fix-325] 페이지는 200 OK인데 lg-line 없음 → DOM 변경 또는 slug 폐기 가능성
+                if page == 1:
+                    has_alt_table = bool(soup.select_one("table, .results, .draws, [class*='result']"))
+                    print(f"    [WARN] {slug}: lg-line 미발견 (page=1). alt_table={has_alt_table}, html_len={len(r.text)}. URL={url}")
+                break
             
             page_new = 0
             stop_page = False
@@ -168,26 +190,29 @@ def collect_via_guru(lottery_id: str, last_date: date | None,
                 # 번호 파싱 (ul.lg-numbers-small 또는 ul.lg-numbers)
                 lis = block.select("li.lg-number")
                 if not lis: continue
-                
+
+                # [fix-325] supplementary(보너스) 여러 개 모두 수집
+                #   호주 토/월/수 Lotto는 supplementary 2개 → b1, b2 둘 다 채워야 함
+                #   기존 코드는 단일 bonus 변수 → 마지막 값만 덮어씀 → b2 항상 null 버그
                 main_nums = []
-                bonus = None
+                bonuses = []
                 for li in lis:
                     val_txt = li.get_text(strip=True)
                     if not val_txt.isdigit(): continue
                     n = int(val_txt)
-                    # lg-reversed 클래스가 있으면 보너스 번호
                     if "lg-reversed" in li.get("class", []):
-                        bonus = n
+                        bonuses.append(n)
                     else:
                         main_nums.append(n)
-                
+
                 if len(main_nums) < 6: continue
-                
+
                 draws.append({
                     "draw_date": draw_date.isoformat(),
                     "n1": main_nums[0], "n2": main_nums[1], "n3": main_nums[2],
                     "n4": main_nums[3], "n5": main_nums[4], "n6": main_nums[5],
-                    "b1": bonus
+                    "b1": bonuses[0] if len(bonuses) >= 1 else None,
+                    "b2": bonuses[1] if len(bonuses) >= 2 else None,
                 })
                 page_new += 1
             
@@ -251,6 +276,12 @@ def run_collector(name: str, fn):
     try:
         lottery_id = get_lottery_id(name)
         last_date  = get_latest_date(lottery_id)
+        # [fix-325] 백필 모드: last_date를 N일 전으로 강제 → 옛 회차 재수집(upsert로 컬럼 갱신)
+        if BACKFILL_DAYS > 0:
+            forced = TODAY - timedelta(days=BACKFILL_DAYS)
+            if last_date is None or forced < last_date:
+                print(f"  [BACKFILL] 원래 최신: {last_date} → {forced}로 강제 (--backfill-days={BACKFILL_DAYS})")
+                last_date = forced
         print(f"  최근 날짜: {last_date}")
         inserted = fn(lottery_id, last_date)
         print(f"  ✓ {inserted}건 upsert")

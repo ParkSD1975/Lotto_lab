@@ -4,6 +4,9 @@
 <head>
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <title>Lotto Lab - 삼각수 (Supabase AI)</title>
     <link href="css/tailwind.css" rel="stylesheet" />
 
@@ -32,6 +35,8 @@
 
     <!-- NLP Modules -->
     <script src="js/NLPProcessor.js"></script>
+    <script src="js/AutoNLPMatcher.js"></script>
+    <script src="js/auto_nlp_loader.js" defer></script>
     <script src="js/NLPInputComponent.js"></script>
     <script src="js/BasicAnalysisNLP.js"></script>
 
@@ -270,6 +275,62 @@
             transform: scale(1.1);
             background: #2563EB;
         }
+
+        /* [fix-332] 삼각수 보조 분석 — impeccable 가이드 */
+        .tn-input {
+            background: transparent; border: 0; border-bottom: 1px solid #E5E7EB;
+            padding: 4px 18px 4px 6px; font-size: 13px; color: #0F172A;
+            outline: none; transition: border-color 180ms ease;
+            font-feature-settings: "tnum"; -moz-appearance: textfield;
+        }
+        .tn-input:focus { border-bottom-color: #3B82F6; }
+        .tn-input::-webkit-inner-spin-button, .tn-input::-webkit-outer-spin-button { opacity: 0.5; margin-left: 4px; }
+        #tnGapTable td, #tnSpecialTable td, #tnConsecutiveTable td, #tnClassTable td, #tnMultipleTable td {
+            padding: 8px 8px; border-bottom: 1px solid #F3F4F6;
+        }
+        #tnGapTable tbody tr:hover, #tnSpecialTable tbody tr:hover,
+        #tnConsecutiveTable tbody tr:hover, #tnClassTable tbody tr:hover, #tnMultipleTable tbody tr:hover { background: #FAFAFA; }
+        .tn-pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 600; line-height: 1.4; }
+        .tn-pill-hot { background: #FEF2F2; color: #DC2626; }
+        .tn-pill-cold { background: #ECFEFF; color: #0E7490; }
+        .tn-pill-warm { background: #FFF7ED; color: #C2410C; }
+        .tn-pill-norm { background: #F1F5F9; color: #475569; }
+        .tn-num-chip { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; font-size: 12px; font-weight: 700; font-feature-settings: "tnum"; background: #F1F5F9; color: #0F172A; }
+        .tn-num-chip.prime { background: #DBEAFE; color: #1D4ED8; }
+        .tn-num-chip.composite { background: #D1FAE5; color: #065F46; }
+        .tn-num-chip.special { background: #FEF3C7; color: #92400E; }
+
+        /* [fix-335c] 삼각수 카운트 캘린더 v2 — 컴팩트 (sparse) */
+        .tn-cal-stats {
+            display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+            font-size: 11px; color: #94A3B8; font-feature-settings: "tnum";
+            margin-bottom: 12px; padding: 8px 12px;
+            background: #FAFAFA; border-radius: 8px;
+        }
+        .tn-cal-stats strong { color: #0F172A; font-weight: 700; font-size: 12px; }
+        .tn-cal-row { display: grid; grid-template-columns: 56px 1fr; gap: 8px; align-items: center; margin-bottom: 3px; }
+        .tn-cal-label { font-size: 10px; color: #94A3B8; font-feature-settings: "tnum"; text-align: right; padding-right: 2px; line-height: 1.15; }
+        .tn-cal-label strong { display: block; color: #0F172A; font-weight: 700; font-size: 11px; }
+        .tn-cal-label .meta { display: block; font-size: 9px; color: #CBD5E1; margin-top: 1px; }
+        .tn-cal-cells { display: grid; grid-template-columns: repeat(10, 1fr); gap: 3px; }
+        .tn-cal-cell {
+            height: 30px; border-radius: 4px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 12px; font-weight: 700; font-feature-settings: "tnum";
+            transition: transform 120ms ease, box-shadow 120ms ease;
+            cursor: default;
+        }
+        .tn-cal-cell:hover { transform: scale(1.15); box-shadow: 0 4px 14px rgba(15,23,42,0.18); z-index: 5; }
+        /* 삼각수: 평균 1.20 — 0=평이, 1=최빈, 2=above avg, 3+=드문 */
+        .tn-cal-cell.cnt-0 { background: #FAFAFA; color: #94A3B8; }
+        .tn-cal-cell.cnt-1 { background: #BBF7D0; color: #14532D; }
+        .tn-cal-cell.cnt-2 { background: #4ADE80; color: #FFFFFF; }
+        .tn-cal-cell.cnt-3 { background: #15803D; color: #FFFFFF; }
+        .tn-cal-cell.cnt-4p { background: #064E3B; color: #FBBF24; }
+        .tn-cal-cell.is-latest { box-shadow: 0 0 0 2px #0F172A; }
+        .tn-cal-empty { height: 30px; }
+        .tn-cal-legend { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; margin-top: 10px; font-size: 11px; color: #94A3B8; }
+        .tn-cal-legend .legend-cell { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 3px; font-size: 10px; font-weight: 700; font-feature-settings: "tnum"; }
     </style>
     <script src="js/deep_insight_panel_v3.js?v=20260502c"></script>
 </head>
@@ -374,6 +435,163 @@
                         </div>
                     </div>
 
+                    <!-- ════════════════════════════════════════════════ -->
+                    <!-- [fix-332] 삼각수 보조 분석 7종 — 단일 흰 박스 통합  -->
+                    <!-- ════════════════════════════════════════════════ -->
+                    <div class="bg-white rounded-xl border border-gray-200 mb-6 overflow-hidden">
+
+                        <!-- §1. 시계열 추세 -->
+                        <div class="p-8">
+                            <div class="flex items-baseline justify-between mb-6">
+                                <div>
+                                    <h3 class="text-lg font-bold text-gray-900 tracking-tight">시계열 추세</h3>
+                                    <p class="text-xs text-gray-500 mt-1">삼각수 카운트(0~4) 이동평균 + ±1σ · 평균선 1.20 (이항 9/45 × 6 기대값) · sparse 도메인</p>
+                                </div>
+                                <div class="flex items-baseline gap-2 text-xs text-gray-500">
+                                    <label>MA 윈도우</label>
+                                    <input type="number" id="tnMaWindow" value="10" min="3" max="50"
+                                        oninput="renderTnMa()" class="tn-input w-16 text-center tabular-nums">
+                                    <span>회</span>
+                                </div>
+                            </div>
+                            <div class="h-64 mb-6"><canvas id="tnMaChart"></canvas></div>
+                            <div class="pt-6 border-t border-gray-100">
+                                <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-3">
+                                    삼각수 카운트 캘린더 (좌=과거, 우=최신)
+                                </div>
+                                <div id="tnCalendar"></div>
+                            </div>
+                        </div>
+
+                        <!-- §2. 카운트 분포 0~4 -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">카운트 분포 0~4</h3>
+                            <p class="text-xs text-gray-500 mb-4">삼각수 출현 개수 빈도 · 점선 = 이항 B(6, 9/45) 이론값 · 0개·1개가 약 ~70% 차지하는 sparse 분포</p>
+                            <div class="h-56"><canvas id="tnCountDist"></canvas></div>
+                            <div id="tnCountDistStats" class="mt-3 text-xs text-gray-600 tabular-nums"></div>
+                        </div>
+
+                        <!-- §3. 삼각수 9개 소수·합성수·1 분류 ⭐ -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">삼각수 9개 · 소수·합성수·1 분류</h3>
+                            <p class="text-xs text-gray-500 mb-4">삼각수 안의 분류 분포: 1(특수, 1개) · 3(소수, 1개) · 6·10·15·21·28·36·45(합성수, 7개)</p>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-3">
+                                <div>
+                                    <div class="overflow-x-auto">
+                                        <table class="w-full text-sm tabular-nums" id="tnClassTable">
+                                            <thead>
+                                                <tr class="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                                    <th class="py-2 pr-3 border-b border-gray-200">분류</th>
+                                                    <th class="py-2 px-3 border-b border-gray-200 text-right">멤버</th>
+                                                    <th class="py-2 px-3 border-b border-gray-200 text-right">평균/회</th>
+                                                    <th class="py-2 pl-3 border-b border-gray-200 text-right">기대</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="tnClassBody"></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div class="h-48"><canvas id="tnClassChart"></canvas></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- §4. 삼각수 9개 배수별 분석 ⭐ -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">삼각수 9개 · 배수별 sub-class</h3>
+                            <p class="text-xs text-gray-500 mb-4">삼각수 안의 배수 분류: 3의 배수(6) · 5의 배수(3) · 7의 배수(2) · 4의 배수(2) · 비배수(1) · 중복 표시 가능</p>
+                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch">
+                                <div class="overflow-x-auto flex flex-col justify-center">
+                                    <table class="w-full text-sm tabular-nums" id="tnMultipleTable">
+                                        <thead>
+                                            <tr class="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                                <th class="py-2 pr-3 border-b border-gray-200" style="white-space:nowrap">배수</th>
+                                                <th class="py-2 px-3 border-b border-gray-200" style="white-space:nowrap">멤버</th>
+                                                <th class="py-2 px-3 border-b border-gray-200 text-right" style="white-space:nowrap">크기</th>
+                                                <th class="py-2 px-3 border-b border-gray-200 text-right" style="white-space:nowrap">평균/회</th>
+                                                <th class="py-2 px-3 border-b border-gray-200 text-right" style="white-space:nowrap">기대</th>
+                                                <th class="py-2 pl-3 border-b border-gray-200 text-right" style="white-space:nowrap">기대값 대비</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="tnMultipleBody"></tbody>
+                                    </table>
+                                </div>
+                                <div class="flex flex-col justify-center">
+                                    <div style="height: 320px"><canvas id="tnMultipleChart"></canvas></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- §5. 9개 per-element 갭·핫콜드 -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">9개 삼각수 · 미출현 갭 + 핫·콜드</h3>
+                            <p class="text-xs text-gray-500 mb-4">각 삼각수의 마지막 출현 + 평균 갭 + z-score · 핫 = 최근 5회차 ≥ 2회 / 콜드 = 최근 30회차 0회</p>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-sm tabular-nums" id="tnGapTable">
+                                    <thead>
+                                        <tr class="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                            <th class="py-2 pr-3 border-b border-gray-200">번호</th>
+                                            <th class="py-2 px-3 border-b border-gray-200">분류</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">출현/회</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">평균 갭</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">현재 갭</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">z-score</th>
+                                            <th class="py-2 pl-3 border-b border-gray-200 text-center">상태</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="tnGapBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- §6. 36 = 제곱+삼각 / 45 = 최대+삼각 특수값 -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">특수값 분석 · 36 (제곱+삼각) · 45 (최대+삼각)</h3>
+                            <p class="text-xs text-gray-500 mb-4">36 = 6² 이자 8번째 삼각수 · 45 = 9번째 삼각수이자 1~45 최대값 · 두 값의 출현 패턴 + 동반 출현</p>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-sm tabular-nums" id="tnSpecialTable">
+                                    <thead>
+                                        <tr class="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                            <th class="py-2 pr-3 border-b border-gray-200">번호</th>
+                                            <th class="py-2 px-3 border-b border-gray-200">속성</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">출현</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">기대</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">현재 갭</th>
+                                            <th class="py-2 pl-3 border-b border-gray-200 text-right">상태</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="tnSpecialBody"></tbody>
+                                </table>
+                                <div id="tnSpecialBoth" class="mt-4 text-xs text-gray-600 tabular-nums"></div>
+                            </div>
+                        </div>
+
+                        <!-- §7. 연속 삼각수 동시 출현 -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">연속 삼각수 동시 출현</h3>
+                            <p class="text-xs text-gray-500 mb-4">연속 2개·3개 삼각수가 같은 회차에 같이 나온 횟수 + 마지막 동반 회차</p>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-sm tabular-nums" id="tnConsecutiveTable">
+                                    <thead>
+                                        <tr class="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                            <th class="py-2 pr-3 border-b border-gray-200">패턴</th>
+                                            <th class="py-2 px-3 border-b border-gray-200">멤버</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">동반 출현</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">기대</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">기대값 대비</th>
+                                            <th class="py-2 pl-3 border-b border-gray-200 text-right">마지막 동반</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="tnConsecutiveBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- ════════════════════════════════════════════════ -->
+                    <!-- [/fix-332] 단일 박스 통합 끝                       -->
+                    <!-- ════════════════════════════════════════════════ -->
+
                     <!-- 조합 필터 카드 -->
                     <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
                         <div class="flex items-center justify-between mb-4">
@@ -431,9 +649,9 @@
                         </div>
                     </div>
 
-                    <!-- [표준화] 리스트 섹션 (Integrated Header) -->
-                    <div class="rounded-xl overflow-hidden mt-6">
-                        <div class="flex items-center justify-between mb-4 px-2">
+                    <!-- [fix-398] 리스트 섹션 — 헤더 + 표 흰 박스 일체화 -->
+                    <div class="bg-white rounded-xl border border-gray-200 mt-6 overflow-hidden">
+                        <div class="flex items-center justify-between px-8 pt-6 pb-4 border-b border-gray-100">
                             <div>
                                 <h3 class="text-xl font-bold text-gray-900 mb-1">회차별 당첨번호 및 삼각수</h3>
                                 <p class="text-sm text-gray-600">최근 <span id="displayedCount"
@@ -445,7 +663,7 @@
                             </button>
                         </div>
 
-                        <div class="overflow-x-auto custom-scrollbar border border-gray-200 rounded-xl bg-white"
+                        <div class="overflow-x-auto custom-scrollbar"
                             style="max-height: 600px;">
                             <table class="w-full text-sm">
                                 <thead
@@ -694,6 +912,8 @@
             if (!highlightStartRound) {
                 document.querySelectorAll('.row-highlight').forEach(el => el.classList.remove('row-highlight'));
             }
+            // [fix-332] 보조 분석 7종 갱신
+            if (typeof renderAllTnSupp === 'function') renderAllTnSupp();
         }
 
         // [추가] NLP 및 초기화 로직
@@ -810,6 +1030,10 @@
                 });
 
                 await initDeepInsight();
+
+                // [fix-332] 보조 분석 7종 초기 렌더링
+                if (typeof invalidateTnCache === 'function') invalidateTnCache();
+                if (typeof renderAllTnSupp === 'function') renderAllTnSupp();
 
             } catch (err) {
                 console.error('데이터 로드 실패:', err);
@@ -1452,6 +1676,510 @@
             }
             generateAiQuickButtons();
         });
+
+        // ════════════════════════════════════════════════════════════
+        // [fix-332] 삼각수 보조 분석 7종 — impeccable 가이드
+        // ════════════════════════════════════════════════════════════
+        const TN_ACCENT = '#3B82F6';
+        const TN_ACCENT_LIGHT = 'rgba(59, 130, 246, 0.08)';
+        const TN_GRID = '#F1F5F9';
+        const TN_INK_2 = '#475569';
+        const TN_INK_3 = '#94A3B8';
+        const TN_DEEP_GREEN = '#15803D';
+
+        // 삼각수 9개
+        const TN_LIST = [1, 3, 6, 10, 15, 21, 28, 36, 45];
+        const TN_PRIMES_IN = [3];
+        const TN_COMPOSITES_IN = [6, 10, 15, 21, 28, 36, 45];
+        const TN_ONE_IN = [1];
+        // 배수 sub-class (삼각수 안에서)
+        const TN_MULTIPLE = {
+            m3: { label: '3의 배수', members: [3, 6, 15, 21, 36, 45], color: '#EF4444' },
+            m5: { label: '5의 배수', members: [10, 15, 45], color: '#10B981' },
+            m7: { label: '7의 배수', members: [21, 28], color: '#A855F7' },
+            m4: { label: '4의 배수', members: [28, 36], color: '#F97316' },
+            none: { label: '비배수', members: [1], color: '#94A3B8' }
+        };
+        const TN_MULTIPLE_KEYS = ['m3', 'm5', 'm7', 'm4', 'none'];
+        // 연속 삼각수 패턴
+        const TN_CONSEC_2 = [[1, 3], [3, 6], [6, 10], [10, 15], [15, 21], [21, 28], [28, 36], [36, 45]];
+        const TN_CONSEC_3 = [[1, 3, 6], [3, 6, 10], [6, 10, 15], [10, 15, 21], [15, 21, 28], [21, 28, 36], [28, 36, 45]];
+        // 분류
+        function tnClassOf(n) {
+            if (n === 1) return 'one';
+            if (TN_PRIMES_IN.includes(n)) return 'prime';
+            if (TN_COMPOSITES_IN.includes(n)) return 'composite';
+            return 'other';
+        }
+        function tnClassLabel(c) {
+            return { one: '특수(1)', prime: '소수', composite: '합성수', other: '—' }[c];
+        }
+
+        let _tnCache = null;
+        function getTnCache() {
+            if (_tnCache) return _tnCache;
+            const data = window.allDrawData || allDrawData || [];
+            _tnCache = data.map(d => {
+                const nums = d.numbers || [];
+                const numSet = new Set(nums);
+                const triCount = nums.filter(n => triangularNumbers.has(n)).length;
+                const triPresent = TN_LIST.filter(t => numSet.has(t));
+                return { round: d.round, nums, numSet, triCount, triPresent };
+            });
+            return _tnCache;
+        }
+        function invalidateTnCache() { _tnCache = null; }
+
+        function renderAllTnSupp() {
+            try {
+                if (!allDrawData || allDrawData.length === 0) return;
+                invalidateTnCache();
+                renderTnMa();
+                renderTnCalendar();
+                renderTnCountDist();
+                renderTnClass();
+                renderTnMultiple();
+                renderTnGap();
+                renderTnSpecial();
+                renderTnConsecutive();
+            } catch (e) { console.warn('[tn-supp]', e); }
+        }
+
+        // ─── §1-A. 시계열 추세 ───
+        let tnMaInst = null;
+        function renderTnMa() {
+            const canvas = document.getElementById('tnMaChart');
+            if (!canvas) return;
+            const win = Math.max(3, Math.min(50, parseInt(document.getElementById('tnMaWindow')?.value) || 10));
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getTnCache().slice(0, range).slice().reverse();
+            if (cache.length === 0) return;
+            const labels = cache.map(d => d.round);
+            const counts = cache.map(d => d.triCount);
+            const ma = [], up = [], lo = [];
+            for (let i = 0; i < counts.length; i++) {
+                const s = Math.max(0, i - win + 1);
+                const sl = counts.slice(s, i + 1);
+                const m = sl.reduce((a, b) => a + b, 0) / sl.length;
+                const v = sl.reduce((a, b) => a + (b - m) ** 2, 0) / sl.length;
+                ma.push(m); up.push(m + Math.sqrt(v)); lo.push(m - Math.sqrt(v));
+            }
+            const expected = 9 * 6 / 45; // 1.20
+            if (tnMaInst) tnMaInst.destroy();
+            tnMaInst = new Chart(canvas.getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels, datasets: [
+                        { label: '삼각수 카운트', data: counts, borderColor: 'rgba(15,23,42,0.35)', borderWidth: 1, pointRadius: 0, fill: false, tension: 0.25 },
+                        { label: `이동평균 ${win}회`, data: ma, borderColor: TN_ACCENT, borderWidth: 2, pointRadius: 0, fill: false, tension: 0.25 },
+                        { label: '±1σ', data: up, borderColor: 'rgba(59,130,246,0.25)', borderWidth: 1, pointRadius: 0, borderDash: [3, 3], fill: '+1', backgroundColor: TN_ACCENT_LIGHT },
+                        { label: ' ', data: lo, borderColor: 'rgba(59,130,246,0.25)', borderWidth: 1, pointRadius: 0, borderDash: [3, 3], fill: false },
+                        { label: '평균 1.20', data: Array(counts.length).fill(expected), borderColor: 'rgba(15,23,42,0.35)', borderDash: [4, 4], borderWidth: 1, pointRadius: 0, fill: false }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top', align: 'end', labels: { boxWidth: 6, font: { size: 11, family: 'Pretendard' }, color: TN_INK_2 } } },
+                    scales: {
+                        y: { min: 0, max: 4, grid: { color: TN_GRID, drawBorder: false }, ticks: { color: TN_INK_3, font: { size: 11 }, stepSize: 1 } },
+                        x: { grid: { display: false }, ticks: { color: TN_INK_3, font: { size: 11 }, display: range < 80, autoSkip: true, maxRotation: 0 } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+        }
+
+        // ─── §1-B. 카운트 캘린더 v2 — 10회차 그룹 + 카운트 숫자 표시 ───
+        function renderTnCalendar() {
+            const c = document.getElementById('tnCalendar');
+            if (!c) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getTnCache().slice(0, range);
+            if (cache.length === 0) { c.innerHTML = ''; return; }
+
+            const chrono = cache.slice().reverse();
+            const latestRound = cache[0].round;
+            const oldestRound = chrono[0].round;
+            const counts = chrono.map(d => d.triCount);
+            const total = counts.length;
+            const obs0 = counts.filter(x => x === 0).length;
+            const max = Math.max(...counts);
+            const mean = counts.reduce((a, b) => a + b, 0) / total;
+
+            function cellClass(cnt) {
+                if (cnt === 0) return 'cnt-0';
+                if (cnt === 1) return 'cnt-1';
+                if (cnt === 2) return 'cnt-2';
+                if (cnt === 3) return 'cnt-3';
+                return 'cnt-4p';
+            }
+
+            const groups = new Map();
+            chrono.forEach(d => {
+                const groupStart = Math.floor(d.round / 10) * 10;
+                if (!groups.has(groupStart)) groups.set(groupStart, []);
+                groups.get(groupStart).push(d);
+            });
+
+            let html = `<div class="tn-cal-stats">
+                <span><span class="text-gray-400">분석 범위</span> <strong>${oldestRound} ~ ${latestRound}회</strong> <span class="text-gray-400">(${total}회)</span></span>
+                <span><span class="text-gray-400">평균</span> <strong>${mean.toFixed(2)}</strong></span>
+                <span><span class="text-gray-400">최대</span> <strong>${max}개</strong></span>
+                <span><span class="text-gray-400">전멸(0개)</span> <strong>${obs0}회</strong> <span class="text-gray-400">(${(obs0/total*100).toFixed(1)}%)</span></span>
+            </div><div>`;
+
+            const sortedKeys = Array.from(groups.keys()).sort((a, b) => a - b);
+            sortedKeys.forEach(start => {
+                const draws = groups.get(start);
+                const drawByRound = new Map(draws.map(d => [d.round, d]));
+                const groupMean = draws.reduce((a, d) => a + d.triCount, 0) / draws.length;
+                html += `<div class="tn-cal-row">
+                    <div class="tn-cal-label">
+                        <strong>${start}~</strong>
+                        <span class="meta">평균 ${groupMean.toFixed(1)}</span>
+                    </div>
+                    <div class="tn-cal-cells">`;
+                for (let i = 0; i < 10; i++) {
+                    const round = start + i;
+                    const d = drawByRound.get(round);
+                    if (!d) {
+                        html += `<div class="tn-cal-empty"></div>`;
+                    } else {
+                        const isLatest = round === latestRound ? ' is-latest' : '';
+                        const sortedNums = [...d.nums].sort((a, b) => a - b);
+                        const triList = d.triPresent.length > 0 ? d.triPresent.join(', ') : '없음';
+                        const tooltip = `${round}회 · 삼각수 ${d.triCount}개\n전체: ${sortedNums.join(', ')}\n삼각수: ${triList}`;
+                        html += `<div class="tn-cal-cell ${cellClass(d.triCount)}${isLatest}" title="${tooltip}">${d.triCount}</div>`;
+                    }
+                }
+                html += `</div></div>`;
+            });
+            html += `</div>`;
+
+            const legendData = [
+                { cnt: 0, cls: 'cnt-0' },
+                { cnt: 1, cls: 'cnt-1' },
+                { cnt: 2, cls: 'cnt-2' },
+                { cnt: 3, cls: 'cnt-3' },
+                { cnt: '4+', cls: 'cnt-4p' }
+            ];
+            html += `<div class="tn-cal-legend">
+                <span class="text-gray-500 mr-1">삼각수 개수:</span>
+                ${legendData.map(L => `<span class="legend-cell ${L.cls}">${L.cnt}</span>`).join('')}
+                <span class="ml-3 flex items-center gap-1.5">
+                    <span style="display:inline-block;width:16px;height:16px;border:2px solid #0F172A;border-radius:3px"></span>
+                    <span>최신</span>
+                </span>
+            </div>`;
+
+            c.innerHTML = html;
+        }
+
+        // ─── §2. 카운트 분포 ───
+        let tnCountDistInst = null;
+        function renderTnCountDist() {
+            const canvas = document.getElementById('tnCountDist');
+            if (!canvas) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getTnCache().slice(0, range);
+            const obs = [0, 0, 0, 0, 0]; // 0~4
+            cache.forEach(d => { if (d.triCount >= 0 && d.triCount <= 4) obs[d.triCount]++; });
+            const N = cache.length || 1;
+            const p = 9 / 45;
+            const C = [1, 6, 15, 20, 15, 6, 1];
+            const exp = [0, 1, 2, 3, 4].map(k => C[k] * Math.pow(p, k) * Math.pow(1 - p, 6 - k) * N);
+            if (tnCountDistInst) tnCountDistInst.destroy();
+            tnCountDistInst = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: ['0', '1', '2', '3', '4+'],
+                    datasets: [
+                        { label: '관측', data: obs, backgroundColor: TN_DEEP_GREEN, borderRadius: 4 },
+                        { label: '이론(이항)', data: exp.map(v => +v.toFixed(2)), type: 'line', borderColor: 'rgba(15,23,42,0.5)', borderDash: [4, 4], borderWidth: 1.5, pointRadius: 3, pointBackgroundColor: 'rgba(15,23,42,0.5)', fill: false }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top', align: 'end', labels: { boxWidth: 6, font: { size: 11, family: 'Pretendard' }, color: TN_INK_2 } } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: TN_GRID, drawBorder: false }, ticks: { color: TN_INK_3, font: { size: 11 } } },
+                        x: { grid: { display: false }, ticks: { color: TN_INK_2, font: { size: 11 } }, title: { display: true, text: '삼각수 개수', color: TN_INK_3, font: { size: 11 } } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+            const obsMean = obs.reduce((a, b, i) => a + b * i, 0) / N;
+            const expMean = exp.reduce((a, b, i) => a + b * i, 0) / N;
+            const zeroPct = (obs[0] / N * 100).toFixed(1);
+            const stats = document.getElementById('tnCountDistStats');
+            if (stats) stats.innerHTML = `<span class="text-gray-400">관측 평균</span> <strong class="text-gray-900">${obsMean.toFixed(2)}</strong> &nbsp;·&nbsp; <span class="text-gray-400">이론 평균</span> <strong class="text-gray-900">${expMean.toFixed(2)}</strong> &nbsp;·&nbsp; <span class="text-gray-400">전멸률(0개)</span> <strong class="text-gray-900">${zeroPct}%</strong>`;
+        }
+
+        // ─── §3. 삼각수 9개 소수·합성수·1 분류 ───
+        let tnClassInst = null;
+        function renderTnClass() {
+            const tbody = document.getElementById('tnClassBody');
+            const canvas = document.getElementById('tnClassChart');
+            if (!tbody || !canvas) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getTnCache().slice(0, range);
+            const total = cache.length || 1;
+            // 분류별 합계
+            const classMembers = { one: TN_ONE_IN, prime: TN_PRIMES_IN, composite: TN_COMPOSITES_IN };
+            const classKeys = ['one', 'prime', 'composite'];
+            const obsAvg = {}, expAvg = {};
+            classKeys.forEach(k => {
+                obsAvg[k] = cache.reduce((a, d) => a + classMembers[k].filter(n => d.numSet.has(n)).length, 0) / total;
+                expAvg[k] = classMembers[k].length * 6 / 45;
+            });
+            const memberDisplay = {
+                one: '<span class="tn-num-chip special">1</span>',
+                prime: '<span class="tn-num-chip prime">3</span>',
+                composite: TN_COMPOSITES_IN.map(n => `<span class="tn-num-chip composite" style="margin-right:3px">${n}</span>`).join('')
+            };
+            tbody.innerHTML = classKeys.map(k => `
+                <tr>
+                    <td class="font-bold text-gray-900">${tnClassLabel(k)} <span class="text-gray-400 font-normal">(${classMembers[k].length}개)</span></td>
+                    <td class="text-right" style="white-space:nowrap">${memberDisplay[k]}</td>
+                    <td class="text-right text-gray-900 font-semibold">${obsAvg[k].toFixed(3)}</td>
+                    <td class="text-right text-gray-500">${expAvg[k].toFixed(3)}</td>
+                </tr>
+            `).join('');
+            // 도넛 차트
+            if (tnClassInst) tnClassInst.destroy();
+            tnClassInst = new Chart(canvas.getContext('2d'), {
+                type: 'doughnut',
+                data: {
+                    labels: ['특수 1', '소수 (3)', '합성수 (6,10,15,21,28,36,45)'],
+                    datasets: [{
+                        data: [obsAvg.one, obsAvg.prime, obsAvg.composite].map(v => +v.toFixed(2)),
+                        backgroundColor: ['#F59E0B', '#3B82F6', '#10B981'],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { boxWidth: 8, font: { size: 10, family: 'Pretendard' }, color: TN_INK_2 } },
+                        tooltip: { callbacks: { label: (ctx) => `${ctx.label}: ${ctx.parsed.toFixed(3)}/회` } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+        }
+
+        // ─── §4. 삼각수 9개 배수별 sub-class ───
+        let tnMultipleInst = null;
+        function renderTnMultiple() {
+            const tbody = document.getElementById('tnMultipleBody');
+            const canvas = document.getElementById('tnMultipleChart');
+            if (!tbody || !canvas) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getTnCache().slice(0, range);
+            const total = cache.length || 1;
+            const obsAvg = {}, expAvg = {};
+            TN_MULTIPLE_KEYS.forEach(k => {
+                obsAvg[k] = cache.reduce((a, d) => a + TN_MULTIPLE[k].members.filter(n => d.numSet.has(n)).length, 0) / total;
+                expAvg[k] = TN_MULTIPLE[k].members.length * 6 / 45;
+            });
+            tbody.innerHTML = TN_MULTIPLE_KEYS.map(k => {
+                const ratio = expAvg[k] > 0 ? obsAvg[k] / expAvg[k] : 0;
+                const ratioColor = expAvg[k] === 0 ? 'text-gray-400' : (ratio > 1.15 ? 'text-red-600' : ratio < 0.85 ? 'text-blue-600' : 'text-gray-900');
+                const ratioText = expAvg[k] === 0 ? '—' : ratio.toFixed(2) + '×';
+                const dot = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${TN_MULTIPLE[k].color};margin-right:6px;flex-shrink:0"></span>`;
+                return `<tr>
+                    <td class="font-bold text-gray-900" style="white-space:nowrap"><span style="display:inline-flex;align-items:center">${dot}${TN_MULTIPLE[k].label}</span></td>
+                    <td class="text-xs text-gray-600" style="white-space:nowrap">${TN_MULTIPLE[k].members.join(', ')}</td>
+                    <td class="text-right text-gray-600">${TN_MULTIPLE[k].members.length}</td>
+                    <td class="text-right text-gray-900 font-semibold">${obsAvg[k].toFixed(3)}</td>
+                    <td class="text-right text-gray-500">${expAvg[k].toFixed(3)}</td>
+                    <td class="text-right font-semibold ${ratioColor}">${ratioText}</td>
+                </tr>`;
+            }).join('');
+            // 막대 차트
+            if (tnMultipleInst) tnMultipleInst.destroy();
+            tnMultipleInst = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: TN_MULTIPLE_KEYS.map(k => TN_MULTIPLE[k].label),
+                    datasets: [{
+                        label: '평균/회',
+                        data: TN_MULTIPLE_KEYS.map(k => +obsAvg[k].toFixed(2)),
+                        backgroundColor: TN_MULTIPLE_KEYS.map(k => TN_MULTIPLE[k].color),
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { beginAtZero: true, grid: { color: TN_GRID, drawBorder: false }, ticks: { color: TN_INK_3, font: { size: 10 } } },
+                        y: { grid: { display: false }, ticks: { color: TN_INK_2, font: { size: 10 } } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+        }
+
+        // ─── §5. 9개 per-element 갭·핫콜드 ───
+        function renderTnGap() {
+            const tbody = document.getElementById('tnGapBody');
+            if (!tbody) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getTnCache().slice(0, range);
+            if (cache.length === 0) return;
+            const latestRound = cache[0].round;
+            const recent5 = cache.slice(0, 5);
+            const recent30 = cache.slice(0, Math.min(30, cache.length));
+            const rows = TN_LIST.map(t => {
+                let appearances = 0;
+                let lastRound = null;
+                const gaps = [];
+                let prevRound = null;
+                const chrono = cache.slice().reverse();
+                chrono.forEach(d => {
+                    if (d.numSet.has(t)) {
+                        appearances++;
+                        if (prevRound !== null) gaps.push(d.round - prevRound);
+                        prevRound = d.round;
+                        lastRound = d.round;
+                    }
+                });
+                const meanGap = gaps.length > 0 ? gaps.reduce((a, b) => a + b, 0) / gaps.length : range;
+                const sdGap = gaps.length > 1 ? Math.sqrt(gaps.reduce((a, b) => a + (b - meanGap) ** 2, 0) / gaps.length) : 0;
+                const currentGap = lastRound !== null ? latestRound - lastRound : range;
+                const z = sdGap > 0 ? (currentGap - meanGap) / sdGap : 0;
+                const r5 = recent5.filter(d => d.numSet.has(t)).length;
+                const r30 = recent30.filter(d => d.numSet.has(t)).length;
+                let label, cls;
+                if (r5 >= 2) { label = '🔥 핫'; cls = 'tn-pill tn-pill-hot'; }
+                else if (r30 === 0) { label = '🧊 콜드'; cls = 'tn-pill tn-pill-cold'; }
+                else if (r5 === 1) { label = '온화'; cls = 'tn-pill tn-pill-warm'; }
+                else { label = '평이'; cls = 'tn-pill tn-pill-norm'; }
+                const klass = tnClassOf(t);
+                const chipCls = klass === 'prime' ? 'prime' : klass === 'composite' ? 'composite' : 'special';
+                return { t, klass, chipCls, appearances, meanGap, currentGap, z, label, cls };
+            });
+            tbody.innerHTML = rows.map(r => {
+                const zColor = r.z > 1.5 ? 'text-red-600' : r.z < -1.0 ? 'text-blue-600' : 'text-gray-700';
+                return `<tr>
+                    <td><span class="tn-num-chip ${r.chipCls}">${r.t}</span></td>
+                    <td class="text-xs text-gray-600">${tnClassLabel(r.klass)}</td>
+                    <td class="text-right text-gray-600">${r.appearances}회</td>
+                    <td class="text-right text-gray-600">${r.meanGap.toFixed(1)}</td>
+                    <td class="text-right text-gray-900 font-semibold">${r.currentGap}</td>
+                    <td class="text-right ${zColor}">${r.z >= 0 ? '+' : ''}${r.z.toFixed(2)}</td>
+                    <td class="text-center"><span class="${r.cls}">${r.label}</span></td>
+                </tr>`;
+            }).join('');
+        }
+
+        // ─── §6. 36 / 45 특수값 분석 ───
+        function renderTnSpecial() {
+            const tbody = document.getElementById('tnSpecialBody');
+            const both = document.getElementById('tnSpecialBoth');
+            if (!tbody) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getTnCache().slice(0, range);
+            if (cache.length === 0) return;
+            const latestRound = cache[0].round;
+            const expected = cache.length * 6 / 45;
+            const recent5 = cache.slice(0, 5);
+            const recent30 = cache.slice(0, Math.min(30, cache.length));
+            const specials = [
+                { num: 36, attr: '6² = 8번째 삼각수 (제곱+삼각 교집합)' },
+                { num: 45, attr: '9번째 삼각수 = 1~45 최대값' }
+            ];
+            const rows = specials.map(({ num, attr }) => {
+                let cnt = 0, lastRound = null;
+                cache.forEach(d => {
+                    if (d.numSet.has(num)) {
+                        cnt++;
+                        if (lastRound === null) lastRound = d.round;
+                    }
+                });
+                const currentGap = lastRound !== null ? latestRound - lastRound : range;
+                const r5 = recent5.filter(d => d.numSet.has(num)).length;
+                const r30 = recent30.filter(d => d.numSet.has(num)).length;
+                let label, cls;
+                if (r5 >= 2) { label = '🔥 핫'; cls = 'tn-pill tn-pill-hot'; }
+                else if (r30 === 0) { label = '🧊 콜드'; cls = 'tn-pill tn-pill-cold'; }
+                else if (r5 === 1) { label = '온화'; cls = 'tn-pill tn-pill-warm'; }
+                else { label = '평이'; cls = 'tn-pill tn-pill-norm'; }
+                return { num, attr, cnt, currentGap, label, cls };
+            });
+            tbody.innerHTML = rows.map(r => `<tr>
+                <td><span class="tn-num-chip composite">${r.num}</span></td>
+                <td class="text-xs text-gray-600">${r.attr}</td>
+                <td class="text-right text-gray-900 font-semibold">${r.cnt}회</td>
+                <td class="text-right text-gray-500">${expected.toFixed(1)}</td>
+                <td class="text-right text-gray-900 font-semibold">${r.currentGap}회</td>
+                <td class="text-right"><span class="${r.cls}">${r.label}</span></td>
+            </tr>`).join('');
+            // 36 + 45 동시 출현
+            let bothCount = 0, bothLast = null;
+            cache.forEach(d => {
+                if (d.numSet.has(36) && d.numSet.has(45)) {
+                    bothCount++;
+                    if (bothLast === null) bothLast = d.round;
+                }
+            });
+            const bothExp = cache.length * (6 / 45) * (5 / 44);
+            if (both) {
+                both.innerHTML = `<span class="text-gray-400">36 · 45 동시 출현</span> <strong class="text-gray-900">${bothCount}회</strong> <span class="text-gray-400">(기대 ${bothExp.toFixed(1)})</span> &nbsp;·&nbsp; <span class="text-gray-400">마지막 동반</span> <strong class="text-gray-900">${bothLast !== null ? bothLast + '회' : '없음'}</strong>`;
+            }
+        }
+
+        // ─── §7. 연속 삼각수 동시 출현 ───
+        function renderTnConsecutive() {
+            const tbody = document.getElementById('tnConsecutiveBody');
+            if (!tbody) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getTnCache().slice(0, range);
+            if (cache.length === 0) return;
+            const N = cache.length;
+            // 2-pattern 기대값: N × C(2, picks=6)/C(2, total=45) — hypergeometric P(both in 6) = C(43,4)/C(45,6) ≈ (6×5)/(45×44)
+            const exp2 = N * (6 / 45) * (5 / 44);
+            const exp3 = N * (6 / 45) * (5 / 44) * (4 / 43);
+
+            const rows = [];
+            // 2개 연속
+            TN_CONSEC_2.forEach(([a, b]) => {
+                let cnt = 0, lastRound = null;
+                cache.forEach(d => {
+                    if (d.numSet.has(a) && d.numSet.has(b)) {
+                        cnt++;
+                        if (lastRound === null) lastRound = d.round;
+                    }
+                });
+                const ratio = exp2 > 0 ? cnt / exp2 : 0;
+                rows.push({ pattern: '2개', members: `${a}·${b}`, cnt, exp: exp2, ratio, lastRound });
+            });
+            // 3개 연속
+            TN_CONSEC_3.forEach(([a, b, c]) => {
+                let cnt = 0, lastRound = null;
+                cache.forEach(d => {
+                    if (d.numSet.has(a) && d.numSet.has(b) && d.numSet.has(c)) {
+                        cnt++;
+                        if (lastRound === null) lastRound = d.round;
+                    }
+                });
+                const ratio = exp3 > 0 ? cnt / exp3 : 0;
+                rows.push({ pattern: '3개', members: `${a}·${b}·${c}`, cnt, exp: exp3, ratio, lastRound });
+            });
+            tbody.innerHTML = rows.map(r => {
+                const ratioColor = r.cnt === 0 ? 'text-gray-400' : (r.ratio > 1.15 ? 'text-red-600' : r.ratio < 0.85 ? 'text-blue-600' : 'text-gray-900');
+                return `<tr>
+                    <td class="font-bold text-gray-700">${r.pattern}</td>
+                    <td class="font-semibold text-gray-900">${r.members}</td>
+                    <td class="text-right text-gray-900 font-semibold">${r.cnt}회</td>
+                    <td class="text-right text-gray-500">${r.exp.toFixed(2)}</td>
+                    <td class="text-right ${ratioColor}">${r.cnt === 0 ? '—' : r.ratio.toFixed(2) + '×'}</td>
+                    <td class="text-right text-gray-600">${r.lastRound !== null ? r.lastRound + '회' : '<span class="text-gray-300">없음</span>'}</td>
+                </tr>`;
+            }).join('');
+        }
     </script>
     <!-- AI Q&A Sidebar (Floating Right) -->
     <div id="aiQnaModal"

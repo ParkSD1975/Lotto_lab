@@ -244,7 +244,9 @@
       "WebFetch(domain:api.web.archive.org)",
       "WebFetch(domain:www.uklottery.co.uk)",
       "WebFetch(domain:www.lotto-numbers.com)",
-      "mcp__supabase__list_edge_functions"
+      "mcp__supabase__list_edge_functions",
+      "mcp__Claude_in_Chrome__list_connected_browsers",
+      "WebFetch(domain:claude.com)"
     ]
   }
 }

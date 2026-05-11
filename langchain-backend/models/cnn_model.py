@@ -1,5 +1,12 @@
 """2D-CNN 모델 - 로또 용지(7x7 그리드) 공간 패턴 및 주변수 분석 기반 번호 출현 확률 예측.
 시간의 흐름(최근 N회차)을 채널(Channel)로 쌓고, 3x3 Conv2d 필터가 '주변수' 패턴을 추출합니다.
+
+Data Leakage Fix (2026-05-03):
+- train 메서드에 cutoff_round 파라미터 추가
+- cutoff_round 지정 시 해당 회차 이하 데이터만 학습에 사용 (hold-out 분리)
+- 진단: LottoGridSequenceDataset이 전체 회차를 슬라이딩 윈도우로 학습 -> 진짜 hold-out 부재
+  회차 451~500(hold-out)에서 평균 5.76 hit (leak), 회차 1173~1222(학습셋)에서 5.52 hit
+- 목표: cutoff=1100으로 재학습 -> hold-out 1101~1222에서 정상 범위(1.0~2.0) hit 확인
 """
 
 import os
@@ -78,12 +85,26 @@ class CNNTrainer:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu") if device == "auto" else torch.device(device)
         self.model = None
 
-    def train(self, draws: list, fine_tune: bool = True) -> dict:
+    def train(self, draws: list, fine_tune: bool = True, cutoff_round: int | None = None) -> dict:
+        """CNN 학습.
+
+        Args:
+            draws: 전체 회차 (최신 -> 과거 정렬)
+            fine_tune: 기존 모델 파인튜닝 여부
+            cutoff_round: 학습 데이터 cutoff (이 회차 이하만 사용). hold-out 검증용.
+        """
         # G-6: 재현성 seed 적용
         from validation.seed_utils import set_global_seed
         set_global_seed()
 
-        dataset = LottoGridSequenceDataset(draws, seq_len=config.CNN_SEQ_LEN)
+        # cutoff_round 적용 — 데이터 누수 방지
+        if cutoff_round is not None:
+            draws_for_train = [d for d in draws if int(d.get("round", 0)) <= cutoff_round]
+            print(f"  [CNN] cutoff_round={cutoff_round} - {len(draws)} -> {len(draws_for_train)} rounds (hold-out: {len(draws) - len(draws_for_train)} rounds)")
+        else:
+            draws_for_train = draws
+
+        dataset = LottoGridSequenceDataset(draws_for_train, seq_len=config.CNN_SEQ_LEN)
         if len(dataset) < 100: return {"success": False, "error": "데이터 부족"}
 
         train_loader = DataLoader(dataset, batch_size=config.CNN_BATCH_SIZE, shuffle=True)

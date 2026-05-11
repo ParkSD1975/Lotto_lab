@@ -4,6 +4,9 @@
 <head>
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <title>Lotto Lab - 합성수 (Supabase AI)</title>
     <link href="css/tailwind.css" rel="stylesheet" />
 
@@ -29,6 +32,8 @@
     <script src="js/layout.js"></script>
     <script src="js/premium_insight_panel.js?v=20260502c"></script>
     <script src="js/NLPProcessor.js"></script>
+    <script src="js/AutoNLPMatcher.js"></script>
+    <script src="js/auto_nlp_loader.js" defer></script>
     <script src="js/NLPInputComponent.js"></script>
     <script src="js/BasicAnalysisNLP.js"></script>
 
@@ -120,13 +125,15 @@
         // 전역 로딩 플래그 (무한 루프 방지)
         window.isLoadingSettings = false;
 
-        // [수정됨] 필터 설정 저장 함수 (표준화)
-        async function saveFilterSettings(targetRoundOverride = null) {
-            if (_compositeSelfSaving) return;
-            _compositeSelfSaving = true;
+        // [버그 수정] Utils.saveFilter가 동일탭에 storage 이벤트 dispatch → listener가 즉시
+        //   loadFilterSettings 트리거 → DB 저장 완료 전 OLD 데이터 읽어 UI 되돌리는 race.
+        //   해결: _compositeSaveTime 기록 → listener가 3초 내면 skip.
+        let _compositeSaveTime = 0;
 
+        async function saveFilterSettings(targetRoundOverride = null) {
             try {
                 if (!allDrawData || allDrawData.length === 0) return;
+                _compositeSaveTime = Date.now();
 
                 const enabled = document.getElementById('applyFilterCheck').checked;
                 const latestRound = allDrawData[0]?.round || 0;
@@ -149,12 +156,12 @@
                 if (window.filterService && window.filterService.initialized) {
                     await window.filterService.saveSetting(storageKey, settings, enabled, targetRound);
                 }
-                
+
                 // localStorage sync for storage event
                 localStorage.setItem(storageKey, JSON.stringify({ ...settings, enabled, targetRound }));
+                _compositeSaveTime = Date.now();  // 마지막 save 시점 갱신
             } catch (err) {
-            } finally {
-                _compositeSelfSaving = false;
+                console.error('[composite] saveFilterSettings 오류:', err);
             }
         }
 
@@ -239,8 +246,8 @@
         }
 
         // [추가됨] 필터 적용 함수 (리스트 갱신)
-        function applyFilter(save = true) {
-            if (save) saveFilterSettings(); // 상태 저장
+        async function applyFilter(save = true) {
+            if (save) await saveFilterSettings(); // 상태 저장 (await 보장)
 
             const isEnabled = document.getElementById('applyFilterCheck').checked;
 
@@ -505,6 +512,69 @@
             transform: scale(1.1);
             background: #2563EB;
         }
+
+        /* [fix-331] 합성수 보조 분석 — impeccable 가이드 (underline-only, tabular-nums) */
+        .cn-input {
+            background: transparent;
+            border: 0;
+            border-bottom: 1px solid #E5E7EB;
+            padding: 4px 18px 4px 6px;
+            font-size: 13px;
+            color: #0F172A;
+            outline: none;
+            transition: border-color 180ms ease;
+            font-feature-settings: "tnum";
+            -moz-appearance: textfield;
+        }
+        .cn-input:focus { border-bottom-color: #3B82F6; }
+        .cn-input::-webkit-inner-spin-button,
+        .cn-input::-webkit-outer-spin-button { opacity: 0.5; margin-left: 4px; }
+        #cnEvenOddTable td, #cnPerfectTable td, #cnDeltaTable td { padding: 8px 8px; border-bottom: 1px solid #F3F4F6; }
+        #cnEvenOddTable tbody tr:hover, #cnPerfectTable tbody tr:hover, #cnDeltaTable tbody tr:hover { background: #FAFAFA; }
+        .cn-pill { display: inline-flex; align-items: center; gap: 3px; padding: 2px 7px; border-radius: 9999px; font-size: 11px; font-weight: 600; line-height: 1.4; }
+        .cn-pill-hot { background: #FEF2F2; color: #DC2626; }
+        .cn-pill-cold { background: #ECFEFF; color: #0E7490; }
+        .cn-pill-warm { background: #FFF7ED; color: #C2410C; }
+        .cn-pill-norm { background: #F1F5F9; color: #475569; }
+        .cn-num-card { background: #FAFAFA; border-radius: 6px; padding: 4px 6px; display: flex; justify-content: space-between; align-items: center; font-size: 12px; }
+        .cn-num-card .num { font-weight: 700; font-feature-settings: "tnum"; color: #0F172A; }
+        .cn-num-card .gap { font-feature-settings: "tnum"; color: #94A3B8; font-size: 11px; }
+        .cn-subclass-col h4 { font-size: 12px; font-weight: 700; color: #0F172A; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #E5E7EB; display: flex; justify-content: space-between; align-items: center; }
+        .cn-subclass-col h4 .meta { font-size: 10px; font-weight: 500; color: #94A3B8; }
+
+        /* [fix-335c] 합성수 카운트 캘린더 v2 — 컴팩트 */
+        .cn-cal-stats {
+            display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+            font-size: 11px; color: #94A3B8; font-feature-settings: "tnum";
+            margin-bottom: 12px; padding: 8px 12px;
+            background: #FAFAFA; border-radius: 8px;
+        }
+        .cn-cal-stats strong { color: #0F172A; font-weight: 700; font-size: 12px; }
+        .cn-cal-row { display: grid; grid-template-columns: 56px 1fr; gap: 8px; align-items: center; margin-bottom: 3px; }
+        .cn-cal-label { font-size: 10px; color: #94A3B8; font-feature-settings: "tnum"; text-align: right; padding-right: 2px; line-height: 1.15; }
+        .cn-cal-label strong { display: block; color: #0F172A; font-weight: 700; font-size: 11px; }
+        .cn-cal-label .meta { display: block; font-size: 9px; color: #CBD5E1; margin-top: 1px; }
+        .cn-cal-cells { display: grid; grid-template-columns: repeat(10, 1fr); gap: 3px; }
+        .cn-cal-cell {
+            height: 30px; border-radius: 4px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 12px; font-weight: 700; font-feature-settings: "tnum";
+            transition: transform 120ms ease, box-shadow 120ms ease;
+            cursor: default;
+        }
+        .cn-cal-cell:hover { transform: scale(1.15); box-shadow: 0 4px 14px rgba(15,23,42,0.18); z-index: 5; }
+        /* 합성수: 평균 4 — 0~1=드문(빨강/주황), 2~3=낮음, 4=평균, 5~6=높음 */
+        .cn-cal-cell.cnt-0 { background: #FEE2E2; color: #DC2626; }
+        .cn-cal-cell.cnt-1 { background: #FEF3C7; color: #92400E; }
+        .cn-cal-cell.cnt-2 { background: #ECFDF5; color: #065F46; }
+        .cn-cal-cell.cnt-3 { background: #D1FAE5; color: #065F46; }
+        .cn-cal-cell.cnt-4 { background: #6EE7B7; color: #064E3B; }
+        .cn-cal-cell.cnt-5 { background: #10B981; color: #FFFFFF; }
+        .cn-cal-cell.cnt-6 { background: #047857; color: #FFFFFF; }
+        .cn-cal-cell.is-latest { box-shadow: 0 0 0 2px #0F172A; }
+        .cn-cal-empty { height: 30px; }
+        .cn-cal-legend { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; margin-top: 10px; font-size: 11px; color: #94A3B8; }
+        .cn-cal-legend .legend-cell { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 3px; font-size: 10px; font-weight: 700; font-feature-settings: "tnum"; }
     </style>
 </head>
 
@@ -518,7 +588,7 @@
             </aside>
 
             <main class="flex-1 overflow-y-auto p-8 custom-scrollbar">
-                <div class="max-w-7xl mx-auto space-y-6">
+                <div class="max-w-screen-2xl mx-auto space-y-6">
                     <div>
                         <h1 class="text-3xl font-bold text-gray-900 mb-1">합성수 분석</h1>
                         <p class="text-sm text-gray-600">합성수 30개(4, 6, 8, 9, 10...)의 출현 개수를 분석합니다.</p>
@@ -621,6 +691,126 @@
                         </div>
                     </div>
 
+                    <!-- ════════════════════════════════════════════════ -->
+                    <!-- [fix-331] 합성수 보조 분석 7종 — 단일 흰 박스 통합   -->
+                    <!-- ════════════════════════════════════════════════ -->
+                    <div class="bg-white rounded-xl border border-gray-200 mb-6 overflow-hidden">
+
+                        <!-- §1. 시계열 추세 (합성수 카운트 MA + 캘린더) -->
+                        <div class="p-8">
+                            <div class="flex items-baseline justify-between mb-6">
+                                <div>
+                                    <h3 class="text-lg font-bold text-gray-900 tracking-tight">시계열 추세</h3>
+                                    <p class="text-xs text-gray-500 mt-1">합성수 카운트(0~6) 이동평균 + ±1σ · 평균선 4.0 (이항분포 30/45 × 6 기대값)</p>
+                                </div>
+                                <div class="flex items-baseline gap-2 text-xs text-gray-500">
+                                    <label>MA 윈도우</label>
+                                    <input type="number" id="cnMaWindow" value="10" min="3" max="50"
+                                        oninput="renderCnMa()" class="cn-input w-16 text-center tabular-nums">
+                                    <span>회</span>
+                                </div>
+                            </div>
+                            <div class="h-64 mb-6"><canvas id="cnMaChart"></canvas></div>
+                            <div class="pt-6 border-t border-gray-100">
+                                <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-3">
+                                    합성수 카운트 캘린더 (좌=과거, 우=최신)
+                                </div>
+                                <div id="cnCalendar"></div>
+                            </div>
+                        </div>
+
+                        <!-- §2 + §3 : 카운트 분포 + 분류 비율 (2분할) -->
+                        <div class="border-t border-gray-100 grid grid-cols-1 lg:grid-cols-2 lg:divide-x lg:divide-gray-100">
+                            <div class="p-8">
+                                <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">카운트 분포 0~6</h3>
+                                <p class="text-xs text-gray-500 mb-4">합성수 출현 개수 빈도 · 점선 = 이항분포 B(6, 30/45) 이론값</p>
+                                <div class="h-56"><canvas id="cnCountDist"></canvas></div>
+                                <div id="cnCountDistStats" class="mt-3 text-xs text-gray-600 tabular-nums"></div>
+                            </div>
+                            <div class="p-8 border-t lg:border-t-0 border-gray-100">
+                                <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">소수·합성수·1 분류 비율</h3>
+                                <p class="text-xs text-gray-500 mb-4">회차 6번호의 평균 분포 (소수 14·합성수 30·1=1) · 점선 = 이론값</p>
+                                <div class="h-56"><canvas id="cnClassRatioChart"></canvas></div>
+                                <div id="cnClassRatioStats" class="mt-3 text-xs text-gray-600 tabular-nums"></div>
+                            </div>
+                        </div>
+
+                        <!-- §4. 합성수 30개 배수별 sub-class 분석 -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">합성수 30개 · 배수별 sub-class 분석</h3>
+                            <p class="text-xs text-gray-500 mb-4">5 sub-class 평균 출현 + 기대값 · sub-class 정의: 3의 배수(14) / 4의 배수(11) / 5의 배수(8) / 7의 배수(5) / 기타 2 × 큰소수(4)</p>
+                            <div class="h-56"><canvas id="cnSubclassChart"></canvas></div>
+                            <div id="cnSubclassStats" class="mt-4 text-xs text-gray-600 tabular-nums grid grid-cols-2 md:grid-cols-5 gap-3"></div>
+                        </div>
+
+                        <!-- §5. sub-class별 핫·콜드 5컬럼 -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">sub-class별 합성수 핫·콜드 (5컬럼)</h3>
+                            <p class="text-xs text-gray-500 mb-4">각 sub-class 안에서 개별 합성수의 핫/콜드 라벨 + 현재 갭 · 핫 = 최근 5회차 ≥ 2회 / 콜드 = 최근 30회차 0회 · 합성수는 여러 sub-class 중복 표시 가능</p>
+                            <div id="cnHotcoldGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6"></div>
+                        </div>
+
+                        <!-- §6. 짝/홀 합성수 + 완전수 6·28 -->
+                        <div class="p-8 border-t border-gray-100 grid grid-cols-1 lg:grid-cols-2 lg:divide-x lg:divide-gray-100">
+                            <div class="lg:pr-8">
+                                <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">짝/홀 합성수 비율</h3>
+                                <p class="text-xs text-gray-500 mb-4">짝 합성수 21개 vs 홀 합성수 9개 · 풀 비대칭 보정 후 정규화 빈도</p>
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-sm tabular-nums" id="cnEvenOddTable">
+                                        <thead>
+                                            <tr class="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                                <th class="py-2 pr-3 border-b border-gray-200">분류</th>
+                                                <th class="py-2 px-3 border-b border-gray-200 text-right">풀 크기</th>
+                                                <th class="py-2 px-3 border-b border-gray-200 text-right">평균 출현</th>
+                                                <th class="py-2 px-3 border-b border-gray-200 text-right">기대(이항)</th>
+                                                <th class="py-2 pl-3 border-b border-gray-200 text-right">정규화 빈도</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="cnEvenOddBody"></tbody>
+                                    </table>
+                                    <div id="cnEvenOddNote" class="mt-3 text-xs text-gray-600 tabular-nums"></div>
+                                </div>
+                            </div>
+                            <div class="lg:pl-8 mt-8 lg:mt-0">
+                                <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">완전수 6 · 28 동반 출현</h3>
+                                <p class="text-xs text-gray-500 mb-4">자기 자신 = 진약수 합 (6 = 1+2+3, 28 = 1+2+4+7+14)</p>
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-sm tabular-nums" id="cnPerfectTable">
+                                        <thead>
+                                            <tr class="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                                <th class="py-2 pr-3 border-b border-gray-200">번호</th>
+                                                <th class="py-2 px-3 border-b border-gray-200 text-right">출현/회</th>
+                                                <th class="py-2 px-3 border-b border-gray-200 text-right">기대</th>
+                                                <th class="py-2 px-3 border-b border-gray-200 text-right">현재 갭</th>
+                                                <th class="py-2 pl-3 border-b border-gray-200 text-right">상태</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="cnPerfectBody"></tbody>
+                                    </table>
+                                    <div id="cnPerfectBoth" class="mt-3 text-xs text-gray-600 tabular-nums"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- §7. 합성수 ΔCount + 카운트 streak -->
+                        <div class="p-8 border-t border-gray-100 grid grid-cols-1 lg:grid-cols-2 lg:divide-x lg:divide-gray-100">
+                            <div class="lg:pr-8">
+                                <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">ΔCount 분포 (회차 간 변화)</h3>
+                                <p class="text-xs text-gray-500 mb-4">직전 회차 대비 합성수 카운트 변화 (-6 ~ +6)</p>
+                                <div class="h-56"><canvas id="cnDeltaChart"></canvas></div>
+                            </div>
+                            <div class="lg:pl-8 mt-8 lg:mt-0">
+                                <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">카운트 streak 분포</h3>
+                                <p class="text-xs text-gray-500 mb-4">같은 합성수 카운트 연속 출현 길이 분포</p>
+                                <div class="h-56"><canvas id="cnStreakChart"></canvas></div>
+                                <div id="cnStreakStats" class="mt-3 text-xs text-gray-600 tabular-nums"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- ════════════════════════════════════════════════ -->
+                    <!-- [/fix-331] 단일 박스 통합 끝                       -->
+                    <!-- ════════════════════════════════════════════════ -->
+
                     <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
                         <div class="flex items-center justify-between mb-4">
                             <h3 class="text-xl font-bold text-gray-900">조합 필터</h3>
@@ -678,9 +868,26 @@
                         </div>
                     </div>
 
-                    <!-- [표준화] 리스트 섹션 (Integrated Header) -->
-                    <div class="rounded-xl overflow-hidden mt-6">
-                        <div class="flex items-center justify-between mb-4 px-2">
+                    <!-- 직전 3회차 기반 합성수 HOT/COLD 표시 -->
+                    <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm mt-6">
+                        <h3 class="text-lg font-bold text-gray-900 mb-4">최근 3회차 기반 합성수 핫/콜드</h3>
+                        <div class="space-y-3">
+                            <div class="flex items-center gap-3 flex-wrap">
+                                <span class="text-sm font-bold text-red-600 min-w-[90px]">HOT</span>
+                                <span class="text-xs text-gray-500">직전 3회차 등장</span>
+                                <div id="hotCompositesDisplay" class="flex gap-1.5 flex-wrap ml-auto"></div>
+                            </div>
+                            <div class="flex items-center gap-3 flex-wrap">
+                                <span class="text-sm font-bold text-blue-600 min-w-[90px]">COLD</span>
+                                <span class="text-xs text-gray-500">직전 3회차 미등장</span>
+                                <div id="coldCompositesDisplay" class="flex gap-1.5 flex-wrap ml-auto"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- [fix-397] 리스트 섹션 — 헤더 + 표 흰 박스 일체화 -->
+                    <div class="bg-white rounded-xl border border-gray-200 mt-6 overflow-hidden">
+                        <div class="flex items-center justify-between px-8 pt-6 pb-4 border-b border-gray-100">
                             <div>
                                 <h3 class="text-xl font-bold text-gray-900 mb-1">회차별 당첨번호 및 합성수</h3>
                                 <p class="text-sm text-gray-600">최근 <span id="displayedCount"
@@ -692,23 +899,26 @@
                             </button>
                         </div>
 
-                        <div class="overflow-x-auto custom-scrollbar border border-gray-200 rounded-xl bg-white"
+                        <div class="overflow-x-hidden overflow-y-auto custom-scrollbar"
                             style="max-height: 600px;">
-                            <table class="w-full text-sm">
+                            <table class="w-full text-sm" style="table-layout: fixed;">
                                 <thead
                                     class="sticky top-0 bg-[#1e293b] text-white font-semibold border-b border-[#334155] z-30">
                                     <tr class="text-sm font-semibold uppercase">
                                         <th
-                                            class="py-3 px-4 text-center w-20 sticky left-0 bg-[#1e293b] z-40 whitespace-nowrap">
+                                            class="py-2 px-2 text-center w-16 sticky left-0 bg-[#1e293b] z-40 whitespace-nowrap">
                                             회차</th>
-                                        <th class="py-3 px-4 text-center w-[260px]">당첨번호</th>
-                                        <th class="py-3 px-4 text-center w-[820px]">합성수 대상번호</th>
-                                        <th class="py-3 px-4 text-center w-28 whitespace-nowrap">HIT</th>
+                                        <th class="py-2 px-2 text-center w-[220px]">당첨번호</th>
+                                        <th class="py-2 px-2 text-center w-[780px] whitespace-nowrap">합성수 대상번호</th>
+                                        <th class="py-2 px-2 text-center w-14 whitespace-nowrap">HIT</th>
+                                        <th class="py-2 px-2 text-center w-14 whitespace-nowrap">HOT</th>
+                                        <th class="py-2 px-2 text-center w-14 whitespace-nowrap">COLD</th>
+                                        <th class="py-2 px-2 text-center w-14 whitespace-nowrap">소수</th>
                                     </tr>
                                 </thead>
                                 <tbody id="drawsList" class="divide-y divide-gray-100">
                                     <tr>
-                                        <td colspan="5" class="p-10 text-center text-gray-500">
+                                        <td colspan="8" class="p-10 text-center text-gray-500">
                                             <div class="flex items-center justify-center">
                                                 <span
                                                     class="material-symbols-outlined animate-spin mr-2">progress_activity</span>데이터를
@@ -808,7 +1018,11 @@
 
         // 🔥 대시보드(filter.html) 혹은 다른 페이지에서의 설정을 실시간 동기화
         window.addEventListener('storage', async (e) => {
-            if (_compositeSelfSaving) return;
+            // [버그 수정] 자기 자신의 save로 인한 storage 이벤트 무시 (DB write 진행 중 OLD 데이터 읽기 방지)
+            if (Date.now() - _compositeSaveTime < 3000) {
+                console.log('[composite] Self-save event ignored (within 3s)');
+                return;
+            }
             if (!e.key) return;
             
             const keysToWatch = [storageKey, 'composite_count', 'composite_count_filter', 'composite_filter'];
@@ -900,6 +1114,27 @@
                     }
                 }
 
+                // [hot/cold 추가] 직전 3회차에 등장한 합성수 = hot, 14 합성수 중 hot 제외 = cold
+                const ALL_COMPOSITES = [4, 6, 8, 9, 10, 12, 14, 15, 16, 18, 20, 21, 22, 24, 25, 26, 27, 28, 30, 32, 33, 34, 35, 36, 38, 39, 40, 42, 44, 45];
+                allDrawData.forEach((draw, i) => {
+                    const prev3 = allDrawData.slice(i + 1, i + 4);  // round DESC 정렬
+                    const hotSet = new Set();
+                    prev3.forEach(d => (d.numbers || []).forEach(n => {
+                        if (composites.has(n)) hotSet.add(n);
+                    }));
+                    const winSet = new Set(draw.numbers || []);
+                    let hotHit = 0, coldHit = 0;
+                    ALL_COMPOSITES.forEach(c => {
+                        if (winSet.has(c)) {
+                            if (hotSet.has(c)) hotHit++;
+                            else coldHit++;
+                        }
+                    });
+                    draw.compositeHotHit = hotHit;
+                    draw.compositeColdHit = coldHit;
+                    draw.compositeHotSet = hotSet;
+                });
+
                 const totalCount = allDrawData.length;
                 document.getElementById('rangeSlider').max = totalCount;
                 document.getElementById('totalRangeDisplay').textContent = `최대 ${totalCount}회`;
@@ -913,7 +1148,12 @@
                 }
 
                 updateRange(currentRange);
+                renderHotColdComposites();
                 initDeepInsight();
+
+                // [fix-331] 보조 분석 7종 초기 렌더링
+                if (typeof invalidateCnCache === 'function') invalidateCnCache();
+                if (typeof renderAllCnSupp === 'function') renderAllCnSupp();
 
             } catch (err) {
                 console.error("데이터 로드 실패:", err);
@@ -1278,6 +1518,33 @@ ${distText}
         }
 
         // [수정됨] renderDrawsList가 이제 데이터를 인자로 받습니다.
+        function renderHotColdComposites() {
+            const hotEl = document.getElementById('hotCompositesDisplay');
+            const coldEl = document.getElementById('coldCompositesDisplay');
+            if (!hotEl || !coldEl || !allDrawData || allDrawData.length === 0) return;
+
+            const ALL_COMPOSITES = [4, 6, 8, 9, 10, 12, 14, 15, 16, 18, 20, 21, 22, 24, 25, 26, 27, 28, 30, 32, 33, 34, 35, 36, 38, 39, 40, 42, 44, 45];
+            const recent3 = allDrawData.slice(0, 3);
+            const hotSet = new Set();
+            recent3.forEach(d => (d.numbers || []).forEach(n => {
+                if (composites.has(n)) hotSet.add(n);
+            }));
+
+            const hotList = ALL_COMPOSITES.filter(c => hotSet.has(c));
+            const coldList = ALL_COMPOSITES.filter(c => !hotSet.has(c));
+
+            const renderBalls = (nums, ringColor) => nums.map(n =>
+                `<span class="w-9 h-9 inline-flex items-center justify-center rounded-full ball-composite text-xs font-bold transition-all" style="box-shadow: 0 0 0 2px ${ringColor}, 0 1px 3px rgba(0,0,0,0.08);">${String(n).padStart(2, '0')}</span>`
+            ).join('');
+
+            hotEl.innerHTML = hotList.length > 0
+                ? renderBalls(hotList, '#ef4444')
+                : '<span class="text-xs text-gray-400">없음</span>';
+            coldEl.innerHTML = coldList.length > 0
+                ? renderBalls(coldList, '#3b82f6')
+                : '<span class="text-xs text-gray-400">없음</span>';
+        }
+
         function renderDrawsList(drawsData) {
             const list = document.getElementById('drawsList');
             list.innerHTML = '';
@@ -1286,7 +1553,7 @@ ${distText}
             const targetData = drawsData || allDrawData.slice(0, currentRange);
 
             if (targetData.length === 0) {
-                list.innerHTML = '<tr><td colspan="5" class="p-10 text-center text-gray-500">조건에 맞는 데이터가 없습니다.</td></tr>';
+                list.innerHTML = '<tr><td colspan="8" class="p-10 text-center text-gray-500">조건에 맞는 데이터가 없습니다.</td></tr>';
                 return;
             }
 
@@ -1323,34 +1590,47 @@ ${distText}
                 ];
 
                 tr.innerHTML = `
-                    <td class="py-4 px-4 text-sm font-bold text-gray-900 w-20 sticky left-0 bg-inherit z-10 whitespace-nowrap text-center">${draw.round}회</td>
-                    <td class="py-4 px-4">
-                        <div class="flex gap-1.5 justify-center items-center w-[260px] mx-auto">
+                    <td class="py-3 px-2 text-xs font-bold text-gray-900 w-16 sticky left-0 bg-inherit z-10 whitespace-nowrap text-center">${draw.round}회</td>
+                    <td class="py-3 px-2">
+                        <div class="flex gap-1 justify-center items-center w-[220px] mx-auto">
                             ${draw.numbers.map(num => {
                     const className = isComposite(num) ? 'ball-composite' : 'ball-normal';
-                    return `<span class="w-8 h-8 flex items-center justify-center rounded-full ${className} text-xs font-bold shadow-sm">${String(num).padStart(2, '0')}</span>`;
+                    return `<span class="w-7 h-7 flex items-center justify-center rounded-full ${className} text-[10px] font-bold shadow-sm">${String(num).padStart(2, '0')}</span>`;
                 }).join('')}
                         </div>
                     </td>
-                    <td class="py-4 px-4 w-[820px]">
-                        <div class="flex gap-0.5 justify-start flex-nowrap min-h-[32px]">
+                    <td class="py-4 px-2 w-[780px]">
+                        <div class="flex gap-1.5 justify-center items-center flex-nowrap min-h-[28px] whitespace-nowrap">
                             ${compositeArray.map(num => {
                     const isWin = winningNumbers.has(num);
                     if (isWin) {
-                        return `<span class="w-6 h-6 flex items-center justify-center rounded-full ball-composite shadow-sm ring-1 ring-green-100 text-[9px] font-bold transition-all flex-shrink-0">${String(num).padStart(2, '0')}</span>`;
+                        const isHot = draw.compositeHotSet && draw.compositeHotSet.has(num);
+                        const ringStyle = isHot
+                            ? 'box-shadow: 0 0 0 1.5px #ef4444, 0 1px 2px rgba(0,0,0,0.08);'
+                            : 'box-shadow: 0 0 0 1.5px #3b82f6, 0 1px 2px rgba(0,0,0,0.08);';
+                        return `<span class="w-5 h-5 inline-flex items-center justify-center rounded-full ball-composite text-[8px] font-bold transition-all flex-shrink-0" style="${ringStyle}" title="${isHot ? '핫 (직전 3회차 내 등장)' : '콜드 (직전 3회차 미등장)'}">${String(num).padStart(2, '0')}</span>`;
                     } else {
-                        return `<span class="w-6 h-6 flex items-center justify-center rounded-full text-[9px] font-bold transition-all flex-shrink-0" style="background: #F3F4F6; color: #9CA3AF;">${String(num).padStart(2, '0')}</span>`;
+                        return `<span class="w-5 h-5 inline-flex items-center justify-center rounded-full text-[8px] font-bold transition-all flex-shrink-0" style="background: #F3F4F6; color: #9CA3AF;">${String(num).padStart(2, '0')}</span>`;
                     }
                 }).join('')}
                         </div>
                     </td>
-                    <td class="py-4 px-4 text-center w-20">
+                    <td class="py-3 px-2 text-center w-14">
                         <div class="flex justify-center">
-                            <span class="inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold transition-all cursor-pointer hover:bg-gray-100 ${getHighlightClass('composite', draw.compositeCount)}"
+                            <span class="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold transition-all cursor-pointer hover:bg-gray-100 ${getHighlightClass('composite', draw.compositeCount)}"
                                 onclick="event.stopPropagation(); toggleValueHighlight('composite', ${draw.compositeCount})">
                                 ${draw.compositeCount}
                             </span>
                         </div>
+                    </td>
+                    <td class="py-3 px-2 text-center w-14">
+                        <span class="text-xs font-bold text-gray-700">${draw.compositeHotHit ?? 0}</span>
+                    </td>
+                    <td class="py-3 px-2 text-center w-14">
+                        <span class="text-xs font-bold text-gray-700">${draw.compositeColdHit ?? 0}</span>
+                    </td>
+                    <td class="py-3 px-2 text-center w-14">
+                        <span class="text-xs font-bold text-gray-700">${draw.primeCount ?? 0}</span>
                     </td>
                 `;
                 list.appendChild(tr);
@@ -1416,6 +1696,9 @@ ${distText}
             if (save) {
                 saveFilterSettings();
             }
+
+            // [fix-331] 보조 분석 7종 갱신
+            if (typeof renderAllCnSupp === 'function') renderAllCnSupp();
         }
 
         async function saveFilterSettings() {
@@ -1805,6 +2088,553 @@ ${distText}
                     }
                 });
             });
+        }
+
+        // ════════════════════════════════════════════════════════════
+        // [fix-331] 합성수 보조 분석 7종 — impeccable 가이드
+        // ════════════════════════════════════════════════════════════
+        const CN_ACCENT = '#3B82F6';
+        const CN_ACCENT_LIGHT = 'rgba(59, 130, 246, 0.08)';
+        const CN_GRID = '#F1F5F9';
+        const CN_INK_2 = '#475569';
+        const CN_INK_3 = '#94A3B8';
+        const CN_GREEN = '#10B981';
+        const CN_PRIME_C = '#3B82F6';
+
+        // 5 sub-class 정의 (중복 가능)
+        const CN_SUBCLASS = {
+            m3: { label: '3의 배수', members: [6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45], color: '#EF4444' },
+            m4: { label: '4의 배수', members: [4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44], color: '#F97316' },
+            m5: { label: '5의 배수', members: [10, 15, 20, 25, 30, 35, 40, 45], color: '#10B981' },
+            m7: { label: '7의 배수', members: [14, 21, 28, 35, 42], color: '#A855F7' },
+            other: { label: '기타(2 × 큰소수)', members: [22, 26, 34, 38], color: '#94A3B8' }
+        };
+        const CN_SUBCLASS_KEYS = ['m3', 'm4', 'm5', 'm7', 'other'];
+        const CN_EVEN_COMPOSITES = [4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44]; // 21개
+        const CN_ODD_COMPOSITES = [9, 15, 21, 25, 27, 33, 35, 39, 45]; // 9개
+        const CN_PERFECT = [6, 28];
+
+        let _cnCache = null;
+        function getCnCache() {
+            if (_cnCache) return _cnCache;
+            const data = window.allDrawData || allDrawData || [];
+            _cnCache = data.map(d => {
+                const nums = d.numbers || [];
+                const numSet = new Set(nums);
+                const compositeCount = (typeof d.compositeCount === 'number') ? d.compositeCount : nums.filter(n => composites.has(n)).length;
+                const primeCount = (typeof d.primeCount === 'number') ? d.primeCount : nums.filter(n => primes.has(n)).length;
+                const oneCount = nums.filter(n => n === 1).length;
+                const evenCompCount = nums.filter(n => CN_EVEN_COMPOSITES.includes(n)).length;
+                const oddCompCount = nums.filter(n => CN_ODD_COMPOSITES.includes(n)).length;
+                const subCounts = {};
+                CN_SUBCLASS_KEYS.forEach(k => {
+                    subCounts[k] = nums.filter(n => CN_SUBCLASS[k].members.includes(n)).length;
+                });
+                return { round: d.round, nums, numSet, compositeCount, primeCount, oneCount, evenCompCount, oddCompCount, subCounts };
+            });
+            return _cnCache;
+        }
+        function invalidateCnCache() { _cnCache = null; }
+
+        function renderAllCnSupp() {
+            try {
+                if (!allDrawData || allDrawData.length === 0) return;
+                invalidateCnCache();
+                renderCnMa();
+                renderCnCalendar();
+                renderCnCountDist();
+                renderCnClassRatio();
+                renderCnSubclass();
+                renderCnHotcoldGrid();
+                renderCnEvenOdd();
+                renderCnPerfect();
+                renderCnDelta();
+                renderCnStreak();
+            } catch (e) { console.warn('[cn-supp]', e); }
+        }
+
+        // ─── §1-A. 시계열 추세 ───
+        let cnMaInst = null;
+        function renderCnMa() {
+            const canvas = document.getElementById('cnMaChart');
+            if (!canvas) return;
+            const win = Math.max(3, Math.min(50, parseInt(document.getElementById('cnMaWindow')?.value) || 10));
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getCnCache().slice(0, range).slice().reverse();
+            if (cache.length === 0) return;
+            const labels = cache.map(d => d.round);
+            const counts = cache.map(d => d.compositeCount);
+            const ma = [], up = [], lo = [];
+            for (let i = 0; i < counts.length; i++) {
+                const s = Math.max(0, i - win + 1);
+                const sl = counts.slice(s, i + 1);
+                const m = sl.reduce((a, b) => a + b, 0) / sl.length;
+                const v = sl.reduce((a, b) => a + (b - m) ** 2, 0) / sl.length;
+                ma.push(m); up.push(m + Math.sqrt(v)); lo.push(m - Math.sqrt(v));
+            }
+            const expected = 30 * 6 / 45; // 4.0
+            if (cnMaInst) cnMaInst.destroy();
+            cnMaInst = new Chart(canvas.getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels, datasets: [
+                        { label: '합성수 카운트', data: counts, borderColor: 'rgba(15,23,42,0.35)', borderWidth: 1, pointRadius: 0, fill: false, tension: 0.25 },
+                        { label: `이동평균 ${win}회`, data: ma, borderColor: CN_ACCENT, borderWidth: 2, pointRadius: 0, fill: false, tension: 0.25 },
+                        { label: '±1σ', data: up, borderColor: 'rgba(59,130,246,0.25)', borderWidth: 1, pointRadius: 0, borderDash: [3, 3], fill: '+1', backgroundColor: CN_ACCENT_LIGHT },
+                        { label: ' ', data: lo, borderColor: 'rgba(59,130,246,0.25)', borderWidth: 1, pointRadius: 0, borderDash: [3, 3], fill: false },
+                        { label: '평균 4.0', data: Array(counts.length).fill(expected), borderColor: 'rgba(15,23,42,0.35)', borderDash: [4, 4], borderWidth: 1, pointRadius: 0, fill: false }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top', align: 'end', labels: { boxWidth: 6, font: { size: 11, family: 'Pretendard' }, color: CN_INK_2 } } },
+                    scales: {
+                        y: { min: 0, max: 6, grid: { color: CN_GRID, drawBorder: false }, ticks: { color: CN_INK_3, font: { size: 11 }, stepSize: 1 } },
+                        x: { grid: { display: false }, ticks: { color: CN_INK_3, font: { size: 11 }, display: range < 80, autoSkip: true, maxRotation: 0 } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+        }
+
+        // ─── §1-B. 카운트 캘린더 v2 — 10회차 그룹 + 카운트 숫자 표시 ───
+        function renderCnCalendar() {
+            const c = document.getElementById('cnCalendar');
+            if (!c) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getCnCache().slice(0, range);
+            if (cache.length === 0) { c.innerHTML = ''; return; }
+
+            const chrono = cache.slice().reverse();
+            const latestRound = cache[0].round;
+            const oldestRound = chrono[0].round;
+            const counts = chrono.map(d => d.compositeCount);
+            const total = counts.length;
+            const obs0 = counts.filter(x => x === 0).length;
+            const max = Math.max(...counts);
+            const mean = counts.reduce((a, b) => a + b, 0) / total;
+            const obs6 = counts.filter(x => x === 6).length;
+
+            function cellClass(cnt) {
+                if (cnt === 0) return 'cnt-0';
+                if (cnt === 1) return 'cnt-1';
+                if (cnt === 2) return 'cnt-2';
+                if (cnt === 3) return 'cnt-3';
+                if (cnt === 4) return 'cnt-4';
+                if (cnt === 5) return 'cnt-5';
+                return 'cnt-6';
+            }
+
+            const groups = new Map();
+            chrono.forEach(d => {
+                const groupStart = Math.floor(d.round / 10) * 10;
+                if (!groups.has(groupStart)) groups.set(groupStart, []);
+                groups.get(groupStart).push(d);
+            });
+
+            let html = `<div class="cn-cal-stats">
+                <span><span class="text-gray-400">분석 범위</span> <strong>${oldestRound} ~ ${latestRound}회</strong> <span class="text-gray-400">(${total}회)</span></span>
+                <span><span class="text-gray-400">평균</span> <strong>${mean.toFixed(2)}</strong></span>
+                <span><span class="text-gray-400">최대</span> <strong>${max}개</strong></span>
+                <span><span class="text-gray-400">희소(0~1)</span> <strong>${counts.filter(x=>x<=1).length}회</strong></span>
+                <span><span class="text-gray-400">포화(6)</span> <strong>${obs6}회</strong></span>
+            </div><div>`;
+
+            const sortedKeys = Array.from(groups.keys()).sort((a, b) => a - b);
+            sortedKeys.forEach(start => {
+                const draws = groups.get(start);
+                const drawByRound = new Map(draws.map(d => [d.round, d]));
+                const groupMean = draws.reduce((a, d) => a + d.compositeCount, 0) / draws.length;
+                html += `<div class="cn-cal-row">
+                    <div class="cn-cal-label">
+                        <strong>${start}~</strong>
+                        <span class="meta">평균 ${groupMean.toFixed(1)}</span>
+                    </div>
+                    <div class="cn-cal-cells">`;
+                for (let i = 0; i < 10; i++) {
+                    const round = start + i;
+                    const d = drawByRound.get(round);
+                    if (!d) {
+                        html += `<div class="cn-cal-empty"></div>`;
+                    } else {
+                        const isLatest = round === latestRound ? ' is-latest' : '';
+                        const sortedNums = [...d.nums].sort((a, b) => a - b);
+                        const compOnly = sortedNums.filter(n => composites.has(n));
+                        const tooltip = `${round}회 · 합성수 ${d.compositeCount}개\n전체: ${sortedNums.join(', ')}\n합성수: ${compOnly.length > 0 ? compOnly.join(', ') : '없음'}`;
+                        html += `<div class="cn-cal-cell ${cellClass(d.compositeCount)}${isLatest}" title="${tooltip}">${d.compositeCount}</div>`;
+                    }
+                }
+                html += `</div></div>`;
+            });
+            html += `</div>`;
+
+            const legendData = [
+                { cnt: 0, cls: 'cnt-0', label: '0 (드뭄)' },
+                { cnt: 1, cls: 'cnt-1', label: '1' },
+                { cnt: 2, cls: 'cnt-2', label: '2' },
+                { cnt: 3, cls: 'cnt-3', label: '3' },
+                { cnt: 4, cls: 'cnt-4', label: '4 (평균)' },
+                { cnt: 5, cls: 'cnt-5', label: '5' },
+                { cnt: 6, cls: 'cnt-6', label: '6' }
+            ];
+            html += `<div class="cn-cal-legend">
+                <span class="text-gray-500 mr-1">합성수 개수:</span>
+                ${legendData.map(L => `<span class="legend-cell ${L.cls}" title="${L.label}">${L.cnt}</span>`).join('')}
+                <span class="ml-3 flex items-center gap-1.5">
+                    <span style="display:inline-block;width:16px;height:16px;border:2px solid #0F172A;border-radius:3px"></span>
+                    <span>최신</span>
+                </span>
+            </div>`;
+
+            c.innerHTML = html;
+        }
+
+        // ─── §2. 카운트 분포 (이항 vs 관측) ───
+        let cnCountDistInst = null;
+        function renderCnCountDist() {
+            const canvas = document.getElementById('cnCountDist');
+            if (!canvas) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getCnCache().slice(0, range);
+            const obs = [0, 0, 0, 0, 0, 0, 0];
+            cache.forEach(d => { if (d.compositeCount >= 0 && d.compositeCount <= 6) obs[d.compositeCount]++; });
+            const N = cache.length || 1;
+            const p = 30 / 45;
+            const C = [1, 6, 15, 20, 15, 6, 1];
+            const exp = [0, 1, 2, 3, 4, 5, 6].map(k => C[k] * Math.pow(p, k) * Math.pow(1 - p, 6 - k) * N);
+            if (cnCountDistInst) cnCountDistInst.destroy();
+            cnCountDistInst = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: ['0', '1', '2', '3', '4', '5', '6'],
+                    datasets: [
+                        { label: '관측', data: obs, backgroundColor: CN_GREEN, borderRadius: 4 },
+                        { label: '이론(이항)', data: exp.map(v => +v.toFixed(2)), type: 'line', borderColor: 'rgba(15,23,42,0.5)', borderDash: [4, 4], borderWidth: 1.5, pointRadius: 3, pointBackgroundColor: 'rgba(15,23,42,0.5)', fill: false }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top', align: 'end', labels: { boxWidth: 6, font: { size: 11, family: 'Pretendard' }, color: CN_INK_2 } } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: CN_GRID, drawBorder: false }, ticks: { color: CN_INK_3, font: { size: 11 } } },
+                        x: { grid: { display: false }, ticks: { color: CN_INK_2, font: { size: 11 } }, title: { display: true, text: '합성수 개수', color: CN_INK_3, font: { size: 11 } } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+            const obsMean = obs.reduce((a, b, i) => a + b * i, 0) / N;
+            const expMean = exp.reduce((a, b, i) => a + b * i, 0) / N;
+            const stats = document.getElementById('cnCountDistStats');
+            if (stats) stats.innerHTML = `<span class="text-gray-400">관측 평균</span> <strong class="text-gray-900">${obsMean.toFixed(2)}</strong> &nbsp;·&nbsp; <span class="text-gray-400">이론 평균</span> <strong class="text-gray-900">${expMean.toFixed(2)}</strong> &nbsp;·&nbsp; <span class="text-gray-400">최빈</span> <strong class="text-gray-900">${obs.indexOf(Math.max(...obs))}개 (${Math.max(...obs)}회)</strong>`;
+        }
+
+        // ─── §3. 소수·합성수·1 분류 비율 ───
+        let cnClassRatioInst = null;
+        function renderCnClassRatio() {
+            const canvas = document.getElementById('cnClassRatioChart');
+            if (!canvas) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getCnCache().slice(0, range);
+            const total = cache.length || 1;
+            const sums = cache.reduce((a, d) => {
+                a.prime += d.primeCount;
+                a.composite += d.compositeCount;
+                a.one += d.oneCount;
+                return a;
+            }, { prime: 0, composite: 0, one: 0 });
+            const obsAvg = { prime: sums.prime / total, composite: sums.composite / total, one: sums.one / total };
+            const expAvg = { prime: 14 * 6 / 45, composite: 30 * 6 / 45, one: 1 * 6 / 45 };
+            if (cnClassRatioInst) cnClassRatioInst.destroy();
+            cnClassRatioInst = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: ['소수(14개)', '합성수(30개)', '1'],
+                    datasets: [
+                        { label: '관측 평균/회', data: [obsAvg.prime, obsAvg.composite, obsAvg.one].map(v => +v.toFixed(2)), backgroundColor: [CN_PRIME_C, CN_GREEN, '#94A3B8'], borderRadius: 4 },
+                        { label: '이론 평균/회', data: [expAvg.prime, expAvg.composite, expAvg.one].map(v => +v.toFixed(2)), type: 'line', borderColor: 'rgba(15,23,42,0.5)', borderDash: [4, 4], borderWidth: 1.5, pointRadius: 4, pointBackgroundColor: 'rgba(15,23,42,0.5)', fill: false }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top', align: 'end', labels: { boxWidth: 6, font: { size: 11, family: 'Pretendard' }, color: CN_INK_2 } } },
+                    scales: {
+                        y: { beginAtZero: true, max: 6, grid: { color: CN_GRID, drawBorder: false }, ticks: { color: CN_INK_3, font: { size: 11 } } },
+                        x: { grid: { display: false }, ticks: { color: CN_INK_2, font: { size: 11 } } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+            const stats = document.getElementById('cnClassRatioStats');
+            if (stats) stats.innerHTML = `<span class="text-gray-400">관측 합계</span> <strong class="text-gray-900">${(obsAvg.prime + obsAvg.composite + obsAvg.one).toFixed(2)}</strong>/6 &nbsp;·&nbsp; <span class="text-gray-400">합성수↔소수 비율</span> <strong class="text-gray-900">${(obsAvg.composite / Math.max(0.001, obsAvg.prime)).toFixed(3)}</strong> <span class="text-gray-400">(이론 ${(expAvg.composite / expAvg.prime).toFixed(3)})</span>`;
+        }
+
+        // ─── §4. 합성수 30개 배수별 sub-class 분석 ───
+        let cnSubclassInst = null;
+        function renderCnSubclass() {
+            const canvas = document.getElementById('cnSubclassChart');
+            const stats = document.getElementById('cnSubclassStats');
+            if (!canvas) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getCnCache().slice(0, range);
+            const total = cache.length || 1;
+            const obsAvg = {}, expAvg = {};
+            CN_SUBCLASS_KEYS.forEach(k => {
+                obsAvg[k] = cache.reduce((a, d) => a + d.subCounts[k], 0) / total;
+                expAvg[k] = CN_SUBCLASS[k].members.length * 6 / 45;
+            });
+            const labels = CN_SUBCLASS_KEYS.map(k => `${CN_SUBCLASS[k].label}(${CN_SUBCLASS[k].members.length})`);
+            const obsArr = CN_SUBCLASS_KEYS.map(k => +obsAvg[k].toFixed(2));
+            const expArr = CN_SUBCLASS_KEYS.map(k => +expAvg[k].toFixed(2));
+            const colors = CN_SUBCLASS_KEYS.map(k => CN_SUBCLASS[k].color);
+            if (cnSubclassInst) cnSubclassInst.destroy();
+            cnSubclassInst = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels, datasets: [
+                        { label: '관측 평균/회', data: obsArr, backgroundColor: colors, borderRadius: 4 },
+                        { label: '이론 평균/회', data: expArr, type: 'line', borderColor: 'rgba(15,23,42,0.5)', borderDash: [4, 4], borderWidth: 1.5, pointRadius: 4, pointBackgroundColor: 'rgba(15,23,42,0.5)', fill: false }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top', align: 'end', labels: { boxWidth: 6, font: { size: 11, family: 'Pretendard' }, color: CN_INK_2 } } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: CN_GRID, drawBorder: false }, ticks: { color: CN_INK_3, font: { size: 11 } } },
+                        x: { grid: { display: false }, ticks: { color: CN_INK_2, font: { size: 10 } } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+            if (stats) {
+                stats.innerHTML = CN_SUBCLASS_KEYS.map(k => {
+                    const ratio = expAvg[k] > 0 ? (obsAvg[k] / expAvg[k]) : 0;
+                    const color = ratio > 1.1 ? 'text-red-600' : ratio < 0.9 ? 'text-blue-600' : 'text-gray-900';
+                    return `<div class="text-center p-2 bg-gray-50 rounded-lg">
+                        <div class="text-[10px] text-gray-400 uppercase tracking-wider">${CN_SUBCLASS[k].label}</div>
+                        <div class="text-lg font-bold ${color} mt-1">${obsAvg[k].toFixed(2)}</div>
+                        <div class="text-[10px] text-gray-500">기대 ${expAvg[k].toFixed(2)} · ${ratio.toFixed(2)}×</div>
+                    </div>`;
+                }).join('');
+            }
+        }
+
+        // ─── §5. sub-class별 핫·콜드 5컬럼 ───
+        function renderCnHotcoldGrid() {
+            const grid = document.getElementById('cnHotcoldGrid');
+            if (!grid) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getCnCache().slice(0, range);
+            if (cache.length === 0) return;
+            const latestRound = cache[0].round;
+            const recent5 = cache.slice(0, 5);
+            const recent30 = cache.slice(0, Math.min(30, cache.length));
+
+            function getStatus(num) {
+                let lastRound = null, appearances = 0;
+                cache.forEach(d => {
+                    if (d.numSet.has(num)) {
+                        appearances++;
+                        if (lastRound === null) lastRound = d.round;
+                    }
+                });
+                const currentGap = lastRound !== null ? latestRound - lastRound : range;
+                const r5 = recent5.filter(d => d.numSet.has(num)).length;
+                const r30 = recent30.filter(d => d.numSet.has(num)).length;
+                let label, cls;
+                if (r5 >= 2) { label = '🔥'; cls = 'cn-pill cn-pill-hot'; }
+                else if (r30 === 0) { label = '🧊'; cls = 'cn-pill cn-pill-cold'; }
+                else if (r5 === 1) { label = '온'; cls = 'cn-pill cn-pill-warm'; }
+                else { label = '평'; cls = 'cn-pill cn-pill-norm'; }
+                return { num, currentGap, label, cls };
+            }
+
+            grid.innerHTML = CN_SUBCLASS_KEYS.map(k => {
+                const sub = CN_SUBCLASS[k];
+                const items = sub.members.map(getStatus).sort((a, b) => b.currentGap - a.currentGap);
+                const colorBar = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${sub.color};margin-right:6px"></span>`;
+                return `<div class="cn-subclass-col">
+                    <h4>${colorBar}${sub.label} <span class="meta">${sub.members.length}개</span></h4>
+                    <div class="space-y-1.5">
+                        ${items.map(it => `
+                            <div class="cn-num-card">
+                                <span class="num">${it.num}</span>
+                                <div class="flex items-center gap-2">
+                                    <span class="gap">${it.currentGap}회</span>
+                                    <span class="${it.cls}">${it.label}</span>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        // ─── §6-A. 짝/홀 합성수 ───
+        function renderCnEvenOdd() {
+            const tbody = document.getElementById('cnEvenOddBody');
+            if (!tbody) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getCnCache().slice(0, range);
+            const total = cache.length || 1;
+            const evenSum = cache.reduce((a, d) => a + d.evenCompCount, 0);
+            const oddSum = cache.reduce((a, d) => a + d.oddCompCount, 0);
+            const evenAvg = evenSum / total;
+            const oddAvg = oddSum / total;
+            const evenExp = CN_EVEN_COMPOSITES.length * 6 / 45;
+            const oddExp = CN_ODD_COMPOSITES.length * 6 / 45;
+            tbody.innerHTML = `
+                <tr>
+                    <td class="font-bold text-gray-900">짝 합성수</td>
+                    <td class="text-right text-gray-600">21</td>
+                    <td class="text-right text-gray-900 font-semibold">${evenAvg.toFixed(2)}</td>
+                    <td class="text-right text-gray-500">${evenExp.toFixed(2)}</td>
+                    <td class="text-right text-gray-900 font-semibold">${(evenAvg / 21).toFixed(3)}</td>
+                </tr>
+                <tr>
+                    <td class="font-bold text-gray-900">홀 합성수</td>
+                    <td class="text-right text-gray-600">9</td>
+                    <td class="text-right text-gray-900 font-semibold">${oddAvg.toFixed(2)}</td>
+                    <td class="text-right text-gray-500">${oddExp.toFixed(2)}</td>
+                    <td class="text-right text-gray-900 font-semibold">${(oddAvg / 9).toFixed(3)}</td>
+                </tr>
+            `;
+            // 우측 패널의 "6·28 동시 출현" 라인과 높이 맞추기 위한 통계 note
+            const note = document.getElementById('cnEvenOddNote');
+            if (note) {
+                const ratio = oddAvg > 0 ? (evenAvg / oddAvg).toFixed(2) : '—';
+                const expRatio = (evenExp / oddExp).toFixed(2);
+                note.innerHTML = `<span class="text-gray-400">짝:홀 출현 비율</span> <strong class="text-gray-900">${ratio}:1</strong> <span class="text-gray-400">(이론 ${expRatio}:1)</span> &nbsp;·&nbsp; <span class="text-gray-400">홀이 단위 풀당 출현률</span> <strong class="text-gray-900">${(oddAvg / 9 / (evenAvg / 21 || 1) * 100).toFixed(1)}%</strong>`;
+            }
+        }
+
+        // ─── §6-B. 완전수 6 · 28 동반 출현 ───
+        function renderCnPerfect() {
+            const tbody = document.getElementById('cnPerfectBody');
+            const both = document.getElementById('cnPerfectBoth');
+            if (!tbody) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getCnCache().slice(0, range);
+            if (cache.length === 0) return;
+            const latestRound = cache[0].round;
+            const expected = cache.length * 6 / 45;
+            const recent5 = cache.slice(0, 5);
+            const recent30 = cache.slice(0, Math.min(30, cache.length));
+            const rows = CN_PERFECT.map(num => {
+                let cnt = 0, lastRound = null;
+                cache.forEach(d => {
+                    if (d.numSet.has(num)) {
+                        cnt++;
+                        if (lastRound === null) lastRound = d.round;
+                    }
+                });
+                const currentGap = lastRound !== null ? latestRound - lastRound : range;
+                const r5 = recent5.filter(d => d.numSet.has(num)).length;
+                const r30 = recent30.filter(d => d.numSet.has(num)).length;
+                let label, cls;
+                if (r5 >= 2) { label = '🔥 핫'; cls = 'cn-pill cn-pill-hot'; }
+                else if (r30 === 0) { label = '🧊 콜드'; cls = 'cn-pill cn-pill-cold'; }
+                else if (r5 === 1) { label = '온화'; cls = 'cn-pill cn-pill-warm'; }
+                else { label = '평이'; cls = 'cn-pill cn-pill-norm'; }
+                return { num, cnt, currentGap, label, cls };
+            });
+            tbody.innerHTML = rows.map(r => `<tr>
+                <td class="font-bold text-gray-900">${r.num}</td>
+                <td class="text-right text-gray-900 font-semibold">${r.cnt}회</td>
+                <td class="text-right text-gray-500">${expected.toFixed(1)}</td>
+                <td class="text-right text-gray-900 font-semibold">${r.currentGap}회</td>
+                <td class="text-right"><span class="${r.cls}">${r.label}</span></td>
+            </tr>`).join('');
+            // 6·28 동반 출현
+            let bothCount = 0, bothLast = null;
+            cache.forEach(d => {
+                if (d.numSet.has(6) && d.numSet.has(28)) {
+                    bothCount++;
+                    if (bothLast === null) bothLast = d.round;
+                }
+            });
+            const bothExp = cache.length * (6 / 45) * (5 / 44);
+            if (both) {
+                both.innerHTML = `<span class="text-gray-400">6·28 동시 출현</span> <strong class="text-gray-900">${bothCount}회</strong> <span class="text-gray-400">(기대 ${bothExp.toFixed(1)})</span> &nbsp;·&nbsp; <span class="text-gray-400">마지막 동반</span> <strong class="text-gray-900">${bothLast !== null ? bothLast + '회' : '없음'}</strong>`;
+            }
+        }
+
+        // ─── §7-A. ΔCount 분포 ───
+        let cnDeltaInst = null;
+        function renderCnDelta() {
+            const canvas = document.getElementById('cnDeltaChart');
+            if (!canvas) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getCnCache().slice(0, range);
+            if (cache.length < 2) return;
+            // round DESC: cache[0]이 최신, cache[i]와 cache[i+1] 비교 (최신-직전)
+            const deltas = [];
+            for (let i = 0; i < cache.length - 1; i++) {
+                deltas.push(cache[i].compositeCount - cache[i + 1].compositeCount);
+            }
+            // Bin -6 ~ +6
+            const bins = {};
+            for (let k = -6; k <= 6; k++) bins[k] = 0;
+            deltas.forEach(d => { if (bins[d] !== undefined) bins[d]++; });
+            const labels = Object.keys(bins).map(k => (parseInt(k) >= 0 ? '+' : '') + k);
+            const data = Object.values(bins);
+            const colors = Object.keys(bins).map(k => parseInt(k) === 0 ? '#94A3B8' : (parseInt(k) > 0 ? '#EF4444' : '#3B82F6'));
+            if (cnDeltaInst) cnDeltaInst.destroy();
+            cnDeltaInst = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: { labels, datasets: [{ label: '회차 수', data, backgroundColor: colors, borderRadius: 4 }] },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: CN_GRID, drawBorder: false }, ticks: { color: CN_INK_3, font: { size: 11 } } },
+                        x: { grid: { display: false }, ticks: { color: CN_INK_2, font: { size: 10 } }, title: { display: true, text: 'Δ 합성수 카운트', color: CN_INK_3, font: { size: 11 } } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+        }
+
+        // ─── §7-B. 카운트 streak 분포 ───
+        let cnStreakInst = null;
+        function renderCnStreak() {
+            const canvas = document.getElementById('cnStreakChart');
+            const stats = document.getElementById('cnStreakStats');
+            if (!canvas) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getCnCache().slice(0, range).slice().reverse(); // chronological
+            if (cache.length === 0) return;
+            const streaks = [];
+            let cur = 1;
+            for (let i = 1; i < cache.length; i++) {
+                if (cache[i].compositeCount === cache[i - 1].compositeCount) cur++;
+                else { streaks.push(cur); cur = 1; }
+            }
+            streaks.push(cur);
+            const maxLen = Math.min(8, Math.max(...streaks));
+            const labels = [], values = [];
+            for (let len = 1; len <= maxLen; len++) {
+                labels.push(`${len}회`);
+                values.push(streaks.filter(s => s === len).length);
+            }
+            const above = streaks.filter(s => s > maxLen).length;
+            if (above > 0) { labels.push(`${maxLen}+`); values.push(above); }
+            if (cnStreakInst) cnStreakInst.destroy();
+            cnStreakInst = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: { labels, datasets: [{ label: '발생 횟수', data: values, backgroundColor: CN_GREEN, borderRadius: 4 }] },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: CN_GRID, drawBorder: false }, ticks: { color: CN_INK_3, font: { size: 11 } } },
+                        x: { grid: { display: false }, ticks: { color: CN_INK_2, font: { size: 11 } }, title: { display: true, text: 'streak 길이', color: CN_INK_3, font: { size: 11 } } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+            const meanStreak = streaks.reduce((a, b) => a + b, 0) / streaks.length;
+            const maxStreak = Math.max(...streaks);
+            if (stats) stats.innerHTML = `<span class="text-gray-400">평균 streak</span> <strong class="text-gray-900">${meanStreak.toFixed(2)}</strong> &nbsp;·&nbsp; <span class="text-gray-400">최대 streak</span> <strong class="text-gray-900">${maxStreak}회</strong> &nbsp;·&nbsp; <span class="text-gray-400">총 streak 수</span> <strong class="text-gray-900">${streaks.length}</strong>`;
         }
 
     </script>

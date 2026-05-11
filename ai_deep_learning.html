@@ -4,6 +4,9 @@
 <head>
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <title>AI 딥러닝 분석 · Lotto Lab</title>
     <link rel="icon" href="data:,">
 
@@ -712,6 +715,26 @@
             </div>
         </header>
 
+        <!-- [fix-343] 데이터 무결성 진단 패널 — 6개 핵심 테이블 적재 상태 -->
+        <section id="dataIntegrityPanel" class="mt-3 mb-2" style="display:none">
+            <div class="rounded-xl border bg-white shadow-sm overflow-hidden" style="border-color:#E5E7EB">
+                <button onclick="DeepLearning.toggleIntegrityPanel()"
+                        class="w-full px-4 py-2 flex items-center gap-2 cursor-pointer transition-colors"
+                        style="background:#FAFAFA;border:0;text-align:left;font-family:inherit"
+                        onmouseover="this.style.background='#F3F4F6'"
+                        onmouseout="this.style.background='#FAFAFA'">
+                    <span class="material-symbols-outlined" style="font-size:16px;color:#6366F1">database</span>
+                    <span class="text-[12px] font-bold text-slate-700">데이터 무결성 진단</span>
+                    <span id="integrityBadge" class="text-[10px] font-bold ml-2"></span>
+                    <span class="ml-auto material-symbols-outlined text-slate-400" style="font-size:14px" id="integrityChevron">expand_more</span>
+                </button>
+                <div id="integrityDetails" style="display:none;padding:8px 16px 12px;border-top:1px solid #F3F4F6">
+                    <div class="grid grid-cols-2 md:grid-cols-3 gap-2" id="integrityGrid"></div>
+                    <div class="mt-3 text-[10px] text-slate-500 leading-relaxed" id="integrityNote"></div>
+                </div>
+            </div>
+        </section>
+
         <!-- ══ 탭 navigation (미니멀 텍스트 + 2px 언더라인) ══ -->
         <nav role="tablist" aria-label="딥러닝 분석 탭" class="dl-tabs shrink-0" style="margin-top: 4px;">
             <button role="tab" id="btn-status"
@@ -719,7 +742,7 @@
                 class="dl-tab connected-tab">상태 분석</button>
             <button role="tab" id="btn-summary"
                 onclick="window.DeepLearning && window.DeepLearning.switchTab('summary')"
-                class="dl-tab connected-tab connected-tab-active active">번호 분석</button>
+                class="dl-tab connected-tab connected-tab-active">번호 분석</button>
             <button role="tab" id="btn-filters"
                 onclick="window.DeepLearning && window.DeepLearning.switchTab('filters')"
                 class="dl-tab connected-tab">기초 분석</button>
@@ -988,12 +1011,32 @@
                 <section class="dl-section">
                     <div class="dl-section-head">
                         <div>
-                            <div class="dl-section-eyebrow">Per-model · top 10</div>
+                            <div class="dl-section-eyebrow">Per-model · top 10 by slice</div>
                             <h2 class="dl-section-title">모델별 Top 10 번호</h2>
-                            <p class="dl-section-desc">각 base 모델의 상위 10개 번호를 개별적으로 표시합니다.</p>
+                            <p class="dl-section-desc">5개 구간 중 선택. 각 모델의 해당 구간 10개 번호를 표시.</p>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                            <span class="dl-header-meta" style="margin-right:6px;">구간</span>
+                            <button id="model-slice-btn-0" onclick="DeepLearning.setModelSlice(0)" class="dl-badge accent">10구간</button>
+                            <button id="model-slice-btn-1" onclick="DeepLearning.setModelSlice(1)" class="dl-badge">20구간</button>
+                            <button id="model-slice-btn-2" onclick="DeepLearning.setModelSlice(2)" class="dl-badge">30구간</button>
+                            <button id="model-slice-btn-3" onclick="DeepLearning.setModelSlice(3)" class="dl-badge">40구간</button>
+                            <button id="model-slice-btn-4" onclick="DeepLearning.setModelSlice(4)" class="dl-badge">45구간</button>
                         </div>
                     </div>
                     <div id="modelDetailContainer"></div>
+                </section>
+
+                <!-- 앙상블 신뢰구간 — 1~45 번호별 모델 합의 분포 -->
+                <section class="dl-section">
+                    <div class="dl-section-head">
+                        <div>
+                            <div class="dl-section-eyebrow">Ensemble · confidence interval</div>
+                            <h2 class="dl-section-title">앙상블 신뢰구간</h2>
+                            <p class="dl-section-desc">10 모델 합의 평균 ± 1σ — 진한 선=앙상블 최종값, 음영=모델 간 분산 구간.</p>
+                        </div>
+                    </div>
+                    <div id="chartEnsembleCI" class="dl-chart"></div>
                 </section>
 
             </div>
@@ -1006,28 +1049,26 @@
                         <div>
                             <div class="dl-section-eyebrow">4 Pillar · combos</div>
                             <h2 class="dl-section-title">AI 추천 조합</h2>
-                            <p class="dl-section-desc">4 Pillar 합의 + Hard Filter 3계층 + 21지표 통과율 기반 6개 조합. 번호 클릭 시 narrative가 펼쳐집니다.</p>
+                            <p class="dl-section-desc">추천수 1개 + 제외수 1-2개(필수) + 중간풀 3-4개 (모델 5개↑ 동의) · AC값 8-9 필터.</p>
                         </div>
                         <div style="display:flex; align-items:center; gap:14px; font-size:0.78rem; color: var(--dl-text-mid);">
-                            <span><span class="dl-dot" style="background: var(--dl-warning);"></span>앙상블 Top 포함</span>
+                            <span><span class="dl-dot" style="background: var(--dl-warning);"></span>Top5 추천</span>
                             <span><span class="dl-dot" style="background: var(--dl-text);"></span>모델 동의</span>
+                            <span><span class="dl-dot" style="background:#EF4444;"></span>제외수</span>
                         </div>
                     </div>
+                    <!-- AI 제외수 배너 (renderCombinations에서 동적 렌더) -->
+                    <div id="comboExcludeSection" style="margin-bottom:14px;"></div>
+
                     <div id="combos" style="display:flex; flex-direction:column; gap: 10px;"></div>
+
+                    <!-- 합집합 섹션 (renderCombinations에서 동적 렌더) -->
+                    <div id="comboUnionSection" style="margin-top:4px;"></div>
+                    <div id="modelRankPerfPanel"></div>
+
                     <div id="aiReportContainer" style="display:none; margin-top: 24px;"></div>
                 </section>
 
-                <!-- [fix-87] 앙상블 신뢰구간 — 1~45 번호 분포 (tab-filters에서 이동) -->
-                <section class="dl-section">
-                    <div class="dl-section-head">
-                        <div>
-                            <div class="dl-section-eyebrow">Ensemble · confidence interval</div>
-                            <h2 class="dl-section-title">앙상블 신뢰구간</h2>
-                            <p class="dl-section-desc">10 모델 합의 평균 ± 1σ 영역을 1~45 번호별로 표시합니다.</p>
-                        </div>
-                    </div>
-                    <div id="chartEnsembleCI" class="dl-chart"></div>
-                </section>
             </div>
 
             <!-- ─── 3. #tab-filters · 기초 분석 (21 IndicatorCard) ─── -->
@@ -1184,15 +1225,30 @@
             <!-- ─── 4. #tab-regression · 회귀 분석 (4 Tier) ─── -->
             <div id="tab-regression" class="content-grid hidden dl-fade-in">
 
-                <!-- Tier 1 — 활성 N sparkline -->
+                <!-- Tier 1 — 활성 N 분포 -->
                 <section class="dl-section">
-                    <div class="dl-section-head">
-                        <div>
-                            <div class="dl-section-eyebrow">Tier 1 · active N sparkline</div>
+                    <div class="dl-section-head" style="margin-bottom:14px;">
+                        <div style="flex:1; min-width:0;">
+                            <div class="dl-section-eyebrow">Tier 1 · Active N Distribution</div>
                             <h2 class="dl-section-title">활성 회귀 분포</h2>
-                            <p class="dl-section-desc">2~200 회귀 중 활성 N(16~30)개의 분포 sparkline.</p>
+                            <p class="dl-section-desc" style="margin-top:4px;">N회 주기 반복 압력 — 막대 높이=강도 · 파란≥활성 / 연파란=약활성 / 회색=비활성.</p>
                         </div>
-                        <div id="sparkActiveN" class="dl-spark" style="width: 220px;"></div>
+                    </div>
+
+                    <!-- 통계 배지 -->
+                    <div id="t1StatBadges" class="flex gap-2 flex-wrap" style="margin-bottom:12px;"></div>
+
+                    <!-- 차트 -->
+                    <div id="sparkActiveN" style="width:100%; height:130px; min-width:0;"></div>
+
+                    <!-- 구간 레이블 + 범례 한 줄 -->
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px; font-size:10px; color:#94A3B8; flex-wrap:wrap; gap:8px;">
+                        <span>← 단기(2~10) &nbsp;·&nbsp; 중기(11~50) &nbsp;·&nbsp; 장기(51+) →</span>
+                        <span style="display:flex; gap:12px;">
+                            <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:#3B82F6;display:inline-block;"></span>활성≥1.0</span>
+                            <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:#93C5FD;display:inline-block;"></span>약활성</span>
+                            <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:#CBD5E1;display:inline-block;"></span>비활성</span>
+                        </span>
                     </div>
                 </section>
 
@@ -1202,26 +1258,27 @@
                         <div>
                             <div class="dl-section-eyebrow">Tier 2 · compressed variables</div>
                             <h2 class="dl-section-title">압축 변수 매트릭스</h2>
-                            <p class="dl-section-desc">45 번호 × 8 변수 압축 매트릭스.</p>
+                            <p class="dl-section-desc">번호(1~45) × 모델(8) 교차 점수 — 진할수록 해당 모델이 그 번호를 강하게 선호.</p>
                         </div>
                     </div>
-                    <div id="chartTier2Compressed" class="dl-chart"></div>
+                    <div id="chartTier2Compressed" class="dl-chart" style="min-width:0; overflow:hidden;"></div>
                 </section>
 
-                <!-- Tier 3 — heatmap (라인 / 끝수 / 번호대 × N) + 자동 룰 -->
+                <!-- Tier 3 — 라인/끝수/번호대 분포 + 자동 룰 -->
                 <section class="dl-section">
                     <div class="dl-section-head">
                         <div>
-                            <div class="dl-section-eyebrow">Tier 3 · heatmap × auto rule</div>
-                            <h2 class="dl-section-title">라인 · 끝수 · 번호대 회귀 heatmap</h2>
-                            <p class="dl-section-desc">자동 룰 1 (회귀 4연번) · 룰 2 (1회귀 4연번) · 룰 3 (데드 라인) 트리거 알림 포함.</p>
+                            <div class="dl-section-eyebrow">Tier 3 · distribution × auto rule</div>
+                            <h2 class="dl-section-title">라인 · 끝수 · 번호대 분포</h2>
+                            <p class="dl-section-desc">회귀 압력이 집중된 구역 — 진한 막대=핫존 · 우측 룰 1~3 발동·정합률 포함.</p>
                         </div>
                     </div>
                     <div class="dl-grid-2">
-                        <div id="chartTier3Heatmap" class="dl-chart dl-chart-tall"></div>
+                        <div id="chartTier3Heatmap" class="dl-chart" style="min-height:330px;"></div>
                         <div>
                             <h3 class="dl-section-title" style="font-size: 1rem;">자동 룰 트리거</h3>
-                            <table class="dl-table" style="margin-top: 14px;">
+                            <p style="font-size:11px;color:#94A3B8;margin:6px 0 14px;">회귀 대상번호 패턴에서 이상 구조 자동 감지 — 정합률은 최근 50회차 역산.</p>
+                            <table class="dl-table">
                                 <thead><tr><th>룰</th><th class="num">발동</th><th class="num">정합률</th></tr></thead>
                                 <tbody>
                                     <tr><td>룰 1 · 회귀 4연번</td><td class="num" id="rule1Trig">—</td><td class="num" id="rule1Hit">—</td></tr>
@@ -1229,6 +1286,13 @@
                                     <tr><td>룰 3 · 데드 라인</td><td class="num" id="rule3Trig">—</td><td class="num" id="rule3Hit">—</td></tr>
                                 </tbody>
                             </table>
+                            <div style="margin-top:16px;padding:12px;background:#F8FAFC;border-radius:8px;border:1px solid #E2E8F0;">
+                                <p style="font-size:10px;color:#64748B;line-height:1.6;margin:0;">
+                                    <b>룰 1</b> : 어떤 N회귀 대상번호 중 연속 4개 이상 연번 존재<br>
+                                    <b>룰 2</b> : 1회귀(2회마다 반복) 대상번호 중 4연번 존재<br>
+                                    <b>룰 3</b> : 전체 대상번호에 등장하지 않는 라인 수
+                                </p>
+                            </div>
                         </div>
                     </div>
                 </section>
@@ -1239,7 +1303,7 @@
                         <div>
                             <div class="dl-section-eyebrow">Tier 4 · meta pattern + MHN</div>
                             <h2 class="dl-section-title">메타 패턴 + MHN 유사 회차</h2>
-                            <p class="dl-section-desc">frequency ≥ 0.20, support ≥ 10 메타 패턴과 MHN top-K 유사 회차.</p>
+                            <p class="dl-section-desc">번호 쌍 공동출현 패턴 · 현재 타겟과 가장 유사한 과거 당첨번호 top-5 (오렌지 링=일치).</p>
                         </div>
                     </div>
                     <div class="dl-grid-2">
@@ -1371,10 +1435,12 @@
     <script src="js/config.js"></script>
     <script src="js/theme.js"></script>
     <script src="js/common_v2.js"></script>
+    <!-- [fix-341] simulator_evaluator: simulator_custom formula 동적 평가용 -->
+    <script src="js/simulator_evaluator.js?v=20260510b"></script>
 
     <!-- ══ Project Scripts ══ -->
     <script src="js/aiProxy.js?v=20260502c"></script>
-    <script src="js/ai_deep_learning.js?v=20260502c"></script>
+    <script src="js/ai_deep_learning.js?v=20260510d"></script>
     <script src="js/layout.js"></script>
 
     <script>

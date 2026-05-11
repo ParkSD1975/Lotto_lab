@@ -16,6 +16,9 @@
     let indepCountTimer = null;   // debounce 타이머: 마지막 COUNT_RESULT 후 INDEP_COUNT 예약
     let isIndepCounting = false;  // INDEP_COUNT 진행 중 여부
     let pendingIndepCount = false; // INDEP_COUNT 완료 후 재실행 필요 여부
+    // [fix-319] worker hang 방지 — 일정 시간 응답 없으면 isCounting 강제 reset 후 pending 재실행
+    let _countTimeoutId = null;
+    const COUNT_HANG_TIMEOUT_MS = 12000; // 12초 후에도 COUNT_RESULT 없으면 hang으로 간주
 
     // filter_dashboard.js의 updateNeonCounter()에서 직접 워커 트리거 가능하도록 전역 노출
     window.triggerFilterCount = function () {
@@ -25,6 +28,26 @@
     // 수동필터 뱃지 갱신 등 외부에서 CUMUL_BADGES 재실행 요청
     window.triggerIndepCount = function () {
         if (isWorkerReady && !isGenerating) scheduleIndepCount();
+    };
+
+    // [fix-319] 디버그 진단 — 사용자 환경에서 콘솔로 worker 상태 확인
+    window._counterDebug = function () {
+        return {
+            isWorkerReady, isCounting, isGenerating,
+            lastExactCount, hasPending: !!pendingFilters,
+            displayCount: document.getElementById('neonCounter')?.textContent?.trim()
+        };
+    };
+    // [fix-319] 강제 reset (긴급 stuck 해소)
+    window._counterForceReset = function () {
+        const wasStuck = isCounting;
+        isCounting = false;
+        if (_countTimeoutId) { clearTimeout(_countTimeoutId); _countTimeoutId = null; }
+        const pending = pendingFilters;
+        pendingFilters = null;
+        if (pending) sendToWorker(pending);
+        else if (isWorkerReady) triggerCount();
+        return { wasStuck, retriggered: true };
     };
 
     // ──────────────────────────────────────────────────
@@ -42,6 +65,7 @@
         'lotto_paper_pattern',
         // 배수: 개별 키
         'multiple_3_count', 'multiple_4_count', 'multiple_5_count',
+        'multiple_7_count', 'multiple_8_count',
         'multiple_3_4_count', 'multiple_3_5_count', 'multiple_4_5_count', 'no_multiple_count',
         'carryover_count',
         'neighbor_number_patterns', 'hot_cold_5', 'hot_cold_10', 'hot_cold_15', 'hot_cold_20',
@@ -49,19 +73,29 @@
     ];
 
     // 배지 업데이트: 각 필터 카드에 누적 카운트 표시
+    // [fix-266] 워커 결과 없는 Foundation 배지(비활성 필터)는 8,145,060개(전체 통과) 표시
+    //           → 사용자에게 21개 Foundation 카드 모두 일관된 카운트 노출
+    //           BADGE_FILTER_KEYS 전체를 순회하도록 변경 → renderUI() 후에도 fallback 동작
+    const TOTAL_LOTTO_COMBINATIONS = 8145060;
     function updateFilterCountBadges(badges) {
         window._lastCumulBadges = badges;
+        // 1) 워커 결과가 있는 키: 정확한 누적 카운트 + 활성 스타일
         for (const [filterKey, survivors] of Object.entries(badges)) {
             const el = document.getElementById(`indep-count-${filterKey}`);
             if (el) {
                 el.textContent = survivors.toLocaleString() + '개';
-                el.classList.remove('hidden', 'indep-loading');
+                el.classList.remove('hidden', 'indep-loading', 'indep-inactive');
             }
         }
-        // 결과 없는 로딩 배지는 숨김 (비활성 필터)
-        document.querySelectorAll('.indep-loading').forEach(function(el) {
-            el.classList.add('hidden');
-            el.classList.remove('indep-loading');
+        // 2) 결과 없는 BADGE_FILTER_KEYS Foundation 배지: 8,145,060개(전체 통과) + 회색 톤
+        BADGE_FILTER_KEYS.forEach(function(filterKey) {
+            if (badges[filterKey] !== undefined) return; // 이미 1)에서 처리됨
+            const el = document.getElementById('indep-count-' + filterKey);
+            if (el) {
+                el.textContent = TOTAL_LOTTO_COMBINATIONS.toLocaleString() + '개';
+                el.classList.remove('hidden', 'indep-loading');
+                el.classList.add('indep-inactive');
+            }
         });
     }
 
@@ -95,12 +129,14 @@
     }
 
     // CUMUL_BADGES 실제 전송 (누적 카운팅)
+    // 누적 카운팅: enabled 필터만 (COUNT와 동일한 필터셋)
+    // [fix-266] 비활성 Foundation 필터 배지는 DOM 레벨에서 "8,145,060개"(전체 통과)로 표시
+    //           → 워커 누적 체인엔 영향 없음 + 사용자에게 21개 Foundation 카드 카운트 노출
     function sendIndepCount() {
         indepCountTimer = null;
         if (!worker || !isWorkerReady || isGenerating) return;
         isIndepCounting = true;
         showLoadingBadges(); // 즉시 로딩 상태 표시
-        // 누적 카운팅: enabled 필터만 (COUNT와 동일한 필터셋)
         const filters = gatherActiveFilters(false);
         worker.postMessage({ type: 'CUMUL_BADGES', filters });
     }
@@ -163,6 +199,7 @@
                 showDiagnoseResult(data.result);
             } else if (data.type === 'COUNT_RESULT') {
                 isCounting = false;
+                if (_countTimeoutId) { clearTimeout(_countTimeoutId); _countTimeoutId = null; }  // [fix-319] hang timer 해제
                 lastExactCount = data.count; // 전수조사 정확한 값 저장
                 updateCounterUI(data.count);
                 if (pendingFilters) {
@@ -464,7 +501,8 @@
             const { entropy, ...rangeParts } = numRangeSet.ranges;
             filters.numberRangeFilter = {
                 ranges: rangeParts,
-                entropy: entropy || null
+                entropy: entropy || null,
+                excludedPatterns: numRangeSet.autoExcludeRecent5 ? (numRangeSet.excludedPatterns || []) : []
             };
         }
 
@@ -486,6 +524,8 @@
                 ['3배수',  'multiple_3_count'],
                 ['4배수',  'multiple_4_count'],
                 ['5배수',  'multiple_5_count'],
+                ['7배수',  'multiple_7_count'],
+                ['8배수',  'multiple_8_count'],
                 ['3·4배수','multiple_3_4_count'],
                 ['3·5배수','multiple_3_5_count'],
                 ['4·5배수','multiple_4_5_count'],
@@ -736,12 +776,31 @@
     // ──────────────────────────────────────────────────
     function sendToWorker(filters) {
         if (!isWorkerReady || isGenerating) return;
-        if (isCounting) { pendingFilters = filters; return; }
+        if (isCounting) {
+            pendingFilters = filters;
+            return;
+        }
 
         isCounting = true;
         const counterEl = document.getElementById('neonCounter');
         if (counterEl) counterEl.classList.add('opacity-50', 'animate-pulse');
         worker.postMessage({ type: 'COUNT', filters });
+
+        // [fix-319] worker hang 방지 — COUNT_HANG_TIMEOUT_MS 후에도 응답 없으면 강제 reset
+        if (_countTimeoutId) clearTimeout(_countTimeoutId);
+        _countTimeoutId = setTimeout(() => {
+            if (isCounting) {
+                console.warn(`[counter] worker hang detected (${COUNT_HANG_TIMEOUT_MS}ms timeout) — force reset + retrigger`);
+                isCounting = false;
+                if (counterEl) counterEl.classList.remove('opacity-50', 'animate-pulse');
+                if (pendingFilters) {
+                    const f = pendingFilters; pendingFilters = null;
+                    sendToWorker(f);
+                } else {
+                    sendToWorker(gatherActiveFilters());
+                }
+            }
+        }, COUNT_HANG_TIMEOUT_MS);
     }
 
     function triggerCount() {

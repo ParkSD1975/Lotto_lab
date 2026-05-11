@@ -31,6 +31,8 @@
 
     <!-- NLP Modules -->
     <script src="js/NLPProcessor.js"></script>
+    <script src="js/AutoNLPMatcher.js"></script>
+    <script src="js/auto_nlp_loader.js" defer></script>
     <script src="js/NLPInputComponent.js"></script>
     <script src="js/BasicAnalysisNLP.js"></script>
 
@@ -240,6 +242,48 @@
 
         /* [수정] 불필요한 빈 CSS 규칙 제거 (IDE 경고 해결) */
 
+        /* [fix-416] 9궁 매트릭스 — 미니멀 단일 강조색 디자인 */
+        .ms-cell {
+            position: relative;
+            background: #fff;
+            border: 1px solid #E5E7EB;
+            border-radius: 12px;
+            padding: 16px 18px 14px;
+            cursor: pointer;
+            transition: opacity 0.2s, border-color 0.2s, box-shadow 0.2s;
+            overflow: hidden;
+            font-feature-settings: 'tnum';
+        }
+        .ms-cell:hover { border-color: #CBD5E1; }
+        .ms-cell-bar {
+            position: absolute; top: 0; left: 0;
+            height: 3px;
+            transition: width 0.3s, background 0.3s;
+        }
+        .ms-cell-head {
+            display: flex; align-items: baseline; justify-content: space-between;
+            margin-bottom: 6px;
+        }
+        .ms-cell-name { font-size: 13px; color: #475569; letter-spacing: -0.01em; }
+        .ms-cell-tone { font-size: 10px; letter-spacing: 0.02em; }
+        .ms-cell-sum {
+            display: flex; align-items: baseline; gap: 3px;
+            margin-bottom: 14px;
+        }
+        .ms-cell-sum-num { font-size: 28px; color: #0F172A; line-height: 1; letter-spacing: -0.02em; font-weight: 500; }
+        .ms-cell-sum-unit { font-size: 11px; color: #94A3B8; }
+        .ms-cell-balls {
+            display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px;
+        }
+        .ms-ball {
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            aspect-ratio: 1 / 1.05;
+            border-radius: 6px;
+            transition: background 0.2s;
+        }
+        .ms-ball-num { font-size: 11px; line-height: 1; }
+        .ms-ball-cnt { font-size: 9px; line-height: 1; margin-top: 2px; opacity: 0.85; }
+
         /* 동적 색상 공 (9궁 분석용) */
         .ball-custom {
             color: white;
@@ -439,62 +483,156 @@
                             </div>
                         </div>
 
+                        <!-- [fix-251] 그래프 → 3×3 매직 스퀘어 매트릭스 (9궁 클릭 선택 + heat color + dim) -->
                         <div class="mb-6">
-                            <div class="flex items-center justify-between mb-4">
+                            <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
                                 <div class="flex items-center gap-3">
-                                    <h3 class="text-xl font-bold text-gray-900">그래프</h3>
-                                    <select id="graphTypeSelect" onchange="changeGraphType(this.value)"
-                                        class="w-40 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                                        <option value="1궁">1궁 (1~5)</option>
-                                        <option value="2궁">2궁 (6~10)</option>
-                                        <option value="3궁">3궁 (11~15)</option>
-                                        <option value="4궁">4궁 (16~20)</option>
-                                        <option value="5궁">5궁 (21~25)</option>
-                                        <option value="6궁">6궁 (26~30)</option>
-                                        <option value="7궁">7궁 (31~35)</option>
-                                        <option value="8궁">8궁 (36~40)</option>
-                                        <option value="9궁">9궁 (41~45)</option>
-                                    </select>
+                                    <h3 class="text-xl font-bold text-gray-900">9궁 매트릭스</h3>
+                                    <span class="text-[12px] text-slate-500">최근 <span id="matrixRangeLabel" class="font-bold text-blue-600">100</span>회 등장 횟수</span>
                                 </div>
-                                <div class="flex gap-2">
-                                    <button id="tabRate" onclick="setChartTab('rate')"
-                                        class="px-4 py-2 text-sm font-medium bg-blue-500 text-white rounded-lg transition-colors">당첨율</button>
-                                    <button id="tabTrend" onclick="setChartTab('trend')"
-                                        class="px-4 py-2 text-sm font-medium bg-gray-200 text-gray-700 rounded-lg transition-colors">회차별</button>
+                                <div class="flex items-center gap-1.5 text-[10px] text-slate-500">
+                                    <span>적음</span>
+                                    <span style="display:inline-block;width:18px;height:14px;background:#e5e7eb;border-radius:2px"></span>
+                                    <span style="display:inline-block;width:18px;height:14px;background:#dbeafe;border-radius:2px"></span>
+                                    <span style="display:inline-block;width:18px;height:14px;background:#a5b4fc;border-radius:2px"></span>
+                                    <span style="display:inline-block;width:18px;height:14px;background:#818cf8;border-radius:2px"></span>
+                                    <span style="display:inline-block;width:18px;height:14px;background:#f97316;border-radius:2px"></span>
+                                    <span style="display:inline-block;width:18px;height:14px;background:#dc2626;border-radius:2px"></span>
+                                    <span>많음</span>
                                 </div>
                             </div>
 
-                            <div id="rateChartContainer"
-                                class="flex items-end justify-between h-64 mb-4 px-8 border-b border-gray-100 pb-4">
+                            <div id="magicSquareMatrix" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; max-width:100%; width:100%;"></div>
+
+                            <div class="mt-3 flex items-center justify-between text-[11px] text-slate-500 flex-wrap gap-2">
+                                <span>총 <span id="matrixTotalDraws" class="font-bold text-slate-700">0</span>회 분석 · 평균 등장 <span id="matrixAvgCount" class="font-bold text-slate-700">0</span>회 · 핫 <span id="matrixHotCount" class="font-bold text-rose-600">0</span> · 콜드 <span id="matrixColdCount" class="font-bold text-slate-400">0</span></span>
+                                <span class="text-slate-400">3×3 매직 스퀘어 (9궁 × 5번호 = 45)</span>
                             </div>
-                            <div id="trendChartContainer" class="h-64 hidden"><canvas id="trendChart"></canvas></div>
                         </div>
 
                         <div>
-                            <div class="flex items-center justify-between mb-4">
+                            <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
                                 <h3 class="text-xl font-bold text-gray-900">분석 회차 범위</h3>
-                                <div class="flex items-center gap-2">
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <button onclick="setRange(1)" id="preset1"
+                                        class="px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors">1회</button>
+                                    <button onclick="setRange(3)" id="preset3"
+                                        class="px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors">3회</button>
+                                    <button onclick="setRange(5)" id="preset5"
+                                        class="px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors">5회</button>
+                                    <button onclick="setRange(10)" id="preset10"
+                                        class="px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors">10회</button>
                                     <button onclick="setRange(50)" id="preset50"
                                         class="px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors">50회</button>
                                     <button onclick="setRange(100)" id="preset100"
                                         class="px-3 py-1.5 text-sm font-medium bg-blue-500 text-white rounded-lg transition-colors">100회</button>
-                                    <button onclick="setRange(500)" id="preset500"
-                                        class="px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors">500회</button>
                                     <button onclick="setRange(1203)" id="preset1203"
                                         class="px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors">전체</button>
                                 </div>
                             </div>
                             <div class="space-y-3">
-                                <input type="range" id="rangeSlider" min="10" max="1203" value="100"
+                                <input type="range" id="rangeSlider" min="1" max="1203" value="100"
                                     oninput="updateRange(this.value)" />
                                 <div class="flex items-center justify-between text-sm">
                                     <span class="text-gray-600">최근 <span id="rangeDisplay"
-                                            class="font-bold text-blue-600">100</span>회 분석 대상</span>
+                                            class="font-bold text-blue-600">100</span> 분석 대상</span>
                                     <span id="totalRangeDisplay" class="text-gray-500">최대 1,203회</span>
                                 </div>
                             </div>
                         </div>
                     </div>
+
+                    <!-- ════════════════════════════════════════════════ -->
+                    <!-- [fix-417] 9궁 도메인 특화 보조지표 4섹션              -->
+                    <!-- ════════════════════════════════════════════════ -->
+                    <div class="bg-white rounded-xl border border-gray-200 mt-6 overflow-hidden" style="font-feature-settings:'tnum'">
+                        <!-- §1. 선택 9궁 시계열 — 통계카드 연동, 기본 1궁 -->
+                        <div class="p-8">
+                            <div class="flex items-baseline justify-between flex-wrap gap-3 mb-2">
+                                <div>
+                                    <h3 class="text-lg text-gray-900 tracking-tight mb-1">선택 9궁 시계열</h3>
+                                    <p class="text-xs text-gray-500">기본값 1궁 · 통계카드 또는 매트릭스 셀 클릭 → 9궁 변경 · 평균선 ~0.67 (= 6/9)</p>
+                                </div>
+                                <div class="flex items-baseline gap-2">
+                                    <span class="text-[10px] uppercase tracking-wider text-gray-400">선택</span>
+                                    <span id="msSeriesSelected" class="text-sm text-slate-700">1궁 (기본값)</span>
+                                </div>
+                            </div>
+                            <div class="relative" style="height:240px"><canvas id="msSeriesChart"></canvas></div>
+                        </div>
+                        <!-- §2 + §3 좌우 2분할 -->
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-0 border-t border-gray-100">
+                            <!-- §2. 9궁 출현률 메트릭 -->
+                            <div class="p-8 lg:border-r border-gray-100">
+                                <h3 class="text-lg text-gray-900 tracking-tight mb-1">9궁 출현률</h3>
+                                <p class="text-xs text-gray-500 mb-4">9궁 각자 평균 / 0개 비율 / 최대 카운트</p>
+                                <div id="msMetricGrid" class="space-y-1"></div>
+                            </div>
+                            <!-- §3. 9×7 카운트 매트릭스 -->
+                            <div class="p-8 border-t lg:border-t-0 border-gray-100">
+                                <h3 class="text-lg text-gray-900 tracking-tight mb-1">9궁 카운트 매트릭스</h3>
+                                <p class="text-xs text-gray-500 mb-4">행 = 9궁 / 열 = 한 회차 카운트 (0~5+) / 셀 = 회차수 + 비율</p>
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-sm" id="msMatrix" style="border-collapse:separate;border-spacing:0">
+                                        <thead>
+                                            <tr>
+                                                <th class="py-2 px-3 text-left text-[10px] uppercase tracking-wider text-gray-400">9궁</th>
+                                                <th class="py-2 px-2 text-center text-[10px] uppercase tracking-wider text-gray-400">0개</th>
+                                                <th class="py-2 px-2 text-center text-[10px] uppercase tracking-wider text-gray-400">1개</th>
+                                                <th class="py-2 px-2 text-center text-[10px] uppercase tracking-wider text-gray-400">2개</th>
+                                                <th class="py-2 px-2 text-center text-[10px] uppercase tracking-wider text-gray-400">3개</th>
+                                                <th class="py-2 px-2 text-center text-[10px] uppercase tracking-wider text-gray-400">4개</th>
+                                                <th class="py-2 px-2 text-center text-[10px] uppercase tracking-wider text-gray-400">5개</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="msMatrixBody"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- §4. 다음 회차 9궁 활성도 예측 -->
+                        <div class="p-8 border-t border-gray-100">
+                            <div class="flex items-baseline justify-between flex-wrap gap-3 mb-4">
+                                <div>
+                                    <h3 class="text-lg text-gray-900">다음 회차 9궁 활성도 예측</h3>
+                                    <p class="text-xs text-gray-500 mt-1">전회차 활성 9궁 수 ±N였던 과거 회차들의 다음 회차 변동</p>
+                                </div>
+                                <div class="flex items-center gap-2 text-[12px] text-gray-500">
+                                    <span>±</span>
+                                    <input type="number" id="msNextDirRange" min="0" max="5" step="1" value="1" class="w-14 text-center text-[12px] border-0 border-b border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent" style="font-feature-settings:'tnum'">
+                                    <span>범위</span>
+                                </div>
+                            </div>
+                            <div class="flex items-baseline flex-wrap gap-x-8 gap-y-2 pb-4 mb-4 border-b border-gray-100">
+                                <div class="flex items-baseline gap-2"><span class="text-[10px] uppercase tracking-wider text-gray-400">전회차 활성 9궁</span><span class="text-xl text-slate-700" id="msNextDirPrev">—</span></div>
+                                <div class="flex items-baseline gap-2"><span class="text-[10px] uppercase tracking-wider text-gray-400">분석 범위</span><span class="text-xl text-slate-700" id="msNextDirRangeText">—</span></div>
+                                <div class="flex items-baseline gap-2"><span class="text-[10px] uppercase tracking-wider text-gray-400">매칭 회차수</span><span class="text-xl text-blue-700" id="msNextDirMatchN">—</span></div>
+                                <div class="flex items-baseline gap-2"><span class="text-[10px] uppercase tracking-wider text-gray-400">평균 변동</span><span class="text-xl text-slate-700" id="msNextDirAvgDelta">—</span></div>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wider mb-2" style="color:#059669">↑ 활성 증가</div>
+                                    <div class="flex items-baseline gap-1 mb-2"><span id="msNextDirUpPct" class="text-3xl" style="color:#059669">—</span><span class="text-xs text-gray-400">%</span></div>
+                                    <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden mb-2"><div id="msNextDirUpBar" class="h-full transition-all" style="background:#10B981;width:0%"></div></div>
+                                    <div class="text-[11px] text-gray-500"><span id="msNextDirUpN">0</span>회 / 평균 <span id="msNextDirUpAvg">0</span></div>
+                                </div>
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wider mb-2" style="color:#E11D48">↓ 활성 감소</div>
+                                    <div class="flex items-baseline gap-1 mb-2"><span id="msNextDirDownPct" class="text-3xl" style="color:#E11D48">—</span><span class="text-xs text-gray-400">%</span></div>
+                                    <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden mb-2"><div id="msNextDirDownBar" class="h-full transition-all" style="background:#F43F5E;width:0%"></div></div>
+                                    <div class="text-[11px] text-gray-500"><span id="msNextDirDownN">0</span>회 / 평균 <span id="msNextDirDownAvg">0</span></div>
+                                </div>
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wider mb-2" style="color:#475569">→ 동일</div>
+                                    <div class="flex items-baseline gap-1 mb-2"><span id="msNextDirFlatPct" class="text-3xl" style="color:#475569">—</span><span class="text-xs text-gray-400">%</span></div>
+                                    <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden mb-2"><div id="msNextDirFlatBar" class="h-full transition-all" style="background:#94A3B8;width:0%"></div></div>
+                                    <div class="text-[11px] text-gray-500"><span id="msNextDirFlatN">0</span>회</div>
+                                </div>
+                            </div>
+                            <div id="msNextDirInsight" class="mt-4 p-3 bg-blue-50/40 border border-blue-100 rounded-lg text-[12px] text-slate-700"></div>
+                        </div>
+                    </div>
+                    <!-- ════════════════════════════════════════════════ -->
 
                     <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden" id="filter-page">
                         <div class="p-6 border-b border-gray-100 flex items-center justify-between">
@@ -507,7 +645,8 @@
                         </div>
 
                         <div class="p-6">
-                            <div class="space-y-1" id="filterContainer">
+                            <!-- [fix-252] 조합 필터 2분할 grid -->
+                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-1" id="filterContainer">
                             </div>
 
                             <div class="flex flex-col sm:flex-row items-center justify-between mt-8 gap-4 px-2">
@@ -599,6 +738,9 @@
                     updateCharts(displayData);
                     updateStats(displayData);
                 }
+
+                // [fix-417] 보조지표 4섹션 렌더
+                if (typeof renderMsAuxIndicators === 'function') renderMsAuxIndicators();
 
                 // 로그아웃 시 필터 UI 초기화
                 function resetFilterUI() {
@@ -737,24 +879,19 @@
                 const defMax = recentStats[type] ? recentStats[type].max : 5;
 
                 div.innerHTML = `
-                    <div class="flex items-center justify-between gap-4">
-                        <div class="flex-1">
-                            <div class="flex items-center gap-2 mb-2">
-                                <span class="font-bold text-gray-700 w-10">${type}</span>
-                                <span class="text-xs text-gray-400">(${gungDefinitions[type].length}개)</span>
-                            </div>
-                            <div class="flex flex-wrap gap-1.5">
+                    <div class="flex items-center justify-between gap-3 py-2 border-b border-gray-100 last:border-b-0">
+                        <div class="flex items-center gap-3 min-w-0 flex-1">
+                            <span class="text-sm font-bold text-gray-800 w-12 flex-shrink-0">${type}</span>
+                            <div class="flex flex-wrap gap-1">
                                 ${numbersHtml}
                             </div>
                         </div>
-                        <div class="flex items-center gap-2">
-                            <span class="text-sm text-gray-500 font-bold">Min</span>
+                        <div class="flex items-center gap-2 flex-shrink-0">
                             <input type="number" id="min_${type}" oninput="applyFilterManual()" value="${defMin}" min="0" max="5"
-                                class="w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500">
-                            <span class="text-gray-400">~</span>
-                            <span class="text-sm text-gray-500 font-bold">Max</span>
+                                class="w-12 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent">
+                            <span class="text-xs text-gray-400">~</span>
                             <input type="number" id="max_${type}" oninput="applyFilterManual()" value="${defMax}" min="0" max="5"
-                                class="w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500">
+                                class="w-12 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent">
                         </div>
                     </div>
                 `;
@@ -790,12 +927,15 @@
             }
             updateStatCardStyles();
             if (selectedGraphType) {
-                document.getElementById('graphTypeSelect').value = selectedGraphType;
+                const gtSel = document.getElementById('graphTypeSelect');
+                if (gtSel) gtSel.value = selectedGraphType;
             }
             const displayData = allDrawData.slice(0, currentRange);
             renderDrawsList(displayData);
             updateCharts(displayData);
             initDeepInsight();
+            // [fix-417] 통계카드 ↔ §1 시계열 동기화
+            if (typeof renderMsSeries === 'function') renderMsSeries();
         }
 
         function updateStatCardStyles() {
@@ -826,7 +966,7 @@
             const val = parseInt(value);
             currentRange = val;
 
-            // Immediate Feedback
+            // [fix-251] HTML에 정적 "회" 없음 — JS에서만 set
             document.getElementById('rangeDisplay').textContent = val + '회';
             updateSliderBackground(val);
             updatePresetButtons(val);
@@ -1053,8 +1193,8 @@
         }
 
         function updateCharts(data) {
-            updateRateChart(data);
-            if (chartTab === 'trend') updateTrendChart();
+            // [fix-251] 그래프 → 9궁 매트릭스로 통합 호출
+            renderMagicSquareMatrix(data);
         }
 
         function updateRateChart(data) {
@@ -1139,10 +1279,12 @@
 
         // --- 공통 유틸리티 ---
         function updateSliderBackground(value) {
-            const total = allDrawData.length || 1203;
             const slider = document.getElementById('rangeSlider');
             if (slider) {
-                const percent = ((value - 10) / (total - 10)) * 100;
+                // [fix-251] 슬라이더 min/max 동적 사용 (min:1로 변경됨)
+                const min = parseInt(slider.min || 1);
+                const max = parseInt(slider.max || allDrawData.length || 1203);
+                const percent = Math.max(0, Math.min(100, ((value - min) / Math.max(1, max - min)) * 100));
                 slider.style.setProperty('--value-percent', percent + '%');
             }
         }
@@ -1156,13 +1298,123 @@
 
         function updatePresetButtons(value) {
             const maxVal = allDrawData.length;
-            const buttons = { 50: 'preset50', 100: 'preset100', 500: 'preset500', 1203: 'preset1203' };
+            // [fix-251] preset 버튼 7개 (1/3/5/10/50/100/전체)
+            const buttons = { 1:'preset1', 3:'preset3', 5:'preset5', 10:'preset10', 50:'preset50', 100:'preset100', 1203:'preset1203' };
             Object.keys(buttons).forEach(key => {
                 const btn = document.getElementById(buttons[key]);
+                if (!btn) return;
                 const targetValue = key === '1203' ? maxVal : parseInt(key);
                 if (targetValue === value) btn.className = 'px-3 py-1.5 text-sm font-medium bg-blue-500 text-white rounded-lg transition-colors';
                 else btn.className = 'px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors';
             });
+        }
+
+        // [fix-416] 9궁 매트릭스 디자인 재구성 — 미니멀, 단일 강조색, BOLD 회피
+        function renderMagicSquareMatrix(data) {
+            const container = document.getElementById('magicSquareMatrix');
+            if (!container) return;
+            data = data || allDrawData.slice(0, currentRange);
+            const total = data.length;
+            // 1~45 번호별 등장 횟수
+            const counts = new Array(46).fill(0);
+            data.forEach(d => (d.numbers || []).forEach(n => { if (n >= 1 && n <= 45) counts[n]++; }));
+            // 9궁별 합계
+            const gungs = ['1궁','2궁','3궁','4궁','5궁','6궁','7궁','8궁','9궁'];
+            const gungSum = {};
+            gungs.forEach(g => {
+                gungSum[g] = (gungDefinitions[g] || []).reduce((s, n) => s + counts[n], 0);
+            });
+            const sums = Object.values(gungSum);
+            const maxSum = Math.max(...sums) || 1;
+            const minSum = Math.min(...sums);
+            const avgCount = sums.reduce((a,b) => a+b, 0) / 9;
+            const sortedSums = [...sums].sort((a,b) => b - a);
+            const hotThreshold = sortedSums[Math.floor(9 * 0.22)];
+            const coldThreshold = sortedSums[Math.floor(9 * 0.78)];
+            let hotCount = 0, coldCount = 0;
+
+            // 단일 강조색 #3B82F6 농도 6단계 (BG)
+            const sumIntensity = (s) => {
+                if (s === 0) return 0;
+                const r = (s - minSum) / Math.max(1, maxSum - minSum);
+                if (r < 0.15) return 1;
+                if (r < 0.35) return 2;
+                if (r < 0.55) return 3;
+                if (r < 0.75) return 4;
+                return 5;
+            };
+            const intensityColors = [
+                { bar: '#E5E7EB', label: '극냉' },   // 0
+                { bar: '#DBEAFE', label: '저' },     // 1
+                { bar: '#93C5FD', label: '중' },     // 2
+                { bar: '#60A5FA', label: '중상' },   // 3
+                { bar: '#3B82F6', label: '핫' },     // 4
+                { bar: '#1D4ED8', label: '극핫' }    // 5
+            ];
+
+            const sel = (typeof selectedGraphType !== 'undefined') ? selectedGraphType : null;
+            const hasSel = !!sel;
+            let html = '';
+            gungs.forEach(g => {
+                const sum = gungSum[g];
+                const lvl = sumIntensity(sum);
+                const tone = intensityColors[lvl];
+                if (sum >= hotThreshold && hotThreshold > 0) hotCount++;
+                else if (sum <= coldThreshold) coldCount++;
+                const isSelected = (sel === g);
+                const isDimmed = hasSel && !isSelected;
+
+                // 강조 비율 게이지 (0~100%)
+                const gaugePct = maxSum ? (sum / maxSum * 100).toFixed(0) : 0;
+
+                // 셀 외형 — 흰 배경 + 옅은 테두리 + 좌측 강조 바
+                const cellBorder = isSelected ? '#3B82F6' : '#E5E7EB';
+                const cellShadow = isSelected ? '0 0 0 1px #3B82F6' : 'none';
+                const cellOpacity = isDimmed ? 0.4 : 1;
+
+                const gungNums = gungDefinitions[g] || [];
+                const gungCounts = gungNums.map(n => counts[n]);
+                const gungMaxC = Math.max(...gungCounts) || 1;
+                // 5 ball — 단일 강조색 농도 차이 (0=회색, 평균 이하=옅은, 평균 이상=강조)
+                const balls = gungNums.map(n => {
+                    const c = counts[n];
+                    const r = gungMaxC ? c / gungMaxC : 0;
+                    let ballBg, ballFg;
+                    if (c === 0) { ballBg = '#F8FAFC'; ballFg = '#CBD5E1'; }
+                    else if (r < 0.5) { ballBg = '#EFF6FF'; ballFg = '#475569'; }
+                    else if (r < 0.8) { ballBg = '#DBEAFE'; ballFg = '#1E40AF'; }
+                    else { ballBg = '#3B82F6'; ballFg = '#fff'; }
+                    return `<div class="ms-ball" style="background:${ballBg};color:${ballFg}">
+                        <span class="ms-ball-num">${n}</span>
+                        <span class="ms-ball-cnt">${c}</span>
+                    </div>`;
+                }).join('');
+
+                html += `<div onclick="window.toggleStatCard && toggleStatCard('${g}')"
+                    class="ms-cell"
+                    style="border-color:${cellBorder};box-shadow:${cellShadow};opacity:${cellOpacity}"
+                    title="${g} — ${sum}회 (번호당 ${(sum/Math.max(total,1)/5*100).toFixed(1)}%)">
+                    <div class="ms-cell-bar" style="background:${tone.bar};width:${gaugePct}%"></div>
+                    <div class="ms-cell-head">
+                        <span class="ms-cell-name">${g}</span>
+                        <span class="ms-cell-tone" style="color:${tone.bar === '#E5E7EB' ? '#94A3B8' : tone.bar}">${tone.label}</span>
+                    </div>
+                    <div class="ms-cell-sum">
+                        <span class="ms-cell-sum-num">${sum}</span>
+                        <span class="ms-cell-sum-unit">회</span>
+                    </div>
+                    <div class="ms-cell-balls">${balls}</div>
+                </div>`;
+            });
+            container.innerHTML = html;
+
+            // stat 라벨 갱신
+            const _set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+            _set('matrixRangeLabel', total);
+            _set('matrixTotalDraws', total);
+            _set('matrixAvgCount', avgCount.toFixed(1));
+            _set('matrixHotCount', hotCount);
+            _set('matrixColdCount', coldCount);
         }
 
 
@@ -1470,6 +1722,235 @@
 
             qnaContent.scrollTop = qnaContent.scrollHeight;
         }
+
+        // ════════════════════════════════════════════════════════════
+        // [fix-417] 9궁 도메인 보조지표 4섹션 렌더
+        // ════════════════════════════════════════════════════════════
+        const MS_GUNGS = ['1궁','2궁','3궁','4궁','5궁','6궁','7궁','8궁','9궁'];
+
+        function msGungCount(d, gung) {
+            const nums = gungDefinitions[gung] || [];
+            return (d.numbers || []).filter(n => nums.includes(n)).length;
+        }
+
+        // §1. 선택 9궁 시계열 (단일 차트, 기본 1궁)
+        let msSeriesChartInst = null;
+        function renderMsSeries() {
+            if (!allDrawData || allDrawData.length < 30) return;
+            const canvas = document.getElementById('msSeriesChart');
+            const selectedEl = document.getElementById('msSeriesSelected');
+            if (!canvas) return;
+
+            const userSel = (typeof selectedGraphType !== 'undefined' && selectedGraphType) ? selectedGraphType : null;
+            const sel = userSel || '1궁';
+            if (selectedEl) selectedEl.textContent = userSel ? userSel : `${sel} (기본값)`;
+
+            const data = allDrawData.slice(0, 100).slice().reverse();
+            const labels = data.map(d => d.round);
+            const counts = data.map(d => msGungCount(d, sel));
+            const N = counts.length;
+            const avg = N ? counts.reduce((a,b) => a+b, 0) / N : 0;
+            const accent = '#3B82F6';
+
+            const datasets = [
+                {
+                    label: sel, data: counts,
+                    borderColor: accent, backgroundColor: accent + '14',
+                    borderWidth: 2, pointRadius: 0, pointHoverRadius: 4,
+                    tension: 0.3, fill: true
+                },
+                {
+                    label: '평균 0.67', data: new Array(N).fill(6 / 9),
+                    borderColor: '#CBD5E1', borderWidth: 1, borderDash: [4, 4],
+                    pointRadius: 0, fill: false
+                },
+                {
+                    label: `${sel} 평균 ${avg.toFixed(2)}`, data: new Array(N).fill(avg),
+                    borderColor: accent + '99', borderWidth: 1, borderDash: [2, 3],
+                    pointRadius: 0, fill: false
+                }
+            ];
+
+            if (msSeriesChartInst) msSeriesChartInst.destroy();
+            msSeriesChartInst = new Chart(canvas.getContext('2d'), {
+                type: 'line', data: { labels, datasets },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 }, color: '#475569' } },
+                        tooltip: { mode: 'index', intersect: false },
+                        datalabels: { display: false }
+                    },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { color: '#94A3B8', font: { size: 10 }, maxTicksLimit: 8 } },
+                        y: { min: 0, max: 5, ticks: { stepSize: 1, color: '#94A3B8', font: { size: 10 } }, grid: { color: '#F1F5F9' } }
+                    }
+                }
+            });
+        }
+
+        // §2. 9궁 출현률 메트릭
+        function renderMsMetrics() {
+            const el = document.getElementById('msMetricGrid');
+            if (!el) return;
+            const N = allDrawData.length;
+            el.innerHTML = MS_GUNGS.map(g => {
+                const cs = allDrawData.map(d => msGungCount(d, g));
+                const avg = cs.reduce((a,b) => a+b, 0) / N;
+                const zero = cs.filter(c => c === 0).length;
+                const zeroPct = (zero / N * 100);
+                const max = Math.max(...cs);
+                return `<div class="flex items-center justify-between py-1.5 border-b border-gray-100 last:border-0">
+                    <div class="flex items-center gap-2">
+                        <span class="inline-block w-2 h-2 rounded-full" style="background:#3B82F6"></span>
+                        <span class="text-sm text-slate-700">${g}</span>
+                    </div>
+                    <div class="flex items-baseline gap-3 text-[11px]">
+                        <span class="text-gray-400">평균 <span class="text-slate-700">${avg.toFixed(2)}</span></span>
+                        <span class="text-gray-400">0개 <span class="text-rose-600">${zeroPct.toFixed(0)}%</span></span>
+                        <span class="text-gray-400">max <span class="text-emerald-600">${max}</span></span>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        // §3. 9×6 카운트 매트릭스 (9궁 × 0~5 카운트별 회차수)
+        function renderMsMatrix() {
+            const el = document.getElementById('msMatrixBody');
+            if (!el) return;
+            const N = allDrawData.length;
+            const matrix = {};
+            MS_GUNGS.forEach(g => { matrix[g] = [0,0,0,0,0,0]; });
+            allDrawData.forEach(d => {
+                MS_GUNGS.forEach(g => {
+                    const c = Math.min(5, Math.max(0, msGungCount(d, g)));
+                    matrix[g][c]++;
+                });
+            });
+
+            const cellStyle = (count) => {
+                if (count === 0) return { bg: '#F8FAFC', fg: '#CBD5E1' };
+                const pct = count / N * 100;
+                if (pct < 3) return { bg: '#EFF6FF', fg: '#475569' };
+                if (pct < 10) return { bg: '#DBEAFE', fg: '#1E40AF' };
+                if (pct < 20) return { bg: '#93C5FD', fg: '#0C2A66' };
+                if (pct < 40) return { bg: '#3B82F6', fg: '#FFFFFF' };
+                return { bg: '#1E3A8A', fg: '#FFFFFF' };
+            };
+
+            el.innerHTML = MS_GUNGS.map(g => {
+                const cells = matrix[g].map((cnt, k) => {
+                    const { bg, fg } = cellStyle(cnt);
+                    const pct = N ? (cnt / N * 100) : 0;
+                    if (cnt === 0) {
+                        return `<td class="px-1 py-1" style="text-align:center">
+                            <div class="rounded-md py-2" style="background:${bg};color:${fg};font-feature-settings:'tnum'">
+                                <div class="text-[13px]">—</div>
+                                <div class="text-[10px] opacity-70">·</div>
+                            </div>
+                        </td>`;
+                    }
+                    return `<td class="px-1 py-1" style="text-align:center">
+                        <div class="rounded-md py-2 transition-colors" style="background:${bg};color:${fg};font-feature-settings:'tnum'" title="${g} ${k}개 → ${cnt}회 (${pct.toFixed(1)}%)">
+                            <div class="text-[13px]">${cnt}</div>
+                            <div class="text-[10px] opacity-80">${pct.toFixed(1)}%</div>
+                        </div>
+                    </td>`;
+                }).join('');
+                return `<tr>
+                    <td class="py-1 px-3 text-left">
+                        <div class="flex items-center gap-2">
+                            <span class="inline-block w-2 h-2 rounded-full" style="background:#3B82F6"></span>
+                            <span class="text-sm text-slate-700">${g}</span>
+                        </div>
+                    </td>
+                    ${cells}
+                </tr>`;
+            }).join('');
+        }
+
+        // §4. 다음 회차 9궁 활성도 예측 (활성 9궁 = count >= 1)
+        function renderMsNextDirPredictor() {
+            if (!allDrawData || allDrawData.length < 30) return;
+            const range = parseInt(document.getElementById('msNextDirRange')?.value, 10) || 1;
+            const activeCount = (d) => MS_GUNGS.filter(g => msGungCount(d, g) >= 1).length;
+            const prevActive = activeCount(allDrawData[0]);
+            const lower = prevActive - range;
+            const upper = prevActive + range;
+
+            const matches = [];
+            for (let i = 1; i < allDrawData.length - 1; i++) {
+                const a = activeCount(allDrawData[i]);
+                if (a < lower || a > upper) continue;
+                const aNext = activeCount(allDrawData[i - 1]);
+                matches.push({ a, next: aNext, delta: aNext - a });
+            }
+            const ups = matches.filter(m => m.delta > 0);
+            const downs = matches.filter(m => m.delta < 0);
+            const flats = matches.filter(m => m.delta === 0);
+            const N = matches.length;
+            const avgDelta = N ? matches.reduce((s,m) => s + m.delta, 0) / N : 0;
+            const upAvg = ups.length ? ups.reduce((s,m) => s + m.delta, 0) / ups.length : 0;
+            const downAvg = downs.length ? downs.reduce((s,m) => s + m.delta, 0) / downs.length : 0;
+            const upPct = N ? ups.length / N * 100 : 0;
+            const downPct = N ? downs.length / N * 100 : 0;
+            const flatPct = N ? flats.length / N * 100 : 0;
+
+            const setText = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+            const setBar = (id, p) => { const el = document.getElementById(id); if (el) el.style.width = Math.min(100, p) + '%'; };
+            setText('msNextDirPrev', `${prevActive}/9`);
+            setText('msNextDirRangeText', `${lower}~${upper}`);
+            setText('msNextDirMatchN', N);
+            setText('msNextDirAvgDelta', `${avgDelta >= 0 ? '+' : ''}${avgDelta.toFixed(2)}`);
+            setText('msNextDirUpPct', upPct.toFixed(1));
+            setText('msNextDirDownPct', downPct.toFixed(1));
+            setText('msNextDirFlatPct', flatPct.toFixed(1));
+            setText('msNextDirUpN', ups.length);
+            setText('msNextDirDownN', downs.length);
+            setText('msNextDirFlatN', flats.length);
+            setText('msNextDirUpAvg', `+${upAvg.toFixed(2)}`);
+            setText('msNextDirDownAvg', downAvg.toFixed(2));
+            setBar('msNextDirUpBar', upPct);
+            setBar('msNextDirDownBar', downPct);
+            setBar('msNextDirFlatBar', flatPct);
+
+            const insightEl = document.getElementById('msNextDirInsight');
+            if (insightEl) {
+                if (N === 0) {
+                    insightEl.innerHTML = `<span class="text-gray-400">전회차 활성 9궁 ${prevActive}/9 ±${range} 범위에 해당하는 과거 회차 없음.</span>`;
+                } else {
+                    const dir = upPct > downPct ? '증가' : downPct > upPct ? '감소' : '균형';
+                    const dirColor = upPct > downPct ? '#059669' : downPct > upPct ? '#E11D48' : '#475569';
+                    const expectedAvg = prevActive + avgDelta;
+                    const nextAs = matches.map(m => m.next).slice().sort((a,b) => a-b);
+                    const p10 = nextAs[Math.max(0, Math.floor(N * 0.10))];
+                    const p90 = nextAs[Math.min(N - 1, Math.ceil(N * 0.90) - 1)];
+                    insightEl.innerHTML = `
+                        과거 활성 9궁 <span style="color:#1e293b">${lower}~${upper}/9</span> 범위(${N}회차)에서 다음 회차는
+                        <span style="color:${dirColor}">${dir}</span> 우세 — 평균 변동 <span style="color:#1e293b">${avgDelta >= 0 ? '+' : ''}${avgDelta.toFixed(2)}</span>.
+                        <div class="mt-2 pt-2 border-t border-blue-100/60 text-[12px]">
+                            <span class="text-gray-500">▸ 예상 활성 9궁</span>
+                            평균 진행 시 <span style="color:#1e293b">${expectedAvg.toFixed(1)}/9</span> ·
+                            폭넓게 80% (P10~P90) <span style="color:#475569">${p10}~${p90}/9</span>
+                        </div>
+                        <div class="mt-1 text-[11px] text-gray-400">활성 9궁 = 한 회차에 카운트 ≥ 1인 9궁 수 (최대 9, 6번호니 6 이하)</div>
+                    `;
+                }
+            }
+        }
+
+        function renderMsAuxIndicators() {
+            if (!allDrawData || allDrawData.length < 30) return;
+            renderMsSeries();
+            renderMsMetrics();
+            renderMsMatrix();
+            renderMsNextDirPredictor();
+        }
+        document.addEventListener('DOMContentLoaded', () => {
+            const inp = document.getElementById('msNextDirRange');
+            if (inp) inp.addEventListener('input', () => renderMsNextDirPredictor());
+        });
+
     </script>
     <!-- AI Q&A Sidebar (Floating Right) -->
     <div id="aiQnaModal"

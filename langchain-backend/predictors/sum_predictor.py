@@ -493,12 +493,18 @@ class SumPredictor:
             except Exception:
                 pass
 
-        # N-BEATS: 분해 + 점예측
+        # N-BEATS: 분해 + 점예측 (SLA 측정 추가 — model_latency_log 누락 방지)
         nbeats_pred = None
         nbeats_decomp = {"trend": None, "seasonality": None, "residual": None}
         if self.nbeats_model is not None:
             try:
-                pred = self.nbeats_model.predict(sum_series.astype(np.float32), steps=1)
+                # [신규] SLAMonitor로 nbeats predict 측정 → sla_history.parquet 기록
+                try:
+                    from pipeline.sla_monitor import SLAMonitor
+                    with SLAMonitor("ensemble_nbeats_predict"):
+                        pred = self.nbeats_model.predict(sum_series.astype(np.float32), steps=1)
+                except ImportError:
+                    pred = self.nbeats_model.predict(sum_series.astype(np.float32), steps=1)
                 nbeats_pred = float(pred[0]) if len(pred) > 0 else None
                 if nbeats_pred is not None:
                     q50s.append(nbeats_pred)

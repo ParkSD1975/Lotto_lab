@@ -16,6 +16,8 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- [fix-426] Chart.js — 보조지표 §1 시계열용 -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 
     <script src="js/config.js"></script>
     <script src="js/theme.js"></script>
@@ -30,6 +32,8 @@
 
     <!-- NLP Modules -->
     <script src="js/NLPProcessor.js"></script>
+    <script src="js/AutoNLPMatcher.js"></script>
+    <script src="js/auto_nlp_loader.js" defer></script>
     <script src="js/NLPInputComponent.js"></script>
     <script src="js/BasicAnalysisNLP.js"></script>
 
@@ -655,35 +659,154 @@
                         <p class="text-sm text-gray-600">각 번호의 미출현 기간을 분석하여 통계적 회귀 가능성을 식별합니다</p>
                     </div>
 
-                        <div class="ai-section p-8 pb-10 mb-6 font-sans">
-                            <h3 class="text-lg font-bold text-gray-900 mb-4">딥러닝 Insight</h3>
-                            <div id="dlInsightContainer" data-indicator="missing">
-                                <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
-                                    <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
-                                    <span class="text-sm">딥러닝 모델 분석 중 (7개 모델)...</span>
-                                </div>
-                            </div>
+                    <!-- [fix-432] 딥러닝 Insight 제목 + 외부 박스 제거 — 컨테이너만 유지 -->
+                    <div id="dlInsightContainer" data-indicator="missing" class="mb-6 font-sans">
+                        <div class="flex items-center justify-center gap-3 py-14 text-gray-400">
+                            <span class="material-symbols-outlined animate-spin text-2xl">progress_activity</span>
+                            <span class="text-sm">딥러닝 모델 분석 중 (7개 모델)...</span>
                         </div>
+                    </div>
 
+                    <!-- [fix-445] 미출현 회수별 통계 — 컬럼=미출현 회수(0~20+), 셀=당첨 개수 ball 또는 마지막 당첨 이후 경과 회차 -->
                     <div class="bg-white rounded-xl border border-gray-200">
                         <div class="p-6 border-b border-gray-200">
-                            <h3 class="text-lg font-bold text-gray-900">번호별 미출현 통계</h3>
-                            <p class="text-sm text-gray-500 mt-1">미출현 짧은 순으로 정렬 (최장기 미출현 <span id="maxMissRounds"
-                                    class="font-semibold"></span>회차까지 표시)</p>
+                            <h3 class="text-lg font-bold text-gray-900">미출현 회수별 통계</h3>
+                            <p class="text-sm text-gray-500 mt-1">컬럼 = 미출현 회수(0~20+), 행 = 회차(최신순), 셀 = 당첨 개수 ⓒN(원형) 또는 그 카테고리에서 마지막 당첨 이후 경과 회차수(옅은 회색)</p>
                         </div>
                         <div class="overflow-x-auto custom-scrollbar" style="max-height: 600px;">
-                            <table class="stats-table" id="missStatsTable">
-                                <thead>
-                                    <tr id="missStatsHeader"></tr>
+                            <table class="w-full border-collapse" id="missStatsTable" style="font-feature-settings:'tnum'">
+                                <thead class="sticky top-0 z-30">
+                                    <tr style="background:#1E293B">
+                                        <th class="sticky left-0 z-40 px-4 py-3 text-[13px] text-white border-r border-slate-600 text-center" style="width:64px;background:#1E293B">회차</th>
+                                        <th class="px-2 py-3 text-[13px] text-white border-r border-slate-600 text-center" style="font-feature-settings:'tnum';min-width:38px">0</th>
+                                        <th class="px-2 py-3 text-[13px] text-white border-r border-slate-600 text-center" style="font-feature-settings:'tnum';min-width:38px">1</th>
+                                        <th class="px-2 py-3 text-[13px] text-white border-r border-slate-600 text-center" style="font-feature-settings:'tnum';min-width:38px">2</th>
+                                        <th class="px-2 py-3 text-[13px] text-white border-r border-slate-600 text-center" style="font-feature-settings:'tnum';min-width:38px">3</th>
+                                        <th class="px-2 py-3 text-[13px] text-white border-r border-slate-600 text-center" style="font-feature-settings:'tnum';min-width:38px">4</th>
+                                        <th class="px-2 py-3 text-[13px] text-white border-r border-slate-600 text-center" style="font-feature-settings:'tnum';min-width:38px">5</th>
+                                        <th class="px-2 py-3 text-[13px] text-white border-r border-slate-600 text-center" style="font-feature-settings:'tnum';min-width:38px">6</th>
+                                        <th class="px-2 py-3 text-[13px] text-white border-r border-slate-600 text-center" style="font-feature-settings:'tnum';min-width:38px">7</th>
+                                        <th class="px-2 py-3 text-[13px] text-white border-r border-slate-600 text-center" style="font-feature-settings:'tnum';min-width:38px">8</th>
+                                        <th class="px-2 py-3 text-[13px] text-white border-r border-slate-600 text-center" style="font-feature-settings:'tnum';min-width:38px">9</th>
+                                        <th class="px-2 py-3 text-[13px] text-white border-r border-slate-600 text-center" style="font-feature-settings:'tnum';min-width:38px">10</th>
+                                        <th class="px-2 py-3 text-[13px] text-white border-r border-slate-600 text-center" style="font-feature-settings:'tnum';min-width:38px">11</th>
+                                        <th class="px-2 py-3 text-[13px] text-white border-r border-slate-600 text-center" style="font-feature-settings:'tnum';min-width:38px">12</th>
+                                        <th class="px-2 py-3 text-[13px] text-white border-r border-slate-600 text-center" style="font-feature-settings:'tnum';min-width:38px">13</th>
+                                        <th class="px-2 py-3 text-[13px] text-white border-r border-slate-600 text-center" style="font-feature-settings:'tnum';min-width:38px">14</th>
+                                        <th class="px-2 py-3 text-[13px] text-white border-r border-slate-600 text-center" style="font-feature-settings:'tnum';min-width:38px">15</th>
+                                        <th class="px-2 py-3 text-[13px] text-white border-r border-slate-600 text-center" style="font-feature-settings:'tnum';min-width:38px">16</th>
+                                        <th class="px-2 py-3 text-[13px] text-white border-r border-slate-600 text-center" style="font-feature-settings:'tnum';min-width:38px">17</th>
+                                        <th class="px-2 py-3 text-[13px] text-white border-r border-slate-600 text-center" style="font-feature-settings:'tnum';min-width:38px">18</th>
+                                        <th class="px-2 py-3 text-[13px] text-white border-r border-slate-600 text-center" style="font-feature-settings:'tnum';min-width:38px">19</th>
+                                        <th class="px-2 py-3 text-[13px] text-white text-center" style="font-feature-settings:'tnum';min-width:48px">20+</th>
+                                    </tr>
                                 </thead>
                                 <tbody id="missStatsBody"></tbody>
                             </table>
                         </div>
                     </div>
 
-                    <div class="bg-white rounded-xl p-6 border border-gray-200">
+                    <!-- [fix-426] 그룹 현황 박스 — 보조지표 박스 다음으로 이동 (이 위치는 빈 자리) -->
+                    <!-- [fix-426] 그룹 현황 박스 — 보조지표 박스 다음으로 이동됨 (이 자리는 placeholder) -->
+
+                    <!-- ════════════════════════════════════════════════ -->
+                    <!-- [fix-425] 미출현 도메인 특화 보조지표 4섹션          -->
+                    <!-- ════════════════════════════════════════════════ -->
+                    <div class="bg-white rounded-xl border border-gray-200 mt-6 overflow-hidden" style="font-feature-settings:'tnum'">
+                        <!-- §1. 4 그룹 카운트 시계열 -->
+                        <div class="p-8">
+                            <div class="flex items-baseline justify-between flex-wrap gap-3 mb-2">
+                                <div>
+                                    <h3 class="text-lg text-gray-900 tracking-tight mb-1">미출현 4 그룹 시계열</h3>
+                                    <p class="text-xs text-gray-500">최근 100회차 추이 · 평균선 1.5 (= 6/4)</p>
+                                </div>
+                                <div class="flex items-baseline gap-3 text-[11px]">
+                                    <span class="flex items-center gap-1.5"><span class="inline-block w-2 h-2 rounded-full" style="background:#E64A19"></span><span class="text-gray-500">0~5회</span></span>
+                                    <span class="flex items-center gap-1.5"><span class="inline-block w-2 h-2 rounded-full" style="background:#4B5563"></span><span class="text-gray-500">6~10회</span></span>
+                                    <span class="flex items-center gap-1.5"><span class="inline-block w-2 h-2 rounded-full" style="background:#16A34A"></span><span class="text-gray-500">11~15회</span></span>
+                                    <span class="flex items-center gap-1.5"><span class="inline-block w-2 h-2 rounded-full" style="background:#1A6DFF"></span><span class="text-gray-500">16+회</span></span>
+                                </div>
+                            </div>
+                            <div class="relative" style="height:240px"><canvas id="msmSeriesChart"></canvas></div>
+                        </div>
+                        <!-- §2 + §3 좌우 2분할 -->
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-0 border-t border-gray-100">
+                            <div class="p-8 lg:border-r border-gray-100">
+                                <h3 class="text-lg text-gray-900 tracking-tight mb-1">4 그룹 출현률</h3>
+                                <p class="text-xs text-gray-500 mb-4">그룹 각자 평균 · 0개 비율 · 최대</p>
+                                <div id="msmMetricGrid" class="space-y-2"></div>
+                            </div>
+                            <div class="p-8 border-t lg:border-t-0 border-gray-100">
+                                <h3 class="text-lg text-gray-900 tracking-tight mb-1">미출현 카운트 매트릭스</h3>
+                                <p class="text-xs text-gray-500 mb-4">행 = 그룹 / 열 = 한 회차 카운트 (0~6) / 셀 = 회차수 + 비율</p>
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-sm" id="msmMatrix" style="border-collapse:separate;border-spacing:0">
+                                        <thead>
+                                            <tr>
+                                                <th class="py-2 px-3 text-left text-[10px] uppercase tracking-wider text-gray-400">그룹</th>
+                                                <th class="py-2 px-2 text-center text-[10px] uppercase tracking-wider text-gray-400">0개</th>
+                                                <th class="py-2 px-2 text-center text-[10px] uppercase tracking-wider text-gray-400">1개</th>
+                                                <th class="py-2 px-2 text-center text-[10px] uppercase tracking-wider text-gray-400">2개</th>
+                                                <th class="py-2 px-2 text-center text-[10px] uppercase tracking-wider text-gray-400">3개</th>
+                                                <th class="py-2 px-2 text-center text-[10px] uppercase tracking-wider text-gray-400">4개</th>
+                                                <th class="py-2 px-2 text-center text-[10px] uppercase tracking-wider text-gray-400">5개</th>
+                                                <th class="py-2 px-2 text-center text-[10px] uppercase tracking-wider text-gray-400">6개</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="msmMatrixBody"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- §4. 다음 회차 활성 그룹 예측 -->
+                        <div class="p-8 border-t border-gray-100">
+                            <div class="flex items-baseline justify-between flex-wrap gap-3 mb-4">
+                                <div>
+                                    <h3 class="text-lg text-gray-900">다음 회차 활성 그룹 예측</h3>
+                                    <p class="text-xs text-gray-500 mt-1">전회차 활성 그룹 수 ±N였던 과거 회차들의 다음 회차 변동</p>
+                                </div>
+                                <div class="flex items-center gap-2 text-[12px] text-gray-500">
+                                    <span>±</span>
+                                    <input type="number" id="msmNextDirRange" min="0" max="3" step="1" value="1" class="w-14 text-center text-[12px] border-0 border-b border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent" style="font-feature-settings:'tnum'">
+                                    <span>범위</span>
+                                </div>
+                            </div>
+                            <div class="flex items-baseline flex-wrap gap-x-8 gap-y-2 pb-4 mb-4 border-b border-gray-100">
+                                <div class="flex items-baseline gap-2"><span class="text-[10px] uppercase tracking-wider text-gray-400">전회차 활성 그룹</span><span class="text-xl text-slate-700" id="msmNextDirPrev">—</span></div>
+                                <div class="flex items-baseline gap-2"><span class="text-[10px] uppercase tracking-wider text-gray-400">분석 범위</span><span class="text-xl text-slate-700" id="msmNextDirRangeText">—</span></div>
+                                <div class="flex items-baseline gap-2"><span class="text-[10px] uppercase tracking-wider text-gray-400">매칭 회차수</span><span class="text-xl text-blue-700" id="msmNextDirMatchN">—</span></div>
+                                <div class="flex items-baseline gap-2"><span class="text-[10px] uppercase tracking-wider text-gray-400">평균 변동</span><span class="text-xl text-slate-700" id="msmNextDirAvgDelta">—</span></div>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wider mb-2" style="color:#059669">↑ 활성 증가</div>
+                                    <div class="flex items-baseline gap-1 mb-2"><span id="msmNextDirUpPct" class="text-3xl" style="color:#059669">—</span><span class="text-xs text-gray-400">%</span></div>
+                                    <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden mb-2"><div id="msmNextDirUpBar" class="h-full transition-all" style="background:#10B981;width:0%"></div></div>
+                                    <div class="text-[11px] text-gray-500"><span id="msmNextDirUpN">0</span>회 / 평균 <span id="msmNextDirUpAvg">0</span></div>
+                                </div>
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wider mb-2" style="color:#E11D48">↓ 활성 감소</div>
+                                    <div class="flex items-baseline gap-1 mb-2"><span id="msmNextDirDownPct" class="text-3xl" style="color:#E11D48">—</span><span class="text-xs text-gray-400">%</span></div>
+                                    <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden mb-2"><div id="msmNextDirDownBar" class="h-full transition-all" style="background:#F43F5E;width:0%"></div></div>
+                                    <div class="text-[11px] text-gray-500"><span id="msmNextDirDownN">0</span>회 / 평균 <span id="msmNextDirDownAvg">0</span></div>
+                                </div>
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wider mb-2" style="color:#475569">→ 동일</div>
+                                    <div class="flex items-baseline gap-1 mb-2"><span id="msmNextDirFlatPct" class="text-3xl" style="color:#475569">—</span><span class="text-xs text-gray-400">%</span></div>
+                                    <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden mb-2"><div id="msmNextDirFlatBar" class="h-full transition-all" style="background:#94A3B8;width:0%"></div></div>
+                                    <div class="text-[11px] text-gray-500"><span id="msmNextDirFlatN">0</span>회</div>
+                                </div>
+                            </div>
+                            <div id="msmNextDirInsight" class="mt-4 p-3 bg-blue-50/40 border border-blue-100 rounded-lg text-[12px] text-slate-700"></div>
+                        </div>
+                    </div>
+                    <!-- ════════════════════════════════════════════════ -->
+
+                    <!-- [fix-426] 미출현 그룹 현황 및 조합 필터 — 보조지표 박스 다음으로 이동 -->
+                    <div class="bg-white rounded-xl p-6 border border-gray-200 mt-6">
                         <div class="flex items-center justify-between mb-4">
                             <h3 class="text-lg font-bold text-gray-900">미출현 그룹 현황 및 조합 필터</h3>
+                            <!-- [fix-432] 통계 보기 모달 트리거 버튼 제거 — 본문에 통계 이미 표시 -->
                             <a href="filter.html?tab=foundation&id=missing_period" target="_blank"
                                 class="text-sm font-medium text-slate-500 hover:text-blue-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
                                 <span class="material-symbols-outlined text-[18px]">tune</span>
@@ -718,80 +841,55 @@
                             <table class="w-full border-collapse">
                                 <thead>
                                     <tr class="bg-gray-50">
-                                        <th class="py-3 px-6 text-center text-xs font-semibold text-gray-600 border border-gray-200"
-                                            style="width: 120px;">미출현<br />기간</th>
-                                        <th class="py-3 px-8 text-center text-xs font-semibold border border-gray-200"
-                                            style="color: #E64A19; min-width: 200px;">0-5회<br />(최근 출현)</th>
-                                        <th class="py-3 px-6 text-center text-xs font-semibold border border-gray-200"
-                                            style="color: #4B5563;">6-10회<br />(중간 공백)</th>
-                                        <th class="py-3 px-6 text-center text-xs font-semibold border border-gray-200"
-                                            style="color: #16A34A;">11-15회<br />(장기 공백)</th>
-                                        <th class="py-3 px-6 text-center text-xs font-semibold border border-gray-200"
-                                            style="color: #1A6DFF;">16+회<br />(극장기 공백)</th>
+                                        <th class="py-3 px-6 text-center text-xs font-semibold text-gray-600 border border-gray-200" style="width: 120px;">미출현<br />기간</th>
+                                        <th class="py-3 px-8 text-center text-xs font-semibold border border-gray-200" style="color: #E64A19; min-width: 200px;">0-5회<br />(최근 출현)</th>
+                                        <th class="py-3 px-6 text-center text-xs font-semibold border border-gray-200" style="color: #4B5563;">6-10회<br />(중간 공백)</th>
+                                        <th class="py-3 px-6 text-center text-xs font-semibold border border-gray-200" style="color: #16A34A;">11-15회<br />(장기 공백)</th>
+                                        <th class="py-3 px-6 text-center text-xs font-semibold border border-gray-200" style="color: #1A6DFF;">16+회<br />(극장기 공백)</th>
                                     </tr>
                                 </thead>
                                 <tbody id="missGroupTableBody"></tbody>
                                 <tfoot>
                                     <tr class="bg-gray-100">
-                                        <td
-                                            class="py-2 px-6 text-center text-xs font-semibold text-gray-600 border border-gray-200">
-                                            총 개수</td>
-                                        <td class="py-2 px-8 text-center text-sm font-bold border border-gray-200"
-                                            style="color: #E64A19;" id="count1Total">-</td>
-                                        <td class="py-2 px-6 text-center text-sm font-bold border border-gray-200"
-                                            style="color: #4B5563;" id="count2Total">-</td>
-                                        <td class="py-2 px-6 text-center text-sm font-bold border border-gray-200"
-                                            style="color: #16A34A;" id="count3Total">-</td>
-                                        <td class="py-2 px-6 text-center text-sm font-bold border border-gray-200"
-                                            style="color: #1A6DFF;" id="count4Total">-</td>
+                                        <td class="py-2 px-6 text-center text-xs font-semibold text-gray-600 border border-gray-200">총 개수</td>
+                                        <td class="py-2 px-8 text-center text-sm font-bold border border-gray-200" style="color: #E64A19;" id="count1Total">-</td>
+                                        <td class="py-2 px-6 text-center text-sm font-bold border border-gray-200" style="color: #4B5563;" id="count2Total">-</td>
+                                        <td class="py-2 px-6 text-center text-sm font-bold border border-gray-200" style="color: #16A34A;" id="count3Total">-</td>
+                                        <td class="py-2 px-6 text-center text-sm font-bold border border-gray-200" style="color: #1A6DFF;" id="count4Total">-</td>
                                     </tr>
                                     <tr class="bg-gray-50">
-                                        <td
-                                            class="py-3 px-6 text-center text-sm font-semibold text-gray-600 border border-gray-200">
-                                            필터</td>
+                                        <td class="py-3 px-6 text-center text-sm font-semibold text-gray-600 border border-gray-200">필터</td>
                                         <td class="py-3 px-3 border border-gray-200">
                                             <div class="flex items-center justify-center gap-2">
-                                                <input type="number" id="range1Min" min="0" max="6" value="0"
-                                                    class="px-2 py-1 text-sm border border-gray-300 rounded w-16 text-center"
-                                                    onchange="applyFilterManual()">
-                                                <span class="text-sm text-gray-500">~</span>
-                                                <input type="number" id="range1Max" min="0" max="6" value="6"
-                                                    class="px-2 py-1 text-sm border border-gray-300 rounded w-16 text-center"
-                                                    onchange="applyFilterManual()">
+                                                <input type="number" id="range1Min" min="0" max="6" value="0" class="w-14 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent" onchange="applyFilterManual()">
+                                                <span class="text-xs text-gray-400">~</span>
+                                                <input type="number" id="range1Max" min="0" max="6" value="6" class="w-14 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent" onchange="applyFilterManual()">
                                             </div>
+                                            <div id="range1Hint" class="text-[10px] text-gray-400 text-center mt-1"></div>
                                         </td>
                                         <td class="py-3 px-3 border border-gray-200">
                                             <div class="flex items-center justify-center gap-2">
-                                                <input type="number" id="range2Min" min="0" max="6" value="0"
-                                                    class="px-2 py-1 text-sm border border-gray-300 rounded w-16 text-center"
-                                                    onchange="applyFilterManual()">
-                                                <span class="text-sm text-gray-500">~</span>
-                                                <input type="number" id="range2Max" min="0" max="6" value="6"
-                                                    class="px-2 py-1 text-sm border border-gray-300 rounded w-16 text-center"
-                                                    onchange="applyFilterManual()">
+                                                <input type="number" id="range2Min" min="0" max="6" value="0" class="w-14 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent" onchange="applyFilterManual()">
+                                                <span class="text-xs text-gray-400">~</span>
+                                                <input type="number" id="range2Max" min="0" max="6" value="6" class="w-14 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent" onchange="applyFilterManual()">
                                             </div>
+                                            <div id="range2Hint" class="text-[10px] text-gray-400 text-center mt-1"></div>
                                         </td>
                                         <td class="py-3 px-3 border border-gray-200">
                                             <div class="flex items-center justify-center gap-2">
-                                                <input type="number" id="range3Min" min="0" max="6" value="0"
-                                                    class="px-2 py-1 text-sm border border-gray-300 rounded w-16 text-center"
-                                                    onchange="applyFilterManual()">
-                                                <span class="text-sm text-gray-500">~</span>
-                                                <input type="number" id="range3Max" min="0" max="6" value="6"
-                                                    class="px-2 py-1 text-sm border border-gray-300 rounded w-16 text-center"
-                                                    onchange="applyFilterManual()">
+                                                <input type="number" id="range3Min" min="0" max="6" value="0" class="w-14 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent" onchange="applyFilterManual()">
+                                                <span class="text-xs text-gray-400">~</span>
+                                                <input type="number" id="range3Max" min="0" max="6" value="6" class="w-14 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent" onchange="applyFilterManual()">
                                             </div>
+                                            <div id="range3Hint" class="text-[10px] text-gray-400 text-center mt-1"></div>
                                         </td>
                                         <td class="py-3 px-3 border border-gray-200">
                                             <div class="flex items-center justify-center gap-2">
-                                                <input type="number" id="range4Min" min="0" max="6" value="0"
-                                                    class="px-2 py-1 text-sm border border-gray-300 rounded w-16 text-center"
-                                                    onchange="applyFilterManual()">
-                                                <span class="text-sm text-gray-500">~</span>
-                                                <input type="number" id="range4Max" min="0" max="6" value="6"
-                                                    class="px-2 py-1 text-sm border border-gray-300 rounded w-16 text-center"
-                                                    onchange="applyFilterManual()">
+                                                <input type="number" id="range4Min" min="0" max="6" value="0" class="w-14 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent" onchange="applyFilterManual()">
+                                                <span class="text-xs text-gray-400">~</span>
+                                                <input type="number" id="range4Max" min="0" max="6" value="6" class="w-14 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent" onchange="applyFilterManual()">
                                             </div>
+                                            <div id="range4Hint" class="text-[10px] text-gray-400 text-center mt-1"></div>
                                         </td>
                                     </tr>
                                 </tfoot>
@@ -799,28 +897,21 @@
                         </div>
 
                         <div class="flex items-center justify-between mt-4">
-                            <!-- [Layout] Apply Filter: Bottom Left -->
-                            <!-- [Layout] Recent 10 Filters: Bottom Left (Swapped) -->
-                            <!-- [수정] 버튼 디자인 통일: rounded-xl, font-black, shadow-lg 적용 -->
-                            <button id="recent10FilterBtn" onclick="applyRecent10Filters()" style="min-width: 210px;"
-                                class="flex items-center justify-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 transition-all active:scale-95 text-sm font-black ring-2 ring-white/20">
+                            <button id="recent10FilterBtn" onclick="applyRecent10Filters()" style="min-width: 210px;" class="flex items-center justify-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 transition-all active:scale-95 text-sm font-black ring-2 ring-white/20">
                                 <span class="material-symbols-outlined text-[20px]">auto_fix_high</span>
                                 <span id="recent10FilterText">최근 10회차 필터 적용</span>
                             </button>
-
-                            <!-- [Layout] Apply Filter: Bottom Right (Swapped) -->
                             <label class="flex items-center gap-2 cursor-pointer">
                                 <span class="text-sm text-gray-600 font-bold">필터 적용</span>
                                 <label class="toggle-switch">
-                                    <input type="checkbox" id="rangeFilterToggle" checked
-                                        onchange="toggleRangeFilter()">
+                                    <input type="checkbox" id="rangeFilterToggle" checked onchange="toggleRangeFilter()">
                                     <span class="toggle-slider"></span>
                                 </label>
                             </label>
                         </div>
                     </div>
 
-                    <div class="bg-white rounded-xl p-6 border border-gray-200">
+                    <div class="bg-white rounded-xl p-6 border border-gray-200 mt-6">
                         <div class="mb-6">
                             <div class="flex items-center justify-between mb-2">
                                 <h3 class="text-lg font-bold text-gray-900">회차별 미출현 번호</h3>
@@ -859,18 +950,18 @@
                         </div>
                     </div>
 
-                    <div class="mt-8">
-                        <div class="flex items-center justify-between mb-4 px-2">
+                    <!-- [fix-426] 회차별 당첨번호 및 미출현 — 헤더부터 흰 박스 일체화 -->
+                    <div class="bg-white rounded-xl border border-gray-200 mt-8 overflow-hidden">
+                        <div class="flex items-center justify-between px-8 pt-6 pb-4 border-b border-gray-100">
                             <div>
-                                <h3 class="text-lg font-bold text-gray-900">회차별 당첨번호 및 미출현</h3>
-                                <p class="text-sm text-gray-600 mt-1">
+                                <h3 class="text-lg font-bold text-gray-900 mb-1">회차별 당첨번호 및 미출현</h3>
+                                <p class="text-sm text-gray-600">
                                     최근 <span id="displayedCount_bottom" class="font-bold text-blue-600">100</span>회차 표시
                                 </p>
                             </div>
                         </div>
 
-                        <div
-                            class="flex items-center gap-4 bg-white p-4 rounded-t-xl border border-gray-200 border-b-0 shadow-sm">
+                        <div class="flex items-center gap-4 px-8 py-4 border-b border-gray-100">
                             <span class="text-sm text-gray-600 whitespace-nowrap">표시 범위:</span>
                             <div class="flex-1 relative h-6 flex items-center">
                                 <input type="range" id="displayRange" min="10" max="1203" value="100" class="w-full"
@@ -879,7 +970,7 @@
                             <span class="text-sm font-bold text-blue-600 whitespace-nowrap" id="rangeLabel">100회</span>
                         </div>
 
-                        <div class="overflow-x-auto overflow-y-auto custom-scrollbar bg-white rounded-b-xl border border-gray-200 shadow-sm"
+                        <div class="overflow-x-auto overflow-y-auto custom-scrollbar"
                             style="max-height: 600px;">
                             <table class="w-full text-center">
                                 <thead class="sticky top-0 z-30">
@@ -1313,14 +1404,40 @@
                 g1Vals, g2Vals, g3Vals, g4Vals, targetRound
             );
 
-            // ── 4단계: 비동기 — matrix_data로 모델 셀 업데이트 ────────────
-            if (!window.AIProxy) return;
+            // ── 4단계: 비동기 — supabase 직접 fetch로 즉시 matrix_data 로드 (V3 API 라운드트립 제거) ────────────
             (async () => {
                 try {
-                    const deepRaw = await AIProxy.getDeepAnalysis().catch(() => null);
-                    const data = deepRaw?.data || deepRaw;
-                    const matrix = data?.analysis?.matrix_data || [];
-                    if (!matrix.length) return;
+                    let matrix = null;
+                    // [fix-240/243] supabase 가용 대기 후 직접 fetch
+                    const _waitSb = async (ms = 3000) => {
+                        const s = Date.now();
+                        while (!window.supabaseClient || typeof window.supabaseClient.from !== 'function') {
+                            if (Date.now() - s > ms) return null;
+                            await new Promise(r => setTimeout(r, 50));
+                        }
+                        return window.supabaseClient;
+                    };
+                    const sb = await _waitSb();
+                    if (sb) {
+                        const { data: row } = await sb
+                            .from('deep_analysis_history')
+                            .select('analysis_data')
+                            .order('target_round', { ascending: false })
+                            .limit(1)
+                            .maybeSingle();
+                        if (row && row.analysis_data) {
+                            let ad = row.analysis_data;
+                            if (typeof ad === 'string') { try { ad = JSON.parse(ad); } catch(_) {} }
+                            matrix = ad?.analysis?.matrix_data || ad?.matrix_data || null;
+                        }
+                    }
+                    // fallback: AIProxy V3 API
+                    if ((!matrix || !matrix.length) && window.AIProxy) {
+                        const deepRaw = await AIProxy.getDeepAnalysis().catch(() => null);
+                        const data = deepRaw?.data || deepRaw;
+                        matrix = data?.analysis?.matrix_data || [];
+                    }
+                    if (!matrix || !matrix.length) return;
 
                     const preds = _computeMissingPredictions(matrix, g1, g2, g3, g4);
                     _updateMissingCells(preds, targetRound, g1, g2, g3, g4);
@@ -1446,160 +1563,65 @@
             maxMissCount = Math.max(...Object.values(missCount));
         }
 
+
+        // [fix-445] 미출현 회수별 통계 — 컬럼=미출현 회수(0~20+), 행=회차(최신순)
+        // 셀: 당첨 개수 N≥1 → 원형 ball에 N · 당첨 개수 0 → 그 컬럼 마지막 ball 이후 경과 회차수 (옅은 회색)
         function renderMissStatsTable() {
-            const displayRounds = Math.max(maxMissCount, 20);
-            const displayData = allData.slice(0, displayRounds);
-            const nextRound = allData[0].round + 1;
-            const latestMiss = missHistory[nextRound] || currentMiss;
-
-            document.getElementById('maxMissRounds').textContent = displayRounds;
-
-            // 정렬 기준을 위한 배열
-            const numberOrder = Array.from({
-                length: 45
-            }, (e, i) => i + 1);
-            numberOrder.sort((a, b) => latestMiss[a] - latestMiss[b]);
-
-            // 최근 출현 빈도 계산
-            const recentHits = {
-                5: {},
-                10: {},
-                15: {},
-                20: {}
-            };
-            for (let num = 1; num <= 45; num++) {
-                recentHits[5][num] = 0;
-                recentHits[10][num] = 0;
-                recentHits[15][num] = 0;
-                recentHits[20][num] = 0;
-            }
-
-            allData.slice(0, 20).forEach((draw, idx) => {
-                draw.numbers.forEach(num => {
-                    if (idx < 5) recentHits[5][num]++;
-                    if (idx < 10) recentHits[10][num]++;
-                    if (idx < 15) recentHits[15][num]++;
-                    if (idx < 20) recentHits[20][num]++;
-                });
-            });
-
-            // 테이블 클래스 업데이트
-            const tableEl = document.getElementById('missStatsTable');
-            tableEl.className = 'pretty-table w-full border-collapse';
-
-            const thead = document.getElementById('missStatsHeader');
-            let headerHTML = '<th class="sticky-col py-3 px-4 bg-slate-800 text-white shadow-md z-30">회차</th>';
-            numberOrder.forEach(num => {
-                headerHTML += `<th class="py-3 px-1 bg-slate-800 text-white font-bold border-b border-slate-600">${num}</th>`;
-            });
-            thead.innerHTML = headerHTML;
-
+            if (!allData || !allData.length) return;
             const tbody = document.getElementById('missStatsBody');
-            let bodyHTML = '';
+            if (!tbody) return;
 
-            // 요약 행 스타일
-            const summaryRowClass = "bg-slate-50 font-semibold text-xs border-b border-slate-200";
+            const displayRounds = Math.max(maxMissCount || 20, 20);
+            const displayData = allData.slice(0, Math.min(displayRounds, allData.length));
 
-            // H/N/C Row
-            bodyHTML += `<tr class="${summaryRowClass}"><td class="sticky-col py-3 text-slate-600 shadow-sm text-center">상태</td>`;
-            numberOrder.forEach((num) => {
-                const count = recentHits[10][num];
-                let badgeClass = 'badge-neutral';
-                let label = 'N';
+            const _maxMissEl = document.getElementById('maxMissRounds');
+            if (_maxMissEl) _maxMissEl.textContent = displayRounds;
 
-                if (count >= 3) {
-                    label = 'H';
-                    badgeClass = 'badge-hot';
-                } else if (count == 0) {
-                    label = 'C';
-                    badgeClass = 'badge-cold';
-                }
+            // 옛날→최신 순으로 처리하여 각 카테고리별 gap 누적
+            const reversedData = displayData.slice().reverse();   // 옛날→최신
+            const gaps = new Array(21).fill(0);                    // 각 카테고리의 마지막 ball 이후 경과 회차
+            const cellsByRound = {};   // round → 21 카테고리 셀 정보
 
-                bodyHTML += `<td><span class="badge ${badgeClass}">${label}</span></td>`;
-            });
-            bodyHTML += '</tr>';
-
-            // 최근 빈도 Rows
-            const ranges = [{
-                r: 5,
-                l: '최근5'
-            }, {
-                r: 10,
-                l: '최근10'
-            }, {
-                r: 15,
-                l: '최근15'
-            }]; // 20은 생략하여 간소화
-            ranges.forEach(item => {
-                bodyHTML += `<tr class="${summaryRowClass}"><td class="sticky-col py-2 text-slate-500 text-xs shadow-sm text-center">${item.l}</td>`;
-                numberOrder.forEach((num) => {
-                    const count = recentHits[item.r][num];
-                    let textColor = 'text-gray-400';
-                    if (count >= 2) textColor = 'text-slate-800 font-bold';
-                    if (count >= 4) textColor = 'text-red-500 font-extrabold';
-                    bodyHTML += `<td class="${textColor}">${count}</td>`;
+            reversedData.forEach(draw => {
+                const missAt = missHistory[draw.round] || {};
+                const catCount = new Array(21).fill(0);
+                (draw.numbers || []).forEach(num => {
+                    const m = missAt[num] ?? 0;
+                    const cat = Math.min(20, m);
+                    catCount[cat]++;
                 });
-                bodyHTML += '</tr>';
+                const rowCells = catCount.map((c, i) => {
+                    if (c >= 1) {
+                        gaps[i] = 0;   // 당첨 발생 — gap 리셋
+                        return { type: 'ball', value: c };
+                    } else {
+                        gaps[i]++;   // 당첨 없음 — gap 누적
+                        return { type: 'gap', value: gaps[i] };
+                    }
+                });
+                cellsByRound[draw.round] = rowCells;
             });
 
-            // 데이터 행 렌더링
-            displayData.forEach((draw, index) => {
-                const prevDraw = allData[index + 1];
-                const prevNumbers = prevDraw ? prevDraw.numbers : [];
-
-                bodyHTML += `<tr class="hover:bg-blue-50 transition-colors">`;
-                bodyHTML += `<td class="sticky-col py-2 font-mono text-slate-600 font-bold shadow-sm text-center">${draw.round}회</td>`;
-
-                numberOrder.forEach(num => {
-                    if (draw.numbers.includes(num)) {
-                        let streak = 1;
-                        // Calculate streak by looking at previous rounds
-                        let tempIdx = index + 1;
-                        while (tempIdx < allData.length) {
-                            if (allData[tempIdx].numbers.includes(num)) {
-                                streak++;
-                                tempIdx++;
-                            } else {
-                                break;
-                            }
-                        }
-
-                        let markerHtml = '';
-                        // 유저 요청 스타일 적용
-                        // 1: Blue 당, 2: Red 연, 3: Purple 삼, 4+: Pink 사
-                        if (streak >= 4) {
-                            markerHtml = `<div class="w-6 h-6 rounded-full bg-pink-500 flex items-center justify-center text-white text-[10px] font-bold shadow-sm mx-auto">사</div>`;
-                        } else if (streak === 3) {
-                            markerHtml = `<div class="w-6 h-6 rounded-full bg-purple-500 flex items-center justify-center text-white text-[10px] font-bold shadow-sm mx-auto">삼</div>`;
-                        } else if (streak === 2) {
-                            markerHtml = `<div class="w-6 h-6 rounded-full bg-red-500 flex items-center justify-center text-white text-[10px] font-bold shadow-sm mx-auto">연</div>`;
-                        } else {
-                            // 일반 당첨 (1회)
-                            markerHtml = `<div class="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center text-white text-[10px] font-bold shadow-sm mx-auto">당</div>`;
-                        }
-                        bodyHTML += `<td class="p-1">${markerHtml}</td>`;
+            // 최신→과거 순으로 출력
+            let bodyHTML = '';
+            displayData.forEach(draw => {
+                const rowCells = cellsByRound[draw.round] || [];
+                bodyHTML += `<tr class="hover:bg-blue-50/30">`;
+                bodyHTML += `<td class="sticky left-0 z-10 bg-white px-3 py-2 text-xs text-slate-700 border-r border-slate-200 text-center whitespace-nowrap" style="font-feature-settings:'tnum';min-width:72px">${draw.round}회</td>`;
+                rowCells.forEach((cell, i) => {
+                    const catLabel = i === 20 ? '20+' : `${i}`;
+                    if (cell.type === 'ball') {
+                        const N = cell.value;
+                        // 당첨 ball — 회색 원형
+                        bodyHTML += `<td class="px-1 py-1 text-center" title="${draw.round}회 — ${catLabel}회 미출현인 당첨번호 ${N}개"><span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:#94a3b8;color:#fff;font-size:11px;font-weight:700;box-shadow:0 1px 2px rgba(0,0,0,0.12);">${N}</span></td>`;
                     } else {
-                        const missCount = missHistory[draw.round][num];
-                        // 히트맵 컬러 계산 (미출현 높을수록 붉은색)
-                        let bgClass = '';
-                        let textClass = 'text-gray-400';
-
-                        if (missCount >= 15) {
-                            bgClass = 'bg-red-100';
-                            textClass = 'text-red-600 font-bold';
-                        } else if (missCount >= 10) {
-                            bgClass = 'bg-orange-50';
-                            textClass = 'text-orange-500 font-semibold';
-                        } else if (missCount >= 5) {
-                            textClass = 'text-slate-500';
-                        }
-
-                        bodyHTML += `<td class="${bgClass} p-1"><span class="${textClass} text-xs">${missCount}</span></td>`;
+                        // gap — 옅은 회색 텍스트 (이 카테고리에서 마지막 당첨 이후 경과 회차)
+                        const g = cell.value;
+                        bodyHTML += `<td class="px-1 py-1 text-center text-[11px] text-slate-300" style="font-feature-settings:'tnum'" title="${catLabel}회 미출현 카테고리 — 마지막 당첨 후 ${g}회 경과">${g}</td>`;
                     }
                 });
                 bodyHTML += '</tr>';
             });
-
             tbody.innerHTML = bodyHTML;
         }
 
@@ -1717,6 +1739,12 @@
             saveFilters(); // 삭제 즉시 DB/localStorage에 반영 (카드 동기화)
         }
 
+        // [버그 수정] race + 빈 그룹 자동저장 방지
+        //   ① 그룹이 비어 있으면 저장 자체 차단 (sync 시점에 빈 상태로 덮어쓰기 방지)
+        //   ② Utils.saveFilter에 targetRound 4번째 인자 전달
+        //   ③ _missingSelfSaving 가드 → _missingSaveTime 타임스탬프 방식으로 변경
+        let _missingSaveTime = 0;
+
         async function saveFilters() {
             customFilters.forEach(filter => {
                 filter.numbers = [...new Set(filter.numbers)].sort((a, b) => a - b);
@@ -1726,13 +1754,14 @@
             const payload = { filters: customFilters, counter: filterIdCounter, targetRound };
 
             try {
-                _missingSelfSaving = true;
+                _missingSaveTime = Date.now();
 
-                // [표준] NULL row 저장 + StorageEvent + BroadcastChannel 발송
+                console.log(`💾 미출현 그룹 저장 시도: groups=${customFilters.length}, target=${targetRound}, enabled=${useCustomFilter}`);
+
+                // [표준] NULL row 저장 — ★ targetRound 4번째 인자 추가
                 if (window.Utils && window.Utils.saveFilter) {
-                    await window.Utils.saveFilter('missing_custom_filter', payload, useCustomFilter);
+                    await window.Utils.saveFilter('missing_custom_filter', payload, useCustomFilter, targetRound);
                 } else {
-                    // Fallback
                     if (window.filterService?.initialized) {
                         await window.filterService.saveSetting('missing_custom_filter', payload, useCustomFilter);
                     }
@@ -1748,9 +1777,10 @@
                 // 레거시 키 병행 유지 (하위호환)
                 localStorage.setItem('missGroupFilters', JSON.stringify(customFilters));
                 localStorage.setItem('missGroupFilterCounter', filterIdCounter.toString());
-                console.log('✅ 커스텀 필터 저장 완료 (missing_custom_filter)');
-            } finally {
-                _missingSelfSaving = false;
+                _missingSaveTime = Date.now();
+                console.log(`✅ 미출현 그룹 저장 완료 (target=${targetRound}, ${customFilters.length}그룹)`);
+            } catch (err) {
+                console.error('[missing] saveFilters 오류:', err);
             }
         }
 
@@ -1759,11 +1789,14 @@
             const currentRound = latestRound ? latestRound + 1 : null;
 
             // [표준] Utils.loadFilter 우선 (localStorage _ts vs DB updated_at 비교)
+            // [Fix 2026-05-03] 회차별 행이 존재하면 (filters=[] 빈 배열이라도) 그대로 사용.
+            //   이전 동작: filters.length===0이면 master(target_round=null) fallback → 옛날 필터 자동 부활
+            //   현재 동작: 회차별 행을 명시적 빈 상태로 인식 → master 부활 차단
             if (window.Utils && window.Utils.loadFilter) {
                 const loaded = await window.Utils.loadFilter('missing_custom_filter', currentRound);
                 if (loaded) {
                     const s = loaded.settings !== undefined ? loaded.settings : loaded;
-                    if (s && Array.isArray(s.filters) && s.filters.length > 0) {
+                    if (s && Array.isArray(s.filters)) {
                         customFilters = s.filters.map(f => ({
                             ...f,
                             numbers: [...new Set(f.numbers || [])].sort((a, b) => a - b)
@@ -1774,7 +1807,9 @@
                             const tog = document.getElementById('customFilterToggle');
                             if (tog) tog.checked = useCustomFilter;
                         }
-                        console.log(`✅ 커스텀 필터 로드 완료 (Utils): ${customFilters.length}개 그룹`);
+                        console.log(`✅ 커스텀 필터 로드 완료 (Utils): ${customFilters.length}개 그룹 (현재 회차: ${currentRound})`);
+                        renderFiltersList();
+                        if (useCustomFilter) renderDrawsList();
                         return;
                     }
                 }
@@ -2040,11 +2075,44 @@
             document.getElementById('count3Total').textContent = groups[3].length;
             document.getElementById('count4Total').textContent = groups[4].length;
 
+            // [fix-411] 그룹 사이즈로 max 클램프 + 안내 문구 — 다음 회차에 출현 가능한 카운트는 그룹 사이즈를 넘을 수 없음
+            for (let i = 1; i <= 4; i++) {
+                const groupSize = groups[i].length;
+                const cap = Math.min(6, Math.max(0, groupSize));   // 0~6 안정선
+                const minInp = document.getElementById(`range${i}Min`);
+                const maxInp = document.getElementById(`range${i}Max`);
+                const hintEl = document.getElementById(`range${i}Hint`);
+                if (minInp) {
+                    minInp.max = cap;
+                    if (parseInt(minInp.value) > cap) minInp.value = cap;
+                }
+                if (maxInp) {
+                    maxInp.max = cap;
+                    if (parseInt(maxInp.value) > cap) maxInp.value = cap;
+                }
+                if (hintEl) {
+                    hintEl.textContent = `현재 ${groupSize}개 · 가능 max ${cap}`;
+                }
+            }
+
             const maxMisses = [0, 0, 0, 0, 0];
             for (let num = 1; num <= 45; num++) {
                 const range = getMissRange(currentMiss[num]);
                 maxMisses[range] = Math.max(maxMisses[range], currentMiss[num]);
             }
+
+            // [fix-433] 텍스트 → ball chip 형식 (번호대별 컬러)
+            const _ballBg = (n) => {
+                if (n <= 10) return 'linear-gradient(135deg,#f59e0b,#d97706)';
+                if (n <= 20) return 'linear-gradient(135deg,#3b82f6,#2563eb)';
+                if (n <= 30) return 'linear-gradient(135deg,#ef4444,#dc2626)';
+                if (n <= 40) return 'linear-gradient(135deg,#6b7280,#4b5563)';
+                return 'linear-gradient(135deg,#10b981,#059669)';
+            };
+            const _renderBalls = (nums) => {
+                if (!nums.length) return '<span class="text-slate-300 text-xs">-</span>';
+                return nums.sort((a,b) => a-b).map(n => `<span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:${_ballBg(n)};color:#fff;font-size:11px;font-weight:700;box-shadow:0 1px 2px rgba(0,0,0,0.12);">${n}</span>`).join(' ');
+            };
 
             let html = '';
             const maxRows = Math.max(...Object.values(maxMisses));
@@ -2059,17 +2127,17 @@
                     html += `
                         <tr class="hover:bg-gray-50">
                             <td class="py-2 px-6 text-center font-semibold text-gray-900 border border-gray-200" style="font-size: 12px;">${miss}회</td>
-                            <td class="py-2 px-8 text-center border border-gray-200" style="font-size: 11px;">
-                                ${row1.length ? row1.sort((a, b) => a - b).join(', ') : '-'}
+                            <td class="py-2 px-4 text-center border border-gray-200">
+                                <div class="flex flex-wrap gap-1 justify-center items-center">${_renderBalls(row1)}</div>
                             </td>
-                            <td class="py-2 px-6 text-center border border-gray-200" style="font-size: 11px;">
-                                ${row2.length ? row2.sort((a, b) => a - b).join(', ') : '-'}
+                            <td class="py-2 px-4 text-center border border-gray-200">
+                                <div class="flex flex-wrap gap-1 justify-center items-center">${_renderBalls(row2)}</div>
                             </td>
-                            <td class="py-2 px-6 text-center border border-gray-200" style="font-size: 11px;">
-                                ${row3.length ? row3.sort((a, b) => a - b).join(', ') : '-'}
+                            <td class="py-2 px-4 text-center border border-gray-200">
+                                <div class="flex flex-wrap gap-1 justify-center items-center">${_renderBalls(row3)}</div>
                             </td>
-                            <td class="py-2 px-6 text-center border border-gray-200" style="font-size: 11px;">
-                                ${row4.length ? row4.sort((a, b) => a - b).join(', ') : '-'}
+                            <td class="py-2 px-4 text-center border border-gray-200">
+                                <div class="flex flex-wrap gap-1 justify-center items-center">${_renderBalls(row4)}</div>
                             </td>
                         </tr>
                     `;
@@ -2295,12 +2363,22 @@
                 counts[4].push(hitCounts[4]);
             });
 
-            // 3. 필터 입력창에 값 적용 (Safety Margin ±1 적용하여 과도한 필터링 방지)
+            // [fix-411] 현재 그룹 사이즈 계산 — historicalMax를 그룹 사이즈로 클램프
+            const currentGroupSize = { 1: 0, 2: 0, 3: 0, 4: 0 };
+            for (let n = 1; n <= 45; n++) {
+                const r = getMissRange(currentMiss[n]);
+                if (r >= 1 && r <= 4) currentGroupSize[r]++;
+            }
+
+            // 3. 필터 입력창에 값 적용 — historicalMax를 currentGroupSize로 클램프 (다음 회차 가능 한계)
             for (let i = 1; i <= 4; i++) {
                 const minVal = Math.min(...counts[i]);
-                const maxVal = Math.max(...counts[i]);
+                const histMax = Math.max(...counts[i]);
+                const cap = Math.min(6, currentGroupSize[i]);
+                const maxVal = Math.min(histMax, cap);
+                const safeMin = Math.min(minVal, cap);
 
-                document.getElementById(`range${i}Min`).value = minVal;
+                document.getElementById(`range${i}Min`).value = safeMin;
                 document.getElementById(`range${i}Max`).value = maxVal;
             }
 
@@ -2752,7 +2830,244 @@
                 openQnaModal(promptText);
             };
         }
+
+        // ════════════════════════════════════════════════════════════
+        // [fix-425] 미출현 도메인 보조지표 4섹션 + 통계 모달
+        // ════════════════════════════════════════════════════════════
+        const MSM_GROUP_DEFS = [
+            { id: 1, label: '0~5회',  color: '#E64A19' },
+            { id: 2, label: '6~10회', color: '#4B5563' },
+            { id: 3, label: '11~15회', color: '#16A34A' },
+            { id: 4, label: '16+회',  color: '#1A6DFF' }
+        ];
+
+        function msmGroupCounts(draw) {
+            const missAtRound = missHistory[draw.round] || {};
+            const counts = [0, 0, 0, 0, 0];
+            (draw.numbers || []).forEach(num => {
+                const m = missAtRound[num] ?? 0;
+                const r = getMissRange(m);
+                if (r >= 1 && r <= 4) counts[r]++;
+            });
+            return counts;   // [unused, g1, g2, g3, g4]
+        }
+
+        // §1. 4 그룹 시계열
+        let msmSeriesChartInst = null;
+        function renderMsmSeries() {
+            if (!allData || allData.length < 30) return;
+            const canvas = document.getElementById('msmSeriesChart');
+            if (!canvas) return;
+            const data = allData.slice(0, 100).slice().reverse();
+            const labels = data.map(d => d.round);
+            const N = data.length;
+
+            const datasets = MSM_GROUP_DEFS.map(g => {
+                const series = data.map(d => msmGroupCounts(d)[g.id]);
+                return {
+                    label: g.label, data: series,
+                    borderColor: g.color, backgroundColor: g.color + '14',
+                    borderWidth: 1.6, pointRadius: 0, pointHoverRadius: 4, tension: 0.3, fill: false
+                };
+            });
+            datasets.push({
+                label: '평균 1.5', data: new Array(N).fill(1.5),
+                borderColor: '#CBD5E1', borderWidth: 1, borderDash: [4, 4],
+                pointRadius: 0, fill: false
+            });
+
+            if (msmSeriesChartInst) msmSeriesChartInst.destroy();
+            msmSeriesChartInst = new Chart(canvas.getContext('2d'), {
+                type: 'line', data: { labels, datasets },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { mode: 'index', intersect: false },
+                        datalabels: { display: false }
+                    },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { color: '#94A3B8', font: { size: 10 }, maxTicksLimit: 8 } },
+                        y: { min: 0, max: 6, ticks: { stepSize: 1, color: '#94A3B8', font: { size: 10 } }, grid: { color: '#F1F5F9' } }
+                    }
+                }
+            });
+        }
+
+        // §2. 4 그룹 출현률 메트릭
+        function renderMsmMetrics() {
+            const el = document.getElementById('msmMetricGrid');
+            if (!el) return;
+            const N = allData.length;
+            el.innerHTML = MSM_GROUP_DEFS.map(g => {
+                const cs = allData.map(d => msmGroupCounts(d)[g.id]);
+                const avg = cs.reduce((a,b) => a+b, 0) / N;
+                const zero = cs.filter(c => c === 0).length;
+                const zeroPct = (zero / N * 100);
+                const max = Math.max(...cs);
+                return `<div class="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+                    <div class="flex items-center gap-2">
+                        <span class="inline-block w-2 h-2 rounded-full" style="background:${g.color}"></span>
+                        <span class="text-sm text-slate-700">${g.label}</span>
+                    </div>
+                    <div class="flex items-baseline gap-3 text-[11px]">
+                        <span class="text-gray-400">평균 <span class="text-slate-700">${avg.toFixed(2)}</span></span>
+                        <span class="text-gray-400">0개 <span class="text-rose-600">${zeroPct.toFixed(0)}%</span></span>
+                        <span class="text-gray-400">max <span class="text-emerald-600">${max}</span></span>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        // §3. 4×7 카운트 매트릭스
+        function renderMsmMatrix() {
+            const el = document.getElementById('msmMatrixBody');
+            if (!el) return;
+            const N = allData.length;
+            const matrix = { 1: [0,0,0,0,0,0,0], 2: [0,0,0,0,0,0,0], 3: [0,0,0,0,0,0,0], 4: [0,0,0,0,0,0,0] };
+            allData.forEach(d => {
+                const c = msmGroupCounts(d);
+                for (let g = 1; g <= 4; g++) matrix[g][Math.min(6, c[g])]++;
+            });
+
+            const cellStyle = (count) => {
+                if (count === 0) return { bg: '#F8FAFC', fg: '#CBD5E1' };
+                const pct = count / N * 100;
+                if (pct < 3) return { bg: '#EFF6FF', fg: '#475569' };
+                if (pct < 10) return { bg: '#DBEAFE', fg: '#1E40AF' };
+                if (pct < 20) return { bg: '#93C5FD', fg: '#0C2A66' };
+                if (pct < 30) return { bg: '#3B82F6', fg: '#FFFFFF' };
+                return { bg: '#1E3A8A', fg: '#FFFFFF' };
+            };
+
+            el.innerHTML = MSM_GROUP_DEFS.map(g => {
+                const cells = matrix[g.id].map((cnt, k) => {
+                    const { bg, fg } = cellStyle(cnt);
+                    const pct = N ? (cnt / N * 100) : 0;
+                    if (cnt === 0) {
+                        return `<td class="px-1 py-1" style="text-align:center">
+                            <div class="rounded-md py-2" style="background:${bg};color:${fg};font-feature-settings:'tnum'">
+                                <div class="text-[13px]">—</div>
+                                <div class="text-[10px] opacity-70">·</div>
+                            </div>
+                        </td>`;
+                    }
+                    return `<td class="px-1 py-1" style="text-align:center">
+                        <div class="rounded-md py-2" style="background:${bg};color:${fg};font-feature-settings:'tnum'" title="${g.label} ${k}개 → ${cnt}회 (${pct.toFixed(1)}%)">
+                            <div class="text-[13px]">${cnt}</div>
+                            <div class="text-[10px] opacity-80">${pct.toFixed(1)}%</div>
+                        </div>
+                    </td>`;
+                }).join('');
+                return `<tr>
+                    <td class="py-1 px-3 text-left">
+                        <div class="flex items-center gap-2">
+                            <span class="inline-block w-2 h-2 rounded-full" style="background:${g.color}"></span>
+                            <span class="text-sm text-slate-700">${g.label}</span>
+                        </div>
+                    </td>
+                    ${cells}
+                </tr>`;
+            }).join('');
+        }
+
+        // §4. 다음 회차 활성 그룹 예측
+        function renderMsmNextDirPredictor() {
+            if (!allData || allData.length < 30) return;
+            const range = parseInt(document.getElementById('msmNextDirRange')?.value, 10) || 1;
+            const activeCount = (d) => msmGroupCounts(d).slice(1).filter(x => x >= 1).length;
+            const prevActive = activeCount(allData[0]);
+            const lower = prevActive - range;
+            const upper = prevActive + range;
+
+            const matches = [];
+            for (let i = 1; i < allData.length - 1; i++) {
+                const a = activeCount(allData[i]);
+                if (a < lower || a > upper) continue;
+                const aNext = activeCount(allData[i - 1]);
+                matches.push({ a, next: aNext, delta: aNext - a });
+            }
+            const ups = matches.filter(m => m.delta > 0);
+            const downs = matches.filter(m => m.delta < 0);
+            const flats = matches.filter(m => m.delta === 0);
+            const N = matches.length;
+            const avgDelta = N ? matches.reduce((s,m) => s + m.delta, 0) / N : 0;
+            const upAvg = ups.length ? ups.reduce((s,m) => s + m.delta, 0) / ups.length : 0;
+            const downAvg = downs.length ? downs.reduce((s,m) => s + m.delta, 0) / downs.length : 0;
+            const upPct = N ? ups.length / N * 100 : 0;
+            const downPct = N ? downs.length / N * 100 : 0;
+            const flatPct = N ? flats.length / N * 100 : 0;
+
+            const setText = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+            const setBar = (id, p) => { const el = document.getElementById(id); if (el) el.style.width = Math.min(100, p) + '%'; };
+            setText('msmNextDirPrev', `${prevActive}/4`);
+            setText('msmNextDirRangeText', `${Math.max(0,lower)}~${Math.min(4,upper)}`);
+            setText('msmNextDirMatchN', N);
+            setText('msmNextDirAvgDelta', `${avgDelta >= 0 ? '+' : ''}${avgDelta.toFixed(2)}`);
+            setText('msmNextDirUpPct', upPct.toFixed(1));
+            setText('msmNextDirDownPct', downPct.toFixed(1));
+            setText('msmNextDirFlatPct', flatPct.toFixed(1));
+            setText('msmNextDirUpN', ups.length);
+            setText('msmNextDirDownN', downs.length);
+            setText('msmNextDirFlatN', flats.length);
+            setText('msmNextDirUpAvg', `+${upAvg.toFixed(2)}`);
+            setText('msmNextDirDownAvg', downAvg.toFixed(2));
+            setBar('msmNextDirUpBar', upPct);
+            setBar('msmNextDirDownBar', downPct);
+            setBar('msmNextDirFlatBar', flatPct);
+
+            const insightEl = document.getElementById('msmNextDirInsight');
+            if (insightEl) {
+                if (N === 0) {
+                    insightEl.innerHTML = `<span class="text-gray-400">전회차 활성 그룹 ${prevActive}/4 ±${range} 범위에 해당하는 과거 회차 없음.</span>`;
+                } else {
+                    const dir = upPct > downPct ? '증가' : downPct > upPct ? '감소' : '균형';
+                    const dirColor = upPct > downPct ? '#059669' : downPct > upPct ? '#E11D48' : '#475569';
+                    const expectedAvg = prevActive + avgDelta;
+                    const nextAs = matches.map(m => m.next).slice().sort((a,b) => a-b);
+                    const p10 = nextAs[Math.max(0, Math.floor(N * 0.10))];
+                    const p90 = nextAs[Math.min(N - 1, Math.ceil(N * 0.90) - 1)];
+                    insightEl.innerHTML = `
+                        과거 활성 그룹 <span style="color:#1e293b">${Math.max(0,lower)}~${Math.min(4,upper)}/4</span> 범위(${N}회차)에서 다음 회차는
+                        <span style="color:${dirColor}">${dir}</span> 우세 — 평균 변동 <span style="color:#1e293b">${avgDelta >= 0 ? '+' : ''}${avgDelta.toFixed(2)}</span>.
+                        <div class="mt-2 pt-2 border-t border-blue-100/60 text-[12px]">
+                            <span class="text-gray-500">▸ 예상 활성 그룹</span>
+                            평균 진행 시 <span style="color:#1e293b">${expectedAvg.toFixed(1)}/4</span> ·
+                            폭넓게 80% (P10~P90) <span style="color:#475569">${p10}~${p90}/4</span>
+                        </div>
+                        <div class="mt-1 text-[11px] text-gray-400">활성 그룹 = 한 회차에 카운트 ≥ 1인 미출현 그룹 수 (최대 4)</div>
+                    `;
+                }
+            }
+        }
+
+        function renderMsmAuxIndicators() {
+            if (!allData || allData.length < 30) return;
+            renderMsmSeries();
+            renderMsmMetrics();
+            renderMsmMatrix();
+            renderMsmNextDirPredictor();
+            // [fix-436] 본문 통계 매트릭스(1~45 번호 × 회차)는 자체 렌더 함수가 채움 — renderMissStatsTable 호출 제거
+        }
+        document.addEventListener('DOMContentLoaded', () => {
+            const inp = document.getElementById('msmNextDirRange');
+            if (inp) inp.addEventListener('input', () => renderMsmNextDirPredictor());
+            // 데이터 로드 후 자동 렌더 (allData/missHistory 채워질 때까지 대기)
+            const tryRender = () => {
+                if (allData && allData.length > 0 && missHistory && Object.keys(missHistory).length > 0) {
+                    renderMsmAuxIndicators();
+                } else {
+                    setTimeout(tryRender, 300);
+                }
+            };
+            setTimeout(tryRender, 600);
+        });
+
+        // [fix-438] 통계 모달 관련 코드 전체 제거됨
+        // (msmCategoryFromMiss / msmCategoryDist / _msmStatsRange / _msmBallBg / _msmRenderBall / 모달용 renderMissStatsTable 모두 unused)
+        // 본문 통계 매트릭스는 line 1543의 renderMissStatsTable이 단일 함수로 처리
     </script>
+
 </body>
 
 </html>

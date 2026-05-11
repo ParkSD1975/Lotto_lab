@@ -31,6 +31,8 @@
 
     <!-- NLP Modules -->
     <script src="js/NLPProcessor.js"></script>
+    <script src="js/AutoNLPMatcher.js"></script>
+    <script src="js/auto_nlp_loader.js" defer></script>
     <script src="js/NLPInputComponent.js"></script>
     <script src="js/BasicAnalysisNLP.js"></script>
 
@@ -183,7 +185,7 @@
         let cachedAutoAcExcluded = [];
 
         async function saveFilterSettings(targetRoundOverride = null) {
-            if (window.isLoadingSettings) return;
+            // [버그 수정] window.isLoadingSettings 가드 제거 — race condition으로 사용자 토글이 무시되던 문제.
             const minInput = document.getElementById('minFilter');
             const maxInput = document.getElementById('maxFilter');
             const toggle = document.getElementById('applyFilterCheck');
@@ -479,7 +481,167 @@
                         </div>
                     </div>
 
-                    <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
+                    <!-- ════════════════════════════════════════════════ -->
+                    <!-- [fix-278] AC값 보조 분석 6종 (Phase A + B + C)    -->
+                    <!-- ════════════════════════════════════════════════ -->
+
+                    <!-- [fix-282] §3 시계열 추세 → 그래프 다음 첫 보조 분석으로 이동 -->
+                    <!-- §1. 시계열 추세 (이동평균 + 캘린더 히트맵 통합) -->
+                    <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm mt-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <div>
+                                <h3 class="text-lg font-bold text-gray-900 flex items-center gap-2">
+                                    <span class="material-symbols-outlined text-emerald-500">trending_up</span>
+                                    AC값 시계열 추세 (이동평균 + 캘린더 히트맵)
+                                </h3>
+                                <p class="text-xs text-gray-500 mt-1">상단: 라인차트(이동평균±1σ) · 하단: 캘린더 히트맵 (왼쪽=과거, 오른쪽=최신) — 같은 회차 범위 동기화</p>
+                            </div>
+                            <div class="flex items-center gap-3 text-xs">
+                                <div class="flex items-center gap-1.5">
+                                    <label class="text-gray-500">MA 윈도우:</label>
+                                    <input type="number" id="acMaWindow" value="10" min="3" max="50" oninput="renderAcMaChart()"
+                                        class="w-14 px-2 py-1 border-b border-gray-300 focus:outline-none focus:border-emerald-500 text-center font-bold">
+                                    <span class="text-gray-400">회</span>
+                                </div>
+                                <span class="text-gray-200">|</span>
+                                <div class="flex items-center gap-1.5">
+                                    <span class="inline-block w-3 h-3 rounded-sm" style="background:#dbeafe"></span>
+                                    <span class="text-gray-500">0~5</span>
+                                    <span class="inline-block w-3 h-3 rounded-sm" style="background:#60a5fa"></span>
+                                    <span class="text-gray-500">6~7</span>
+                                    <span class="inline-block w-3 h-3 rounded-sm" style="background:#1e40af"></span>
+                                    <span class="text-gray-500">8~10</span>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- 상단: 이동평균 라인 차트 -->
+                        <div class="h-64 mb-4"><canvas id="acMaChart"></canvas></div>
+                        <!-- 구분선 -->
+                        <div class="flex items-center gap-3 mb-3 mt-2 pt-3 border-t border-gray-100">
+                            <span class="material-symbols-outlined text-pink-500 text-sm">calendar_view_month</span>
+                            <span class="text-xs font-bold text-gray-700">캘린더 히트맵 — 회차별 AC값 한눈에 보기</span>
+                        </div>
+                        <!-- 하단: 캘린더 히트맵 -->
+                        <div id="acCalendarHeatmap" class="w-full"></div>
+                    </div>
+
+                    <!-- [fix-394] §2 + §5 좌우 이분할 — 전환 매트릭스 + 시퀀스 패턴 검색 -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+                        <!-- §2. AC값 전환 매트릭스 (Transition Matrix 11×11) -->
+                        <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
+                            <div class="flex items-center justify-between mb-4">
+                                <div>
+                                    <h3 class="text-lg font-bold text-gray-900 flex items-center gap-2">
+                                        <span class="material-symbols-outlined text-indigo-500">grid_on</span>
+                                        AC값 전환 매트릭스
+                                    </h3>
+                                    <p class="text-xs text-gray-500 mt-1">행=현재 AC값 → 열=다음 회차 AC값 (마르코프 1차 체인)</p>
+                                </div>
+                                <div class="text-xs text-gray-500" id="acTransSampleSize">샘플: −</div>
+                            </div>
+                            <div id="acTransMatrix" class="overflow-auto"></div>
+                        </div>
+                        <!-- §5. AC 시퀀스 패턴 검색기 -->
+                        <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
+                            <div class="flex items-center justify-between mb-4">
+                                <div>
+                                    <h3 class="text-lg font-bold text-gray-900 flex items-center gap-2">
+                                        <span class="material-symbols-outlined text-amber-500">search</span>
+                                        AC 시퀀스 패턴 검색
+                                    </h3>
+                                    <p class="text-xs text-gray-500 mt-1">최근 N개 AC값 시퀀스와 정확히 동일한 과거 패턴 검색 → 다음 회차 AC값 분포</p>
+                                </div>
+                                <div class="flex items-center gap-2 text-xs">
+                                    <label class="text-gray-500">시퀀스 길이:</label>
+                                    <input type="number" id="acSeqLen" value="5" min="2" max="10" oninput="renderAcSequenceMatch()"
+                                        class="w-14 px-2 py-1 border-b border-gray-300 focus:outline-none focus:border-amber-500 text-center font-bold">
+                                </div>
+                            </div>
+                            <div id="acSeqMatchPanel"></div>
+                        </div>
+                    </div>
+
+                    <!-- §3. 재출현 간격 카드 (AC 0~10) -->
+                    <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm mt-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <div>
+                                <h3 class="text-lg font-bold text-gray-900 flex items-center gap-2">
+                                    <span class="material-symbols-outlined text-rose-500">history</span>
+                                    AC값 재출현 간격
+                                </h3>
+                                <p class="text-xs text-gray-500 mt-1">각 AC값이 마지막으로 출현한 후 경과 회차 + 평균 간격 기반 z-score (양수 = 평소보다 오래 미출현)</p>
+                            </div>
+                        </div>
+                        <div id="acGapGrid" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3"></div>
+                    </div>
+
+                    <!-- §4. 교차 분석 (AC × 6 속성) -->
+                    <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm mt-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <div>
+                                <h3 class="text-lg font-bold text-gray-900 flex items-center gap-2">
+                                    <span class="material-symbols-outlined text-violet-500">scatter_plot</span>
+                                    AC값 × 다른 속성 교차 분석
+                                </h3>
+                                <p class="text-xs text-gray-500 mt-1">AC값을 3구간(저:0-5 / 중:6-7 / 고:8-10)으로 묶고 각 속성의 평균을 비교 → 상관관계 시그널</p>
+                            </div>
+                        </div>
+                        <div id="acCrossGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"></div>
+                    </div>
+
+                    <!-- [fix-394] §5 시퀀스 패턴 검색기는 §2와 좌우 이분할로 통합 (위로 이동) -->
+
+                    <!-- [fix-394] 다음 회차 방향 예측 (전회차 AC값 ±N 통계) -->
+                    <div class="bg-white rounded-xl border border-gray-200 p-6 mt-6" style="font-feature-settings:'tnum'">
+                        <div class="flex items-baseline justify-between flex-wrap gap-3 mb-4">
+                            <div>
+                                <h3 class="text-lg text-gray-900">다음 회차 방향 예측</h3>
+                                <p class="text-xs text-gray-500 mt-1">전회차 AC값 기준 ±N 범위에 있던 과거 회차들의 다음 회차 변동 통계</p>
+                            </div>
+                            <div class="flex items-center gap-2 text-[12px] text-gray-500">
+                                <span>±</span>
+                                <input type="number" id="acNextDirRange" min="0" max="5" value="1" class="w-12 text-center text-[12px] border-0 border-b border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent" style="font-feature-settings:'tnum'">
+                                <span>범위</span>
+                            </div>
+                        </div>
+                        <div class="flex items-baseline flex-wrap gap-x-8 gap-y-2 pb-4 mb-4 border-b border-gray-100">
+                            <div class="flex items-baseline gap-2"><span class="text-[10px] uppercase tracking-wider text-gray-400">전회차 AC값</span><span class="text-xl text-slate-700" id="acNextDirPrevSum">—</span></div>
+                            <div class="flex items-baseline gap-2"><span class="text-[10px] uppercase tracking-wider text-gray-400">분석 범위</span><span class="text-xl text-slate-700" id="acNextDirRangeText">—</span></div>
+                            <div class="flex items-baseline gap-2"><span class="text-[10px] uppercase tracking-wider text-gray-400">매칭 회차수</span><span class="text-xl text-blue-700" id="acNextDirMatchN">—</span></div>
+                            <div class="flex items-baseline gap-2"><span class="text-[10px] uppercase tracking-wider text-gray-400">평균 변동</span><span class="text-xl text-slate-700" id="acNextDirAvgDelta">—</span></div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                            <div>
+                                <div class="text-[10px] uppercase tracking-wider mb-2" style="color:#059669">↑ 상승</div>
+                                <div class="flex items-baseline gap-1 mb-2"><span id="acNextDirUpPct" class="text-3xl" style="color:#059669">—</span><span class="text-xs text-gray-400">%</span></div>
+                                <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden mb-2"><div id="acNextDirUpBar" class="h-full transition-all" style="background:#10B981;width:0%"></div></div>
+                                <div class="text-[11px] text-gray-500"><span id="acNextDirUpN">0</span>회 / 평균 <span id="acNextDirUpAvg">0</span></div>
+                            </div>
+                            <div>
+                                <div class="text-[10px] uppercase tracking-wider mb-2" style="color:#E11D48">↓ 하락</div>
+                                <div class="flex items-baseline gap-1 mb-2"><span id="acNextDirDownPct" class="text-3xl" style="color:#E11D48">—</span><span class="text-xs text-gray-400">%</span></div>
+                                <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden mb-2"><div id="acNextDirDownBar" class="h-full transition-all" style="background:#F43F5E;width:0%"></div></div>
+                                <div class="text-[11px] text-gray-500"><span id="acNextDirDownN">0</span>회 / 평균 <span id="acNextDirDownAvg">0</span></div>
+                            </div>
+                            <div>
+                                <div class="text-[10px] uppercase tracking-wider text-slate-500 mb-2">— 유지</div>
+                                <div class="flex items-baseline gap-1 mb-2"><span id="acNextDirFlatPct" class="text-3xl text-slate-500">—</span><span class="text-xs text-gray-400">%</span></div>
+                                <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden mb-2"><div id="acNextDirFlatBar" class="h-full transition-all" style="background:#94A3B8;width:0%"></div></div>
+                                <div class="text-[11px] text-gray-500"><span id="acNextDirFlatN">0</span>회 / Δ=0</div>
+                            </div>
+                        </div>
+                        <div class="border-t border-gray-100 pt-4">
+                            <div class="flex items-baseline justify-between mb-2">
+                                <span class="text-[11px] uppercase tracking-wider text-gray-400">변동폭 분포</span>
+                                <span class="text-[10px] text-gray-400">매칭 회차의 다음 회차 AC값 변동(Δ)</span>
+                            </div>
+                            <div class="relative" style="height:180px"><canvas id="acNextDirChart"></canvas></div>
+                        </div>
+                        <div id="acNextDirInsight" class="mt-4 p-3 bg-blue-50/40 border border-blue-100 rounded-lg text-[12px] text-slate-700"></div>
+                    </div>
+
+                    <!-- [fix-281] 조합 필터 — 리스트 바로 위로 이동 -->
+                    <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm mt-6">
                         <div class="flex items-center justify-between mb-4">
                             <h3 class="text-lg font-bold text-gray-900">조합 필터</h3><a href="filter.html#filter-ac_value"
                                 target="_blank"
@@ -487,33 +649,25 @@
                                     class="material-symbols-outlined text-[18px]">tune</span>필터 페이지 가기</a>
                         </div>
                         <div class="flex flex-col sm:flex-row items-start sm:items-end gap-6 justify-between">
-                            <div class="flex items-end gap-3">
-                                <div class="flex items-center gap-2">
-                                    <div class="flex flex-col"><span
-                                            class="text-xs text-gray-500 mb-1 ml-1">Min</span><input type="number"
-                                            id="minFilter" placeholder="0" onchange="markManual()"
-                                            class="w-24 px-3 py-2 text-center border border-gray-300 rounded-lg text-sm font-bold" />
-                                    </div><span class="text-gray-400 mb-3">~</span>
-                                    <div class="flex flex-col"><span
-                                            class="text-xs text-gray-500 mb-1 ml-1">Max</span><input type="number"
-                                            id="maxFilter" placeholder="10" onchange="markManual()"
-                                            class="w-24 px-3 py-2 text-center border border-gray-300 rounded-lg text-sm font-bold" />
-                                    </div>
-                                </div>
+                            <div class="flex items-center gap-2">
+                                <input type="number" id="minFilter" placeholder="0" onchange="markManual()"
+                                    class="w-16 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent" />
+                                <span class="text-xs text-gray-400">~</span>
+                                <input type="number" id="maxFilter" placeholder="10" onchange="markManual()"
+                                    class="w-16 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent" />
                             </div>
                             <div class="flex items-center gap-3">
                                 <button onclick="applyRecent10Filters()" id="recent10FilterBtn"
-                                    class="flex items-center justify-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl shadow-lg text-sm font-black"><span
-                                        class="material-symbols-outlined text-[18px]">auto_fix_high</span><span
+                                    class="flex items-center gap-2 px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-all"><span
+                                        class="material-symbols-outlined text-[16px]">auto_fix_high</span><span
                                         id="recent10BtnText">최근 10회차 필터 적용</span></button>
+                                <span class="text-sm text-gray-700">필터 적용</span>
                                 <label class="relative inline-flex items-center cursor-pointer"><input type="checkbox"
                                         id="applyFilterCheck" onchange="markManual()" class="sr-only peer" checked>
                                     <div
                                         class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:bg-blue-600 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full">
                                     </div>
                                 </label>
-                                <label for="applyFilterCheck"
-                                    class="text-sm font-medium text-gray-700 cursor-pointer">필터 적용</label>
                             </div>
                         </div>
                         <div id="excludedAcBadgeArea" class="hidden mt-3 pt-3 border-t border-gray-100">
@@ -662,6 +816,8 @@
                 updateStatistics(currentRange);
                 renderDrawsList();
                 updateSliderBackground(currentRange);
+                // [fix-278] 보조 분석 6종 초기 렌더
+                renderAllSupplementary();
             } catch (e) { console.error(e); }
             document.getElementById('loadingOverlay').classList.add('hidden');
             // AI 인사이트 초기화 - 데이터 직접 주입
@@ -887,12 +1043,543 @@
             markManual(); // [추가] 범위 조작 마킹
             deactivateRecent10IfActive(); // [추가] 10회차 해제
 
+            // [fix-278] debounce로 보조 분석 6종 + 통계 갱신
             clearTimeout(rangeTimer);
+            rangeTimer = setTimeout(() => {
+                updateStatistics(currentRange);
+                renderDrawsList();
+                if (acChart) changeChartMode(chartMode);
+                renderAllSupplementary();
+            }, 200);
         }
 
-        function setRange(val) { document.getElementById('rangeSlider').value = val; updateRange(val); }
+        function setRange(val) {
+            document.getElementById('rangeSlider').value = val;
+            updateRange(val);
+            // 프리셋 버튼은 즉시 반영
+            updateStatistics(currentRange);
+            renderDrawsList();
+            if (acChart) changeChartMode(chartMode);
+            renderAllSupplementary();
+            // 프리셋 버튼 활성 표시
+            ['preset50','preset100','preset500','preset1203'].forEach(id => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.className = 'px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors';
+            });
+            const map = { 50: 'preset50', 100: 'preset100', 500: 'preset500' };
+            const activeId = map[val] || (val >= 1000 ? 'preset1203' : null);
+            if (activeId) {
+                const el = document.getElementById(activeId);
+                if (el) el.className = 'px-3 py-1.5 text-sm font-medium bg-blue-500 text-white rounded-lg transition-colors';
+            }
+        }
 
-        function applyFilter(skipSave = false) { renderDrawsList(); changeChartMode(chartMode); if (!skipSave) saveFilterSettings(); }
+        function applyFilter(skipSave = false) {
+            renderDrawsList();
+            changeChartMode(chartMode);
+            // [fix-278] 보조 분석 6종도 같이 갱신
+            renderAllSupplementary();
+            if (!skipSave) saveFilterSettings();
+        }
+
+        // ════════════════════════════════════════════════════════════
+        // [fix-278] AC값 보조 분석 6종 — Phase A + B + C 통합
+        // ════════════════════════════════════════════════════════════
+        const _acPrimes = [2,3,5,7,11,13,17,19,23,29,31,37,41,43];
+        // 회차별 부속 통계 캐싱 (한 번만 계산)
+        let _acStatCache = null;
+        function getAcStatCache() {
+            if (_acStatCache) return _acStatCache;
+            _acStatCache = allDrawData.map(d => {
+                const n = d.numbers;
+                const sorted = [...n].sort((a,b)=>a-b);
+                const sum = n.reduce((a,b)=>a+b, 0);
+                const odd = n.filter(x => x % 2).length;
+                const low = n.filter(x => x <= 22).length;
+                let cons = 0;
+                for (let i = 0; i < sorted.length-1; i++) if (sorted[i+1] === sorted[i]+1) cons++;
+                const decadeBuckets = [0,0,0,0,0];
+                n.forEach(x => decadeBuckets[Math.min(Math.floor((x-1)/10), 4)]++);
+                const decadeMean = decadeBuckets.reduce((a,b)=>a+b,0)/5;
+                const decadeVar = decadeBuckets.reduce((a,b)=>a+(b-decadeMean)**2,0)/5;
+                const primeCnt = n.filter(x => _acPrimes.includes(x)).length;
+                return { round: d.round, ac: d.ac_value, sum, odd, low, cons, decadeVar, primeCnt };
+            });
+            return _acStatCache;
+        }
+
+        function renderAllSupplementary() {
+            try {
+                renderAcTransitionMatrix();
+                renderAcGapGrid();
+                renderAcMaChart();
+                renderAcCrossAnalysis();
+                renderAcSequenceMatch();
+                renderAcCalendarHeatmap();
+                renderAcNextDirPredictor();   // [fix-394] 다음 회차 방향 예측
+            } catch (e) { console.warn('[ac-supp]', e); }
+        }
+
+        // ─────────────────────────────────────────────
+        // [fix-394] AC값 다음 회차 방향 예측 — ±N 통계
+        // ─────────────────────────────────────────────
+        let acNextDirChartInstance = null;
+        function renderAcNextDirPredictor() {
+            if (!allDrawData || allDrawData.length < 30) return;
+            const range = Math.max(0, Math.min(5, parseInt(document.getElementById('acNextDirRange')?.value) || 1));
+
+            const prevSum = allDrawData[0].ac_value;
+            if (prevSum == null) return;
+            const lower = prevSum - range;
+            const upper = prevSum + range;
+
+            const matches = [];
+            for (let i = 1; i < allDrawData.length - 1; i++) {
+                const sum_i = allDrawData[i].ac_value;
+                if (sum_i == null) continue;
+                if (sum_i >= lower && sum_i <= upper) {
+                    const sum_next = allDrawData[i - 1].ac_value;
+                    if (sum_next == null) continue;
+                    matches.push({ round: allDrawData[i].round, sum: sum_i, nextSum: sum_next, delta: sum_next - sum_i });
+                }
+            }
+
+            const ups = matches.filter(m => m.delta > 0);
+            const downs = matches.filter(m => m.delta < 0);
+            const flats = matches.filter(m => m.delta === 0);
+            const N = matches.length;
+            const avgDelta = N ? matches.reduce((s,m) => s + m.delta, 0) / N : 0;
+            const upAvg = ups.length ? ups.reduce((s,m) => s + m.delta, 0) / ups.length : 0;
+            const downAvg = downs.length ? downs.reduce((s,m) => s + m.delta, 0) / downs.length : 0;
+            const upPct = N ? (ups.length / N * 100) : 0;
+            const downPct = N ? (downs.length / N * 100) : 0;
+            const flatPct = N ? (flats.length / N * 100) : 0;
+
+            const setText = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+            const setBar = (id, p) => { const el = document.getElementById(id); if (el) el.style.width = Math.min(100, p) + '%'; };
+            setText('acNextDirPrevSum', prevSum);
+            setText('acNextDirRangeText', `${lower}~${upper}`);
+            setText('acNextDirMatchN', N);
+            setText('acNextDirAvgDelta', `${avgDelta >= 0 ? '+' : ''}${avgDelta.toFixed(2)}`);
+            setText('acNextDirUpPct', upPct.toFixed(1));
+            setText('acNextDirDownPct', downPct.toFixed(1));
+            setText('acNextDirFlatPct', flatPct.toFixed(1));
+            setText('acNextDirUpN', ups.length);
+            setText('acNextDirDownN', downs.length);
+            setText('acNextDirFlatN', flats.length);
+            setText('acNextDirUpAvg', `+${upAvg.toFixed(2)}`);
+            setText('acNextDirDownAvg', downAvg.toFixed(2));
+            setBar('acNextDirUpBar', upPct);
+            setBar('acNextDirDownBar', downPct);
+            setBar('acNextDirFlatBar', flatPct);
+
+            const canvas = document.getElementById('acNextDirChart');
+            if (canvas && N > 0) {
+                // AC값 변동폭 ±10 → bin=1 (정수)
+                const binW = 1;
+                const minD = Math.min(...matches.map(m => m.delta));
+                const maxD = Math.max(...matches.map(m => m.delta));
+                const bins = [];
+                for (let v = minD; v <= maxD; v += binW) bins.push(v);
+                const counts = bins.map(b => matches.filter(m => m.delta === b).length);
+                const colors = bins.map(b => b > 0 ? '#10B981' : (b < 0 ? '#F43F5E' : '#94A3B8'));
+
+                if (acNextDirChartInstance) acNextDirChartInstance.destroy();
+                acNextDirChartInstance = new Chart(canvas.getContext('2d'), {
+                    type: 'bar',
+                    data: {
+                        labels: bins.map(b => `${b >= 0 ? '+' : ''}${b}`),
+                        datasets: [{ label: '회차수', data: counts, backgroundColor: colors, borderRadius: 3, barPercentage: 0.8 }]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: { callbacks: { title: (items) => `Δ ${items[0].label}`, label: (item) => `${item.parsed.y}회차` } },
+                            datalabels: { display: false }
+                        },
+                        scales: {
+                            x: { grid: { display: false }, ticks: { color: '#94A3B8', font: { size: 9 }, maxRotation: 0 } },
+                            y: { grid: { color: '#F1F5F9' }, ticks: { color: '#94A3B8', font: { size: 9 }, stepSize: 1 } }
+                        }
+                    }
+                });
+            }
+
+            const insightEl = document.getElementById('acNextDirInsight');
+            if (insightEl) {
+                if (N === 0) {
+                    insightEl.innerHTML = `<span class="text-gray-400">전회차 AC값 ${prevSum} ±${range} 범위(${lower}~${upper})에 해당하는 과거 회차가 없습니다.</span>`;
+                } else {
+                    const dominantDir = upPct > downPct ? '상승' : downPct > upPct ? '하락' : '균형';
+                    const dirColor = upPct > downPct ? '#059669' : downPct > upPct ? '#E11D48' : '#475569';
+                    const expectedAvg = prevSum + avgDelta;
+                    const expectedUp = ups.length ? prevSum + upAvg : null;
+                    const expectedDown = downs.length ? prevSum + downAvg : null;
+                    const nextSums = matches.map(m => m.nextSum).slice().sort((a, b) => a - b);
+                    const p10 = nextSums[Math.max(0, Math.floor(N * 0.10))];
+                    const p25 = nextSums[Math.max(0, Math.floor(N * 0.25))];
+                    const p75 = nextSums[Math.min(N - 1, Math.floor(N * 0.75))];
+                    const p90 = nextSums[Math.min(N - 1, Math.ceil(N * 0.90) - 1)];
+                    insightEl.innerHTML = `
+                        과거 AC값 <span style="color:#1e293b">${lower}~${upper}</span> 범위(${N}회차)에서 다음 회차는
+                        <span style="color:${dirColor}">${dominantDir}</span> 우세 —
+                        평균 변동 <span style="color:#1e293b">${avgDelta >= 0 ? '+' : ''}${avgDelta.toFixed(2)}</span>
+                        (상승 시 <span style="color:#059669">+${upAvg.toFixed(2)}</span> · 하락 시 <span style="color:#E11D48">${downAvg.toFixed(2)}</span>).
+                        <div class="mt-2 pt-2 border-t border-blue-100/60 text-[12px]">
+                            <span class="text-gray-500">▸ 다음 회차 예상 AC값</span>
+                            <div class="mt-1 grid grid-cols-1 sm:grid-cols-3 gap-x-6 gap-y-1">
+                                <div>평균 진행 시 → <span style="color:#1e293b">${expectedAvg.toFixed(2)}</span></div>
+                                ${expectedUp != null ? `<div>상승 시 → <span style="color:#059669">${expectedUp.toFixed(2)}</span></div>` : ''}
+                                ${expectedDown != null ? `<div>하락 시 → <span style="color:#E11D48">${expectedDown.toFixed(2)}</span></div>` : ''}
+                            </div>
+                            <div class="mt-2 pt-2 border-t border-blue-100/60">
+                                <span class="text-gray-500">▸ 신뢰 구간</span>
+                                <span class="ml-2">중간 50% (P25~P75) <span style="color:#2563EB">${p25}~${p75}</span></span>
+                                <span class="mx-2 text-gray-300">·</span>
+                                <span>폭넓게 80% (P10~P90) <span style="color:#475569">${p10}~${p90}</span></span>
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const inp = document.getElementById('acNextDirRange');
+            if (inp) inp.addEventListener('input', () => renderAcNextDirPredictor());
+        });
+
+        // ─────────────────────────────────────────────
+        // §1. 전환 매트릭스 11×11
+        // ─────────────────────────────────────────────
+        function renderAcTransitionMatrix() {
+            const container = document.getElementById('acTransMatrix');
+            if (!container) return;
+            // currentRange 적용 — 시간 ASC 순으로
+            const data = allDrawData.slice(0, currentRange).slice().reverse();
+            const matrix = Array.from({length: 11}, ()=>Array(11).fill(0));
+            for (let i = 0; i < data.length-1; i++) {
+                const from = data[i].ac_value, to = data[i+1].ac_value;
+                if (from >= 0 && from <= 10 && to >= 0 && to <= 10) matrix[from][to]++;
+            }
+            const totalSamples = data.length - 1;
+            document.getElementById('acTransSampleSize').textContent = `샘플: ${totalSamples}건 (최근 ${currentRange}회)`;
+
+            const maxVal = Math.max(1, ...matrix.flat());
+            // 5 이상만 표시 (실제 분포)
+            const colorOf = (v) => {
+                if (v === 0) return 'background:#f8fafc;color:#cbd5e1';
+                const intensity = v / maxVal;
+                const bg = `rgba(99, 102, 241, ${0.15 + intensity * 0.75})`;
+                const fg = intensity > 0.5 ? '#fff' : '#1e293b';
+                return `background:${bg};color:${fg}`;
+            };
+            let html = '<table class="w-full border-collapse text-xs" style="min-width:560px">';
+            html += '<thead><tr><th class="p-2 text-right text-gray-400 font-medium">현재 \\ 다음</th>';
+            for (let to = 0; to <= 10; to++) html += `<th class="p-2 text-center font-bold text-gray-700" style="width:42px">${to}</th>`;
+            html += '<th class="p-2 text-center font-bold text-gray-500">합계</th></tr></thead><tbody>';
+            for (let from = 0; from <= 10; from++) {
+                const rowSum = matrix[from].reduce((a,b)=>a+b,0);
+                if (rowSum === 0) continue; // 출현 안 한 row 숨김
+                html += `<tr><td class="p-2 text-right font-bold text-gray-700">${from}</td>`;
+                for (let to = 0; to <= 10; to++) {
+                    const v = matrix[from][to];
+                    const pct = rowSum > 0 ? (v / rowSum * 100).toFixed(0) : 0;
+                    const tooltip = v > 0 ? `${from}→${to}: ${v}건 (${pct}%)` : '';
+                    html += `<td class="p-2 text-center font-bold" style="${colorOf(v)};border-radius:4px" title="${tooltip}">${v || ''}</td>`;
+                }
+                html += `<td class="p-2 text-center text-gray-500 font-medium">${rowSum}</td>`;
+                html += '</tr>';
+            }
+            html += '</tbody></table>';
+            // 통찰 메시지
+            const flat = [];
+            for (let f = 0; f <= 10; f++) for (let t = 0; t <= 10; t++) if (matrix[f][t] > 0) flat.push({from:f, to:t, count:matrix[f][t]});
+            flat.sort((a,b)=>b.count-a.count);
+            const top3 = flat.slice(0, 3);
+            const insight = top3.map(x => `<span class="px-2 py-1 rounded bg-indigo-50 text-indigo-700 text-xs font-bold">AC ${x.from}→${x.to} (${x.count}건)</span>`).join(' ');
+            html += `<div class="mt-3 flex items-center gap-2 flex-wrap"><span class="text-xs text-gray-500">최빈 전환 Top 3:</span>${insight}</div>`;
+            container.innerHTML = html;
+        }
+
+        // ─────────────────────────────────────────────
+        // §2. 재출현 간격 카드 (AC 0~10)
+        // ─────────────────────────────────────────────
+        function renderAcGapGrid() {
+            const container = document.getElementById('acGapGrid');
+            if (!container) return;
+            const data = allDrawData.slice(0, currentRange);
+            const cards = [];
+            for (let ac = 0; ac <= 10; ac++) {
+                const indices = [];
+                data.forEach((d, idx) => { if (d.ac_value === ac) indices.push(idx); });
+                if (indices.length === 0 && currentRange < 100) continue; // 출현 안 한 AC는 작은 범위에서만 숨김
+                const currentGap = indices.length > 0 ? indices[0] : currentRange;
+                let avgGap = null, sigma = null;
+                if (indices.length >= 2) {
+                    const intervals = [];
+                    for (let i = 1; i < indices.length; i++) intervals.push(indices[i] - indices[i-1]);
+                    avgGap = intervals.reduce((a,b)=>a+b,0) / intervals.length;
+                    const variance = intervals.reduce((a,b)=>a+(b-avgGap)**2,0) / intervals.length;
+                    sigma = Math.sqrt(variance);
+                }
+                const zScore = (avgGap !== null && sigma > 0) ? ((currentGap - avgGap) / sigma) : null;
+                let zLabel = '−', zColor = 'text-gray-400';
+                if (zScore !== null) {
+                    zLabel = (zScore > 0 ? '+' : '') + zScore.toFixed(1) + 'σ';
+                    if (zScore >= 1.5) zColor = 'text-rose-600';   // 평소보다 오래 미출현
+                    else if (zScore >= 0.5) zColor = 'text-amber-600';
+                    else if (zScore <= -0.5) zColor = 'text-emerald-600';  // 평소보다 자주 출현
+                    else zColor = 'text-gray-500';
+                }
+                cards.push(`
+                    <div class="rounded-lg border ${zScore >= 1.5 ? 'border-rose-300 bg-rose-50/50' : 'border-gray-200 bg-gray-50'} p-3">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-xs font-bold text-gray-500">AC ${ac}</span>
+                            <span class="text-[10px] text-gray-400">${indices.length}회</span>
+                        </div>
+                        <div class="text-2xl font-black text-gray-900 leading-none">${currentGap}<span class="text-sm font-medium text-gray-400">회 전</span></div>
+                        <div class="mt-2 text-[11px] text-gray-500">
+                            평균 ${avgGap !== null ? avgGap.toFixed(1) : '−'}회마다
+                        </div>
+                        <div class="mt-1 text-xs font-bold ${zColor}">${zLabel}</div>
+                    </div>
+                `);
+            }
+            container.innerHTML = cards.join('');
+        }
+
+        // ─────────────────────────────────────────────
+        // §3. 이동평균 + 신뢰구간 차트
+        // ─────────────────────────────────────────────
+        let acMaChartInstance = null;
+        function renderAcMaChart() {
+            const canvas = document.getElementById('acMaChart');
+            if (!canvas) return;
+            const window_ = Math.max(3, Math.min(50, parseInt(document.getElementById('acMaWindow').value) || 10));
+            // 시간 ASC
+            const data = allDrawData.slice(0, currentRange).slice().reverse();
+            const acVals = data.map(d => d.ac_value);
+            const labels = data.map(d => d.round);
+            const ma = [], upper = [], lower = [];
+            for (let i = 0; i < acVals.length; i++) {
+                const start = Math.max(0, i - window_ + 1);
+                const slice = acVals.slice(start, i + 1);
+                const mean = slice.reduce((a,b)=>a+b,0) / slice.length;
+                const variance = slice.reduce((a,b)=>a+(b-mean)**2,0) / slice.length;
+                const sd = Math.sqrt(variance);
+                ma.push(mean);
+                upper.push(mean + sd);
+                lower.push(mean - sd);
+            }
+            if (acMaChartInstance) acMaChartInstance.destroy();
+            acMaChartInstance = new Chart(canvas.getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [
+                        { label: 'AC값', data: acVals, borderColor: 'rgba(59,130,246,0.6)', backgroundColor: 'rgba(59,130,246,0.05)', borderWidth: 1, pointRadius: 1.5, fill: false, tension: 0.2 },
+                        { label: `이동평균(${window_}회)`, data: ma, borderColor: 'rgb(16, 185, 129)', borderWidth: 2.5, pointRadius: 0, fill: false, tension: 0.3 },
+                        { label: '+1σ', data: upper, borderColor: 'rgba(16,185,129,0.4)', borderWidth: 1, pointRadius: 0, borderDash: [4,4], fill: '+1', backgroundColor: 'rgba(16,185,129,0.08)' },
+                        { label: '−1σ', data: lower, borderColor: 'rgba(16,185,129,0.4)', borderWidth: 1, pointRadius: 0, borderDash: [4,4], fill: false }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top', labels: { boxWidth: 12, font: { size: 11 } } } },
+                    scales: {
+                        y: { min: 0, max: 10, title: { display: true, text: 'AC값' } },
+                        x: { ticks: { display: currentRange < 80, maxRotation: 0, autoSkip: true } }
+                    }
+                }
+            });
+        }
+
+        // ─────────────────────────────────────────────
+        // §4. 교차 분석 (AC × 6 속성)
+        // ─────────────────────────────────────────────
+        function renderAcCrossAnalysis() {
+            const container = document.getElementById('acCrossGrid');
+            if (!container) return;
+            const cache = getAcStatCache();
+            const data = cache.slice(0, currentRange);
+            // 3 그룹 분류: 저(0-5) / 중(6-7) / 고(8-10)
+            const groups = { low: [], mid: [], high: [] };
+            data.forEach(d => {
+                if (d.ac <= 5) groups.low.push(d);
+                else if (d.ac <= 7) groups.mid.push(d);
+                else groups.high.push(d);
+            });
+            const avg = (arr, key) => arr.length === 0 ? 0 : arr.reduce((a,b)=>a+b[key],0) / arr.length;
+            const attrs = [
+                { key: 'sum', label: '총합', icon: 'add_circle', color: 'blue' },
+                { key: 'odd', label: '홀수 개수', icon: 'casino', color: 'orange' },
+                { key: 'low', label: '저번호 개수 (≤22)', icon: 'arrow_downward', color: 'cyan' },
+                { key: 'cons', label: '연번 쌍수', icon: 'link', color: 'red' },
+                { key: 'decadeVar', label: '번호대 분산', icon: 'view_module', color: 'violet' },
+                { key: 'primeCnt', label: '소수 개수', icon: 'star', color: 'amber' }
+            ];
+            const cards = attrs.map(a => {
+                const lo = avg(groups.low, a.key), mi = avg(groups.mid, a.key), hi = avg(groups.high, a.key);
+                // 추세: low→high 방향 변화
+                const trend = hi - lo;
+                let trendLabel = '관계 미약', trendColor = 'text-gray-500';
+                if (Math.abs(trend) > (Math.abs(mi) * 0.15 + 0.1)) {
+                    trendLabel = trend > 0 ? '양의 상관 ↑' : '음의 상관 ↓';
+                    trendColor = trend > 0 ? 'text-emerald-600' : 'text-rose-600';
+                }
+                const fmt = (v) => Number.isFinite(v) ? v.toFixed(a.key === 'decadeVar' ? 2 : 1) : '−';
+                return `
+                    <div class="rounded-lg border border-gray-200 p-4 bg-gradient-to-br from-${a.color}-50/30 to-white">
+                        <div class="flex items-center gap-2 mb-3">
+                            <span class="material-symbols-outlined text-${a.color}-500 text-lg">${a.icon}</span>
+                            <span class="text-sm font-bold text-gray-800">${a.label}</span>
+                        </div>
+                        <div class="grid grid-cols-3 gap-1 text-center mb-2">
+                            <div><div class="text-[10px] text-gray-500 mb-0.5">저(0-5)</div><div class="font-black text-gray-700">${fmt(lo)}</div><div class="text-[10px] text-gray-400">${groups.low.length}건</div></div>
+                            <div><div class="text-[10px] text-gray-500 mb-0.5">중(6-7)</div><div class="font-black text-gray-700">${fmt(mi)}</div><div class="text-[10px] text-gray-400">${groups.mid.length}건</div></div>
+                            <div><div class="text-[10px] text-gray-500 mb-0.5">고(8-10)</div><div class="font-black text-gray-700">${fmt(hi)}</div><div class="text-[10px] text-gray-400">${groups.high.length}건</div></div>
+                        </div>
+                        <div class="text-xs font-bold ${trendColor} text-center pt-2 border-t border-gray-100">${trendLabel}</div>
+                    </div>
+                `;
+            });
+            container.innerHTML = cards.join('');
+        }
+
+        // ─────────────────────────────────────────────
+        // §5. 시퀀스 패턴 검색
+        // ─────────────────────────────────────────────
+        function renderAcSequenceMatch() {
+            const container = document.getElementById('acSeqMatchPanel');
+            if (!container) return;
+            const seqLen = Math.max(2, Math.min(10, parseInt(document.getElementById('acSeqLen').value) || 5));
+            // allDrawData는 round DESC. 시간 ASC로 변환
+            const fullAsc = allDrawData.slice().reverse();
+            if (fullAsc.length < seqLen + 1) { container.innerHTML = '<div class="text-sm text-gray-400">데이터 부족</div>'; return; }
+            // 최근 N개 시퀀스 (가장 최신)
+            const recent = fullAsc.slice(-seqLen).map(d => d.ac_value);
+            const recentStr = recent.join(',');
+            // 과거 전체에서 동일 sequence 검색 (마지막 위치 제외)
+            const matches = [];  // {startIdx, nextAc, nextRound}
+            for (let i = 0; i < fullAsc.length - seqLen; i++) {
+                const slice = fullAsc.slice(i, i + seqLen).map(d => d.ac_value);
+                if (slice.join(',') === recentStr && i + seqLen < fullAsc.length - seqLen) {
+                    matches.push({
+                        startRound: fullAsc[i].round,
+                        endRound: fullAsc[i + seqLen - 1].round,
+                        nextAc: fullAsc[i + seqLen].ac_value,
+                        nextRound: fullAsc[i + seqLen].round
+                    });
+                }
+            }
+            // 다음 회차 AC 분포
+            const distribution = {};
+            matches.forEach(m => { distribution[m.nextAc] = (distribution[m.nextAc] || 0) + 1; });
+            const distSorted = Object.entries(distribution).sort((a,b)=>b[1]-a[1]);
+            const totalMatches = matches.length;
+
+            let html = `
+                <div class="mb-4 p-3 bg-amber-50 rounded-lg border border-amber-200">
+                    <div class="text-xs font-bold text-amber-700 mb-1">현재 최근 ${seqLen}개 시퀀스</div>
+                    <div class="flex items-center gap-1.5">
+                        ${recent.map(v => `<span class="inline-flex items-center justify-center w-7 h-7 rounded bg-white border border-amber-300 text-sm font-bold text-amber-700">${v}</span>`).join('<span class="text-amber-400">→</span>')}
+                    </div>
+                </div>
+            `;
+            if (totalMatches === 0) {
+                html += `<div class="text-sm text-gray-500 italic py-4 text-center">과거에 동일한 시퀀스가 없습니다. 시퀀스 길이를 줄여보세요.</div>`;
+            } else {
+                html += `
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        <div>
+                            <div class="text-xs font-bold text-gray-700 mb-2">📊 다음 회차 AC값 분포 (${totalMatches}회 매칭)</div>
+                            <div class="space-y-1.5">
+                `;
+                distSorted.forEach(([ac, cnt]) => {
+                    const pct = (cnt / totalMatches * 100).toFixed(0);
+                    html += `
+                        <div class="flex items-center gap-2 text-xs">
+                            <span class="w-12 text-right font-bold text-amber-700">AC ${ac}</span>
+                            <div class="flex-1 h-5 bg-amber-100 rounded overflow-hidden relative">
+                                <div class="absolute inset-y-0 left-0 bg-amber-500" style="width:${pct}%"></div>
+                                <div class="relative px-2 leading-5 font-bold text-gray-700">${cnt}회 (${pct}%)</div>
+                            </div>
+                        </div>
+                    `;
+                });
+                html += `</div></div>`;
+                // 매칭 회차 리스트 (top 10)
+                html += `
+                    <div>
+                        <div class="text-xs font-bold text-gray-700 mb-2">📋 매칭 회차 (최대 10건)</div>
+                        <div class="max-h-48 overflow-y-auto custom-scrollbar text-xs">
+                            <table class="w-full">
+                                <thead class="bg-gray-100 sticky top-0">
+                                    <tr><th class="p-2 text-left">시퀀스 회차</th><th class="p-2 text-center">다음 회차</th><th class="p-2 text-center">다음 AC</th></tr>
+                                </thead>
+                                <tbody>
+                `;
+                matches.slice(0, 10).forEach(m => {
+                    html += `<tr class="border-t border-gray-100"><td class="p-2 text-gray-600">${m.startRound}~${m.endRound}회</td><td class="p-2 text-center">${m.nextRound}회</td><td class="p-2 text-center font-bold text-amber-700">${m.nextAc}</td></tr>`;
+                });
+                html += `</tbody></table></div></div></div>`;
+            }
+            container.innerHTML = html;
+        }
+
+        // ─────────────────────────────────────────────
+        // §6. 캘린더 히트맵
+        // ─────────────────────────────────────────────
+        function renderAcCalendarHeatmap() {
+            const container = document.getElementById('acCalendarHeatmap');
+            if (!container) return;
+            // 최근 currentRange 회차 (시간 ASC, 왼쪽=과거)
+            const data = allDrawData.slice(0, currentRange).slice().reverse();
+            const cols = currentRange <= 50 ? 10 : currentRange <= 100 ? 20 : currentRange <= 300 ? 25 : 30;
+            const rows = Math.ceil(data.length / cols);
+            // 색상: 0~5 연한 파랑, 6~7 중간, 8~10 진한 파랑
+            const colorOf = (ac) => {
+                if (ac == null) return '#f8fafc';
+                if (ac <= 5) return `rgba(96, 165, 250, ${0.15 + ac * 0.08})`;
+                if (ac <= 7) return ac === 6 ? '#60a5fa' : '#3b82f6';
+                return ac === 8 ? '#1d4ed8' : ac === 9 ? '#1e40af' : '#1e3a8a';
+            };
+            const fgOf = (ac) => (ac >= 6) ? '#fff' : '#1e293b';
+            // [fix-279] 셀 크기 자동 조정 — 컬럼 수에 따라 폰트/패딩 다름
+            const cellFontAc = cols >= 25 ? 11 : cols >= 20 ? 13 : 14;
+            const cellFontRd = cols >= 25 ? 8 : cols >= 20 ? 9 : 10;
+            const cellPad = cols >= 25 ? '4px 0 3px' : '6px 0 4px';
+            let html = `<div style="display:grid;grid-template-columns:repeat(${cols},minmax(0,1fr));gap:3px">`;
+            for (let i = 0; i < data.length; i++) {
+                const d = data[i];
+                const bg = colorOf(d.ac_value);
+                const fg = fgOf(d.ac_value);
+                html += `<div title="${d.round}회 · AC ${d.ac_value}" style="background:${bg};color:${fg};text-align:center;padding:${cellPad};border-radius:3px;line-height:1.05">
+                    <div style="font-size:${cellFontAc}px;font-weight:800">${d.ac_value}</div>
+                    <div style="font-size:${cellFontRd}px;font-weight:500;opacity:0.7;letter-spacing:-0.02em">${d.round}</div>
+                </div>`;
+            }
+            html += '</div>';
+            // 통계 요약
+            const acVals = data.map(d => d.ac_value);
+            const distribution = {};
+            acVals.forEach(v => { distribution[v] = (distribution[v] || 0) + 1; });
+            const top = Object.entries(distribution).sort((a,b)=>b[1]-a[1]).slice(0,3);
+            html += `<div class="mt-4 flex items-center gap-2 flex-wrap text-xs">
+                <span class="text-gray-500">총 ${data.length}회 · 컬럼 ${cols} · 행 ${rows}</span>
+                <span class="text-gray-300">|</span>
+                <span class="text-gray-500">최빈:</span>
+                ${top.map(([v,c]) => `<span class="px-2 py-0.5 rounded bg-pink-100 text-pink-700 font-bold">AC ${v} (${c}회)</span>`).join('')}
+            </div>`;
+            container.innerHTML = html;
+        }
+
+        // ════════════════════════════════════════════════════════════
+        // [/fix-278] 끝
+        // ════════════════════════════════════════════════════════════
 
         // [제거] 상단 loadFilterSettings와 중복되어 하나로 통합됨 (하단 정의 삭제)
 

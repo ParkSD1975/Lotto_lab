@@ -31,6 +31,8 @@
     <script src="js/aiProxy.js?v=20260502c"></script>
     <script src="js/NLPInputComponent.js"></script>
     <script src="js/NLPProcessor.js"></script>
+    <script src="js/AutoNLPMatcher.js"></script>
+    <script src="js/auto_nlp_loader.js" defer></script>
     <script src="js/BasicAnalysisNLP.js"></script>
 
     <script>
@@ -99,13 +101,19 @@
         let _filterSettingsLoaded = false; // loadFilterSettings 완료 전 빈 상태 저장 방지
 
         // [표준화] 필터 설정 저장 함수 — 끝수(0~9) 개별 키 저장
+        // [버그 수정] race + targetRound 누락 → 대시보드 1223회 행과 분석페이지 NULL 행 불일치.
+        //   해결: ① _tailSaveTime 기록으로 self-save storage 이벤트 차단
+        //          ② Utils.saveFilter에 targetRound 4번째 인자 명시적 전달
+        let _tailSaveTime = 0;
+
         async function saveFilterSettings() {
-            if (window.isLoadingSettings) return;
             if (!_filterSettingsLoaded) return; // 초기 로드 완료 전 빈 상태 덮어쓰기 방지
             try {
                 const latestRound = (AppState.allDrawData && AppState.allDrawData[0]) ? AppState.allDrawData[0].round : null;
                 const targetRound = latestRound ? latestRound + 1 : null;
                 if (!targetRound) return;
+
+                _tailSaveTime = Date.now();
 
                 const filterEnabled = document.getElementById('filterEnabled').checked;
 
@@ -115,28 +123,27 @@
                     return;
                 }
 
+                console.log(`💾 끝수 필터 저장 시도: target=${targetRound}, enabled=${filterEnabled}`);
+
                 if (window.Utils && window.Utils.saveFilter) {
-                    try {
-                        _tailSelfSaving = true;
-                        // 끝수(0~9) 개별 filter_definition 키에 저장
-                        for (let i = 0; i <= 9; i++) {
-                            const f = AppState.digitFilters[i];
-                            if (!f) continue;
-                            // selectedValues: discrete_select 호환 (대시보드 렌더링용)
-                            const selectedValues = [];
-                            for (let _v = f.min; _v <= f.max; _v++) selectedValues.push(_v);
-                            const data = {
-                                min: f.min,
-                                max: f.max,
-                                selectedValues: selectedValues,
-                                recent10FilterActive: AppState.isRecentTenFilter
-                            };
-                            await window.Utils.saveFilter(`end_digit_${i}_count`, data, filterEnabled);
-                        }
-                    } finally {
-                        _tailSelfSaving = false;
+                    // [fix-296] 단일 진실 공급원: 개별 키 end_digit_*_count 10개만 저장
+                    // 번들(tail_digit_patterns)은 폐기 — 대시보드가 read-time 합성으로 가져감
+                    for (let i = 0; i <= 9; i++) {
+                        const f = AppState.digitFilters[i];
+                        if (!f) continue;
+                        const selectedValues = [];
+                        for (let _v = f.min; _v <= f.max; _v++) selectedValues.push(_v);
+                        const data = {
+                            min: f.min,
+                            max: f.max,
+                            selectedValues: selectedValues,
+                            recent10FilterActive: AppState.isRecentTenFilter
+                        };
+                        await window.Utils.saveFilter(`end_digit_${i}_count`, data, filterEnabled, targetRound);
                     }
                 }
+                _tailSaveTime = Date.now();
+                console.log(`✅ 끝수 필터 저장 완료 (${targetRound}회) — 개별 10개 키 (DB 단일 진실)`);
             } catch (error) {
                 console.error('❌ 필터 저장 오류:', error);
             }
@@ -287,7 +294,11 @@
 
         // [표준화] 대시보드 실시간 동기화 (Storage Event)
         window.addEventListener('storage', async function (e) {
-            if (_tailSelfSaving) return;
+            // [버그 수정] 자기 자신의 save로 인한 storage 이벤트 무시
+            if (Date.now() - _tailSaveTime < 3000) {
+                console.log('[tail_digit] Self-save event ignored (within 3s)');
+                return;
+            }
             if (!e.key) return;
             const endDigitKeys = [
                 'end_digit_0_count','end_digit_1_count','end_digit_2_count','end_digit_3_count',
@@ -575,12 +586,11 @@
                         </div>
                     </div>
 
-                    <!-- [추가] 끝수 분석 그래프 섹션 -->
+                    <!-- [추가] 끝수 분석 그래프 섹션 + Scope Control 통합 (fix-295) -->
                     <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm mb-6">
                         <div class="flex items-center justify-between mb-6">
                             <div class="flex items-center gap-3">
                                 <h3 class="text-lg font-bold text-gray-900">끝수 출현 분포 및 흐름</h3>
-
                             </div>
                             <div class="flex bg-gray-100 p-1 rounded-lg">
                                 <button id="tabRate" onclick="setChartTab('rate')"
@@ -596,9 +606,141 @@
                         <div id="trendChartContainer" class="h-64 hidden">
                             <canvas id="trendChart"></canvas>
                         </div>
-                        <p class="text-[11px] text-gray-400 mt-4 text-center">※ 선택한 끝수가 해당 회차에 몇 개 출현했는지의 분포와 흐름을 보여줍니다.
-                        </p>
+                        <p class="text-[11px] text-gray-400 mt-4 text-center">※ 선택한 끝수가 해당 회차에 몇 개 출현했는지의 분포와 흐름을 보여줍니다.</p>
+
+                        <!-- [fix-295] Scope Control — 그래프 밑으로 이동 -->
+                        <div class="mt-6 pt-6 border-t border-gray-100">
+                            <div class="flex items-center justify-between mb-3">
+                                <div class="flex items-center gap-3">
+                                    <span class="text-xs font-bold text-gray-500 uppercase tracking-tight">Scope Control</span>
+                                    <div class="flex items-center gap-1.5">
+                                        <button onclick="setRange(50)" id="preset50"
+                                            class="px-2.5 py-1 text-[11px] font-bold bg-gray-100 text-gray-600 rounded-md hover:bg-gray-200 transition-colors">50회</button>
+                                        <button onclick="setRange(100)" id="preset100"
+                                            class="px-2.5 py-1 text-[11px] font-bold bg-blue-600 text-white rounded-md transition-colors">100회</button>
+                                        <button onclick="setRange(500)" id="preset500"
+                                            class="px-2.5 py-1 text-[11px] font-bold bg-gray-100 text-gray-600 rounded-md hover:bg-gray-200 transition-colors">500회</button>
+                                        <button onclick="setRange(allDrawData.length)" id="preset1203"
+                                            class="px-2.5 py-1 text-[11px] font-bold bg-gray-100 text-gray-600 rounded-md hover:bg-gray-200 transition-colors">전체</button>
+                                    </div>
+                                </div>
+                                <div class="text-xs text-gray-500">
+                                    최근 <span id="rangeDisplay" class="font-bold text-blue-600">100</span>회 분석
+                                </div>
+                            </div>
+                            <div class="px-1">
+                                <input type="range" id="rangeSlider" min="10" max="1203" value="100"
+                                    class="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                                    oninput="updateRange(this.value)" />
+                                <div class="flex justify-between mt-1.5 text-[10px] text-gray-400 font-bold">
+                                    <span>MIN 10</span>
+                                    <span id="maxRangeLabel">MAX 1000+</span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
+
+                    <!-- ════════════════════════════════════════════════ -->
+                    <!-- [fix-297] 끝자리 보조 분석 6종 — 단일 흰 박스 통합 -->
+                    <!-- ════════════════════════════════════════════════ -->
+                    <div class="bg-white rounded-xl border border-gray-200 mb-6 overflow-hidden">
+
+                        <!-- §1. 시계열 추세 (10끝 이동평균 + 다양성 캘린더) -->
+                        <div class="p-8">
+                            <div class="flex items-baseline justify-between mb-6">
+                                <div>
+                                    <h3 class="text-lg font-bold text-gray-900 tracking-tight">시계열 추세</h3>
+                                    <p class="text-xs text-gray-500 mt-1">10개 끝자리(0~9) 이동평균 · 하단 캘린더는 회차별 unique 끝자리 개수</p>
+                                </div>
+                                <div class="flex items-baseline gap-2 text-xs text-gray-500">
+                                    <label>MA 윈도우</label>
+                                    <input type="number" id="tdMaWindow" value="10" min="3" max="50" oninput="renderTdMa()"
+                                        class="ts-input w-12 text-center tabular-nums">
+                                    <span>회</span>
+                                </div>
+                            </div>
+                            <div class="h-72 mb-6"><canvas id="tdMaChart"></canvas></div>
+                            <div class="pt-6 border-t border-gray-100">
+                                <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-3">unique 끝자리 캘린더 (좌=과거, 우=최신)</div>
+                                <div id="tdCalendar"></div>
+                            </div>
+                        </div>
+
+                        <!-- §2 + §3 : 끝자리 분포 + 끝자리 다양성 (2분할) -->
+                        <div class="border-t border-gray-100 grid grid-cols-1 lg:grid-cols-2 lg:divide-x lg:divide-gray-100">
+                            <div class="p-8">
+                                <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">끝자리 분포</h3>
+                                <p class="text-xs text-gray-500 mb-4">0~9 끝자리 평균 출현 횟수 · 평균선 0.6 (= 6/10)</p>
+                                <div class="h-56"><canvas id="tdDigitDist"></canvas></div>
+                                <div id="tdDigitDistStats" class="mt-3 text-xs text-gray-600 tabular-nums"></div>
+                            </div>
+                            <div class="p-8 border-t lg:border-t-0 border-gray-100">
+                                <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">끝자리 다양성</h3>
+                                <p class="text-xs text-gray-500 mb-4">한 회차의 unique 끝자리 개수 (1~6) 분포</p>
+                                <div class="h-56"><canvas id="tdUniqueDist"></canvas></div>
+                                <div id="tdUniqueDistStats" class="mt-3 text-xs text-gray-600 tabular-nums"></div>
+                            </div>
+                        </div>
+
+                        <!-- §4. 교차 분석 -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">교차 분석</h3>
+                            <p class="text-xs text-gray-500 mb-4">끝수합 5분위(Q1~Q5) × 6 끝자리 속성 평균 · 양/음 상관 시그널</p>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-sm tabular-nums" id="tdCrossTable">
+                                    <thead>
+                                        <tr class="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                            <th class="py-3 pr-4 border-b border-gray-200">속성</th>
+                                            <th class="py-3 px-2 border-b border-gray-200 text-right">Q1 (저)</th>
+                                            <th class="py-3 px-2 border-b border-gray-200 text-right">Q2</th>
+                                            <th class="py-3 px-2 border-b border-gray-200 text-right">Q3</th>
+                                            <th class="py-3 px-2 border-b border-gray-200 text-right">Q4</th>
+                                            <th class="py-3 px-2 border-b border-gray-200 text-right">Q5 (고)</th>
+                                            <th class="py-3 pl-4 border-b border-gray-200 text-right">추세</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="tdCrossBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- §5. 시퀀스 패턴 검색 -->
+                        <div class="p-8 border-t border-gray-100">
+                            <div class="flex items-baseline justify-between mb-1">
+                                <h3 class="text-lg font-bold text-gray-900 tracking-tight">시퀀스 패턴 검색</h3>
+                                <div class="flex items-baseline gap-2 text-xs text-gray-500">
+                                    <label>시퀀스 길이</label>
+                                    <input type="number" id="tdSeqLen" value="3" min="2" max="10" oninput="renderTdSeq()"
+                                        class="ts-input w-12 text-center tabular-nums">
+                                </div>
+                            </div>
+                            <p class="text-xs text-gray-500 mb-4">최근 N개 unique 끝자리 개수 시퀀스와 동일한 과거 패턴 → 다음 회차 분포</p>
+                            <div id="tdSeqPanel"></div>
+                        </div>
+
+                        <!-- §6. 10끝 미출현 갭 -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">10끝 미출현 갭</h3>
+                            <p class="text-xs text-gray-500 mb-4">끝자리 0~9 마지막 출현 후 경과 + z-score</p>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-sm tabular-nums" id="tdGapTable">
+                                    <thead>
+                                        <tr class="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                            <th class="py-2 pr-3 border-b border-gray-200">끝자리</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">평균 출현/회</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">미출현 갭</th>
+                                            <th class="py-2 pl-3 border-b border-gray-200 text-right">z-score</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="tdGapBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                    </div>
+                    <!-- ════════════════════════════════════════════════ -->
+                    <!-- [/fix-297] 단일 박스 통합 끝                      -->
+                    <!-- ════════════════════════════════════════════════ -->
 
                     <!-- [통합] 끝수별 상세 요약 및 필터 설정 -->
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
@@ -615,142 +757,142 @@
                             <div class="grid grid-cols-5 gap-3 flex-1 mb-4">
                                 <!-- 0~9 Ends Filter Inputs -->
                                 <div
-                                    class="flex flex-col items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                    class="flex flex-col items-center p-2">
                                     <span id="filter-badge-0"
                                         class="filter-badge-label text-sm font-bold text-green-800 mb-2 pb-0.5 border-b-2 border-green-500">0끝</span>
                                     <div class="flex items-center gap-1">
                                         <input type="number" id="filter0Min" min="0" max="4" value="0"
-                                            class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500"
+                                            class="digit-filter-input w-12 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent"
                                             onchange="updateDigitFilter(0)">
-                                        <span class="text-gray-400 font-black px-0.5 opacity-50">~</span>
+                                        <span class="text-xs text-gray-400">~</span>
                                         <input type="number" id="filter0Max" min="0" max="4" value="4"
-                                            class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500"
+                                            class="digit-filter-input w-12 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent"
                                             onchange="updateDigitFilter(0)">
                                     </div>
                                 </div>
                                 <div
-                                    class="flex flex-col items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                    class="flex flex-col items-center p-2">
                                     <span id="filter-badge-1"
                                         class="filter-badge-label text-sm font-bold text-green-800 mb-2 pb-0.5 border-b-2 border-green-500">1끝</span>
                                     <div class="flex items-center gap-1">
                                         <input type="number" id="filter1Min" min="0" max="5" value="0"
-                                            class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500"
+                                            class="digit-filter-input w-12 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent"
                                             onchange="updateDigitFilter(1)">
-                                        <span class="text-gray-400 font-black px-0.5 opacity-50">~</span>
+                                        <span class="text-xs text-gray-400">~</span>
                                         <input type="number" id="filter1Max" min="0" max="5" value="5"
-                                            class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500"
+                                            class="digit-filter-input w-12 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent"
                                             onchange="updateDigitFilter(1)">
                                     </div>
                                 </div>
                                 <div
-                                    class="flex flex-col items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                    class="flex flex-col items-center p-2">
                                     <span id="filter-badge-2"
                                         class="filter-badge-label text-sm font-bold text-green-800 mb-2 pb-0.5 border-b-2 border-green-500">2끝</span>
                                     <div class="flex items-center gap-1">
                                         <input type="number" id="filter2Min" min="0" max="5" value="0"
-                                            class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500"
+                                            class="digit-filter-input w-12 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent"
                                             onchange="updateDigitFilter(2)">
-                                        <span class="text-gray-400 font-black px-0.5 opacity-50">~</span>
+                                        <span class="text-xs text-gray-400">~</span>
                                         <input type="number" id="filter2Max" min="0" max="5" value="5"
-                                            class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500"
+                                            class="digit-filter-input w-12 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent"
                                             onchange="updateDigitFilter(2)">
                                     </div>
                                 </div>
                                 <div
-                                    class="flex flex-col items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                    class="flex flex-col items-center p-2">
                                     <span id="filter-badge-3"
                                         class="filter-badge-label text-sm font-bold text-green-800 mb-2 pb-0.5 border-b-2 border-green-500">3끝</span>
                                     <div class="flex items-center gap-1">
                                         <input type="number" id="filter3Min" min="0" max="5" value="0"
-                                            class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500"
+                                            class="digit-filter-input w-12 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent"
                                             onchange="updateDigitFilter(3)">
-                                        <span class="text-gray-400 font-black px-0.5 opacity-50">~</span>
+                                        <span class="text-xs text-gray-400">~</span>
                                         <input type="number" id="filter3Max" min="0" max="5" value="5"
-                                            class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500"
+                                            class="digit-filter-input w-12 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent"
                                             onchange="updateDigitFilter(3)">
                                     </div>
                                 </div>
                                 <div
-                                    class="flex flex-col items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                    class="flex flex-col items-center p-2">
                                     <span id="filter-badge-4"
                                         class="filter-badge-label text-sm font-bold text-green-800 mb-2 pb-0.5 border-b-2 border-green-500">4끝</span>
                                     <div class="flex items-center gap-1">
                                         <input type="number" id="filter4Min" min="0" max="5" value="0"
-                                            class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500"
+                                            class="digit-filter-input w-12 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent"
                                             onchange="updateDigitFilter(4)">
-                                        <span class="text-gray-400 font-black px-0.5 opacity-50">~</span>
+                                        <span class="text-xs text-gray-400">~</span>
                                         <input type="number" id="filter4Max" min="0" max="5" value="5"
-                                            class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500"
+                                            class="digit-filter-input w-12 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent"
                                             onchange="updateDigitFilter(4)">
                                     </div>
                                 </div>
                                 <div
-                                    class="flex flex-col items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                    class="flex flex-col items-center p-2">
                                     <span id="filter-badge-5"
                                         class="filter-badge-label text-sm font-bold text-green-800 mb-2 pb-0.5 border-b-2 border-green-500">5끝</span>
                                     <div class="flex items-center gap-1">
                                         <input type="number" id="filter5Min" min="0" max="5" value="0"
-                                            class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500"
+                                            class="digit-filter-input w-12 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent"
                                             onchange="updateDigitFilter(5)">
-                                        <span class="text-gray-400 font-black px-0.5 opacity-50">~</span>
+                                        <span class="text-xs text-gray-400">~</span>
                                         <input type="number" id="filter5Max" min="0" max="5" value="5"
-                                            class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500"
+                                            class="digit-filter-input w-12 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent"
                                             onchange="updateDigitFilter(5)">
                                     </div>
                                 </div>
                                 <div
-                                    class="flex flex-col items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                    class="flex flex-col items-center p-2">
                                     <span id="filter-badge-6"
                                         class="filter-badge-label text-sm font-bold text-green-800 mb-2 pb-0.5 border-b-2 border-green-500">6끝</span>
                                     <div class="flex items-center gap-1">
                                         <input type="number" id="filter6Min" min="0" max="4" value="0"
-                                            class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500"
+                                            class="digit-filter-input w-12 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent"
                                             onchange="updateDigitFilter(6)">
-                                        <span class="text-gray-400 font-black px-0.5 opacity-50">~</span>
+                                        <span class="text-xs text-gray-400">~</span>
                                         <input type="number" id="filter6Max" min="0" max="4" value="4"
-                                            class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500"
+                                            class="digit-filter-input w-12 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent"
                                             onchange="updateDigitFilter(6)">
                                     </div>
                                 </div>
                                 <div
-                                    class="flex flex-col items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                    class="flex flex-col items-center p-2">
                                     <span id="filter-badge-7"
                                         class="filter-badge-label text-sm font-bold text-green-800 mb-2 pb-0.5 border-b-2 border-green-500">7끝</span>
                                     <div class="flex items-center gap-1">
                                         <input type="number" id="filter7Min" min="0" max="4" value="0"
-                                            class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500"
+                                            class="digit-filter-input w-12 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent"
                                             onchange="updateDigitFilter(7)">
-                                        <span class="text-gray-400 font-black px-0.5 opacity-50">~</span>
+                                        <span class="text-xs text-gray-400">~</span>
                                         <input type="number" id="filter7Max" min="0" max="4" value="4"
-                                            class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500"
+                                            class="digit-filter-input w-12 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent"
                                             onchange="updateDigitFilter(7)">
                                     </div>
                                 </div>
                                 <div
-                                    class="flex flex-col items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                    class="flex flex-col items-center p-2">
                                     <span id="filter-badge-8"
                                         class="filter-badge-label text-sm font-bold text-green-800 mb-2 pb-0.5 border-b-2 border-green-500">8끝</span>
                                     <div class="flex items-center gap-1">
                                         <input type="number" id="filter8Min" min="0" max="4" value="0"
-                                            class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500"
+                                            class="digit-filter-input w-12 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent"
                                             onchange="updateDigitFilter(8)">
-                                        <span class="text-gray-400 font-black px-0.5 opacity-50">~</span>
+                                        <span class="text-xs text-gray-400">~</span>
                                         <input type="number" id="filter8Max" min="0" max="4" value="4"
-                                            class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500"
+                                            class="digit-filter-input w-12 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent"
                                             onchange="updateDigitFilter(8)">
                                     </div>
                                 </div>
                                 <div
-                                    class="flex flex-col items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                    class="flex flex-col items-center p-2">
                                     <span id="filter-badge-9"
                                         class="filter-badge-label text-sm font-bold text-green-800 mb-2 pb-0.5 border-b-2 border-green-500">9끝</span>
                                     <div class="flex items-center gap-1">
                                         <input type="number" id="filter9Min" min="0" max="4" value="0"
-                                            class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500"
+                                            class="digit-filter-input w-12 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent"
                                             onchange="updateDigitFilter(9)">
-                                        <span class="text-gray-400 font-black px-0.5 opacity-50">~</span>
+                                        <span class="text-xs text-gray-400">~</span>
                                         <input type="number" id="filter9Max" min="0" max="4" value="4"
-                                            class="digit-filter-input w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500"
+                                            class="digit-filter-input w-12 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent"
                                             onchange="updateDigitFilter(9)">
                                     </div>
                                 </div>
@@ -786,42 +928,9 @@
                     <!-- [표준화] 리스트 섹션 (Integrated Header) -->
                     <div class="mt-6">
                         <div class="mb-4">
-                            <div class="flex items-center justify-between">
-                                <div class="flex-shrink-0">
-                                    <h3 class="text-lg font-bold text-gray-900 mb-1">회차별 당첨번호 및 끝수 패턴</h3>
-                                    <p class="text-sm text-gray-600">최근 <span id="displayedCount"
-                                            class="font-bold text-blue-600">100</span>회차 표시 (클릭 시 10회차 하이라이트)</p>
-                                </div>
-
-                                <!-- [이동] 분석 회차 범위 슬라이더 -->
-                                <div class="flex-1 max-w-xl">
-                                    <div class="flex items-center justify-between mb-3">
-                                        <div class="flex items-center gap-3">
-                                            <span class="text-xs font-bold text-gray-500 uppercase tracking-tight">Scope
-                                                Control</span>
-                                            <div class="flex items-center gap-1.5">
-                                                <button onclick="setRange(50)" id="preset50"
-                                                    class="px-2.5 py-1 text-[11px] font-bold bg-gray-100 text-gray-600 rounded-md hover:bg-gray-200 transition-colors">50회</button>
-                                                <button onclick="setRange(100)" id="preset100"
-                                                    class="px-2.5 py-1 text-[11px] font-bold bg-blue-600 text-white rounded-md transition-colors">100회</button>
-                                                <button onclick="setRange(500)" id="preset500"
-                                                    class="px-2.5 py-1 text-[11px] font-bold bg-gray-100 text-gray-600 rounded-md hover:bg-gray-200 transition-colors">500회</button>
-                                                <button onclick="setRange(allDrawData.length)" id="preset1203"
-                                                    class="px-2.5 py-1 text-[11px] font-bold bg-gray-100 text-gray-600 rounded-md hover:bg-gray-200 transition-colors">전체</button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div class="px-1">
-                                        <input type="range" id="rangeSlider" min="10" max="1203" value="100"
-                                            class="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
-                                            oninput="updateRange(this.value)" />
-                                        <div class="flex justify-between mt-1.5 text-[10px] text-gray-400 font-bold">
-                                            <span>MIN 10</span>
-                                            <span id="maxRangeLabel">MAX 1000+</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
+                            <h3 class="text-lg font-bold text-gray-900 mb-1">회차별 당첨번호 및 끝수 패턴</h3>
+                            <p class="text-sm text-gray-600">최근 <span id="displayedCount"
+                                    class="font-bold text-blue-600">100</span>회차 표시 (클릭 시 10회차 하이라이트)</p>
                         </div>
 
                         <div class="overflow-x-auto custom-scrollbar border border-gray-200 rounded-xl bg-white"
@@ -1377,6 +1486,8 @@
             updatePresetButtons(value);
             updateStats();
             renderList();
+            // [fix-297] 보조 분석 6종 갱신
+            if (typeof renderAllTdSupp === 'function') renderAllTdSupp();
         }
 
         // [표준화] 최근 10회차 필터를 비활성화하고 UI를 초기화하는 함수
@@ -1673,6 +1784,9 @@
                 renderList();
                 updateFilterBadgeColors();
                 initDeepInsight();
+                // [fix-297] 보조 분석 6종 초기 렌더 (cache는 allDrawData 전체 기반)
+                if (typeof invalidateTdCache === 'function') invalidateTdCache();
+                if (typeof renderAllTdSupp === 'function') renderAllTdSupp();
 
                 setTimeout(() => {
                     const slider = document.getElementById('rangeSlider');
@@ -1956,6 +2070,384 @@ ${contextData}
                 if (loadingEl) loadingEl.parentElement.innerHTML = '<span class="text-red-500 text-xs">오류가 발생했습니다.</span>';
             }
         }
+
+        // ════════════════════════════════════════════════════════════
+        // [fix-297] 끝자리 보조 분석 6종 — impeccable 가이드
+        // 라이트 모드, 단일 액센트(#3B82F6), tabular-nums, 박스 일변도 회피
+        // ════════════════════════════════════════════════════════════
+        const TD_ACCENT = '#3B82F6';
+        const TD_ACCENT_LIGHT = 'rgba(59, 130, 246, 0.08)';
+        const TD_GRID = '#F1F5F9';
+        const TD_INK_1 = '#0F172A';
+        const TD_INK_2 = '#475569';
+        const TD_INK_3 = '#94A3B8';
+        // 10끝 색상 토큰 (대시보드 일관성, 저채도 톤)
+        const TD_DIGIT_COLORS = [
+            '#3B82F6', '#10B981', '#F97316', '#A855F7', '#EC4899',
+            '#06B6D4', '#84CC16', '#F59E0B', '#EF4444', '#14B8A6'
+        ];
+
+        let _tdCache = null;
+        function getTdCache() {
+            if (_tdCache) return _tdCache;
+            const data = AppState.allDrawData || [];
+            _tdCache = data.map(d => {
+                const tails = (d.numbers || []).map(n => n % 10);
+                const digitCounts = new Array(10).fill(0);
+                tails.forEach(t => digitCounts[t]++);
+                const tailSum = tails.reduce((a, b) => a + b, 0);
+                const uniqueDigits = new Set(tails).size;
+                // 끝자리 파생 속성 (교차분석용)
+                const evenTails = digitCounts.filter((_, i) => i % 2 === 0).reduce((a, b) => a + b, 0);
+                const oddTails = digitCounts.filter((_, i) => i % 2 === 1).reduce((a, b) => a + b, 0);
+                const lowTails = digitCounts.slice(0, 5).reduce((a, b) => a + b, 0);   // 0~4
+                const highTails = digitCounts.slice(5, 10).reduce((a, b) => a + b, 0); // 5~9
+                const maxFreq = Math.max(...digitCounts);                              // 최빈 끝자리 빈도
+                return {
+                    round: d.round,
+                    tails,
+                    digitCounts,
+                    tailSum,
+                    uniqueDigits,
+                    evenTails,
+                    oddTails,
+                    lowTails,
+                    highTails,
+                    maxFreq
+                };
+            });
+            return _tdCache;
+        }
+        function invalidateTdCache() { _tdCache = null; }
+
+        function renderAllTdSupp() {
+            try {
+                if (!AppState.allDrawData || AppState.allDrawData.length === 0) return;
+                renderTdMa();
+                renderTdCalendar();
+                renderTdDigitDist();
+                renderTdUniqueDist();
+                renderTdCross();
+                renderTdSeq();
+                renderTdGap();
+            } catch (e) { console.warn('[td-supp]', e); }
+        }
+
+        // ─── §1-A. 시계열 추세 (10끝 이동평균) ───
+        let tdMaInst = null;
+        function renderTdMa() {
+            const canvas = document.getElementById('tdMaChart');
+            if (!canvas) return;
+            const win = Math.max(3, Math.min(50, parseInt(document.getElementById('tdMaWindow').value) || 10));
+            const cache = getTdCache().slice(0, AppState.currentRange).slice().reverse();
+            if (cache.length === 0) return;
+            const labels = cache.map(d => d.round);
+            // 10개 끝자리 각각의 MA
+            const datasets = [];
+            for (let dig = 0; dig < 10; dig++) {
+                const counts = cache.map(d => d.digitCounts[dig]);
+                const ma = [];
+                for (let i = 0; i < counts.length; i++) {
+                    const s = Math.max(0, i - win + 1);
+                    const sl = counts.slice(s, i + 1);
+                    ma.push(sl.reduce((a, b) => a + b, 0) / sl.length);
+                }
+                datasets.push({
+                    label: `${dig}끝`,
+                    data: ma,
+                    borderColor: TD_DIGIT_COLORS[dig],
+                    borderWidth: 1.5,
+                    pointRadius: 0,
+                    fill: false,
+                    tension: 0.3
+                });
+            }
+            if (tdMaInst) tdMaInst.destroy();
+            tdMaInst = new Chart(canvas.getContext('2d'), {
+                type: 'line',
+                data: { labels, datasets },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'top', align: 'end',
+                            labels: { boxWidth: 6, font: { size: 11, family: 'Pretendard' }, color: TD_INK_2, padding: 8 },
+                            display: true
+                        },
+                        tooltip: { mode: 'index', intersect: false }
+                    },
+                    interaction: { mode: 'nearest', axis: 'x', intersect: false },
+                    scales: {
+                        y: { grid: { color: TD_GRID, drawBorder: false }, ticks: { color: TD_INK_3, font: { size: 11 } }, title: { display: true, text: '평균 출현', color: TD_INK_3, font: { size: 11 } } },
+                        x: { grid: { display: false }, ticks: { color: TD_INK_3, font: { size: 11 }, display: AppState.currentRange < 80, autoSkip: true, maxRotation: 0 } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+        }
+
+        // ─── §1-B. 캘린더 히트맵 (unique 끝자리 개수) ───
+        function renderTdCalendar() {
+            const c = document.getElementById('tdCalendar');
+            if (!c) return;
+            const cache = getTdCache().slice(0, AppState.currentRange).slice().reverse();
+            const range = AppState.currentRange;
+            const cols = range <= 50 ? 10 : range <= 100 ? 20 : range <= 300 ? 25 : 30;
+            const colorOf = (u) => {
+                if (u == null) return '#F8FAFC';
+                if (u <= 2) return '#DBEAFE';
+                if (u === 3) return '#93C5FD';
+                if (u === 4) return '#3B82F6';
+                if (u === 5) return '#1D4ED8';
+                return '#1E3A8A'; // u=6 (모두 다른 끝자리)
+            };
+            const fgOf = (u) => u != null && u >= 4 ? '#fff' : TD_INK_1;
+            const fontMain = cols >= 25 ? 11 : 12;
+            const fontRd = cols >= 25 ? 8 : 9;
+            const pad = cols >= 25 ? '4px 0 3px' : '6px 0 4px';
+            let html = `<div style="display:grid;grid-template-columns:repeat(${cols},minmax(0,1fr));gap:2px">`;
+            for (const d of cache) {
+                html += `<div title="${d.round}회 · unique ${d.uniqueDigits}개" style="background:${colorOf(d.uniqueDigits)};color:${fgOf(d.uniqueDigits)};text-align:center;padding:${pad};border-radius:2px;line-height:1.05;font-feature-settings:'tnum'">
+                    <div style="font-size:${fontMain}px;font-weight:700">${d.uniqueDigits}</div>
+                    <div style="font-size:${fontRd}px;font-weight:500;opacity:0.65;letter-spacing:-0.02em">${d.round}</div>
+                </div>`;
+            }
+            c.innerHTML = html + '</div>';
+        }
+
+        // ─── §2. 끝자리 분포 (0~9) ───
+        let tdDigDistInst = null;
+        function renderTdDigitDist() {
+            const canvas = document.getElementById('tdDigitDist');
+            const statsEl = document.getElementById('tdDigitDistStats');
+            if (!canvas) return;
+            const cache = getTdCache().slice(0, AppState.currentRange);
+            if (cache.length === 0) return;
+            const totals = new Array(10).fill(0);
+            cache.forEach(d => d.digitCounts.forEach((c, i) => totals[i] += c));
+            const avgPerDraw = totals.map(t => t / cache.length);
+            const expected = 0.6;
+            const colors = avgPerDraw.map(v => {
+                const z = (v - expected) / 0.2;
+                if (z >= 1.0) return TD_ACCENT;
+                if (z <= -1.0) return 'rgba(15,23,42,0.25)';
+                return 'rgba(59,130,246,0.45)';
+            });
+            if (tdDigDistInst) tdDigDistInst.destroy();
+            tdDigDistInst = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'],
+                    datasets: [
+                        { label: '평균 출현', data: avgPerDraw, backgroundColor: colors, borderRadius: 2, borderSkipped: false },
+                        { label: '기대값', data: Array(10).fill(expected), type: 'line', borderColor: 'rgba(15,23,42,0.35)', borderDash: [3, 3], borderWidth: 1, pointRadius: 0, fill: false }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { grid: { color: TD_GRID, drawBorder: false }, ticks: { color: TD_INK_3, font: { size: 11 } } },
+                        x: { grid: { display: false }, ticks: { color: TD_INK_2, font: { size: 11 } } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+            const top = avgPerDraw.map((v, i) => ({ d: i, v })).sort((a, b) => b.v - a.v);
+            const hottest = top[0], coldest = top[top.length - 1];
+            statsEl.innerHTML = `
+                <span class="text-gray-500">최다</span> <b style="color:${TD_ACCENT}">끝자리 ${hottest.d}</b> (${hottest.v.toFixed(2)}/회)
+                <span class="text-gray-300 mx-2">·</span>
+                <span class="text-gray-500">최소</span> <b>끝자리 ${coldest.d}</b> (${coldest.v.toFixed(2)}/회)
+            `;
+        }
+
+        // ─── §3. 끝자리 다양성 분포 (1~6) ───
+        let tdUqDistInst = null;
+        function renderTdUniqueDist() {
+            const canvas = document.getElementById('tdUniqueDist');
+            const statsEl = document.getElementById('tdUniqueDistStats');
+            if (!canvas) return;
+            const cache = getTdCache().slice(0, AppState.currentRange);
+            if (cache.length === 0) return;
+            const dist = new Array(7).fill(0);
+            cache.forEach(d => dist[d.uniqueDigits]++);
+            const labels = [1, 2, 3, 4, 5, 6];
+            const values = labels.map(i => dist[i]);
+            const total = cache.length;
+            const mean = cache.reduce((a, b) => a + b.uniqueDigits, 0) / total;
+            if (tdUqDistInst) tdUqDistInst.destroy();
+            tdUqDistInst = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: labels.map(String),
+                    datasets: [{ label: '회차 수', data: values, backgroundColor: TD_ACCENT, borderRadius: 2, borderSkipped: false }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { grid: { color: TD_GRID, drawBorder: false }, ticks: { color: TD_INK_3, font: { size: 11 } } },
+                        x: { grid: { display: false }, ticks: { color: TD_INK_2, font: { size: 11 } }, title: { display: true, text: 'unique 끝자리 개수', color: TD_INK_3, font: { size: 11 } } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+            const allDifferent = ((dist[6] / total) * 100).toFixed(1);
+            statsEl.innerHTML = `
+                <span class="text-gray-500">평균</span> <b style="color:${TD_ACCENT}">${mean.toFixed(2)}</b> 개
+                <span class="text-gray-300 mx-2">·</span>
+                <span class="text-gray-500">6개 모두 다른 끝자리</span> <b>${allDifferent}%</b>
+                (${dist[6]}회 / ${total}회)
+            `;
+        }
+
+        // ─── §4. 교차 분석 (끝수합 5분위 × 6 끝자리 속성) — 표 형태 ───
+        function renderTdCross() {
+            const tbody = document.getElementById('tdCrossBody');
+            if (!tbody) return;
+            const cache = getTdCache().slice(0, AppState.currentRange);
+            if (cache.length === 0) return;
+            const sums = cache.map(d => d.tailSum).sort((a, b) => a - b);
+            const q = (p) => sums[Math.floor(sums.length * p)];
+            const breaks = [q(0.2), q(0.4), q(0.6), q(0.8)];
+            const groupOf = (s) => s < breaks[0] ? 0 : s < breaks[1] ? 1 : s < breaks[2] ? 2 : s < breaks[3] ? 3 : 4;
+            const groups = [[], [], [], [], []];
+            cache.forEach(d => groups[groupOf(d.tailSum)].push(d));
+            const avg = (arr, k) => arr.length === 0 ? 0 : arr.reduce((a, b) => a + b[k], 0) / arr.length;
+            const attrs = [
+                { k: 'uniqueDigits', label: 'unique 끝자리', dec: 2 },
+                { k: 'evenTails',    label: '짝수 끝자리 (0,2,4,6,8)', dec: 2 },
+                { k: 'oddTails',     label: '홀수 끝자리 (1,3,5,7,9)', dec: 2 },
+                { k: 'lowTails',     label: '저끝 (0~4)', dec: 2 },
+                { k: 'highTails',    label: '고끝 (5~9)', dec: 2 },
+                { k: 'maxFreq',      label: '최빈 끝자리 빈도', dec: 2 }
+            ];
+            const fmt = (v, dec) => Number.isFinite(v) ? v.toFixed(dec) : '−';
+            tbody.innerHTML = attrs.map(a => {
+                const vals = [0, 1, 2, 3, 4].map(i => avg(groups[i], a.k));
+                const trend = vals[4] - vals[0];
+                const baseline = Math.abs(vals[2]) * 0.15 + 0.1;
+                let trendLabel = '미약', trendStyle = `color:${TD_INK_3}`;
+                if (Math.abs(trend) > baseline) {
+                    if (trend > 0) { trendLabel = '↑ 양의 상관'; trendStyle = `color:${TD_ACCENT};font-weight:600`; }
+                    else { trendLabel = '↓ 음의 상관'; trendStyle = 'color:#F43F5E;font-weight:600'; }
+                }
+                return `<tr>
+                    <td class="font-medium py-2" style="color:${TD_INK_1}">${a.label}</td>
+                    <td class="text-right py-2" style="color:${TD_INK_2}">${fmt(vals[0], a.dec)}</td>
+                    <td class="text-right py-2" style="color:${TD_INK_2}">${fmt(vals[1], a.dec)}</td>
+                    <td class="text-right py-2" style="color:${TD_INK_2}">${fmt(vals[2], a.dec)}</td>
+                    <td class="text-right py-2" style="color:${TD_INK_2}">${fmt(vals[3], a.dec)}</td>
+                    <td class="text-right py-2" style="color:${TD_INK_2}">${fmt(vals[4], a.dec)}</td>
+                    <td class="text-right py-2" style="${trendStyle}">${trendLabel}</td>
+                </tr>`;
+            }).join('');
+        }
+
+        // ─── §5. 시퀀스 패턴 검색 (unique 끝자리 개수 시퀀스) ───
+        function renderTdSeq() {
+            const panel = document.getElementById('tdSeqPanel');
+            if (!panel) return;
+            const len = Math.max(2, Math.min(10, parseInt(document.getElementById('tdSeqLen').value) || 3));
+            const cache = getTdCache();
+            if (cache.length === 0) { panel.innerHTML = '<div class="text-sm text-gray-400">데이터 없음</div>'; return; }
+            const asc = cache.slice().reverse();
+            if (asc.length < len + 1) { panel.innerHTML = '<div class="text-sm text-gray-400">데이터 부족</div>'; return; }
+            const recent = asc.slice(-len).map(d => d.uniqueDigits);
+            const recentStr = recent.join(',');
+            const matches = [];
+            for (let i = 0; i < asc.length - len; i++) {
+                const slice = asc.slice(i, i + len).map(d => d.uniqueDigits);
+                if (slice.join(',') === recentStr && i + len < asc.length - len) {
+                    matches.push({
+                        startRound: asc[i].round,
+                        endRound: asc[i + len - 1].round,
+                        nextRound: asc[i + len].round,
+                        nextUnique: asc[i + len].uniqueDigits
+                    });
+                }
+            }
+            const dist = {};
+            matches.forEach(m => { dist[m.nextUnique] = (dist[m.nextUnique] || 0) + 1; });
+            const distSorted = Object.entries(dist).sort((a, b) => b[1] - a[1]);
+            let html = `<div class="mb-4 text-xs"><span class="text-gray-500">최근 ${len}개 unique 시퀀스 →</span> `;
+            html += recent.map(v => `<span class="inline-block px-2 py-0.5 rounded mx-0.5 tabular-nums" style="background:${TD_ACCENT_LIGHT};color:${TD_ACCENT};font-weight:600">${v}</span>`).join('<span class="text-gray-300 mx-0.5">→</span>');
+            html += '</div>';
+            if (matches.length === 0) {
+                html += `<div class="text-sm text-gray-400 italic py-3">동일 시퀀스 없음. 길이를 줄여보세요.</div>`;
+            } else {
+                html += `<div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">다음 회차 unique 끝자리 분포 (${matches.length}건)</div>`;
+                html += '<div class="space-y-1.5">';
+                distSorted.forEach(([s, c]) => {
+                    const pct = (c / matches.length * 100).toFixed(0);
+                    html += `<div class="flex items-center gap-3 text-xs tabular-nums">
+                        <span class="w-10 text-right" style="color:${TD_INK_2}">${s}개</span>
+                        <div class="flex-1 h-1.5 rounded-full overflow-hidden" style="background:${TD_GRID}">
+                            <div style="background:${TD_ACCENT};height:100%;width:${pct}%"></div>
+                        </div>
+                        <span class="w-12 text-right" style="color:${TD_INK_3}">${c}회 (${pct}%)</span>
+                    </div>`;
+                });
+                html += '</div>';
+            }
+            panel.innerHTML = html;
+        }
+
+        // ─── §6. 10끝 미출현 갭 ───
+        function renderTdGap() {
+            const tbody = document.getElementById('tdGapBody');
+            if (!tbody) return;
+            const cache = getTdCache().slice(0, AppState.currentRange);
+            if (cache.length === 0) return;
+            // 끝자리 0~9 각각: 마지막 출현 갭 + 평균 빈도 + z-score
+            const rows = [];
+            for (let dig = 0; dig < 10; dig++) {
+                // cache[0] = 가장 최근 (allDrawData 자체가 최신 우선 정렬)
+                let currentGap = -1;
+                for (let i = 0; i < cache.length; i++) {
+                    if (cache[i].digitCounts[dig] > 0) { currentGap = i; break; }
+                }
+                // 등장 인덱스 모음 → 출현 간격 시리즈
+                const apperIdx = [];
+                cache.forEach((d, idx) => { if (d.digitCounts[dig] > 0) apperIdx.push(idx); });
+                let avgGap = null, sigma = null;
+                if (apperIdx.length >= 2) {
+                    const ints = [];
+                    for (let i = 1; i < apperIdx.length; i++) ints.push(apperIdx[i] - apperIdx[i - 1]);
+                    avgGap = ints.reduce((a, b) => a + b, 0) / ints.length;
+                    sigma = Math.sqrt(ints.reduce((a, b) => a + (b - avgGap) ** 2, 0) / ints.length);
+                }
+                const gapForZ = currentGap >= 0 ? currentGap : cache.length;
+                const z = (avgGap !== null && sigma > 0) ? (gapForZ - avgGap) / sigma : null;
+                const totalCount = cache.reduce((a, b) => a + b.digitCounts[dig], 0);
+                const avgPerDraw = totalCount / cache.length;
+                rows.push({ dig, avgPerDraw, currentGap, z });
+            }
+            tbody.innerHTML = rows.map(r => {
+                let zStyle = `color:${TD_INK_3}`, zLabel = '−';
+                if (r.z !== null) {
+                    zLabel = (r.z > 0 ? '+' : '') + r.z.toFixed(1) + 'σ';
+                    if (r.z >= 1.5) zStyle = 'color:#F43F5E;font-weight:600';
+                    else if (r.z >= 0.5) zStyle = `color:${TD_ACCENT}`;
+                    else if (r.z <= -0.5) zStyle = 'color:#10B981';
+                    else zStyle = `color:${TD_INK_2}`;
+                }
+                const gapText = r.currentGap >= 0 ? `${r.currentGap}회 전` : '없음';
+                const dotColor = TD_DIGIT_COLORS[r.dig];
+                return `<tr>
+                    <td class="py-2" style="color:${TD_INK_1}">
+                        <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${dotColor};margin-right:8px;vertical-align:middle"></span>${r.dig}끝
+                    </td>
+                    <td class="text-right py-2" style="color:${TD_INK_3}">${r.avgPerDraw.toFixed(2)}</td>
+                    <td class="text-right py-2" style="color:${TD_INK_1};font-weight:600">${gapText}</td>
+                    <td class="text-right py-2" style="${zStyle}">${zLabel}</td>
+                </tr>`;
+            }).join('');
+        }
+        // ════════════════════════════════════════════════════════════
+        // [/fix-297]
+        // ════════════════════════════════════════════════════════════
 
     </script>
 

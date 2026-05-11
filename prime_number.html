@@ -4,6 +4,9 @@
 <head>
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <title>Lotto Lab - 소수 (Supabase AI)</title>
     <link href="css/tailwind.css" rel="stylesheet" />
 
@@ -33,6 +36,8 @@
 
     <!-- NLP Modules -->
     <script src="js/NLPProcessor.js"></script>
+    <script src="js/AutoNLPMatcher.js"></script>
+    <script src="js/auto_nlp_loader.js" defer></script>
     <script src="js/NLPInputComponent.js"></script>
     <script src="js/BasicAnalysisNLP.js"></script>
 
@@ -176,6 +181,28 @@
                     draw.primeCount = calculatePrimeCount(draw.numbers);
                 }
             });
+
+            // [hot/cold 추가] allDrawData는 round DESC 정렬 — index i의 직전 3회차는 i+1, i+2, i+3
+            const ALL_PRIMES = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43];
+            allDrawData.forEach((draw, i) => {
+                const prev3 = allDrawData.slice(i + 1, i + 4);  // 직전 3회차
+                const hotSet = new Set();
+                prev3.forEach(d => (d.numbers || []).forEach(n => {
+                    if (primes.has(n)) hotSet.add(n);
+                }));
+                // hot = 직전 3회차 내 등장 소수 / cold = 14개 소수 중 hot 제외
+                const winSet = new Set(draw.numbers || []);
+                let hotHit = 0, coldHit = 0;
+                ALL_PRIMES.forEach(p => {
+                    if (winSet.has(p)) {
+                        if (hotSet.has(p)) hotHit++;
+                        else coldHit++;
+                    }
+                });
+                draw.primeHotHit = hotHit;
+                draw.primeColdHit = coldHit;
+                draw.primeHotSet = hotSet;  // 소수 대상수 색상 구분용
+            });
         }
 
         // ==================== AI 챗봇 모달 함수 ====================
@@ -311,11 +338,15 @@
         window.isLoadingSettings = false;
         let _primeSelfSaving = false; // 자체 저장 StorageEvent 루프 방지
 
-        // [표준화] 필터 설정 저장 함수 (Utils.saveFilter 사용)
-        async function saveFilterSettings(targetRoundOverride = null) {
-            if (window.isLoadingSettings || _primeSelfSaving) return;
+        // [버그 수정] Utils.saveFilter가 동일탭에 storage 이벤트 dispatch → listener가 즉시
+        //   loadFilterSettings 트리거 → DB 저장 완료 전 OLD 데이터 읽어 UI 되돌리는 race.
+        //   해결: 저장 시 _primeSaveTime 기록 → listener가 일정 시간(2초) 내면 skip.
+        let _primeSaveTime = 0;
 
+        async function saveFilterSettings(targetRoundOverride = null) {
             try {
+                _primeSaveTime = Date.now();  // ★ self-save 시작 표시
+
                 const toggle = document.getElementById('applyFilterCheck');
                 const enabled = toggle ? toggle.checked : true;
 
@@ -339,23 +370,21 @@
                 };
 
                 const storageKey = 'prime_number_patterns';
-                
+
+                console.log(`💾 소수 필터 저장 시도: counts=${JSON.stringify(activeCounts)}, target=${targetRound}, enabled=${enabled}`);
+
                 // Utils.saveFilter로 저장 (localStorage + StorageEvent 브로드캐스트 포함)
                 if (window.Utils && window.Utils.saveFilter) {
-                    try {
-                        _primeSelfSaving = true;
-                        // [1] NULL 행 저장 (표준 크로스탭 sync용)
-                        await window.Utils.saveFilter(storageKey, data, enabled);
-                        // [2] 회차 특정 행 저장 (대시보드는 targetRound 행을 우선 읽으므로 반드시 함께 저장)
-                        if (window.filterService && window.filterService.initialized && targetRound) {
-                            await window.filterService.saveSetting(storageKey, data, enabled, targetRound);
-                        }
-                    } finally {
-                        _primeSelfSaving = false;
+                    // [1] NULL 행 저장 (표준 크로스탭 sync용)
+                    await window.Utils.saveFilter(storageKey, data, enabled);
+                    // [2] 회차 특정 행 저장 (대시보드는 targetRound 행을 우선 읽으므로 반드시 함께 저장)
+                    if (window.filterService && window.filterService.initialized && targetRound) {
+                        await window.filterService.saveSetting(storageKey, data, enabled, targetRound);
                     }
                 }
+                _primeSaveTime = Date.now();  // ★ self-save 종료 시간 갱신 (마지막 save 기준)
 
-                console.log(`✅ 소수 패턴 필터 저장 완료 (${targetRound}회)`);
+                console.log(`✅ 소수 패턴 필터 저장 완료 (${targetRound}회): ${JSON.stringify(activeCounts)}`);
             } catch (error) {
                 console.error('❌ 필터 저장 오류:', error);
             }
@@ -567,6 +596,74 @@
             transform: scale(1.1);
             background: #2563EB;
         }
+
+        /* [fix-330] 소수 보조 분석 — impeccable 가이드 (underline-only, tabular-nums) */
+        .pn-input {
+            background: transparent;
+            border: 0;
+            border-bottom: 1px solid #E5E7EB;
+            padding: 4px 18px 4px 6px;
+            font-size: 13px;
+            color: #0F172A;
+            outline: none;
+            transition: border-color 180ms ease;
+            font-feature-settings: "tnum";
+            -moz-appearance: textfield;
+        }
+        .pn-input:focus { border-bottom-color: #3B82F6; }
+        .pn-input::-webkit-inner-spin-button,
+        .pn-input::-webkit-outer-spin-button { opacity: 0.5; margin-left: 4px; }
+        #pnFamilyTable td, #pnTwinTable td, #pnGapTable td, #pnSmallLargeTable td { padding: 8px 8px; border-bottom: 1px solid #F3F4F6; }
+        #pnFamilyTable tbody tr:hover, #pnTwinTable tbody tr:hover,
+        #pnGapTable tbody tr:hover, #pnSmallLargeTable tbody tr:hover { background: #FAFAFA; }
+        .pn-pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 600; line-height: 1.4; }
+        .pn-pill-hot { background: #FEF2F2; color: #DC2626; }
+        .pn-pill-cold { background: #ECFEFF; color: #0E7490; }
+        .pn-pill-warm { background: #FFF7ED; color: #C2410C; }
+        .pn-pill-norm { background: #F1F5F9; color: #475569; }
+
+        /* [fix-335c] 카운트 캘린더 v2 — 컴팩트 (고정 높이 30px, no scroll) */
+        .pn-cal-stats {
+            display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+            font-size: 11px; color: #94A3B8; font-feature-settings: "tnum";
+            margin-bottom: 12px; padding: 8px 12px;
+            background: #FAFAFA; border-radius: 8px;
+        }
+        .pn-cal-stats strong { color: #0F172A; font-weight: 700; font-size: 12px; }
+        .pn-cal-row { display: grid; grid-template-columns: 56px 1fr; gap: 8px; align-items: center; margin-bottom: 3px; }
+        .pn-cal-label {
+            font-size: 10px; color: #94A3B8; font-feature-settings: "tnum";
+            text-align: right; padding-right: 2px; line-height: 1.15;
+        }
+        .pn-cal-label strong { display: block; color: #0F172A; font-weight: 700; font-size: 11px; }
+        .pn-cal-label .meta { display: block; font-size: 9px; color: #CBD5E1; margin-top: 1px; }
+        .pn-cal-cells { display: grid; grid-template-columns: repeat(10, 1fr); gap: 3px; }
+        .pn-cal-cell {
+            height: 30px;
+            border-radius: 4px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 12px; font-weight: 700; font-feature-settings: "tnum";
+            transition: transform 120ms ease, box-shadow 120ms ease;
+            cursor: default;
+        }
+        .pn-cal-cell:hover { transform: scale(1.15); box-shadow: 0 4px 14px rgba(15,23,42,0.18); z-index: 5; }
+        .pn-cal-cell.cnt-0 { background: #FAFAFA; color: #CBD5E1; }
+        .pn-cal-cell.cnt-1 { background: #EFF6FF; color: #60A5FA; }
+        .pn-cal-cell.cnt-2 { background: #DBEAFE; color: #1E40AF; }
+        .pn-cal-cell.cnt-3 { background: #93C5FD; color: #FFFFFF; }
+        .pn-cal-cell.cnt-4 { background: #3B82F6; color: #FFFFFF; }
+        .pn-cal-cell.cnt-5p { background: #1E40AF; color: #FFFFFF; }
+        .pn-cal-cell.is-latest { box-shadow: 0 0 0 2px #0F172A; }
+        .pn-cal-empty { height: 30px; }
+        .pn-cal-legend {
+            display: flex; gap: 5px; align-items: center; flex-wrap: wrap;
+            margin-top: 10px; font-size: 11px; color: #94A3B8;
+        }
+        .pn-cal-legend .legend-cell {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 20px; height: 20px; border-radius: 3px;
+            font-size: 10px; font-weight: 700; font-feature-settings: "tnum";
+        }
     </style>
 </head>
 
@@ -686,6 +783,138 @@
                         </div>
                     </div>
 
+                    <!-- ════════════════════════════════════════════════ -->
+                    <!-- [fix-330] 소수 보조 분석 7종 — 단일 흰 박스 통합   -->
+                    <!-- ════════════════════════════════════════════════ -->
+                    <div class="bg-white rounded-xl border border-gray-200 mb-6 overflow-hidden">
+
+                        <!-- §1. 시계열 추세 (소수 카운트 MA + 캘린더) -->
+                        <div class="p-8">
+                            <div class="flex items-baseline justify-between mb-6">
+                                <div>
+                                    <h3 class="text-lg font-bold text-gray-900 tracking-tight">시계열 추세</h3>
+                                    <p class="text-xs text-gray-500 mt-1">소수 카운트(0~6) 이동평균 + ±1σ · 평균선 1.87 (이항분포 14/45 × 6 기대값)</p>
+                                </div>
+                                <div class="flex items-baseline gap-2 text-xs text-gray-500">
+                                    <label>MA 윈도우</label>
+                                    <input type="number" id="pnMaWindow" value="10" min="3" max="50"
+                                        oninput="renderPnMa()" class="pn-input w-16 text-center tabular-nums">
+                                    <span>회</span>
+                                </div>
+                            </div>
+                            <div class="h-64 mb-6"><canvas id="pnMaChart"></canvas></div>
+                            <div class="pt-6 border-t border-gray-100">
+                                <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-3">
+                                    소수 카운트 캘린더 (좌=과거, 우=최신)
+                                </div>
+                                <div id="pnCalendar"></div>
+                            </div>
+                        </div>
+
+                        <!-- §2 + §3 : 카운트 분포 + 분류 비율 (2분할) -->
+                        <div class="border-t border-gray-100 grid grid-cols-1 lg:grid-cols-2 lg:divide-x lg:divide-gray-100">
+                            <div class="p-8">
+                                <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">카운트 분포 0~6</h3>
+                                <p class="text-xs text-gray-500 mb-4">소수 출현 개수 빈도 · 점선 = 이항분포 B(6, 14/45) 이론값</p>
+                                <div class="h-56"><canvas id="pnCountDist"></canvas></div>
+                                <div id="pnCountDistStats" class="mt-3 text-xs text-gray-600 tabular-nums"></div>
+                            </div>
+                            <div class="p-8 border-t lg:border-t-0 border-gray-100">
+                                <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">소수·합성수·1 분류 비율</h3>
+                                <p class="text-xs text-gray-500 mb-4">회차 6번호의 평균 분포 (소수 14·합성수 30·1=1) · 점선 = 이론값</p>
+                                <div class="h-56"><canvas id="pnClassRatioChart"></canvas></div>
+                                <div id="pnClassRatioStats" class="mt-3 text-xs text-gray-600 tabular-nums"></div>
+                            </div>
+                        </div>
+
+                        <!-- §4. 소수 14개 배수 family 동반 출현 -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">소수 14개 · 배수 family 동반 출현</h3>
+                            <p class="text-xs text-gray-500 mb-4">각 소수가 출현한 회차에서 그 소수의 배수 family(자기 제외) 평균 동반 출현 · 기대값 = 5 × (family-1) / 44</p>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-sm tabular-nums" id="pnFamilyTable">
+                                    <thead>
+                                        <tr class="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                            <th class="py-2 pr-3 border-b border-gray-200">소수</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">family 크기</th>
+                                            <th class="py-2 px-3 border-b border-gray-200">family 구성(자기 제외)</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">소수 출현 회차</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">평균 동반</th>
+                                            <th class="py-2 pl-3 border-b border-gray-200 text-right">기대값 대비</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="pnFamilyBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- §5. 쌍둥이 소수 6쌍 동시 출현 -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">쌍둥이 소수 6쌍 동시 출현</h3>
+                            <p class="text-xs text-gray-500 mb-4">차이 2인 소수 쌍의 동반 출현 횟수 + 마지막 동반 회차 · 기대값 = N × (6/45) × (5/44)</p>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-sm tabular-nums" id="pnTwinTable">
+                                    <thead>
+                                        <tr class="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                            <th class="py-2 pr-3 border-b border-gray-200">쌍</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">동반 출현</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">기대값 대비</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">마지막 동반</th>
+                                            <th class="py-2 pl-3 border-b border-gray-200 text-right">현재 갭</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="pnTwinBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- §6. 14개 per-element 갭·핫콜드 -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">14개 소수 · 미출현 갭 + 핫·콜드</h3>
+                            <p class="text-xs text-gray-500 mb-4">각 소수의 마지막 출현 + 평균 갭 + z-score · 핫 = 최근 5회차 ≥ 2회 / 콜드 = 최근 30회차 0회</p>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-sm tabular-nums" id="pnGapTable">
+                                    <thead>
+                                        <tr class="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                            <th class="py-2 pr-3 border-b border-gray-200">소수</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">출현/회</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">평균 갭</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">현재 갭</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">z-score</th>
+                                            <th class="py-2 pl-3 border-b border-gray-200 text-center">상태</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="pnGapBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- §7. 한 자리 vs 두 자리 소수 비율 추세 -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">한 자리(2,3,5,7) vs 두 자리(11~43) 소수 비율</h3>
+                            <p class="text-xs text-gray-500 mb-4">풀 4 vs 10 비대칭 보정 후 정규화 빈도 추세 (20회 이동평균) · 기대 평균 = 한 자리 0.53 / 두 자리 1.33</p>
+                            <div class="h-56 mb-4"><canvas id="pnSmallLargeChart"></canvas></div>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-sm tabular-nums" id="pnSmallLargeTable">
+                                    <thead>
+                                        <tr class="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                            <th class="py-2 pr-3 border-b border-gray-200">그룹</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">풀 크기</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">평균 출현</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">기대(이항)</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">정규화 빈도</th>
+                                            <th class="py-2 pl-3 border-b border-gray-200 text-right">현재 추세</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="pnSmallLargeBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- ════════════════════════════════════════════════ -->
+                    <!-- [/fix-330] 단일 박스 통합 끝                       -->
+                    <!-- ════════════════════════════════════════════════ -->
+
                     <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
                         <div class="flex items-center justify-between mb-4">
                             <h3 class="text-lg font-bold text-gray-900">조합 필터</h3>
@@ -743,9 +972,26 @@
                         </div>
                     </div>
 
-                    <!-- [표준화] 리스트 섹션 (Integrated Header) -->
-                    <div class="rounded-xl overflow-hidden mt-6">
-                        <div class="flex items-center justify-between mb-4 px-2">
+                    <!-- 직전 3회차 기반 소수(hot)/(cold) 표시 -->
+                    <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm mt-6">
+                        <h3 class="text-lg font-bold text-gray-900 mb-4">최근 3회차 기반 소수 핫/콜드</h3>
+                        <div class="space-y-3">
+                            <div class="flex items-center gap-3 flex-wrap">
+                                <span class="text-sm font-bold text-red-600 min-w-[90px]">HOT</span>
+                                <span class="text-xs text-gray-500">직전 3회차 등장</span>
+                                <div id="hotPrimesDisplay" class="flex gap-1.5 flex-wrap ml-auto"></div>
+                            </div>
+                            <div class="flex items-center gap-3 flex-wrap">
+                                <span class="text-sm font-bold text-blue-600 min-w-[90px]">COLD</span>
+                                <span class="text-xs text-gray-500">직전 3회차 미등장</span>
+                                <div id="coldPrimesDisplay" class="flex gap-1.5 flex-wrap ml-auto"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- [fix-397] 리스트 섹션 — 헤더 + 표 흰 박스 일체화 -->
+                    <div class="bg-white rounded-xl border border-gray-200 mt-6 overflow-hidden">
+                        <div class="flex items-center justify-between px-8 pt-6 pb-4 border-b border-gray-100">
                             <div>
                                 <h3 class="text-lg font-bold text-gray-900 mb-1">회차별 당첨번호 및 소수</h3>
                                 <p class="text-sm text-gray-600">최근 <span id="displayedCount"
@@ -757,7 +1003,7 @@
                             </button>
                         </div>
 
-                        <div class="overflow-x-auto custom-scrollbar border border-gray-200 rounded-xl bg-white"
+                        <div class="overflow-x-auto custom-scrollbar"
                             style="max-height: 600px;">
                             <table class="w-full text-sm">
                                 <thead
@@ -769,11 +1015,14 @@
                                         <th class="py-3 px-4 text-center w-[260px]">당첨번호</th>
                                         <th class="py-3 px-4 text-center w-[600px]">소수 대상수</th>
                                         <th class="py-3 px-4 text-center w-20">Hit</th>
+                                        <th class="py-3 px-4 text-center w-24">소수(hot)</th>
+                                        <th class="py-3 px-4 text-center w-24">소수(cold)</th>
+                                        <th class="py-3 px-4 text-center w-24">합성수</th>
                                     </tr>
                                 </thead>
                                 <tbody id="drawsList" class="divide-y divide-gray-100">
                                     <tr>
-                                        <td colspan="5" class="p-10 text-center text-gray-500">
+                                        <td colspan="8" class="p-10 text-center text-gray-500">
                                             <div class="flex items-center justify-center">
                                                 <span
                                                     class="material-symbols-outlined animate-spin mr-2">progress_activity</span>데이터를
@@ -933,23 +1182,27 @@
             markManual();
 
             const btn = document.getElementById(`filter-btn-${num}`);
+            if (!btn) { console.warn(`[prime] filter-btn-${num} 없음 — toggle 무시`); return; }
             btn.classList.toggle('filter-btn-active');
 
+            // 상단 요약 카드는 일부 번호에만 존재 → null guard로 오류 방지
             const card = document.getElementById(`card-${num}`);
             const valueText = document.getElementById(`count_${num}`);
-            const titleText = card.querySelector('.text-xs');
+            const titleText = card ? card.querySelector('.text-xs') : null;
             const isBtnActive = btn.classList.contains('filter-btn-active');
 
-            if (isBtnActive) {
-                card.classList.remove('bg-white', 'border-gray-200');
-                card.classList.add('bg-blue-600', 'border-blue-600');
-                valueText.classList.remove('text-gray-900'); valueText.classList.add('text-white');
-                titleText.classList.remove('text-gray-500'); titleText.classList.add('text-blue-100');
-            } else {
-                card.classList.remove('bg-blue-600', 'border-blue-600');
-                card.classList.add('bg-white', 'border-gray-200');
-                valueText.classList.remove('text-white'); valueText.classList.add('text-gray-900');
-                titleText.classList.remove('text-blue-100'); titleText.classList.add('text-gray-500');
+            if (card) {
+                if (isBtnActive) {
+                    card.classList.remove('bg-white', 'border-gray-200');
+                    card.classList.add('bg-blue-600', 'border-blue-600');
+                    if (valueText) { valueText.classList.remove('text-gray-900'); valueText.classList.add('text-white'); }
+                    if (titleText) { titleText.classList.remove('text-gray-500'); titleText.classList.add('text-blue-100'); }
+                } else {
+                    card.classList.remove('bg-blue-600', 'border-blue-600');
+                    card.classList.add('bg-white', 'border-gray-200');
+                    if (valueText) { valueText.classList.remove('text-white'); valueText.classList.add('text-gray-900'); }
+                    if (titleText) { titleText.classList.remove('text-blue-100'); titleText.classList.add('text-gray-500'); }
+                }
             }
             applyFilter();
         }
@@ -1014,7 +1267,10 @@
             highlightRecentTenRows();
 
             // 필터링된 데이터로 AI/차트 등 업데이트 로직이 필요한 경우 여기서 수행
-            // refreshAIAnalysis(filteredData); 
+            // refreshAIAnalysis(filteredData);
+
+            // [fix-330] 보조 분석 7종 갱신
+            if (typeof renderAllPnSupp === 'function') renderAllPnSupp();
         }
 
         // [표준화] 메인 로직 초기화
@@ -1037,7 +1293,7 @@
                 const featureData = featuresResult.data || [];
 
                 if (!data || data.length === 0) {
-                    document.getElementById('drawsList').innerHTML = '<tr><td colspan="5" class="p-10 text-center text-gray-400">당첨 데이터가 없습니다.</td></tr>';
+                    document.getElementById('drawsList').innerHTML = '<tr><td colspan="8" class="p-10 text-center text-gray-400">당첨 데이터가 없습니다.</td></tr>';
                     return;
                 }
 
@@ -1089,13 +1345,18 @@
 
                 // 5. 최종 렌더링
                 renderDrawsList(allDrawData.slice(0, currentRange));
+                renderHotColdPrimes();
                 initDeepInsight();
+
+                // [fix-330] 보조 분석 7종 초기 렌더링
+                if (typeof invalidatePnCache === 'function') invalidatePnCache();
+                if (typeof renderAllPnSupp === 'function') renderAllPnSupp();
 
                 console.log(`[prime_number] Initialization complete for ${totalCount} rounds.`);
             } catch (err) {
                 console.error('[prime_number] Critical Init Error:', err);
                 document.getElementById('drawsList').innerHTML = `
-                        <tr><td colspan="5" class="p-10 text-center">
+                        <tr><td colspan="8" class="p-10 text-center">
                             <div class="text-red-500 font-bold mb-2">데이터를 불러오지 못했습니다.</div>
                             <div class="text-xs text-gray-500">${err.message}</div>
                         </td></tr>`;
@@ -1156,7 +1417,11 @@
 
         // 🔥 대시보드(filter.html) 혹은 다른 페이지에서의 설정을 실시간 동기화
         window.addEventListener('storage', (e) => {
-            if (_primeSelfSaving) return; // 자체 저장 이벤트 무시 (루프 방지)
+            // [버그 수정] 자기 자신의 save로 인한 storage 이벤트 무시 (DB write 진행 중 OLD 데이터 읽기 방지)
+            if (Date.now() - _primeSaveTime < 3000) {
+                console.log('[prime_number] Self-save event ignored (within 3s)');
+                return;
+            }
             if (e.key === 'prime_number_patterns' || e.key === 'prime_number_patterns_filter' || e.key === 'prime_filter') {
                 // 로그아웃 감지
                 if (e.newValue) {
@@ -1393,12 +1658,41 @@
             }
         }
 
+        function renderHotColdPrimes() {
+            // 최근 3회차(allDrawData[0,1,2])에 등장한 소수 = hot, 나머지 = cold
+            const hotEl = document.getElementById('hotPrimesDisplay');
+            const coldEl = document.getElementById('coldPrimesDisplay');
+            const baseEl = document.getElementById('hotColdBaseRound');
+            if (!hotEl || !coldEl || !allDrawData || allDrawData.length === 0) return;
+
+            const ALL_PRIMES = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43];
+            const recent3 = allDrawData.slice(0, 3);
+            const hotSet = new Set();
+            recent3.forEach(d => (d.numbers || []).forEach(n => {
+                if (primes.has(n)) hotSet.add(n);
+            }));
+
+            const hotList = ALL_PRIMES.filter(p => hotSet.has(p));
+            const coldList = ALL_PRIMES.filter(p => !hotSet.has(p));
+
+            const renderBalls = (nums, ringColor) => nums.map(n =>
+                `<span class="w-9 h-9 inline-flex items-center justify-center rounded-full ball-prime text-xs font-bold transition-all" style="box-shadow: 0 0 0 2px ${ringColor}, 0 1px 3px rgba(0,0,0,0.08);">${String(n).padStart(2, '0')}</span>`
+            ).join('');
+
+            hotEl.innerHTML = hotList.length > 0
+                ? renderBalls(hotList, '#ef4444')
+                : '<span class="text-xs text-gray-400">없음</span>';
+            coldEl.innerHTML = coldList.length > 0
+                ? renderBalls(coldList, '#3b82f6')
+                : '<span class="text-xs text-gray-400">없음</span>';
+        }
+
         function renderDrawsList(draws) {
             const container = document.getElementById('drawsList');
             container.innerHTML = '';
 
             if (draws.length === 0) {
-                container.innerHTML = '<tr><td colspan="5" class="p-4 text-center text-gray-500">표시할 데이터가 없습니다.</td></tr>';
+                container.innerHTML = '<tr><td colspan="8" class="p-4 text-center text-gray-500">표시할 데이터가 없습니다.</td></tr>';
                 return;
             }
 
@@ -1434,7 +1728,12 @@
                             ${primeArray.map(num => {
                     const isWin = winningNumbers.has(num);
                     if (isWin) {
-                        return `<span class="w-8 h-8 flex items-center justify-center rounded-full ball-prime shadow-sm ring-1 ring-purple-100 text-xs font-bold transition-all flex-shrink-0">${String(num).padStart(2, '0')}</span>`;
+                        // [핫/콜드 색상 구분] 보라색 본체 + 빨강(hot) / 파랑(cold) 테두리
+                        const isHot = draw.primeHotSet && draw.primeHotSet.has(num);
+                        const ringStyle = isHot
+                            ? 'box-shadow: 0 0 0 2px #ef4444, 0 1px 3px rgba(0,0,0,0.08);'    // 빨강 테두리
+                            : 'box-shadow: 0 0 0 2px #3b82f6, 0 1px 3px rgba(0,0,0,0.08);';   // 파랑 테두리
+                        return `<span class="w-8 h-8 flex items-center justify-center rounded-full ball-prime text-xs font-bold transition-all flex-shrink-0" style="${ringStyle}" title="${isHot ? '핫 (직전 3회차 내 등장)' : '콜드 (직전 3회차 미등장)'}">${String(num).padStart(2, '0')}</span>`;
                     } else {
                         return `<span class="w-8 h-8 flex items-center justify-center rounded-full text-xs font-bold transition-all flex-shrink-0 shadow-sm ring-1 ring-gray-100" style="background: #F3F4F6; color: #9CA3AF;">${String(num).padStart(2, '0')}</span>`;
                     }
@@ -1448,6 +1747,15 @@
                                 ${draw.primeCount}
                             </span>
                         </div>
+                    </td>
+                    <td class="py-3 px-4 text-center w-24">
+                        <span class="text-sm font-bold text-gray-700">${draw.primeHotHit ?? 0}</span>
+                    </td>
+                    <td class="py-3 px-4 text-center w-24">
+                        <span class="text-sm font-bold text-gray-700">${draw.primeColdHit ?? 0}</span>
+                    </td>
+                    <td class="py-3 px-4 text-center w-24">
+                        <span class="text-sm font-bold text-gray-700">${draw.compositeCount ?? 0}</span>
                     </td>
                 `;
                 container.appendChild(tr);
@@ -1908,6 +2216,499 @@ ${val}
 
         // AI 전략 리포트 초기화 완료
 
+        // ════════════════════════════════════════════════════════════
+        // [fix-330] 소수 보조 분석 7종 — impeccable 가이드
+        // 라이트 모드, 단일 액센트(#3B82F6), tabular-nums, 박스 일변도 회피
+        // ════════════════════════════════════════════════════════════
+        const PN_ACCENT = '#3B82F6';
+        const PN_ACCENT_LIGHT = 'rgba(59, 130, 246, 0.08)';
+        const PN_GRID = '#F1F5F9';
+        const PN_INK_1 = '#0F172A';
+        const PN_INK_2 = '#475569';
+        const PN_INK_3 = '#94A3B8';
+        const PN_COMPOSITE_C = '#10B981';
+
+        const ALL_PRIMES_PN = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43];
+        const PRIME_FAMILY = {};
+        ALL_PRIMES_PN.forEach(p => {
+            const fam = [];
+            for (let m = p; m <= 45; m += p) fam.push(m);
+            PRIME_FAMILY[p] = fam;
+        });
+        const TWIN_PAIRS = [[3, 5], [5, 7], [11, 13], [17, 19], [29, 31], [41, 43]];
+        const SMALL_PRIMES = [2, 3, 5, 7];
+        const LARGE_PRIMES = [11, 13, 17, 19, 23, 29, 31, 37, 41, 43];
+
+        let _pnCache = null;
+        function getPnCache() {
+            if (_pnCache) return _pnCache;
+            const data = window.allDrawData || allDrawData || [];
+            _pnCache = data.map(d => {
+                const nums = d.numbers || [];
+                const numSet = new Set(nums);
+                const primeCount = nums.filter(n => primes.has(n)).length;
+                const compositeCount = nums.filter(n => composites.has(n)).length;
+                const oneCount = nums.filter(n => n === 1).length;
+                const smallPrimeCount = nums.filter(n => SMALL_PRIMES.includes(n)).length;
+                const largePrimeCount = nums.filter(n => LARGE_PRIMES.includes(n)).length;
+                const primesPresent = ALL_PRIMES_PN.filter(p => numSet.has(p));
+                return {
+                    round: d.round, nums, numSet,
+                    primeCount, compositeCount, oneCount,
+                    smallPrimeCount, largePrimeCount,
+                    primesPresent
+                };
+            });
+            return _pnCache;
+        }
+        function invalidatePnCache() { _pnCache = null; }
+
+        function renderAllPnSupp() {
+            try {
+                if (!allDrawData || allDrawData.length === 0) return;
+                invalidatePnCache();
+                renderPnMa();
+                renderPnCalendar();
+                renderPnCountDist();
+                renderPnClassRatio();
+                renderPnFamilyTable();
+                renderPnTwinTable();
+                renderPnGapHotcold();
+                renderPnSmallLarge();
+            } catch (e) { console.warn('[pn-supp]', e); }
+        }
+
+        // ─── §1-A. 시계열 추세 (소수 카운트 MA + ±1σ) ───
+        let pnMaInst = null;
+        function renderPnMa() {
+            const canvas = document.getElementById('pnMaChart');
+            if (!canvas) return;
+            const winInput = document.getElementById('pnMaWindow');
+            const win = Math.max(3, Math.min(50, parseInt(winInput?.value) || 10));
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getPnCache().slice(0, range).slice().reverse();
+            if (cache.length === 0) return;
+            const labels = cache.map(d => d.round);
+            const counts = cache.map(d => d.primeCount);
+            const ma = [], up = [], lo = [];
+            for (let i = 0; i < counts.length; i++) {
+                const s = Math.max(0, i - win + 1);
+                const sl = counts.slice(s, i + 1);
+                const m = sl.reduce((a, b) => a + b, 0) / sl.length;
+                const v = sl.reduce((a, b) => a + (b - m) ** 2, 0) / sl.length;
+                const sd = Math.sqrt(v);
+                ma.push(m); up.push(m + sd); lo.push(m - sd);
+            }
+            const expectedMean = 14 * 6 / 45; // 1.867
+            if (pnMaInst) pnMaInst.destroy();
+            pnMaInst = new Chart(canvas.getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels, datasets: [
+                        { label: '소수 카운트', data: counts, borderColor: 'rgba(15,23,42,0.35)', borderWidth: 1, pointRadius: 0, fill: false, tension: 0.25 },
+                        { label: `이동평균 ${win}회`, data: ma, borderColor: PN_ACCENT, borderWidth: 2, pointRadius: 0, fill: false, tension: 0.25 },
+                        { label: '±1σ', data: up, borderColor: 'rgba(59,130,246,0.25)', borderWidth: 1, pointRadius: 0, borderDash: [3, 3], fill: '+1', backgroundColor: PN_ACCENT_LIGHT },
+                        { label: ' ', data: lo, borderColor: 'rgba(59,130,246,0.25)', borderWidth: 1, pointRadius: 0, borderDash: [3, 3], fill: false },
+                        { label: `평균 ${expectedMean.toFixed(2)}`, data: Array(counts.length).fill(expectedMean), borderColor: 'rgba(15,23,42,0.35)', borderDash: [4, 4], borderWidth: 1, pointRadius: 0, fill: false }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top', align: 'end', labels: { boxWidth: 6, font: { size: 11, family: 'Pretendard' }, color: PN_INK_2 } } },
+                    scales: {
+                        y: { min: 0, max: 6, grid: { color: PN_GRID, drawBorder: false }, ticks: { color: PN_INK_3, font: { size: 11 }, stepSize: 1 } },
+                        x: { grid: { display: false }, ticks: { color: PN_INK_3, font: { size: 11 }, display: range < 80, autoSkip: true, maxRotation: 0 } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+        }
+
+        // ─── §1-B. 카운트 캘린더 v2 — 10회차 그룹 + 카운트 숫자 표시 ───
+        function renderPnCalendar() {
+            const c = document.getElementById('pnCalendar');
+            if (!c) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getPnCache().slice(0, range);  // round DESC
+            if (cache.length === 0) { c.innerHTML = ''; return; }
+
+            const chrono = cache.slice().reverse();
+            const latestRound = cache[0].round;
+            const oldestRound = chrono[0].round;
+            const counts = chrono.map(d => d.primeCount);
+            const total = counts.length;
+            const obs0 = counts.filter(x => x === 0).length;
+            const max = Math.max(...counts);
+            const mean = counts.reduce((a, b) => a + b, 0) / total;
+
+            function cellClass(cnt) {
+                if (cnt === 0) return 'cnt-0';
+                if (cnt === 1) return 'cnt-1';
+                if (cnt === 2) return 'cnt-2';
+                if (cnt === 3) return 'cnt-3';
+                if (cnt === 4) return 'cnt-4';
+                return 'cnt-5p';
+            }
+
+            // 10회차 단위 그룹화 (key = floor(round/10)*10)
+            const groups = new Map();
+            chrono.forEach(d => {
+                const groupStart = Math.floor(d.round / 10) * 10;
+                if (!groups.has(groupStart)) groups.set(groupStart, []);
+                groups.get(groupStart).push(d);
+            });
+
+            let html = `<div class="pn-cal-stats">
+                <span><span class="text-gray-400">분석 범위</span> <strong>${oldestRound} ~ ${latestRound}회</strong> <span class="text-gray-400">(${total}회)</span></span>
+                <span><span class="text-gray-400">평균</span> <strong>${mean.toFixed(2)}</strong></span>
+                <span><span class="text-gray-400">최대</span> <strong>${max}개</strong></span>
+                <span><span class="text-gray-400">전멸(0개)</span> <strong>${obs0}회</strong> <span class="text-gray-400">(${(obs0/total*100).toFixed(1)}%)</span></span>
+            </div>`;
+
+            html += `<div>`;
+            const sortedKeys = Array.from(groups.keys()).sort((a, b) => a - b);
+            sortedKeys.forEach(start => {
+                const draws = groups.get(start);
+                const drawByRound = new Map(draws.map(d => [d.round, d]));
+                const groupMean = draws.reduce((a, d) => a + d.primeCount, 0) / draws.length;
+                html += `<div class="pn-cal-row">
+                    <div class="pn-cal-label">
+                        <strong>${start}~</strong>
+                        <span class="meta">평균 ${groupMean.toFixed(1)}</span>
+                    </div>
+                    <div class="pn-cal-cells">`;
+                for (let i = 0; i < 10; i++) {
+                    const round = start + i;
+                    const d = drawByRound.get(round);
+                    if (!d) {
+                        html += `<div class="pn-cal-empty"></div>`;
+                    } else {
+                        const isLatest = round === latestRound ? ' is-latest' : '';
+                        const sortedNums = [...d.nums].sort((a, b) => a - b);
+                        const primeOnly = sortedNums.filter(n => primes.has(n));
+                        const tooltip = `${round}회 · 소수 ${d.primeCount}개\n전체: ${sortedNums.join(', ')}\n소수: ${primeOnly.length > 0 ? primeOnly.join(', ') : '없음'}`;
+                        html += `<div class="pn-cal-cell ${cellClass(d.primeCount)}${isLatest}" title="${tooltip}">${d.primeCount}</div>`;
+                    }
+                }
+                html += `</div></div>`;
+            });
+            html += `</div>`;
+
+            // 범례
+            const legendData = [
+                { cnt: 0, cls: 'cnt-0', txt: '0' },
+                { cnt: 1, cls: 'cnt-1', txt: '1' },
+                { cnt: 2, cls: 'cnt-2', txt: '2' },
+                { cnt: 3, cls: 'cnt-3', txt: '3' },
+                { cnt: 4, cls: 'cnt-4', txt: '4' },
+                { cnt: 5, cls: 'cnt-5p', txt: '5+' }
+            ];
+            html += `<div class="pn-cal-legend">
+                <span class="text-gray-500 mr-1">소수 개수:</span>
+                ${legendData.map(L => `<span class="legend-cell ${L.cls}">${L.txt}</span>`).join('')}
+                <span class="ml-3 flex items-center gap-1.5">
+                    <span style="display:inline-block;width:18px;height:18px;border:2px solid #0F172A;border-radius:4px"></span>
+                    <span>최신 회차</span>
+                </span>
+            </div>`;
+
+            c.innerHTML = html;
+        }
+
+        // ─── §2. 카운트 분포 (이항 이론값 vs 관측) ───
+        let pnCountDistInst = null;
+        function renderPnCountDist() {
+            const canvas = document.getElementById('pnCountDist');
+            if (!canvas) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getPnCache().slice(0, range);
+            const obs = [0, 0, 0, 0, 0, 0, 0];
+            cache.forEach(d => { if (d.primeCount >= 0 && d.primeCount <= 6) obs[d.primeCount]++; });
+            const N = cache.length || 1;
+            const p = 14 / 45;
+            const C = [1, 6, 15, 20, 15, 6, 1];
+            const exp = [0, 1, 2, 3, 4, 5, 6].map(k => C[k] * Math.pow(p, k) * Math.pow(1 - p, 6 - k) * N);
+            if (pnCountDistInst) pnCountDistInst.destroy();
+            pnCountDistInst = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: ['0', '1', '2', '3', '4', '5', '6'],
+                    datasets: [
+                        { label: '관측', data: obs, backgroundColor: PN_ACCENT, borderRadius: 4 },
+                        { label: '이론(이항)', data: exp.map(v => +v.toFixed(2)), type: 'line', borderColor: 'rgba(15,23,42,0.5)', borderDash: [4, 4], borderWidth: 1.5, pointRadius: 3, pointBackgroundColor: 'rgba(15,23,42,0.5)', fill: false }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top', align: 'end', labels: { boxWidth: 6, font: { size: 11, family: 'Pretendard' }, color: PN_INK_2 } } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: PN_GRID, drawBorder: false }, ticks: { color: PN_INK_3, font: { size: 11 } } },
+                        x: { grid: { display: false }, ticks: { color: PN_INK_2, font: { size: 11 } }, title: { display: true, text: '소수 개수', color: PN_INK_3, font: { size: 11 } } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+            const obsMean = obs.reduce((a, b, i) => a + b * i, 0) / N;
+            const expMean = exp.reduce((a, b, i) => a + b * i, 0) / N;
+            const stats = document.getElementById('pnCountDistStats');
+            if (stats) stats.innerHTML = `<span class="text-gray-400">관측 평균</span> <strong class="text-gray-900">${obsMean.toFixed(2)}</strong> &nbsp;·&nbsp; <span class="text-gray-400">이론 평균</span> <strong class="text-gray-900">${expMean.toFixed(2)}</strong> &nbsp;·&nbsp; <span class="text-gray-400">최빈</span> <strong class="text-gray-900">${obs.indexOf(Math.max(...obs))}개 (${Math.max(...obs)}회)</strong>`;
+        }
+
+        // ─── §3. 소수·합성수·1 분류 비율 ───
+        let pnClassRatioInst = null;
+        function renderPnClassRatio() {
+            const canvas = document.getElementById('pnClassRatioChart');
+            if (!canvas) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getPnCache().slice(0, range);
+            const total = cache.length || 1;
+            const sums = cache.reduce((a, d) => {
+                a.prime += d.primeCount;
+                a.composite += d.compositeCount;
+                a.one += d.oneCount;
+                return a;
+            }, { prime: 0, composite: 0, one: 0 });
+            const obsAvg = {
+                prime: sums.prime / total,
+                composite: sums.composite / total,
+                one: sums.one / total
+            };
+            const expAvg = {
+                prime: 14 * 6 / 45,        // 1.87
+                composite: 30 * 6 / 45,    // 4.00
+                one: 1 * 6 / 45            // 0.13
+            };
+            if (pnClassRatioInst) pnClassRatioInst.destroy();
+            pnClassRatioInst = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: ['소수(14개)', '합성수(30개)', '1'],
+                    datasets: [
+                        { label: '관측 평균/회', data: [obsAvg.prime, obsAvg.composite, obsAvg.one].map(v => +v.toFixed(2)), backgroundColor: [PN_ACCENT, PN_COMPOSITE_C, '#94A3B8'], borderRadius: 4 },
+                        { label: '이론 평균/회', data: [expAvg.prime, expAvg.composite, expAvg.one].map(v => +v.toFixed(2)), type: 'line', borderColor: 'rgba(15,23,42,0.5)', borderDash: [4, 4], borderWidth: 1.5, pointRadius: 4, pointBackgroundColor: 'rgba(15,23,42,0.5)', fill: false }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top', align: 'end', labels: { boxWidth: 6, font: { size: 11, family: 'Pretendard' }, color: PN_INK_2 } } },
+                    scales: {
+                        y: { beginAtZero: true, max: 6, grid: { color: PN_GRID, drawBorder: false }, ticks: { color: PN_INK_3, font: { size: 11 } } },
+                        x: { grid: { display: false }, ticks: { color: PN_INK_2, font: { size: 11 } } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+            const stats = document.getElementById('pnClassRatioStats');
+            if (stats) stats.innerHTML = `<span class="text-gray-400">관측 합계</span> <strong class="text-gray-900">${(obsAvg.prime + obsAvg.composite + obsAvg.one).toFixed(2)}</strong>/6 &nbsp;·&nbsp; <span class="text-gray-400">소수↔합성수 비율</span> <strong class="text-gray-900">${(obsAvg.prime / Math.max(0.001, obsAvg.composite)).toFixed(3)}</strong> <span class="text-gray-400">(이론 ${(expAvg.prime / expAvg.composite).toFixed(3)})</span>`;
+        }
+
+        // ─── §4. 소수 14개 배수 family 동반 출현 ───
+        function renderPnFamilyTable() {
+            const tbody = document.getElementById('pnFamilyBody');
+            if (!tbody) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getPnCache().slice(0, range);
+            const rows = ALL_PRIMES_PN.map(p => {
+                const fam = PRIME_FAMILY[p];
+                const famSize = fam.length;
+                const famExSelf = fam.filter(n => n !== p);
+                let primeRounds = 0;
+                let totalCompanions = 0;
+                cache.forEach(d => {
+                    if (d.numSet.has(p)) {
+                        primeRounds++;
+                        totalCompanions += famExSelf.filter(n => d.numSet.has(n)).length;
+                    }
+                });
+                const avgComp = primeRounds > 0 ? totalCompanions / primeRounds : 0;
+                // 기대값: 소수 p가 출현한 회차에서 나머지 5칸이 famExSelf 중 들어갈 기대 개수
+                // 5 × (famSize-1) / 44 (44 = 자기 제외 풀)
+                const expected = famExSelf.length > 0 ? 5 * famExSelf.length / 44 : 0;
+                const ratio = expected > 0 ? avgComp / expected : 0;
+                const famDisplay = famSize === 1 ? `<span class="text-gray-400">자기 자신만</span>` : famExSelf.join(', ');
+                return { p, famSize, famDisplay, primeRounds, avgComp, expected, ratio };
+            });
+            tbody.innerHTML = rows.map(r => {
+                const ratioColor = r.expected === 0 ? 'text-gray-400' : (r.ratio > 1.15 ? 'text-red-600' : r.ratio < 0.85 ? 'text-blue-600' : 'text-gray-900');
+                const ratioText = r.expected === 0 ? '—' : r.ratio.toFixed(2) + '×';
+                const avgCompText = r.expected === 0 ? '—' : r.avgComp.toFixed(2);
+                return `<tr>
+                    <td class="font-bold text-gray-900">${r.p}</td>
+                    <td class="text-right text-gray-600">${r.famSize}</td>
+                    <td class="text-xs text-gray-500" style="max-width:300px;white-space:normal;line-height:1.5">${r.famDisplay}</td>
+                    <td class="text-right text-gray-600">${r.primeRounds}</td>
+                    <td class="text-right text-gray-900 font-semibold">${avgCompText}</td>
+                    <td class="text-right font-semibold ${ratioColor}">${ratioText}</td>
+                </tr>`;
+            }).join('');
+        }
+
+        // ─── §5. 쌍둥이 소수 6쌍 동시 출현 ───
+        function renderPnTwinTable() {
+            const tbody = document.getElementById('pnTwinBody');
+            if (!tbody) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getPnCache().slice(0, range);
+            const latestRound = cache.length > 0 ? cache[0].round : 0;
+            const rows = TWIN_PAIRS.map(([a, b]) => {
+                let cnt = 0;
+                let lastRound = null;
+                // round DESC — 첫 발견이 최신
+                cache.forEach(d => {
+                    if (d.numSet.has(a) && d.numSet.has(b)) {
+                        cnt++;
+                        if (lastRound === null) lastRound = d.round;
+                    }
+                });
+                // 기대값: N × (6/45) × (5/44) × 1 (특정 두 번호가 같이 출현할 확률)
+                const expected = cache.length * (6 / 45) * (5 / 44);
+                const ratio = expected > 0 ? cnt / expected : 0;
+                const currentGap = lastRound !== null ? latestRound - lastRound : (cache.length > 0 ? range : 0);
+                return { a, b, cnt, expected, ratio, lastRound, currentGap };
+            });
+            tbody.innerHTML = rows.map(r => {
+                const ratioColor = r.ratio > 1.15 ? 'text-red-600' : r.ratio < 0.85 ? 'text-blue-600' : 'text-gray-900';
+                return `<tr>
+                    <td class="font-bold text-gray-900">${r.a} · ${r.b}</td>
+                    <td class="text-right text-gray-900 font-semibold">${r.cnt}회</td>
+                    <td class="text-right ${ratioColor}">${r.ratio.toFixed(2)}× <span class="text-gray-400">(기대 ${r.expected.toFixed(1)})</span></td>
+                    <td class="text-right text-gray-600">${r.lastRound !== null ? r.lastRound + '회' : '<span class="text-gray-300">없음</span>'}</td>
+                    <td class="text-right text-gray-900 font-semibold">${r.currentGap}회</td>
+                </tr>`;
+            }).join('');
+        }
+
+        // ─── §6. 14개 per-element 갭·핫콜드 ───
+        function renderPnGapHotcold() {
+            const tbody = document.getElementById('pnGapBody');
+            if (!tbody) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getPnCache().slice(0, range);
+            if (cache.length === 0) return;
+            const latestRound = cache[0].round;
+            const recent5 = cache.slice(0, 5);
+            const recent30 = cache.slice(0, Math.min(30, cache.length));
+            const rows = ALL_PRIMES_PN.map(p => {
+                let appearances = 0;
+                let lastRound = null;
+                const gaps = [];
+                let prevRound = null;
+                // round DESC → reverse for chronological
+                const chrono = cache.slice().reverse();
+                chrono.forEach(d => {
+                    if (d.numSet.has(p)) {
+                        appearances++;
+                        if (prevRound !== null) gaps.push(d.round - prevRound);
+                        prevRound = d.round;
+                        lastRound = d.round;
+                    }
+                });
+                const meanGap = gaps.length > 0 ? gaps.reduce((a, b) => a + b, 0) / gaps.length : range;
+                const sdGap = gaps.length > 1 ? Math.sqrt(gaps.reduce((a, b) => a + (b - meanGap) ** 2, 0) / gaps.length) : 0;
+                const currentGap = lastRound !== null ? latestRound - lastRound : range;
+                const z = sdGap > 0 ? (currentGap - meanGap) / sdGap : 0;
+                const recent5Hits = recent5.filter(d => d.numSet.has(p)).length;
+                const recent30Hits = recent30.filter(d => d.numSet.has(p)).length;
+                let label, labelClass;
+                if (recent5Hits >= 2) { label = '🔥 핫'; labelClass = 'pn-pill pn-pill-hot'; }
+                else if (recent30Hits === 0) { label = '🧊 콜드'; labelClass = 'pn-pill pn-pill-cold'; }
+                else if (recent5Hits === 1) { label = '온화'; labelClass = 'pn-pill pn-pill-warm'; }
+                else { label = '평이'; labelClass = 'pn-pill pn-pill-norm'; }
+                return { p, appearances, meanGap, currentGap, z, label, labelClass };
+            });
+            tbody.innerHTML = rows.map(r => {
+                const zColor = r.z > 1.5 ? 'text-red-600' : r.z < -1.0 ? 'text-blue-600' : 'text-gray-700';
+                return `<tr>
+                    <td class="font-bold text-gray-900">${r.p}</td>
+                    <td class="text-right text-gray-600">${r.appearances}회</td>
+                    <td class="text-right text-gray-600">${r.meanGap.toFixed(1)}</td>
+                    <td class="text-right text-gray-900 font-semibold">${r.currentGap}</td>
+                    <td class="text-right ${zColor}">${r.z >= 0 ? '+' : ''}${r.z.toFixed(2)}</td>
+                    <td class="text-center"><span class="${r.labelClass}">${r.label}</span></td>
+                </tr>`;
+            }).join('');
+        }
+
+        // ─── §7. 한 자리 vs 두 자리 소수 비율 추세 ───
+        let pnSmallLargeInst = null;
+        function renderPnSmallLarge() {
+            const canvas = document.getElementById('pnSmallLargeChart');
+            const tbody = document.getElementById('pnSmallLargeBody');
+            if (!canvas || !tbody) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getPnCache().slice(0, range).slice().reverse();
+            if (cache.length === 0) return;
+            const win = 20;
+            const labels = cache.map(d => d.round);
+            // 풀 보정 정규화: 출현 개수 / 풀 크기 = 단위 풀당 평균 출현
+            const smallNorm = cache.map(d => d.smallPrimeCount / 4);
+            const largeNorm = cache.map(d => d.largePrimeCount / 10);
+            const smallSeries = [], largeSeries = [];
+            for (let i = 0; i < cache.length; i++) {
+                const s = Math.max(0, i - win + 1);
+                const sSlice = smallNorm.slice(s, i + 1);
+                const lSlice = largeNorm.slice(s, i + 1);
+                smallSeries.push(sSlice.reduce((a, b) => a + b, 0) / sSlice.length);
+                largeSeries.push(lSlice.reduce((a, b) => a + b, 0) / lSlice.length);
+            }
+            const expectedNorm = 6 / 45; // 어느 그룹이든 단위 풀당 기대 = 6/45 ≈ 0.133
+            if (pnSmallLargeInst) pnSmallLargeInst.destroy();
+            pnSmallLargeInst = new Chart(canvas.getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels, datasets: [
+                        { label: '한 자리(2,3,5,7) 정규화', data: smallSeries, borderColor: '#F59E0B', borderWidth: 2, pointRadius: 0, fill: false, tension: 0.25 },
+                        { label: '두 자리(11~43) 정규화', data: largeSeries, borderColor: PN_ACCENT, borderWidth: 2, pointRadius: 0, fill: false, tension: 0.25 },
+                        { label: `기대 ${expectedNorm.toFixed(3)}`, data: Array(cache.length).fill(expectedNorm), borderColor: 'rgba(15,23,42,0.35)', borderDash: [4, 4], borderWidth: 1, pointRadius: 0, fill: false }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top', align: 'end', labels: { boxWidth: 6, font: { size: 11, family: 'Pretendard' }, color: PN_INK_2 } } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: PN_GRID, drawBorder: false }, ticks: { color: PN_INK_3, font: { size: 11 } }, title: { display: true, text: '단위 풀당 평균 출현', color: PN_INK_3, font: { size: 10 } } },
+                        x: { grid: { display: false }, ticks: { color: PN_INK_3, font: { size: 11 }, display: range < 80, autoSkip: true, maxRotation: 0 } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+            const total = cache.length || 1;
+            const smallSum = cache.reduce((a, d) => a + d.smallPrimeCount, 0);
+            const largeSum = cache.reduce((a, d) => a + d.largePrimeCount, 0);
+            const smallAvg = smallSum / total;
+            const largeAvg = largeSum / total;
+            const smallExp = 4 * 6 / 45;   // 0.533
+            const largeExp = 10 * 6 / 45;  // 1.333
+            const smallNormAvg = smallAvg / 4;
+            const largeNormAvg = largeAvg / 10;
+            const smallRecent = smallSeries[smallSeries.length - 1] || 0;
+            const largeRecent = largeSeries[largeSeries.length - 1] || 0;
+            function trendArrow(recent, baseline) {
+                if (baseline === 0) return '<span class="text-gray-400">—</span>';
+                const d = (recent - baseline) / baseline;
+                if (d > 0.1) return '<span class="text-red-600">↑ 과열</span>';
+                if (d < -0.1) return '<span class="text-blue-600">↓ 침체</span>';
+                return '<span class="text-gray-500">→ 평이</span>';
+            }
+            tbody.innerHTML = `
+                <tr>
+                    <td class="font-bold text-gray-900">한 자리 (2,3,5,7)</td>
+                    <td class="text-right text-gray-600">4</td>
+                    <td class="text-right text-gray-900 font-semibold">${smallAvg.toFixed(2)}</td>
+                    <td class="text-right text-gray-500">${smallExp.toFixed(2)}</td>
+                    <td class="text-right text-gray-900 font-semibold">${smallNormAvg.toFixed(3)}</td>
+                    <td class="text-right">${trendArrow(smallRecent, smallNormAvg)}</td>
+                </tr>
+                <tr>
+                    <td class="font-bold text-gray-900">두 자리 (11~43)</td>
+                    <td class="text-right text-gray-600">10</td>
+                    <td class="text-right text-gray-900 font-semibold">${largeAvg.toFixed(2)}</td>
+                    <td class="text-right text-gray-500">${largeExp.toFixed(2)}</td>
+                    <td class="text-right text-gray-900 font-semibold">${largeNormAvg.toFixed(3)}</td>
+                    <td class="text-right">${trendArrow(largeRecent, largeNormAvg)}</td>
+                </tr>
+            `;
+        }
     </script>
 
     <!-- AI Q&A Sidebar (Floating Right) -->

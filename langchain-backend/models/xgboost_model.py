@@ -1,4 +1,11 @@
-"""XGBoost 모델 - 45개 번호별 독립적 이진 분류."""
+"""XGBoost 모델 - 45개 번호별 독립적 이진 분류.
+
+Data Leakage Fix (2026-05-03):
+- train 메서드에 cutoff_round 파라미터 추가
+- cutoff_round 지정 시 해당 회차 이하 데이터만 학습에 사용 (hold-out 분리)
+- 진단: 회차 1173~1222 학습셋에서 평균 5.92 hit (암기), 회차 451~500 hold-out에서 1.66 hit (정상)
+- 목표: cutoff=1100으로 재학습 -> hold-out 1101~1222에서 정상 범위(1.0~2.0) hit 확인
+"""
 
 import os
 import joblib
@@ -165,23 +172,36 @@ class LottoXGBoost:
             ]
         )
 
-    def train(self, draws: list, fine_tune: bool = True):
-        """45개 모델 학습."""
+    def train(self, draws: list, fine_tune: bool = True, cutoff_round: int | None = None):
+        """45개 모델 학습.
+
+        Args:
+            draws: 전체 회차 (최신 -> 과거 정렬)
+            fine_tune: 기존 모델 증분 학습 여부
+            cutoff_round: 학습 데이터 cutoff (이 회차 이하만 사용). hold-out 검증용.
+        """
+        # cutoff_round 적용 — 데이터 누수 방지
+        if cutoff_round is not None:
+            draws_for_train = [d for d in draws if int(d.get("round", 0)) <= cutoff_round]
+            print(f"  [XGBoost] cutoff_round={cutoff_round} - {len(draws)} -> {len(draws_for_train)} rounds (hold-out: {len(draws) - len(draws_for_train)} rounds)")
+        else:
+            draws_for_train = draws
+
         # draws: 최신 -> 과거
         X_data = {n: [] for n in range(1, 46)}
         y_data = {n: [] for n in range(1, 46)}
 
         # 최근 500회차만 사용 (너무 오래된 데이터는 노이즈)
-        limit = min(len(draws) - 50, 500)
+        limit = min(len(draws_for_train) - 50, 500)
         
         print(f"  Training XGBoost on {limit} recent draws...")
 
         for i in range(limit):
-            target_draw = draws[i]
+            target_draw = draws_for_train[i]
             target_nums = set(target_draw["numbers"])
 
             for num in range(1, 46):
-                features = self.build_features_for_number(num, draws, i)
+                features = self.build_features_for_number(num, draws_for_train, i)
                 label = 1 if num in target_nums else 0
                 X_data[num].append(features)
                 y_data[num].append(label)

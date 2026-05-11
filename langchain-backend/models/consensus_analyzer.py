@@ -129,10 +129,22 @@ class ConsensusAnalyzer:
                 "std_rank":        std_rank,
                 "top10_count":     top_count,
                 "bottom15_count":  bottom_count,
-                "consensus_score": float(score),
+                "consensus_score_raw": float(score),  # 원본 (-30~+2 범위)
+                "consensus_score": float(score),       # 호환용 (정규화 후 덮어씀)
                 "n_models":        n_models,
                 "ranks":           [int(r) for r in ranks],
             }
+
+        # ★ Stage 6 fix (2026-05-04): consensus_score 0~1 정규화
+        # 원본 raw score는 -30~+2 범위 → P4가 final_score를 압도 (Pillar 균형 깨짐)
+        # 정규화: min-max → P1~P3과 동일 0~1 스케일로 통일
+        raw_scores = [metrics[n]["consensus_score_raw"] for n in range(1, 46)]
+        s_min = min(raw_scores)
+        s_max = max(raw_scores)
+        s_range = max(s_max - s_min, 1e-9)
+        for n in range(1, 46):
+            normalized = (metrics[n]["consensus_score_raw"] - s_min) / s_range
+            metrics[n]["consensus_score"] = float(normalized)  # 0~1
         return metrics
 
     # ------------------------------------------------------------------

@@ -28,10 +28,13 @@
     <script src="js/filter/FilterRuleEngine.js"></script>
     <script src="js/layout.js"></script>
 
-    <script src="js/customAnalysis.js"></script>
+    <script src="js/simulator_evaluator.js"></script>
+    <script src="js/customAnalysis.js?v=20260510c"></script>
 
     <!-- NLP Modules -->
     <script src="js/NLPProcessor.js"></script>
+    <script src="js/AutoNLPMatcher.js"></script>
+    <script src="js/auto_nlp_loader.js" defer></script>
     <script src="js/NLPInputComponent.js"></script>
     <script src="js/BasicAnalysisNLP.js"></script>
 </head>
@@ -56,13 +59,15 @@
                                     class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-normal bg-purple-100 text-purple-800 mb-2">
                                     ✨ AI Custom Analysis
                                 </span>
-                                <h1 id="analysisTitle" class="text-3xl font-normal text-gray-900 tracking-tight">분석
+                                <h1 id="analysisTitle" onclick="editTitle()" title="클릭하여 제목 편집"
+                                    class="text-3xl font-normal text-gray-900 tracking-tight cursor-pointer hover:text-blue-700 transition-colors">분석
                                     로딩
                                     중...</h1>
                                 <p id="analysisDesc" class="text-sm text-gray-500 mt-2 max-w-2xl">데이터를 불러오고 있습니다.</p>
 
                                 <!-- 타겟 볼들 -->
-                                <div id="targetBallContainer" class="flex flex-wrap gap-2 mt-4">
+                                <!-- [Mod 로딩 안정화] min-h reserve로 CLS 방지 -->
+                                <div id="targetBallContainer" class="flex flex-wrap gap-1 mt-4" style="min-height:30px;">
                                 </div>
                             </div>
 
@@ -173,57 +178,54 @@
 
                     <div id="manualControlSection" class="hidden space-y-4"></div>
 
-                    <!-- Zone E: 필터 설정 -->
-                    <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm border-l-4 border-l-blue-600">
-                        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+                    <!-- Zone E: 필터 설정 — [fix-308] AI 프리미엄 전략 리포트 패턴 박스화 -->
+                    <div class="bg-white rounded-xl border border-gray-200 p-6 my-4">
+                        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
                             <div>
-                                <h3 class="text-xl font-normal text-gray-900 mb-1">조합 필터</h3>
-                                <p class="text-sm text-gray-600 mt-1">이 분석의 번호가 포함될 개수를 설정하세요.</p>
+                                <h3 class="text-base font-bold text-gray-900 mb-1">조합 필터</h3>
+                                <p class="text-xs text-gray-500">이 분석의 번호가 포함될 개수를 설정하세요.</p>
                             </div>
 
                             <a href="javascript:void(0)" onclick="event.preventDefault(); goToFilterPage();"
-                                class="text-sm font-normal text-slate-500 hover:text-blue-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
-                                <span class="material-symbols-outlined text-[18px]">tune</span>
+                                class="text-xs font-normal text-slate-500 hover:text-blue-600 flex items-center gap-1 transition-colors">
+                                <span class="material-symbols-outlined text-[16px]">tune</span>
                                 필터 페이지 가기
                             </a>
                         </div>
 
-                        <div class="space-y-4">
-                            <!-- 대상 번호 표시 (Restored) -->
-                            <div
-                                class="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 border border-gray-100 rounded-xl mb-4 bg-slate-50">
-                                <div class="flex-1">
-                                    <div class="text-xs font-normal text-gray-500 mb-2">현재 선택된 필터 대상 번호</div>
-                                    <div class="flex flex-wrap gap-2" id="targetBallContainerFilter"></div>
+                        <div class="space-y-3">
+                            <!-- 대상 번호 표시 -->
+                            <div>
+                                <div class="flex items-baseline gap-2 mb-2">
+                                    <span class="text-[11px] font-normal text-gray-500 uppercase tracking-wide">현재 선택된 필터 대상 번호</span>
+                                    <span id="targetCountFilter" class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold text-blue-600 bg-blue-50 ring-1 ring-blue-100" style="font-feature-settings:'tnum';letter-spacing:-0.01em">
+                                        총 <span id="targetCountFilterValue">0</span>개
+                                    </span>
                                 </div>
+                                <div class="flex flex-wrap gap-1" id="targetBallContainerFilter" style="min-height:24px;"></div>
                             </div>
-                            <div
-                                class="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 border border-gray-100 rounded-xl">
-                                <div class="flex-1">
-                                    <div
-                                        class="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-4 py-2 shadow-sm focus-within:ring-2 focus-within:ring-blue-500 w-fit">
-                                        <input type="number" id="customFilterMin" min="0" max="6" value="1"
-                                            oninput="updateCustomRange('min', this.value)"
-                                            class="w-14 text-center font-black text-blue-600 bg-transparent border-none p-0 focus:ring-0 text-lg">
-                                        <span class="text-slate-300 font-bold text-lg">~</span>
-                                        <input type="number" id="customFilterMax" min="0" max="6" value="3"
-                                            oninput="updateCustomRange('max', this.value)"
-                                            class="w-14 text-center font-black text-blue-600 bg-transparent border-none p-0 focus:ring-0 text-lg">
-                                    </div>
+
+                            <!-- 필터 입력 — 언더바 input (filter.html 스타일) -->
+                            <div class="flex items-center justify-between gap-4 pt-2">
+                                <div class="flex items-center gap-3">
+                                    <input type="number" id="customFilterMin" min="0" max="6" value="1"
+                                        oninput="updateCustomRange('min', this.value)"
+                                        class="w-12 h-8 text-center text-sm font-bold text-blue-600 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent">
+                                    <span class="text-slate-300 font-bold text-sm">~</span>
+                                    <input type="number" id="customFilterMax" min="0" max="6" value="3"
+                                        oninput="updateCustomRange('max', this.value)"
+                                        class="w-12 h-8 text-center text-sm font-bold text-blue-600 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent">
                                 </div>
 
-                                <div class="md:border-l md:pl-6 flex items-center">
-                                    <label class="relative inline-flex items-center cursor-pointer group">
-                                        <input type="checkbox" id="filterToggle" class="sr-only peer"
-                                            onchange="saveCustomFilter()">
-                                        <div
-                                            class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600 transition-colors">
-                                        </div>
-                                        <span
-                                            class="ml-2 text-sm font-normal text-gray-700 group-hover:text-blue-600 transition-colors">필터
-                                            적용</span>
-                                    </label>
-                                </div>
+                                <label class="relative inline-flex items-center cursor-pointer group">
+                                    <input type="checkbox" id="filterToggle" class="sr-only peer"
+                                        onchange="saveCustomFilter()">
+                                    <div
+                                        class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600 transition-colors">
+                                    </div>
+                                    <span
+                                        class="ml-2 text-xs font-normal text-gray-700 group-hover:text-blue-600 transition-colors">필터 적용</span>
+                                </label>
                             </div>
                         </div>
                     </div>
@@ -266,14 +268,18 @@
                         </div>
 
                         <div class="overflow-x-auto custom-scrollbar border border-gray-200 rounded-xl bg-white"
-                            style="max-height: 1200px;">
-                            <table class="w-full text-sm">
+                            style="max-height: 1200px; min-height: 400px;">
+                            <table class="w-full text-sm" style="table-layout:fixed;">
+                                <colgroup id="historyColgroup">
+                                    <!-- JS에서 동적으로 생성 (콜럼 너비 강제) -->
+                                </colgroup>
                                 <thead id="historyHeader"
                                     class="sticky top-0 bg-slate-900 text-white font-normal border-b border-[#334155] z-30">
                                     <!-- JS에서 동적으로 생성 (가변 컬럼 대응) -->
                                 </thead>
                                 <tbody id="historyTableBody" class="divide-y divide-gray-100">
-                                    <!-- JS에서 렌더링 -->
+                                    <!-- [Mod 로딩 안정화] 초기 placeholder로 CLS 방지 -->
+                                    <tr><td colspan="8" class="text-center py-12 text-slate-300 text-sm italic">데이터를 불러오는 중...</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -399,6 +405,21 @@
     </div>
 
     <style>
+        /* [fix-308] 회차 sticky 컬럼 — hover/highlight 시에도 background 보존 (스크롤 시 깨짐 방지) */
+        .history-sticky-col {
+            position: sticky !important;
+            left: 0 !important;
+            z-index: 30 !important;
+        }
+        /* tr hover 시 sticky col이 inline style로 white를 유지하지만, slate-50 hover bg 받을 수 있도록 명시 */
+        tr:not(.bg-\[\#F3E8FF\]):hover > .history-sticky-col[data-sticky-bg="#ffffff"] {
+            background: #f8fafc !important;
+        }
+        /* 범위 하이라이트(F3E8FF) 행은 hover 시에도 자기 색 유지 */
+        tr.bg-\[\#F3E8FF\] > .history-sticky-col {
+            background: #F3E8FF !important;
+        }
+
         /* Mode Switching Transitions */
         .mode-container {
             transition: opacity 0.4s ease, transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);

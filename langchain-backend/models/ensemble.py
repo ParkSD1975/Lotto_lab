@@ -56,6 +56,7 @@ TASK_WEIGHTS = {
         "tft":         0.18,   # 신규: Transformer 흡수, 시계열
         "mhn":         0.05,   # 신규: 패턴 메모리
         "bayesian_nn": 0.05,   # 신규: 불확실성
+        "nbeats":      0.0,    # per-number 산출 안 함
         "lstm":        0.0,    # DEPRECATED
         "transformer": 0.0,    # DEPRECATED
     },
@@ -71,21 +72,23 @@ TASK_WEIGHTS = {
         "tft":         0.05,
         "mhn":         0.05,
         "bayesian_nn": 0.08,   # 신규: 분포 우려도
+        "nbeats":      0.0,    # per-number 산출 안 함
         "lstm":        0.0,
         "transformer": 0.0,
     },
-    # ── C. 범위형 필터 (sum/tail_sum/ac) ─ Markov(전이)+TFT(시계열) 주도 ─
+    # ── C. 범위형 필터 (sum/tail_sum/ac) ─ Markov(전이)+TFT(시계열)+NBeats 주도 ─
     "filter_range": {
-        "xgboost":     0.15,
-        "catboost":    0.10,   # 신규
-        "tabnet":      0.05,   # 신규
-        "cnn":         0.05,
-        "gnn":         0.10,
-        "markov":      0.25,   # 주도: 전이/분포
+        "xgboost":     0.10,
+        "catboost":    0.08,   # 신규
+        "tabnet":      0.04,   # 신규
+        "cnn":         0.04,
+        "gnn":         0.08,
+        "markov":      0.20,   # 주도: 전이/분포
         "autoencoder": 0.00,
-        "tft":         0.20,   # 신규: Transformer 흡수, 시계열
-        "mhn":         0.05,   # 신규
-        "bayesian_nn": 0.05,   # 신규: 분포
+        "tft":         0.18,   # 신규: Transformer 흡수, 시계열
+        "mhn":         0.04,   # 신규
+        "bayesian_nn": 0.04,   # 신규: 분포
+        "nbeats":      0.20,   # 주도: sum 시계열 분해 (trend/seasonality)
         "lstm":        0.0,
         "transformer": 0.0,
     },
@@ -101,21 +104,23 @@ TASK_WEIGHTS = {
         "tft":         0.15,   # 신규: Transformer 흡수
         "mhn":         0.07,   # 신규
         "bayesian_nn": 0.05,   # 신규
+        "nbeats":      0.0,    # 속성 개수는 per-number 관련
         "lstm":        0.0,
         "transformer": 0.0,
     },
     # ── E. 시간형 필터 (hot10/cold10/missing) ─ TFT(LSTM 흡수)+Markov 주도
     "filter_count_temporal": {
-        "xgboost":     0.15,
-        "catboost":    0.05,
-        "tabnet":      0.05,
-        "cnn":         0.05,
-        "gnn":         0.05,
-        "markov":      0.25,   # 주도: 전이
+        "xgboost":     0.13,
+        "catboost":    0.04,
+        "tabnet":      0.04,
+        "cnn":         0.04,
+        "gnn":         0.04,
+        "markov":      0.22,   # 주도: 전이
         "autoencoder": 0.00,
-        "tft":         0.25,   # 주도: LSTM 흡수, 시계열
-        "mhn":         0.10,   # 신규: 시계열 패턴 메모리
-        "bayesian_nn": 0.05,
+        "tft":         0.22,   # 주도: LSTM 흡수, 시계열
+        "mhn":         0.09,   # 신규: 시계열 패턴 메모리
+        "bayesian_nn": 0.04,
+        "nbeats":      0.14,   # 시계열 패턴 활용 가능
         "lstm":        0.0,
         "transformer": 0.0,
     },
@@ -131,6 +136,7 @@ TASK_WEIGHTS = {
         "tft":         0.15,
         "mhn":         0.10,   # 신규: 패턴 메모리 (관계 패턴)
         "bayesian_nn": 0.05,
+        "nbeats":      0.0,    # 관계형은 per-number 패턴
         "lstm":        0.0,
         "transformer": 0.0,
     },
@@ -146,21 +152,23 @@ TASK_WEIGHTS = {
         "tft":         0.10,
         "mhn":         0.10,
         "bayesian_nn": 0.10,
+        "nbeats":      0.0,    # 공간형은 per-number 패턴
         "lstm":        0.0,
         "transformer": 0.0,
     },
-    # ── H. 회귀분석 ─ TFT(LSTM 흡수)+Markov 주도 ──────────────────────────
+    # ── H. 회귀분석 ─ TFT(LSTM 흡수)+Markov+NBeats 주도 ──────────────────
     "regression": {
-        "xgboost":     0.15,
-        "catboost":    0.05,
-        "tabnet":      0.05,
+        "xgboost":     0.12,
+        "catboost":    0.04,
+        "tabnet":      0.04,
         "cnn":         0.00,
         "gnn":         0.00,
-        "markov":      0.25,   # 주도: 전이/회귀
+        "markov":      0.20,   # 주도: 전이/회귀
         "autoencoder": 0.00,
-        "tft":         0.30,   # 주도: LSTM 흡수, 시계열 회귀
-        "mhn":         0.10,
-        "bayesian_nn": 0.10,
+        "tft":         0.25,   # 주도: LSTM 흡수, 시계열 회귀
+        "mhn":         0.08,
+        "bayesian_nn": 0.08,
+        "nbeats":      0.19,   # 주도: sum/scalar 시계열 예측
         "lstm":        0.0,
         "transformer": 0.0,
     },
@@ -239,7 +247,7 @@ class LottoEnsemble:
 
         # 기본 뼈대 가중치 (초기값) - 합계 1.0
         # Stage 1-4-D-2 (사용자 결정 #24): LSTM/Transformer 폐기 (TFT 흡수)
-        # 5 신규 base 추가 (default 0, D-3 학습 후 활성)
+        # 6 신규 base 추가 (default 0, D-3 학습 후 활성)
         # Phase 0.3 완료: GNN 실제 GAT
         self.default_weights = {
             "xgboost":     0.30,
@@ -255,6 +263,7 @@ class LottoEnsemble:
             "tft":         0.20,   # LSTM/Transformer 흡수 (D-3 학습 후 활성)
             "mhn":         0.0,
             "bayesian_nn": 0.0,
+            "nbeats":      0.0,    # sum/scalar 시계열 분해 전용 (per-number 미사용)
         }
         # 폐기 모델 명시 — 프론트 노출 X
         self.deprecated_models = {"lstm", "transformer"}
@@ -724,13 +733,14 @@ class LottoEnsemble:
             json.dump(markov_matrix.tolist(), f)
 
     def _init_new_base_models(self):
-        """Master Plan Stage 1-4-D-2: 5 신규 base 메인 1~45 binary classifier 등록.
+        """Master Plan Stage 1-4-D-2: 6 신규 base 등록.
 
-        5 신규 base:
+        6 신규 base:
           - catboost / tabnet: 트리·attention (input_dim 인자 없음/필요 분기)
           - tft: 시계열 통합 (LSTM/Transformer 흡수, input_dim 필요)
           - mhn: 패턴 매칭 메모리 (input_dim 필요)
           - bayesian_nn: 불확실성 분포 (input_dim 필요)
+          - nbeats: sum 스칼라 시계열 분해 (#9 base, sum/scalar 지표 전용)
 
         라이브러리 미설치 또는 인스턴스화 실패 시 graceful skip.
         실 학습은 Stage 1-4-D-3 (사용자 환경 8~12h).
@@ -771,6 +781,19 @@ class LottoEnsemble:
             except Exception as e:
                 print(f"[Stage 1-4-D-2] {key} init fail (graceful): {type(e).__name__}: {e}")
 
+        # NBeats 등록 (sum 스칼라 시계열 전용, per-number probs 산출 안 함)
+        try:
+            from models.nbeats_model import LottoNBeats
+            import config
+            self.nbeats = LottoNBeats.load_from_checkpoint(config.MODEL_DIR)
+            print("[Stage 1-4-D-2] nbeats registered (target=sum, scalar only)")
+        except FileNotFoundError:
+            print("[Stage 1-4-D-2] nbeats skip (nbeats_sum.pt not found)")
+            self.nbeats = None
+        except Exception as e:
+            print(f"[Stage 1-4-D-2] nbeats skip: {type(e).__name__}: {e}")
+            self.nbeats = None
+
     def _get_predictor_pipeline(self):
         """Master Plan Stage 1-4-D-1: predictor_pipeline lazy init.
 
@@ -794,10 +817,21 @@ class LottoEnsemble:
 
         contributions = {m: {} for m in self.weights.keys()}
 
+        # Stage 1-4-E-3: SLA Monitor 통합 (model_latency_log 적재용)
+        try:
+            from pipeline.sla_monitor import SLAMonitor
+            _use_sla = True
+        except ImportError:
+            _use_sla = False
+
         # 1. 딥러닝/머신러닝 예측
         for name, model in self.models.items():
             try:
-                pred_dict = model.predict(draws)
+                if _use_sla:
+                    with SLAMonitor(f"ensemble_{name}_predict") as mon:
+                        pred_dict = model.predict(draws)
+                else:
+                    pred_dict = model.predict(draws)
                 for n in range(1, 46):
                     # 키 타입 불일치 방지: 정수/문자열 모두 시도
                     val = pred_dict.get(n, None)
@@ -813,16 +847,32 @@ class LottoEnsemble:
         # 2. 마르코프 연쇄 예측
         markov_path = os.path.join(self.save_dir, "markov.json")
         if os.path.exists(markov_path):
-            with open(markov_path, "r") as f:
-                markov_matrix = np.array(json.load(f))
-            recent_draws = sorted(draws, key=lambda x: x['round'])
-            last_nums = recent_draws[-1].get("numbers", [])
-            pred_markov = np.zeros(45)
-            for num in last_nums:
-                if 1 <= num <= 45: pred_markov += markov_matrix[num-1]
-            if len(last_nums) > 0: pred_markov /= len(last_nums)
-            for n in range(1, 46):
-                contributions["markov"][n] = float(pred_markov[n-1])
+            try:
+                if _use_sla:
+                    with SLAMonitor("ensemble_markov_predict") as mon:
+                        with open(markov_path, "r") as f:
+                            markov_matrix = np.array(json.load(f))
+                        recent_draws = sorted(draws, key=lambda x: x['round'])
+                        last_nums = recent_draws[-1].get("numbers", [])
+                        pred_markov = np.zeros(45)
+                        for num in last_nums:
+                            if 1 <= num <= 45: pred_markov += markov_matrix[num-1]
+                        if len(last_nums) > 0: pred_markov /= len(last_nums)
+                else:
+                    with open(markov_path, "r") as f:
+                        markov_matrix = np.array(json.load(f))
+                    recent_draws = sorted(draws, key=lambda x: x['round'])
+                    last_nums = recent_draws[-1].get("numbers", [])
+                    pred_markov = np.zeros(45)
+                    for num in last_nums:
+                        if 1 <= num <= 45: pred_markov += markov_matrix[num-1]
+                    if len(last_nums) > 0: pred_markov /= len(last_nums)
+                for n in range(1, 46):
+                    contributions["markov"][n] = float(pred_markov[n-1])
+            except Exception as e:
+                print(f"⚠️ markov 예측 실패: {e}")
+                for n in range(1, 46):
+                    contributions["markov"][n] = 0.0
 
         # 3. ★ 진화된 메타 가중치를 적용하여 1차 합산!
         final_probs = {}
@@ -969,9 +1019,31 @@ class LottoEnsemble:
               ...  # 1~45 전체
             }
         """
-        baseline = 1.0 / 45.0
         memo_excl_set = set(memo_excl) if memo_excl else set()
         model_names = list(task_weights.keys())
+
+        # ★ Stage 6-F-3-XAI-v2: Z-score normalize (per-model standardization)
+        # 사용자 보고: "이건 그냥 xgboost만 쓰는거하고 동일한거 아니야?"
+        # 원인: sum=1 normalize 후에도 분포 sharpness 차이 (XGBoost spread 30배 vs catboost 1배) →
+        # excess > baseline 공식이 sharp 모델(XGBoost) 한 번호당 압도, 평탄 모델(catboost)은 0%
+        # 해결: 각 모델 자체 평균·표준편차로 표준화 (z-score) → 모든 모델이 σ 단위 공정 비교
+        # 평탄 모델도 자체 평균보다 위에 있는 번호엔 의미있는 신호 (1~2σ) 표시
+        zscore_data: dict = {}
+        for m in model_names:
+            m_dict = contributions.get(m) or {}
+            if not isinstance(m_dict, dict) or not m_dict:
+                zscore_data[m] = {n: 0.0 for n in range(1, 46)}
+                continue
+            probs = np.array([float(m_dict.get(n, 0.0)) for n in range(1, 46)],
+                             dtype=np.float64)
+            mu = float(probs.mean())
+            sigma = float(probs.std())
+            if sigma < 1e-9:
+                # 모델 출력이 거의 상수 → 신호 없음
+                zscore_data[m] = {n: 0.0 for n in range(1, 46)}
+            else:
+                z = (probs - mu) / sigma  # mean=0, std=1 표준화
+                zscore_data[m] = {n: float(z[n - 1]) for n in range(1, 46)}
 
         result: dict = {}
 
@@ -984,22 +1056,22 @@ class LottoEnsemble:
                 result[n] = entry
                 continue
 
-            # 각 모델별 excess 점수 계산
+            # 각 모델별 양수 z-score × task_weight (above-mean signal)
             scores: dict = {}
             for m in model_names:
-                raw_prob = contributions.get(m, {}).get(n, 0.0)
-                excess = max(0.0, raw_prob - baseline)
-                scores[m] = excess * task_weights.get(m, 0.0)
+                z = zscore_data[m].get(n, 0.0)
+                # max(0, z): 자체 평균 이상 신호만 contribution (음수 z는 0)
+                scores[m] = max(0.0, z) * task_weights.get(m, 0.0)
 
             total_score = sum(scores.values())
 
             entry: dict = {}
             if total_score > 0:
-                # 정상 케이스: excess 신호 합산이 0보다 큰 경우
+                # 정상 케이스: 양수 z-score signal 합산이 0보다 큰 경우
                 for m in model_names:
                     entry[m] = round(scores[m] / total_score * 100.0, 1)
             else:
-                # 모든 모델이 baseline 이하인 번호: 가중치 비율로만 기여도 계산
+                # 모든 모델이 자체 평균 이하인 번호: 가중치 비율로만 기여도 계산
                 weight_total = sum(task_weights.get(m, 0.0) for m in model_names)
                 for m in model_names:
                     w = task_weights.get(m, 0.0)
@@ -1068,26 +1140,24 @@ class LottoEnsemble:
         return result
 
     def predict_regression(self, draws: list, step: int) -> dict:
-        """P3: regression_step_N 전용 예측 경로.
+        """P3: regression_step_N 전용 예측 경로 (11 base 버전).
 
         N회 전 당첨번호 각각이 '다음 회차에 재출현할 확률'의 기대값을 모델별로 계산.
-        ensemble.predict()와 완전히 분리된 경로 — CNN/GNN/Autoencoder 제외.
+        CNN/GNN/AE/TabNet/BayesianNN은 앙상블 기여 0이지만 표시용으로 계산 포함.
 
-        단기(step 2~10):  LSTM 주도 (0.40) + Markov (0.30)
-        중기(step 11~50): Markov 주도 (0.35) + Transformer (0.30)
-        장기(step 51~200): Markov 주도 (0.40) + Transformer (0.30), LSTM 약화
+        11 base 회귀 앙상블 가중치:
+          단기(step 2~10):   Markov(0.30) + XGB(0.20) + CatBoost(0.20) + TFT(0.20) + MHN(0.10)
+          중기(step 11~50):  Markov(0.35) + TFT(0.25) + XGB(0.15) + CatBoost(0.15) + MHN(0.10)
+          장기(step 51~200): Markov(0.40) + TFT(0.25) + XGB(0.15) + CatBoost(0.10) + MHN(0.10)
 
         Returns:
             {
-                "model_exp": {          # 모델별 N회전 번호 재출현 기대값
-                    "lstm": 1.24,
-                    "xgboost": 1.56,
-                    "transformer": 1.31,
-                    "markov": 1.18,
+                "model_exp": {  # 11 base 전체 기대값 (앙상블 기여 0 모델도 표시용 포함)
+                    "xgboost": 1.24, "catboost": 1.18, "markov": 1.05, ...
                 },
-                "ensemble_exp": 1.35,  # 가중 앙상블 기대값
-                "step_weights": {...},  # 사용된 가중치
-                "target_numbers": [...], # N회 전 당첨번호
+                "ensemble_exp": 1.35,  # 비零 가중치 모델만 사용한 가중 기대값
+                "step_weights": {...},  # 사용된 비零 가중치
+                "target_numbers": [...],
             }
         """
         if len(draws) < step + 1:
@@ -1102,28 +1172,36 @@ class LottoEnsemble:
             return {"model_exp": {}, "ensemble_exp": 0.0, "step_weights": {}, "target_numbers": []}
         target_numbers = target_draw.get("numbers", [])
 
-        # step 구간별 가중치 (CNN/GNN/Autoencoder = 0)
+        # ── 11 base 회귀 가중치 (CNN/GNN/AE/TabNet/BayesianNN/NBEATS = 앙상블 기여 0) ──
         if step <= 10:
-            step_weights = {"lstm": 0.40, "xgboost": 0.15, "cnn": 0.00,
-                            "transformer": 0.15, "gnn": 0.00, "markov": 0.30, "autoencoder": 0.00}
+            step_weights = {
+                "xgboost": 0.20, "catboost": 0.20, "tabnet": 0.00,
+                "cnn": 0.00,     "gnn": 0.00,      "markov": 0.30,
+                "autoencoder": 0.00, "tft": 0.20,  "mhn": 0.10,
+                "bayesian_nn": 0.00, "nbeats": 0.00,
+            }
         elif step <= 50:
-            step_weights = {"lstm": 0.20, "xgboost": 0.15, "cnn": 0.00,
-                            "transformer": 0.30, "gnn": 0.00, "markov": 0.35, "autoencoder": 0.00}
+            step_weights = {
+                "xgboost": 0.15, "catboost": 0.15, "tabnet": 0.00,
+                "cnn": 0.00,     "gnn": 0.00,      "markov": 0.35,
+                "autoencoder": 0.00, "tft": 0.25,  "mhn": 0.10,
+                "bayesian_nn": 0.00, "nbeats": 0.00,
+            }
         else:
-            step_weights = {"lstm": 0.10, "xgboost": 0.15, "cnn": 0.00,
-                            "transformer": 0.30, "gnn": 0.00, "markov": 0.40, "autoencoder": 0.05}
+            step_weights = {
+                "xgboost": 0.15, "catboost": 0.10, "tabnet": 0.00,
+                "cnn": 0.00,     "gnn": 0.00,      "markov": 0.40,
+                "autoencoder": 0.00, "tft": 0.25,  "mhn": 0.10,
+                "bayesian_nn": 0.00, "nbeats": 0.00,
+            }
 
         # 히스토리: N회 전 이전 데이터만 사용 (데이터 누수 방지)
         history = draws_sorted[:-(step)]
 
-        # 각 모델의 next-draw 확률 → target_numbers 재출현 기대값
-        model_exp = {}
-        active_models = [m for m, w in step_weights.items() if w > 0]
-
-        # Markov는 predict() 경로와 동일하게 markov.json 에서 읽음
+        # ── Markov: markov.json 파일 기반 예측 ──────────────────────────────
         markov_preds = None
         markov_path = os.path.join(self.save_dir, "markov.json")
-        if "markov" in active_models and os.path.exists(markov_path):
+        if os.path.exists(markov_path):
             try:
                 with open(markov_path, "r") as f:
                     markov_matrix = np.array(json.load(f))
@@ -1133,31 +1211,43 @@ class LottoEnsemble:
                     if 1 <= num <= 45:
                         pred_markov += markov_matrix[num - 1]
                 total_m = pred_markov.sum()
-                if total_m > 0:
-                    pred_markov /= total_m
-                else:
-                    pred_markov = np.ones(45) / 45.0
+                pred_markov = pred_markov / total_m if total_m > 0 else np.ones(45) / 45.0
                 markov_preds = {n: float(pred_markov[n - 1]) for n in range(1, 46)}
-            except Exception as e:
+            except Exception:
                 pass  # fallback to uniform below
 
-        for name in active_models:
+        # ── 전 모델 model_exp 계산 (가중치 0이어도 표시용으로 포함) ──────────
+        model_exp = {}
+        # Stage 6-2-A: 11 base 전체 순회 (step_weights 순회로 누락 방지)
+        for name in step_weights.keys():
             try:
                 if name == "markov":
                     preds = markov_preds or {n: 1/45 for n in range(1, 46)}
                 else:
-                    model = self.models[name]
+                    model = self.models.get(name)
+                    if model is None:
+                        # 모델 인스턴스 없음 → fallback
+                        model_exp[name] = round(len(target_numbers) / 45 * 6, 4)
+                        continue
                     preds = model.predict(history)
-                # model_exp = Σ P(number i ∈ next draw) for i in target_numbers
+                    if not preds:
+                        # 빈 dict 반환 → fallback
+                        model_exp[name] = round(len(target_numbers) / 45 * 6, 4)
+                        continue
                 exp_val = sum(float(preds.get(n, 1/45)) for n in target_numbers if 1 <= n <= 45)
                 model_exp[name] = round(exp_val, 4)
             except Exception as e:
-                model_exp[name] = round(len(target_numbers) / 45 * 6, 4)  # 기대값 fallback
+                # 모델 미학습/미로드/예측 실패 → 균등 기대값 fallback
+                # print(f"  [predict_regression] {name} fallback: {e}")  # 디버깅용
+                model_exp[name] = round(len(target_numbers) / 45 * 6, 4)
 
-        # 가중 앙상블 기대값
-        total_w = sum(step_weights.get(m, 0) for m in model_exp)
+        # ── 가중 앙상블 (비零 가중치 모델만) ────────────────────────────────
+        total_w = sum(step_weights[m] for m in model_exp if step_weights.get(m, 0) > 0)
         if total_w > 0:
-            ensemble_exp = sum(model_exp[m] * step_weights.get(m, 0) for m in model_exp) / total_w
+            ensemble_exp = sum(
+                model_exp[m] * step_weights[m]
+                for m in model_exp if step_weights.get(m, 0) > 0
+            ) / total_w
         else:
             ensemble_exp = sum(model_exp.values()) / len(model_exp) if model_exp else 0.0
 
@@ -1175,6 +1265,8 @@ class LottoEnsemble:
         n_bootstrap: int = 50,
         consensus_k: int = 4,
         human_rules=None,
+        round_number: int | None = None,
+        save_predictions: bool = False,
     ) -> dict:
         """P4: Consensus + Bootstrap CI Gating으로 Top N 선출.
 
@@ -1184,6 +1276,8 @@ class LottoEnsemble:
             n_bootstrap  : 부트스트랩 반복 횟수 (기본 50)
             consensus_k  : 동의 모델 최소 수 (기본 4/7)
             human_rules  : 전문가 룰 (hard filter)
+            round_number : 회차 번호 (save_predictions=True 시 필수)
+            save_predictions: True이면 model_predictions 테이블에 저장
 
         Returns dict:
             top_numbers  : list of dicts — 선출된 번호들
@@ -1289,7 +1383,19 @@ class LottoEnsemble:
                 "low_confidence":  conf_level == "low",
             })
 
-        return {
+        # Step 6 — model_predictions DB 저장 (옵션)
+        save_result = None
+        if save_predictions:
+            if round_number is None:
+                # draws[0]에서 round 추출 시도
+                if draws and "round" in draws[0]:
+                    round_number = int(draws[0]["round"])
+                else:
+                    raise ValueError("save_predictions=True requires round_number or draws[0]['round']")
+
+            save_result = self.save_model_predictions(round_number, contributions)
+
+        result_dict = {
             "top_numbers":         top_numbers,
             "fallback_used":       fallback_used,
             "method":              "consensus+ci_bootstrap",
@@ -1300,6 +1406,11 @@ class LottoEnsemble:
             "evidence":            result["evidence"],
             "contributions":       contributions,  # model_contributions for filter/regression analysis
         }
+
+        if save_result is not None:
+            result_dict["model_predictions_saved"] = save_result
+
+        return result_dict
 
     def predict_exclusion_with_veto(
         self,
@@ -1376,6 +1487,87 @@ class LottoEnsemble:
             "base_probs":          final_probs_excl,
             "evidence":            result["evidence"],
         }
+
+    def save_model_predictions(
+        self,
+        round_number: int,
+        contributions: dict,
+    ) -> dict:
+        """각 모델의 top10 예측을 supabase model_predictions 테이블에 upsert.
+
+        Args:
+            round_number: 회차 번호
+            contributions: 모델별 확률 dict (predict_with_task 결과의 model_contributions)
+
+        Returns:
+            {"success": bool, "saved_count": int, "models": list[str]}
+        """
+        from db.supabase_client import get_client
+
+        try:
+            client = get_client()
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Supabase client 초기화 실패: {e}",
+                "saved_count": 0,
+                "models": [],
+            }
+
+        records = []
+        saved_models = []
+
+        for model_name, m_probs in contributions.items():
+            if not m_probs:
+                continue
+
+            # top10 추출 (확률 높은 순)
+            sorted_nums = sorted(m_probs.items(), key=lambda x: x[1], reverse=True)
+            top10 = [
+                int(n)
+                for n, _ in sorted_nums[:10]
+                if isinstance(n, int) and 1 <= n <= 45
+            ]
+
+            if not top10:
+                continue
+
+            records.append({
+                "round_number": int(round_number),
+                "model_name": str(model_name),
+                "predicted_top10": top10,
+                # actual_numbers, hit_count는 당첨번호 sync 시 별도 update
+            })
+            saved_models.append(str(model_name))
+
+        if not records:
+            return {
+                "success": True,
+                "saved_count": 0,
+                "models": [],
+                "message": "저장할 예측 없음 (contributions 비어있음)",
+            }
+
+        try:
+            # upsert (round_number, model_name 조합이 unique constraint)
+            result = client.table("model_predictions").upsert(
+                records,
+                on_conflict="round_number,model_name"
+            ).execute()
+
+            return {
+                "success": True,
+                "saved_count": len(records),
+                "models": saved_models,
+                "round_number": int(round_number),
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Supabase upsert 실패: {e}",
+                "saved_count": 0,
+                "models": saved_models,
+            }
 
     # ── P7: 메타러너 부트스트랩 + 학습 + 상태조회 ───────────────────────────
     def bootstrap_meta_log(
@@ -1469,32 +1661,324 @@ class LottoEnsemble:
 
 
 class CombinationGenerator:
+    """19개 조건 기반 로또 조합 생성기 (n_combinations=6, max_attempts=50000)"""
+
+    # 상수 정의
+    PRIMES = frozenset({2,3,5,7,11,13,17,19,23,29,31,37,41,43})
+    COMPOSITES = frozenset(set(range(1,46)) - PRIMES - {1})  # 1 제외
+    SQUARES = frozenset({1,4,9,16,25,36})
+    TRIANGULARS = frozenset({1,3,6,10,15,21,28,36,45})
+    TWINS = frozenset({11,22,33,44})  # 동형수
+
     @staticmethod
-    def generate(prediction: dict, filter_settings: dict, n_combinations: int = 10) -> list:
+    def _range_pattern(combo: list) -> str:
+        """6 번호 → '단번대-10번대-20번대-30번대-40번대' 패턴 (예: '1-2-2-1-0')."""
+        c = [0, 0, 0, 0, 0]
+        for n in combo:
+            if   n <=  10: c[0] += 1
+            elif n <=  20: c[1] += 1
+            elif n <=  30: c[2] += 1
+            elif n <=  40: c[3] += 1
+            else:          c[4] += 1
+        return "-".join(str(x) for x in c)
+
+    @staticmethod
+    def _ac(combo: list) -> int:
+        """AC값 계산: 번호 간 차이값의 고유 개수 - 5"""
+        diffs = set(abs(combo[i]-combo[j]) for i in range(6) for j in range(i+1,6))
+        return len(diffs) - 5
+
+    @staticmethod
+    def _tail_dist(combo: list) -> list:
+        """끝수 분포 [0~9]별 카운트"""
+        t = [0]*10
+        for n in combo: t[n%10] += 1
+        return t
+
+    @staticmethod
+    def _band_dist(combo: list) -> list:
+        """번호대 분포 [0~4]별 카운트 (0:1~10, 1:11~20, 2:21~30, 3:31~40, 4:41~45)"""
+        b = [0]*5
+        for n in combo:
+            if n<=10: b[0]+=1
+            elif n<=20: b[1]+=1
+            elif n<=30: b[2]+=1
+            elif n<=40: b[3]+=1
+            else: b[4]+=1
+        return b
+
+    @staticmethod
+    def _is_harshad(n: int) -> bool:
+        """하샤드수 판정: 자릿수 합으로 나누어 떨어지는 수"""
+        s = sum(int(d) for d in str(n))
+        return s > 0 and n % s == 0
+
+    @staticmethod
+    def generate(prediction: dict, filter_settings: dict, n_combinations: int = 6,
+                 context_data: dict = None) -> list:
+        """
+        19개 조건 필터 기반 조합 생성.
+
+        Args:
+            prediction: {"probabilities": {번호: 확률}}
+            filter_settings: {"sum_range": {min, max}, "excluded_range_patterns": [...]}
+            n_combinations: 생성할 조합 개수 (기본 6)
+            context_data: {
+                "top_5": list[int],  # AI 강력 추천
+                "exclude_10": list[int],  # AI 제외수
+                "missing_11plus": list[int],  # 11회 이상 미출현
+                "hot_numbers": list[int],
+                "cold_numbers": list[int],
+                "carryover_numbers": list[int],  # 이월수
+                "recent_10_tail_dist": list[int],  # 끝수 분포
+                "tail_missing_4plus": list[int],  # 미출인 끝수
+                "recent_10_band_dist": list[int],  # 번호대 분포
+                "band_missing_2plus": list[int],  # 미출인 번호대 인덱스
+                "ensemble_sum_range": {min, max},
+                "ensemble_tail_sum_range": {min, max}
+            }
+        """
         probs = prediction.get("probabilities", {})
         if not probs: return []
-        nums, p_vals = list(probs.keys()), list(probs.values())
-        
+
+        # context_data 안전 처리
+        ctx = context_data or {}
+        top_5 = set(ctx.get("top_5", []))
+        exclude_10 = set(ctx.get("exclude_10", []))
+        missing_11plus = set(ctx.get("missing_11plus", []))
+        hot_numbers = set(ctx.get("hot_numbers", []))
+        cold_numbers = set(ctx.get("cold_numbers", []))
+        carryover_numbers = set(ctx.get("carryover_numbers", []))
+        recent_10_tail_dist = ctx.get("recent_10_tail_dist", [0]*10)
+        tail_missing_4plus = set(ctx.get("tail_missing_4plus", []))
+        recent_10_band_dist = ctx.get("recent_10_band_dist", [0]*5)
+        band_missing_2plus = set(ctx.get("band_missing_2plus", []))
+        ensemble_sum_range = ctx.get("ensemble_sum_range", {"min": 100, "max": 220})
+        ensemble_tail_sum_range = ctx.get("ensemble_tail_sum_range", {"min": 10, "max": 40})
+
+        # 확률 정규화 (exclude_10 제외)
+        nums = []
+        p_vals = []
+        for n, p in probs.items():
+            if n not in exclude_10:  # 조건 2: AI 제외수 제외
+                nums.append(n)
+                p_vals.append(p)
+
+        if not nums: return []
+
         total_p = sum(p_vals)
-        p_vals = [p / total_p for p in p_vals] if total_p > 0 else [1/45]*45
-        
+        p_vals = [p / total_p for p in p_vals] if total_p > 0 else [1/len(nums)]*len(nums)
         prob_norm = {n: p for n, p in zip(nums, p_vals)}
+
+        # fallback sum range
+        min_sum = ensemble_sum_range.get("min", filter_settings.get("sum_range", {}).get("min", 100))
+        max_sum = ensemble_sum_range.get("max", filter_settings.get("sum_range", {}).get("max", 220))
+        min_tail_sum = ensemble_tail_sum_range.get("min", 10)
+        max_tail_sum = ensemble_tail_sum_range.get("max", 40)
+
+        # 번호대 패턴 제외
+        excluded_patterns = set(filter_settings.get("excluded_range_patterns") or [])
 
         results = []
         attempts = 0
-        min_sum = filter_settings.get("sum_range", {}).get("min", 21)
-        max_sum = filter_settings.get("sum_range", {}).get("max", 255)
+        max_attempts = 50000
 
-        while len(results) < n_combinations and attempts < 10000:
+        # 필터 완화 레벨 (시도 횟수 증가 시)
+        relaxation_level = 0
+
+        while len(results) < n_combinations and attempts < max_attempts:
             attempts += 1
+
+            # 완화 레벨 조정 (10000회마다)
+            if attempts > 0 and attempts % 10000 == 0:
+                relaxation_level += 1
+
             combo = sorted(np.random.choice(nums, 6, replace=False, p=p_vals).tolist())
             combo = [int(x) for x in combo]
-            if min_sum <= sum(combo) <= max_sum:
-                score = round(sum(prob_norm.get(n, 0) for n in combo), 4)
-                results.append({
-                    "rank": len(results) + 1,
-                    "numbers": combo,
-                    "score": score,
-                    "type": "ai_recommended"
-                })
+
+            # ===== 빠른 필터 우선 적용 =====
+
+            # 조건 4: 총합 범위
+            combo_sum = sum(combo)
+            if not (min_sum <= combo_sum <= max_sum):
+                continue
+
+            # 조건 5: 끝수합 범위
+            tail_sum = sum(n % 10 for n in combo)
+            if not (min_tail_sum <= tail_sum <= max_tail_sum):
+                continue
+
+            # 조건 11: 홀짝 비율 (4,2) (3,3) (2,4)
+            odd_count = sum(1 for n in combo if n % 2 == 1)
+            if odd_count not in [2, 3, 4]:
+                continue
+
+            # 조건 12: 저고 비율 (4,2) (3,3) (2,4) - 저=1~22, 고=23~45
+            low_count = sum(1 for n in combo if n <= 22)
+            if low_count not in [2, 3, 4]:
+                continue
+
+            # 조건 10: AC값 8~9 (완화 시 7~10, 최대 완화 시 6~10)
+            ac_val = CombinationGenerator._ac(combo)
+            if relaxation_level == 0:
+                if ac_val not in [8, 9]:
+                    continue
+            elif relaxation_level == 1:
+                if not (7 <= ac_val <= 10):
+                    continue
+            elif relaxation_level >= 2:
+                if not (6 <= ac_val <= 10):
+                    continue
+
+            # 조건 1: top_5 포함 1개 이상
+            if top_5 and not any(n in top_5 for n in combo):
+                continue
+
+            # 조건 6: 끝수 분포 패턴이 최근 10회 평균과 동일하면 금지
+            if recent_10_tail_dist and recent_10_tail_dist != [0]*10:
+                combo_tail_dist = CombinationGenerator._tail_dist(combo)
+                if combo_tail_dist == recent_10_tail_dist:
+                    continue
+
+            # 조건 7: 4회 미출인 끝수 1개 이상 포함
+            if tail_missing_4plus and relaxation_level < 2:
+                combo_tails = set(n % 10 for n in combo)
+                if not (combo_tails & tail_missing_4plus):
+                    continue
+
+            # 조건 8: 번호대 분포 패턴이 최근 10회 평균과 동일하면 금지
+            if excluded_patterns:
+                pattern = CombinationGenerator._range_pattern(combo)
+                if pattern in excluded_patterns:
+                    continue
+            if recent_10_band_dist and recent_10_band_dist != [0]*5:
+                combo_band_dist = CombinationGenerator._band_dist(combo)
+                if combo_band_dist == recent_10_band_dist:
+                    continue
+
+            # 조건 9: 2회 이상 미출인 번호대 1개 이상 포함
+            if band_missing_2plus and relaxation_level < 2:
+                combo_band_dist = CombinationGenerator._band_dist(combo)
+                has_missing_band = False
+                for band_idx in band_missing_2plus:
+                    if 0 <= band_idx < 5 and combo_band_dist[band_idx] > 0:
+                        has_missing_band = True
+                        break
+                if not has_missing_band:
+                    continue
+
+            # 조건 3: 미출현그룹 11회 이상 번호 0~2개
+            if missing_11plus:
+                missing_count = sum(1 for n in combo if n in missing_11plus)
+                if missing_count > 2:
+                    continue
+
+            # ===== 속성 기반 필터 =====
+
+            primes_in = [n for n in combo if n in CombinationGenerator.PRIMES]
+            composites_in = [n for n in combo if n in CombinationGenerator.COMPOSITES]
+
+            # 조건 13: 소수 1~3개, 소수 중 핫 0~1, 소수 중 콜드 1~2 (완화 레벨에 따라 조정)
+            if not (1 <= len(primes_in) <= 3):
+                continue
+            if hot_numbers and relaxation_level < 2:
+                prime_hot = sum(1 for n in primes_in if n in hot_numbers)
+                if prime_hot > 1:
+                    continue
+            if cold_numbers and relaxation_level < 3:
+                prime_cold = sum(1 for n in primes_in if n in cold_numbers)
+                # 완화: 최소 요구량 없이 최대만 체크
+                if prime_cold > 3:
+                    continue
+
+            # 조건 14: 합성수 3~5개, 합성수 중 핫 1~3, 합성수 중 콜드 3~4 (완화 레벨에 따라 조정)
+            if not (3 <= len(composites_in) <= 5):
+                continue
+            if hot_numbers and relaxation_level < 2:
+                comp_hot = sum(1 for n in composites_in if n in hot_numbers)
+                if not (1 <= comp_hot <= 4):  # 완화: 3→4
+                    continue
+            if cold_numbers and relaxation_level < 3:
+                comp_cold = sum(1 for n in composites_in if n in cold_numbers)
+                # 완화: 최소 요구량 없이 최대만 체크
+                if comp_cold > 5:
+                    continue
+
+            # 조건 15: 제곱수 0~1개
+            square_count = sum(1 for n in combo if n in CombinationGenerator.SQUARES)
+            if square_count > 1:
+                continue
+
+            # 조건 16: 삼각수 2~3개 (완화 시 1~4)
+            tri_count = sum(1 for n in combo if n in CombinationGenerator.TRIANGULARS)
+            if relaxation_level == 0:
+                if not (2 <= tri_count <= 3):
+                    continue
+            elif relaxation_level == 1:
+                if not (1 <= tri_count <= 4):
+                    continue
+            # level 2 이상은 삼각수 조건 skip
+
+            # 조건 17: 동형수 0~1개
+            twin_count = sum(1 for n in combo if n in CombinationGenerator.TWINS)
+            if twin_count > 1:
+                continue
+
+            # 조건 18: 배수 조건
+            mul3 = sum(1 for n in combo if n % 3 == 0)
+            mul4 = sum(1 for n in combo if n % 4 == 0)
+            mul5 = sum(1 for n in combo if n % 5 == 0)
+            mul7 = sum(1 for n in combo if n % 7 == 0)
+            mul8 = sum(1 for n in combo if n % 8 == 0)
+            non_mul = sum(1 for n in combo if n % 3 != 0 and n % 4 != 0 and n % 5 != 0 and n % 7 != 0 and n % 8 != 0)
+
+            if not (2 <= mul3 <= 4):
+                continue
+            if not (1 <= mul4 <= 2):
+                continue
+            if not (0 <= mul5 <= 2):
+                continue
+            if not (0 <= (mul7 + mul8) <= 2):
+                continue
+            if not (1 <= non_mul <= 3):
+                continue
+
+            # 조건 19: 연번 0~1, 이월수 0~2, 이웃수 0~3, 하샤드 2~4
+            # 연번 (연속번호 쌍 개수)
+            consecutive = 0
+            for i in range(5):
+                if combo[i+1] == combo[i] + 1:
+                    consecutive += 1
+            if consecutive > 1:
+                continue
+
+            # 이월수
+            if carryover_numbers:
+                carryover_count = sum(1 for n in combo if n in carryover_numbers)
+                if carryover_count > 2:
+                    continue
+
+            # 이웃수 (차이 1인 쌍 - 연번 포함)
+            neighbor = 0
+            for i in range(6):
+                for j in range(i+1, 6):
+                    if abs(combo[i] - combo[j]) == 1:
+                        neighbor += 1
+            if neighbor > 3:
+                continue
+
+            # 하샤드수
+            harshad_count = sum(1 for n in combo if CombinationGenerator._is_harshad(n))
+            if not (2 <= harshad_count <= 4):
+                continue
+
+            # 모든 필터 통과 → 결과에 추가
+            score = round(sum(prob_norm.get(n, 0) for n in combo), 4)
+            results.append({
+                "rank": len(results) + 1,
+                "numbers": combo,
+                "score": score,
+                "type": "ai_recommended"
+            })
+
         return results

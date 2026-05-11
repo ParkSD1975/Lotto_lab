@@ -745,8 +745,13 @@
     // v2 shim — 기존 호출자 깨지지 않게
     window.DeepInsightPanel = window.DeepInsightPanel || DeepInsightPanelV3;
 
-    // 자동 초기화 (data-indicator 속성)
+    // [fix-236] PremiumInsightPanel가 로드되어 있으면 자동 init 스킵
+    // → v3 panel이 먼저 미완성 인사이트 그리는 깜빡거림 차단
     document.addEventListener('DOMContentLoaded', () => {
+        if (window.PremiumInsightPanel) {
+            // PremiumInsightPanel가 이 페이지를 렌더할 예정 — v3 자동 init 비활성화
+            return;
+        }
         const node = document.getElementById('dlInsightContainer');
         if (node && node.dataset.indicator) {
             DeepInsightPanelV3.init({ indicator: node.dataset.indicator });

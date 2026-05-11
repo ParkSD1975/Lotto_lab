@@ -4,6 +4,10 @@
 <head>
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <!-- [fix-326b] HTML 캐시 무력화 — fix-315/316/326 등 새 코드가 즉시 반영되도록 -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <title>Lotto Lab - 당첨번호 관리</title>
     <link href="css/tailwind.css" rel="stylesheet" />
     <link rel="icon" href="data:,">
@@ -104,6 +108,47 @@
             box-shadow: none;
             text-shadow: none;
         }
+
+        /* [fix-273] 속성별 퀵 버튼 */
+        .attr-btn {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 6px;
+            background: #f1f5f9;
+            color: #475569;
+            border: 1px solid #e2e8f0;
+            cursor: pointer;
+            transition: all 150ms;
+            white-space: nowrap;
+        }
+        .attr-btn:hover { background: #e2e8f0; color: #0f172a; }
+        .attr-btn.attr-active {
+            background: #6366f1;
+            color: #fff;
+            border-color: #4f46e5;
+            box-shadow: 0 2px 4px rgba(99, 102, 241, 0.3);
+        }
+
+        /* 9궁 색상 (1궁=빨강, ..., 9궁=보라 그라데이션) */
+        .ball-palace1 { background: #ef4444; border: 2px solid #b91c1c; }
+        .ball-palace2 { background: #f97316; border: 2px solid #c2410c; }
+        .ball-palace3 { background: #eab308; border: 2px solid #a16207; }
+        .ball-palace4 { background: #84cc16; border: 2px solid #4d7c0f; }
+        .ball-palace5 { background: #10b981; border: 2px solid #047857; }
+        .ball-palace6 { background: #06b6d4; border: 2px solid #0e7490; }
+        .ball-palace7 { background: #3b82f6; border: 2px solid #1d4ed8; }
+        .ball-palace8 { background: #8b5cf6; border: 2px solid #6d28d9; }
+        .ball-palace9 { background: #ec4899; border: 2px solid #be185d; }
+
+        /* 로또용지 행 색상 (가로 7행, 7개씩) */
+        .ball-paper1 { background: #ef4444; border: 2px solid #b91c1c; }
+        .ball-paper2 { background: #f97316; border: 2px solid #c2410c; }
+        .ball-paper3 { background: #eab308; border: 2px solid #a16207; }
+        .ball-paper4 { background: #10b981; border: 2px solid #047857; }
+        .ball-paper5 { background: #3b82f6; border: 2px solid #1d4ed8; }
+        .ball-paper6 { background: #8b5cf6; border: 2px solid #6d28d9; }
+        .ball-paper7 { background: #ec4899; border: 2px solid #be185d; }
 
         /* 테이블 스타일 */
         .data-table {
@@ -295,6 +340,42 @@
             outline: none;
             box-shadow: 0 0 0 2px #e0e7ff;
         }
+
+        /* [fix-271/272] 패턴 탐정 패널 전용 언더바 스타일 — 박스 완전 폐기 */
+        .dt-underline-input,
+        .dt-underline-select {
+            background: transparent !important;
+            border: 0 !important;
+            border-bottom: 1px solid #cbd5e1 !important;
+            border-radius: 0 !important;
+            padding: 4px 6px !important;
+            font-size: 13px !important;
+            color: #0f172a !important;
+            transition: border-color 180ms !important;
+            outline: none !important;
+            min-width: 0;
+            box-sizing: border-box !important;
+            -webkit-appearance: none !important;
+            -moz-appearance: textfield !important;
+            appearance: none !important;
+            box-shadow: none !important;
+            height: auto !important;
+        }
+        /* 숫자 input의 spinner 제거 */
+        .dt-underline-input::-webkit-outer-spin-button,
+        .dt-underline-input::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        .dt-underline-input::placeholder { color: #cbd5e1 !important; font-size: 12px; }
+        .dt-underline-input:focus,
+        .dt-underline-select:focus { border-bottom-color: #6366f1 !important; box-shadow: 0 1px 0 0 #6366f1 !important; }
+        /* select 텍스트 잘림 방지 — width auto + 옵션 길이에 맞춤 */
+        .dt-underline-select { padding-right: 22px !important; min-width: 70px; width: auto; max-width: 200px; }
+        .dt-underline-input { width: 100%; }
+        /* 짧은 숫자 입력 폭 */
+        .dt-w-num { width: 60px !important; min-width: 60px !important; }
+        .dt-w-ctx { width: 48px !important; min-width: 48px !important; }
 
         .search-wrapper {
             position: relative;
@@ -595,8 +676,7 @@
                             <label class="text-xs font-bold text-slate-600 uppercase tracking-wide">포함 번호 선택</label>
                             <div class="flex items-center gap-2">
                                 <span class="text-xs text-slate-500">조건:</span>
-                                <button id="btnAndOr" onclick="toggleAndOr()"
-                                    class="px-3 py-1 rounded-full text-xs font-bold bg-violet-600 text-white transition hover:bg-violet-700">AND</button>
+                                <button id="btnAndOr" onclick="toggleAndOr()" style="background:#7c3aed;color:#fff;border:0;padding:4px 14px;border-radius:9999px;font-size:11px;font-weight:700;cursor:pointer;">AND</button>
                                 <button onclick="clearPickedNums()"
                                     class="px-2 py-1 rounded text-xs text-slate-400 hover:text-rose-500 transition">초기화</button>
                             </div>
@@ -607,7 +687,7 @@
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                         <div>
                             <label class="block text-xs font-bold text-slate-500 mb-1">회차 범위</label>
-                            <select id="dtRangeMode" onchange="onRangeModeChange()" class="input-base text-sm">
+                            <select id="dtRangeMode" onchange="onRangeModeChange()" class="dt-underline-select">
                                 <option value="all">전체</option>
                                 <option value="recent">최근 N회</option>
                                 <option value="range">직접 지정</option>
@@ -615,73 +695,216 @@
                         </div>
                         <div id="dtRecentWrap" class="hidden">
                             <label class="block text-xs font-bold text-slate-500 mb-1">최근 N회</label>
-                            <input type="number" id="dtRecentN" class="input-base text-sm" value="100" min="10" max="2000">
+                            <input type="number" id="dtRecentN" class="dt-underline-input" value="100" min="10" max="2000">
                         </div>
                         <div id="dtRangeWrap" class="hidden col-span-2 grid grid-cols-2 gap-2">
                             <div>
                                 <label class="block text-xs font-bold text-slate-500 mb-1">시작 회차</label>
-                                <input type="number" id="dtRangeFrom" class="input-base text-sm" placeholder="예: 1">
+                                <input type="number" id="dtRangeFrom" class="dt-underline-input" placeholder="예: 1">
                             </div>
                             <div>
                                 <label class="block text-xs font-bold text-slate-500 mb-1">종료 회차</label>
-                                <input type="number" id="dtRangeTo" class="input-base text-sm" placeholder="예: 1000">
+                                <input type="number" id="dtRangeTo" class="dt-underline-input" placeholder="예: 1000">
                             </div>
+                        </div>
+                    </div>
+
+                    <!-- [fix-314/315] 월/주차 검색 — select 변경 즉시 자동 필터 -->
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 items-end">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1">년도</label>
+                            <input type="number" id="dtYearFilter" class="dt-underline-input" placeholder="예: 2026 (생략 = 모든 년도)" min="2002" max="2099" onchange="applyDateFilter()">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1">월</label>
+                            <select id="dtMonthFilter" class="dt-underline-select" onchange="applyDateFilter()">
+                                <option value="">전체</option>
+                                <option value="1">1월</option><option value="2">2월</option><option value="3">3월</option>
+                                <option value="4">4월</option><option value="5">5월</option><option value="6">6월</option>
+                                <option value="7">7월</option><option value="8">8월</option><option value="9">9월</option>
+                                <option value="10">10월</option><option value="11">11월</option><option value="12">12월</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1">주차</label>
+                            <select id="dtWeekFilter" class="dt-underline-select" onchange="applyDateFilter()">
+                                <option value="">전체</option>
+                                <option value="1">1주차</option><option value="2">2주차</option><option value="3">3주차</option>
+                                <option value="4">4주차</option><option value="5">5주차</option>
+                            </select>
+                        </div>
+                        <div class="flex items-end justify-end">
+                            <button type="button" onclick="clearDateFilter()" class="px-4 py-1.5 bg-slate-100 text-slate-600 text-xs font-bold rounded hover:bg-slate-200 transition-colors whitespace-nowrap">
+                                <span class="material-symbols-outlined text-[14px] align-middle">restart_alt</span> 초기화
+                            </button>
+                        </div>
+                    </div>
+                    <p class="text-[11px] text-slate-400 italic px-1">※ 년도/월/주차 변경 시 자동 검색. 년도 비우면 모든 년도의 해당 월·주차 표시.</p>
+
+                    <!-- [fix-314] 선택 행 필터 컨트롤 -->
+                    <div id="dtSelectionBar" class="hidden flex items-center justify-between gap-3 px-3 py-2 rounded-lg bg-violet-50 border border-violet-200">
+                        <div class="flex items-center gap-2 text-xs text-violet-800">
+                            <span class="material-symbols-outlined text-[16px]">checklist</span>
+                            <span><b id="dtSelCount">0</b>개 행 선택됨 <span class="text-violet-500 mx-1">·</span> <span class="text-violet-500 italic">Ctrl 누르고 행 클릭으로 추가/제거</span></span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button type="button" onclick="toggleSelectionFilter()" id="btnSelFilter" class="px-3 py-1 bg-violet-600 text-white text-[11px] font-bold rounded hover:bg-violet-700 transition-colors">선택만 보기</button>
+                            <button type="button" onclick="clearSelection()" class="px-3 py-1 bg-white border border-violet-300 text-violet-600 text-[11px] font-bold rounded hover:bg-violet-50 transition-colors">선택 해제</button>
                         </div>
                     </div>
                     <!-- 추가 조건 -->
                     <details class="rounded-lg border border-violet-100 bg-white">
                         <summary class="px-3 py-2 text-xs font-bold text-slate-600 cursor-pointer select-none">추가 조건 (선택) ▾</summary>
-                        <div class="p-3 grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-3">
+                        <div class="p-3 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-5 gap-y-3">
                             <div>
                                 <label class="block text-xs font-semibold text-slate-500 mb-1">총합 범위</label>
-                                <div class="flex gap-1 items-center">
-                                    <input type="number" id="dtSumMin" class="input-base text-sm" placeholder="최소">
+                                <div class="flex gap-2 items-center">
+                                    <input type="number" id="dtSumMin" class="dt-underline-input" placeholder="↓">
                                     <span class="text-slate-400 text-xs flex-shrink-0">~</span>
-                                    <input type="number" id="dtSumMax" class="input-base text-sm" placeholder="최대">
+                                    <input type="number" id="dtSumMax" class="dt-underline-input" placeholder="↑">
                                 </div>
                             </div>
                             <div>
                                 <label class="block text-xs font-semibold text-slate-500 mb-1">홀수 개수</label>
-                                <div class="flex gap-1 items-center">
-                                    <input type="number" id="dtOddMin" class="input-base text-sm" placeholder="최소" min="0" max="6">
+                                <div class="flex gap-2 items-center">
+                                    <input type="number" id="dtOddMin" class="dt-underline-input" placeholder="↓" min="0" max="6">
                                     <span class="text-slate-400 text-xs flex-shrink-0">~</span>
-                                    <input type="number" id="dtOddMax" class="input-base text-sm" placeholder="최대" min="0" max="6">
+                                    <input type="number" id="dtOddMax" class="dt-underline-input" placeholder="↑" min="0" max="6">
                                 </div>
                             </div>
                             <div>
                                 <label class="block text-xs font-semibold text-slate-500 mb-1">AC 값</label>
-                                <div class="flex gap-1 items-center">
-                                    <input type="number" id="dtAcMin" class="input-base text-sm" placeholder="최소" min="0" max="10">
+                                <div class="flex gap-2 items-center">
+                                    <input type="number" id="dtAcMin" class="dt-underline-input" placeholder="↓" min="0" max="10">
                                     <span class="text-slate-400 text-xs flex-shrink-0">~</span>
-                                    <input type="number" id="dtAcMax" class="input-base text-sm" placeholder="최대" min="0" max="10">
+                                    <input type="number" id="dtAcMax" class="dt-underline-input" placeholder="↑" min="0" max="10">
                                 </div>
                             </div>
                             <div>
                                 <label class="block text-xs font-semibold text-slate-500 mb-1">연번 쌍수</label>
-                                <div class="flex gap-1 items-center">
-                                    <input type="number" id="dtConsecMin" class="input-base text-sm" placeholder="최소" min="0">
+                                <div class="flex gap-2 items-center">
+                                    <input type="number" id="dtConsecMin" class="dt-underline-input" placeholder="↓" min="0">
                                     <span class="text-slate-400 text-xs flex-shrink-0">~</span>
-                                    <input type="number" id="dtConsecMax" class="input-base text-sm" placeholder="최대">
+                                    <input type="number" id="dtConsecMax" class="dt-underline-input" placeholder="↑">
                                 </div>
                             </div>
                             <div>
                                 <label class="block text-xs font-semibold text-slate-500 mb-1">이월수 개수</label>
-                                <div class="flex gap-1 items-center">
-                                    <input type="number" id="dtCarryMin" class="input-base text-sm" placeholder="최소" min="0">
+                                <div class="flex gap-2 items-center">
+                                    <input type="number" id="dtCarryMin" class="dt-underline-input" placeholder="↓" min="0">
                                     <span class="text-slate-400 text-xs flex-shrink-0">~</span>
-                                    <input type="number" id="dtCarryMax" class="input-base text-sm" placeholder="최대">
+                                    <input type="number" id="dtCarryMax" class="dt-underline-input" placeholder="↑">
                                 </div>
                             </div>
                         </div>
                     </details>
+                    <!-- [fix-272] 라인별 번호 조건 + 인과 패턴 검색 — 2분할 그리드 -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                    <!-- [fix-270] 라인별 번호 조건 -->
+                    <details class="rounded-lg border border-violet-100 bg-white">
+                        <summary class="px-3 py-2 text-xs font-bold text-slate-600 cursor-pointer select-none">
+                            🎯 라인별 번호 조건 (선택) — 1~6번 라인 또는 보너스에 특정 번호 ▾
+                        </summary>
+                        <div class="p-3 space-y-3">
+                            <!-- 입력 행: 라인 + 번호 + 추가 -->
+                            <div class="flex items-center gap-3 flex-wrap">
+                                <div class="flex items-center gap-2">
+                                    <label class="text-xs font-semibold text-slate-500">라인</label>
+                                    <select id="dtLineSelect" class="dt-underline-select">
+                                        <option value="any">전체</option>
+                                        <option value="1">1번</option>
+                                        <option value="2">2번</option>
+                                        <option value="3">3번</option>
+                                        <option value="4">4번</option>
+                                        <option value="5">5번</option>
+                                        <option value="6">6번</option>
+                                        <option value="bonus">보너스</option>
+                                    </select>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <label class="text-xs font-semibold text-slate-500">번호</label>
+                                    <input type="number" id="dtLineNum" class="dt-underline-input dt-w-num" placeholder="1~45" min="1" max="45">
+                                </div>
+                                <button onclick="addLineCondition()" style="background:#7c3aed;color:#fff;border:0;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;">+ 추가</button>
+                            </div>
+                            <!-- 조건 결합 모드 (별도 줄) -->
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <span class="text-xs text-slate-500 whitespace-nowrap">조건 결합</span>
+                                <button id="btnLineAndOr" onclick="toggleLineAndOr()" style="background:#7c3aed;color:#fff;border:0;padding:4px 14px;border-radius:9999px;font-size:11px;font-weight:700;cursor:pointer;">AND</button>
+                                <span class="text-[11px] text-slate-400 italic">(클릭하여 OR↔AND 전환)</span>
+                            </div>
+                            <!-- 조건 칩 리스트 -->
+                            <div id="dtLineCondList" class="flex flex-wrap gap-1.5">
+                                <span class="text-[11px] text-slate-300 italic">조건 없음</span>
+                            </div>
+                        </div>
+                    </details>
+
+                    <!-- [fix-270/272] 인과 검색 (Causal Pattern) -->
+                    <details class="rounded-lg border border-orange-200 bg-orange-50/30">
+                        <summary class="px-3 py-2 text-xs font-bold text-slate-700 cursor-pointer select-none">
+                            🔗 인과 패턴 검색 (선택) — 트리거 회차 → N회 이내 → 앵커 회차 ±컨텍스트 ▾
+                        </summary>
+                        <div class="p-3 space-y-3">
+                            <label class="flex items-center gap-2 text-xs">
+                                <input type="checkbox" id="dtCausalEnabled" onchange="toggleCausalUI()">
+                                <span class="font-bold text-slate-700">인과 검색 활성화</span>
+                                <span class="text-slate-400 italic">(체크 시 일반 조건 무시)</span>
+                            </label>
+                            <div id="dtCausalForm" class="hidden space-y-4 pl-3 border-l-2 border-orange-200">
+                                <!-- 1단계 트리거 -->
+                                <div>
+                                    <div class="text-[11px] font-bold text-orange-700 mb-1.5">1단계 트리거</div>
+                                    <div class="flex items-center gap-3 flex-wrap pl-1">
+                                        <select id="dtCausalTrigLine" class="dt-underline-select">
+                                            <option value="any">전체</option>
+                                            <option value="1">1번</option><option value="2">2번</option><option value="3">3번</option>
+                                            <option value="4">4번</option><option value="5">5번</option><option value="6">6번</option>
+                                            <option value="bonus">보너스</option>
+                                        </select>
+                                        <span class="text-xs text-slate-500">에</span>
+                                        <input type="number" id="dtCausalTrigNum" class="dt-underline-input dt-w-num" placeholder="번호" min="1" max="45">
+                                        <span class="text-xs text-slate-500">이 나오고</span>
+                                    </div>
+                                </div>
+                                <!-- 2단계 범위 -->
+                                <div>
+                                    <div class="text-[11px] font-bold text-orange-700 mb-1.5">2단계 범위</div>
+                                    <div class="flex items-center gap-3 flex-wrap pl-1">
+                                        <input type="number" id="dtCausalWithinN" class="dt-underline-input dt-w-num" value="3" min="1" max="50">
+                                        <span class="text-xs text-slate-500">회 이내에</span>
+                                    </div>
+                                </div>
+                                <!-- 3단계 앵커 -->
+                                <div>
+                                    <div class="text-[11px] font-bold text-orange-700 mb-1.5">3단계 앵커</div>
+                                    <div class="flex items-center gap-3 flex-wrap pl-1">
+                                        <select id="dtCausalAnchLine" class="dt-underline-select">
+                                            <option value="bonus" selected>보너스</option>
+                                            <option value="any">전체</option>
+                                            <option value="1">1번</option><option value="2">2번</option><option value="3">3번</option>
+                                            <option value="4">4번</option><option value="5">5번</option><option value="6">6번</option>
+                                        </select>
+                                        <span class="text-xs text-slate-500">에</span>
+                                        <input type="number" id="dtCausalAnchNum" class="dt-underline-input dt-w-num" placeholder="번호" min="1" max="45">
+                                        <span class="text-xs text-slate-500">당첨</span>
+                                    </div>
+                                    <div class="text-[10px] text-slate-400 italic mt-1 pl-1">→ 앵커 회차를 기준으로 ±컨텍스트 노출</div>
+                                </div>
+                            </div>
+                        </div>
+                    </details>
+                    </div>
+                    <!-- /[fix-272] 2분할 그리드 종료 -->
+
                     <!-- 컨텍스트 창 + 실행 -->
                     <div class="flex items-center gap-4 flex-wrap">
-                        <div class="flex items-center gap-2 flex-wrap">
+                        <div class="flex items-center gap-3 flex-wrap">
                             <label class="text-xs font-bold text-slate-600">전후 컨텍스트:</label>
                             <span class="text-xs text-slate-500">이전</span>
-                            <input type="number" id="dtCtxBefore" class="input-base text-sm" style="width:56px" value="2" min="0" max="5">
+                            <input type="number" id="dtCtxBefore" class="dt-underline-input dt-w-ctx" value="2" min="0" max="5">
                             <span class="text-xs text-slate-500">회 / 이후</span>
-                            <input type="number" id="dtCtxAfter" class="input-base text-sm" style="width:56px" value="1" min="0" max="5">
+                            <input type="number" id="dtCtxAfter" class="dt-underline-input dt-w-ctx" value="1" min="0" max="5">
                             <span class="text-xs text-slate-500">회</span>
                         </div>
                         <button onclick="runDetective()" class="btn-base btn-detective-active gap-2 ml-auto">
@@ -693,6 +916,41 @@
             </div>
             <!-- ====== /패턴 탐정 조건 패널 ====== -->
 
+            <!-- [fix-273] 속성별 퀵 하이라이트 버튼 바 -->
+            <div class="mb-3 bg-white border border-slate-200 rounded-xl px-3 py-2.5">
+                <div class="flex items-center gap-2 mb-2 flex-wrap">
+                    <span class="text-xs font-bold text-slate-700 uppercase tracking-wide">속성별 보기</span>
+                    <span class="text-[10px] text-slate-400">— 버튼 클릭 시 당첨번호가 해당 속성으로 표시</span>
+                    <button onclick="setAttrMode('normal')" class="ml-auto text-[10px] text-slate-400 hover:text-rose-500 underline">초기화</button>
+                </div>
+                <div class="flex items-center gap-1.5 flex-wrap" id="attrButtonBar">
+                    <!-- 수 종류 -->
+                    <button class="attr-btn" data-mode="prime">소수</button>
+                    <button class="attr-btn" data-mode="composite">합성수</button>
+                    <button class="attr-btn" data-mode="square">제곱수</button>
+                    <button class="attr-btn" data-mode="triangular">삼각수</button>
+                    <span class="text-slate-200 mx-1">|</span>
+                    <!-- 배수 -->
+                    <button class="attr-btn" data-mode="mul3">3배수</button>
+                    <button class="attr-btn" data-mode="mul4">4배수</button>
+                    <button class="attr-btn" data-mode="mul5">5배수</button>
+                    <button class="attr-btn" data-mode="mul7">7배수</button>
+                    <button class="attr-btn" data-mode="mul8">8배수</button>
+                    <button class="attr-btn" data-mode="mulNone">배수외</button>
+                    <span class="text-slate-200 mx-1">|</span>
+                    <!-- 회차간 관계 -->
+                    <button class="attr-btn" data-mode="consecutive">연번</button>
+                    <button class="attr-btn" data-mode="carryover">이월수</button>
+                    <button class="attr-btn" data-mode="neighbor">이웃수</button>
+                    <span class="text-slate-200 mx-1">|</span>
+                    <!-- 표시 변경 -->
+                    <button class="attr-btn" data-mode="range">번호대별</button>
+                    <button class="attr-btn" data-mode="paperRow">용지 가로</button>
+                    <button class="attr-btn" data-mode="paperCol">용지 세로</button>
+                    <button class="attr-btn" data-mode="palace">9궁</button>
+                </div>
+            </div>
+
             <div
                 class="flex-1 overflow-hidden border border-slate-200 rounded-xl bg-white shadow-sm flex flex-col mb-6">
                 <div class="flex-1 overflow-auto custom-scrollbar relative">
@@ -701,7 +959,8 @@
                             <tr>
                                 <th class="sticky-col w-[70px]">회차</th>
                                 <th class="w-[90px]">당첨일</th>
-                                <th class="w-[220px]">당첨번호</th>
+                                <!-- [fix-275] 당첨번호 폭 220→180 (보너스 칸 패딩 정도만 좌우 여백) -->
+                                <th class="w-[180px]">당첨번호</th>
                                 <th class="w-[50px]">보너스</th>
 
                                 <th class="w-[50px] clickable-header" onclick="handleHeaderClick(4)" id="th-col-4">총합
@@ -714,21 +973,28 @@
                                     id="th-col-7">홀:짝</th>
                                 <th class="w-[50px] clickable-header" onclick="handleHeaderClick(8, 'lh')"
                                     id="th-col-8">저:고</th>
-                                <th class="w-[50px] clickable-header" onclick="handleHeaderClick(9, 'prime')"
-                                    id="th-col-9">소:합</th>
-                                <th class="w-[50px] clickable-header" onclick="handleHeaderClick(10, 'neighbor')"
-                                    id="th-col-10">이웃수</th>
-                                <th class="w-[50px] clickable-header" onclick="handleHeaderClick(11, 'carryover')"
-                                    id="th-col-11">이월수</th>
+                                <!-- [fix-276] 소:합 → 소수/합성수 분리 + 삼각수 추가 -->
+                                <th class="w-[40px] clickable-header" onclick="handleHeaderClick(9, 'prime')" id="th-col-9">소수</th>
+                                <th class="w-[40px] clickable-header" onclick="handleHeaderClick(10, 'composite')" id="th-col-10">합성수</th>
+                                <th class="w-[40px] clickable-header" onclick="handleHeaderClick(11, 'triangular')" id="th-col-11">삼각수</th>
+                                <th class="w-[50px] clickable-header" onclick="handleHeaderClick(12, 'neighbor')"
+                                    id="th-col-12">이웃수</th>
+                                <th class="w-[50px] clickable-header" onclick="handleHeaderClick(13, 'carryover')"
+                                    id="th-col-13">이월수</th>
 
-                                <th class="w-[40px] clickable-header" onclick="handleHeaderClick(12)" id="th-col-12">연번
+                                <th class="w-[40px] clickable-header" onclick="handleHeaderClick(14)" id="th-col-14">연번
                                 </th>
-                                <th class="w-[70px] clickable-header" onclick="handleHeaderClick(13)" id="th-col-13">
+                                <th class="w-[70px] clickable-header" onclick="handleHeaderClick(15)" id="th-col-15">
                                     핫/콜드</th>
-                                <th class="w-[90px] clickable-header" onclick="handleHeaderClick(14)" id="th-col-14">
-                                    배수(3/4/5/외)</th>
-                                <th class="w-[90px] clickable-header" onclick="handleHeaderClick(15)" id="th-col-15">
-                                    번호대별</th>
+                                <!-- [fix-275] 배수 6개 컬럼 분리 -->
+                                <th class="w-[40px] clickable-header" onclick="handleHeaderClick(16)" id="th-col-16">3배수</th>
+                                <th class="w-[40px] clickable-header" onclick="handleHeaderClick(17)" id="th-col-17">4배수</th>
+                                <th class="w-[40px] clickable-header" onclick="handleHeaderClick(18)" id="th-col-18">5배수</th>
+                                <th class="w-[40px] clickable-header" onclick="handleHeaderClick(19)" id="th-col-19">7배수</th>
+                                <th class="w-[40px] clickable-header" onclick="handleHeaderClick(20)" id="th-col-20">8배수</th>
+                                <th class="clickable-header" style="width:45px;min-width:45px;" onclick="handleHeaderClick(21)" id="th-col-21">배수외</th>
+                                <!-- [fix-275] 번호대별 폭 90→70 -->
+                                <th class="w-[70px] clickable-header" onclick="handleHeaderClick(22)" id="th-col-22">번호대별</th>
                             </tr>
                         </thead>
                         <tbody id="drawTableBody"></tbody>
@@ -840,11 +1106,43 @@
         let dtAndOr = 'AND';
         let dtPickedNums = new Set();
 
+        // [fix-274] 마지막 탐정 결과 캐시 — viewMode 변경 시 같은 결과 재렌더용
+        let lastDetectiveGroups = null;
+
+        // [fix-270] 라인별 번호 조건 + 인과 검색 상태
+        let dtLineConditions = [];   // [{line: 'any'|'1'..'6'|'bonus', num: 1..45}]
+        let dtLineAndOr = 'AND';     // 라인 조건 결합 모드
+
         const PRIMES = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43];
 
         document.addEventListener('DOMContentLoaded', function () {
             initPage();
             document.getElementById('manualRound').addEventListener('input', calculateDateFromRound);
+            // [fix-273-fix] 속성별 퀵 버튼 이벤트 위임
+            const attrBar = document.getElementById('attrButtonBar');
+            if (attrBar) {
+                attrBar.addEventListener('click', (e) => {
+                    const btn = e.target.closest('.attr-btn');
+                    if (!btn || !btn.dataset.mode) return;
+                    setAttrMode(btn.dataset.mode);
+                });
+            }
+            // [fix-277] GNB 퀵 버튼에서 ?detective=1 진입 시 패턴 탐정 자동 활성화
+            const params = new URLSearchParams(window.location.search);
+            if (params.get('detective') === '1') {
+                // 데이터 로드 + DOM 준비 후 토글
+                const tryOpen = (retries = 20) => {
+                    if (retries <= 0) return;
+                    if (typeof toggleDetectiveMode === 'function' && !detectiveMode) {
+                        toggleDetectiveMode();
+                        const panel = document.getElementById('detective-panel');
+                        if (panel) panel.scrollIntoView({ block: 'start', behavior: 'smooth' });
+                    } else if (!detectiveMode) {
+                        setTimeout(() => tryOpen(retries - 1), 200);
+                    }
+                };
+                setTimeout(tryOpen, 800);
+            }
         });
 
         function checkInput(el) {
@@ -880,7 +1178,7 @@
                 }
 
                 if (!drawsResult.data || drawsResult.data.length === 0) {
-                    tbody.innerHTML = `<tr><td colspan="16" class="py-20 text-center text-slate-400">데이터가 없습니다.</td></tr>`;
+                    tbody.innerHTML = `<tr><td colspan="23" class="py-20 text-center text-slate-400">데이터가 없습니다.</td></tr>`;
                     document.getElementById('loadingOverlay').style.display = 'none';
                     return;
                 }
@@ -896,7 +1194,7 @@
 
             } catch (err) {
                 console.error('로드 실패:', err);
-                tbody.innerHTML = `<tr><td colspan="16" class="py-20 text-center text-red-400">데이터 로드 실패: ${err.message}</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="23" class="py-20 text-center text-red-400">데이터 로드 실패: ${err.message}</td></tr>`;
                 document.getElementById('loadingOverlay').style.display = 'none';
             }
         }
@@ -922,13 +1220,26 @@
                     prevNumbers: prevNums
                 };
 
-                // 배수 (3/4/5/배수외)
+                // [fix-275] 배수 (3/4/5/7/8/배수외) — 6개 개별 컬럼
+                const M7_SET_RAW = [7,14,21,28,35,42];
+                const M8_SET_RAW = [8,16,24,32,40];
                 const m3 = nums.filter(n => n % 3 === 0).length;
                 const m4 = nums.filter(n => n % 4 === 0).length;
                 const m5 = nums.filter(n => n % 5 === 0).length;
-                // 배수외: 3, 4, 5의 배수가 모두 아닌 수
+                const m7 = nums.filter(n => M7_SET_RAW.includes(n)).length;
+                const m8 = nums.filter(n => M8_SET_RAW.includes(n)).length;
+                // 배수외: 3, 4, 5의 배수가 모두 아닌 수 (7배수·8배수는 3·4·5·7·8 모두 아닌 별도 분류 시 다른 의미라 기존 로직 보존)
                 const mNo = nums.filter(n => n % 3 !== 0 && n % 4 !== 0 && n % 5 !== 0).length;
-                stat.multiples = `${m3}/${m4}/${m5}/${mNo}`;
+                stat.m3 = m3; stat.m4 = m4; stat.m5 = m5; stat.m7 = m7; stat.m8 = m8; stat.mNo = mNo;
+                stat.multiples = `${m3}/${m4}/${m5}/${mNo}`;  // 호환용 (다른 곳에서 사용 시)
+
+                // [fix-276] 소수/합성수/삼각수 개별 카운트
+                const PRIMES_RAW = [2,3,5,7,11,13,17,19,23,29,31,37,41,43];
+                const COMPOSITES_RAW = [4,6,8,9,10,12,14,15,16,18,20,21,22,24,25,26,27,28,30,32,33,34,35,36,38,39,40,42,44,45];
+                const TRIANGULARS_RAW = [1,3,6,10,15,21,28,36,45];
+                stat.primeCount      = nums.filter(n => PRIMES_RAW.includes(n)).length;
+                stat.compositeCount  = nums.filter(n => COMPOSITES_RAW.includes(n)).length;
+                stat.triangularCount = nums.filter(n => TRIANGULARS_RAW.includes(n)).length;
 
                 // 핫/콜드 (최근 10회차 기준)
                 let hot = 0, neutral = 0, cold = 0;
@@ -992,21 +1303,25 @@
 
         function renderTable(list) {
             const tbody = document.getElementById('drawTableBody');
-            if (list.length === 0) { tbody.innerHTML = `<tr><td colspan="16" class="py-20 text-center text-slate-400">검색 결과가 없습니다.</td></tr>`; return; }
+            if (list.length === 0) { tbody.innerHTML = `<tr><td colspan="23" class="py-20 text-center text-slate-400">검색 결과가 없습니다.</td></tr>`; return; }
 
             tbody.innerHTML = list.map(d => {
-                const ballsHtml = d.numbers.map(n =>
-                    `<span class="ball ${getSmartBallClass(n, viewMode, d.stat.prevNumbers)}">${n}</span>`
-                ).join('');
+                const ballsHtml = d.numbers.map(n => {
+                    const cls = getSmartBallClass(n, viewMode, d.stat.prevNumbers, d);
+                    const dispVal = getBallDisplayValue(n, viewMode);
+                    return `<span class="ball ${cls}" title="원래 번호: ${n}">${dispVal}</span>`;
+                }).join('');
 
-                const bonusClass = (viewMode === 'normal' || viewMode === 'prime')
+                const bonusClass = (viewMode === 'normal' || viewMode === 'range')
                     ? ((n) => {
                         if (n <= 10) return 'ball-y'; if (n <= 20) return 'ball-b';
                         if (n <= 30) return 'ball-r'; if (n <= 40) return 'ball-g'; return 'ball-gr';
                     })(d.bonus)
-                    : getSmartBallClass(d.bonus, viewMode, d.stat.prevNumbers);
+                    : getSmartBallClass(d.bonus, viewMode, d.stat.prevNumbers, d);
+                const bonusDisp = getBallDisplayValue(d.bonus, viewMode);
 
-                const isSelected = (selectedRound === d.round) ? 'selected-row' : '';
+                // [fix-314] selectedRounds Set 우선 → 복수 선택 시 모든 행 강조, 단일 선택은 selectedRound도 호환
+                const isSelected = (selectedRounds.has(d.round) || selectedRound === d.round) ? 'selected-row' : '';
                 const getColClass = (colIdx) => (activeColIndex === colIdx) ? 'col-active' : '';
 
                 const getHighlight = (colName, val) => {
@@ -1015,25 +1330,34 @@
                 };
 
                 return `
-                <tr class="group transition-colors ${isSelected}" onclick="selectRow(${d.round})">
+                <tr class="group transition-colors ${isSelected}" onclick="selectRow(${d.round}, event)">
                     <td class="sticky-col group-hover:bg-slate-50 font-bold">${d.round}회</td>
                     <td class="text-slate-500 text-xs">${d.date || '-'}</td>
                     <td><div class="flex items-center justify-center">${ballsHtml}</div></td>
-                    <td><span class="ball ${bonusClass} text-xs scale-90">${d.bonus || '-'}</span></td>
+                    <td><span class="ball ${bonusClass} text-xs scale-90" title="원래 번호: ${d.bonus || '-'}">${d.bonus ? bonusDisp : '-'}</span></td>
                     
                     <td class="text-slate-700 font-bold ${getColClass(4)} cursor-pointer-val"><span class="${getHighlight('sum', d.stat.sum)}" onclick="event.stopPropagation(); toggleValHighlight('sum', '${d.stat.sum}')">${d.stat.sum}</span></td>
                     <td class="text-slate-600 ${getColClass(5)} cursor-pointer-val"><span class="${getHighlight('endSum', d.stat.endSum)}" onclick="event.stopPropagation(); toggleValHighlight('endSum', '${d.stat.endSum}')">${d.stat.endSum}</span></td>
                     <td class="text-slate-600 font-bold ${getColClass(6)} cursor-pointer-val"><span class="${getHighlight('ac', d.stat.ac)}" onclick="event.stopPropagation(); toggleValHighlight('ac', '${d.stat.ac}')">${d.stat.ac}</span></td>
                     <td class="${d.stat.oe === '3:3' ? 'text-emerald-600 font-bold' : 'text-slate-500'} ${getColClass(7)} cursor-pointer-val"><span class="${getHighlight('oe', d.stat.oe)}" onclick="event.stopPropagation(); toggleValHighlight('oe', '${d.stat.oe}')">${d.stat.oe}</span></td>
                     <td class="${d.stat.lh === '3:3' ? 'text-blue-600 font-bold' : 'text-slate-500'} ${getColClass(8)} cursor-pointer-val"><span class="${getHighlight('lh', d.stat.lh)}" onclick="event.stopPropagation(); toggleValHighlight('lh', '${d.stat.lh}')">${d.stat.lh}</span></td>
-                    <td class="${d.stat.pc === '3:3' ? 'text-orange-600 font-bold' : 'text-slate-500'} ${getColClass(9)} cursor-pointer-val"><span class="${getHighlight('pc', d.stat.pc)}" onclick="event.stopPropagation(); toggleValHighlight('pc', '${d.stat.pc}')">${d.stat.pc}</span></td>
-                    <td class="${d.stat.neighbor > 0 ? 'text-orange-500 font-bold' : 'text-slate-400'} ${getColClass(10)} cursor-pointer-val"><span class="${getHighlight('neighbor', d.stat.neighbor)}" onclick="event.stopPropagation(); toggleValHighlight('neighbor', '${d.stat.neighbor}')">${d.stat.neighbor}</span></td>
-                    <td class="${d.stat.carryover > 0 ? 'text-purple-500 font-bold' : 'text-slate-400'} ${getColClass(11)} cursor-pointer-val"><span class="${getHighlight('carryover', d.stat.carryover)}" onclick="event.stopPropagation(); toggleValHighlight('carryover', '${d.stat.carryover}')">${d.stat.carryover}</span></td>
-                    
-                    <td class="${d.stat.consecutive > 0 ? 'text-red-500 font-bold' : 'text-slate-400'} ${getColClass(12)} cursor-pointer-val"><span class="${getHighlight('consecutive', d.stat.consecutive)}" onclick="event.stopPropagation(); toggleValHighlight('consecutive', '${d.stat.consecutive}')">${d.stat.consecutive}</span></td>
-                    <td class="text-slate-700 font-bold text-xs ${getColClass(13)} cursor-pointer-val"><span class="${getHighlight('hotCold', d.stat.hotCold)}" onclick="event.stopPropagation(); toggleValHighlight('hotCold', '${d.stat.hotCold}')">${d.stat.hotCold}</span></td>
-                    <td class="text-slate-600 text-xs ${getColClass(14)} cursor-pointer-val"><span class="${getHighlight('multiples', d.stat.multiples)}" onclick="event.stopPropagation(); toggleValHighlight('multiples', '${d.stat.multiples}')">${d.stat.multiples}</span></td>
-                    <td class="text-slate-600 font-mono tracking-tighter text-xs ${getColClass(15)} cursor-pointer-val"><span class="${getHighlight('section', d.stat.section)}" onclick="event.stopPropagation(); toggleValHighlight('section', '${d.stat.section}')">${d.stat.section}</span></td>
+                    <!-- [fix-276] 소수/합성수/삼각수 개별 컬럼 -->
+                    <td class="text-xs ${d.stat.primeCount>0?'text-orange-600 font-bold':'text-slate-400'} ${getColClass(9)} cursor-pointer-val"><span class="${getHighlight('primeCount', d.stat.primeCount)}" onclick="event.stopPropagation(); toggleValHighlight('primeCount', '${d.stat.primeCount}')">${d.stat.primeCount}</span></td>
+                    <td class="text-xs ${d.stat.compositeCount>0?'text-slate-700 font-bold':'text-slate-400'} ${getColClass(10)} cursor-pointer-val"><span class="${getHighlight('compositeCount', d.stat.compositeCount)}" onclick="event.stopPropagation(); toggleValHighlight('compositeCount', '${d.stat.compositeCount}')">${d.stat.compositeCount}</span></td>
+                    <td class="text-xs ${d.stat.triangularCount>0?'text-pink-600 font-bold':'text-slate-400'} ${getColClass(11)} cursor-pointer-val"><span class="${getHighlight('triangularCount', d.stat.triangularCount)}" onclick="event.stopPropagation(); toggleValHighlight('triangularCount', '${d.stat.triangularCount}')">${d.stat.triangularCount}</span></td>
+                    <td class="${d.stat.neighbor > 0 ? 'text-orange-500 font-bold' : 'text-slate-400'} ${getColClass(12)} cursor-pointer-val"><span class="${getHighlight('neighbor', d.stat.neighbor)}" onclick="event.stopPropagation(); toggleValHighlight('neighbor', '${d.stat.neighbor}')">${d.stat.neighbor}</span></td>
+                    <td class="${d.stat.carryover > 0 ? 'text-purple-500 font-bold' : 'text-slate-400'} ${getColClass(13)} cursor-pointer-val"><span class="${getHighlight('carryover', d.stat.carryover)}" onclick="event.stopPropagation(); toggleValHighlight('carryover', '${d.stat.carryover}')">${d.stat.carryover}</span></td>
+
+                    <td class="${d.stat.consecutive > 0 ? 'text-red-500 font-bold' : 'text-slate-400'} ${getColClass(14)} cursor-pointer-val"><span class="${getHighlight('consecutive', d.stat.consecutive)}" onclick="event.stopPropagation(); toggleValHighlight('consecutive', '${d.stat.consecutive}')">${d.stat.consecutive}</span></td>
+                    <td class="text-slate-700 font-bold text-xs ${getColClass(15)} cursor-pointer-val"><span class="${getHighlight('hotCold', d.stat.hotCold)}" onclick="event.stopPropagation(); toggleValHighlight('hotCold', '${d.stat.hotCold}')">${d.stat.hotCold}</span></td>
+                    <!-- [fix-275] 배수 6개 분리 컬럼 (m3/m4/m5/m7/m8/mNo) -->
+                    <td class="text-xs ${d.stat.m3>0?'text-blue-600 font-bold':'text-slate-400'} ${getColClass(16)} cursor-pointer-val"><span class="${getHighlight('m3', d.stat.m3)}" onclick="event.stopPropagation(); toggleValHighlight('m3', '${d.stat.m3}')">${d.stat.m3}</span></td>
+                    <td class="text-xs ${d.stat.m4>0?'text-blue-600 font-bold':'text-slate-400'} ${getColClass(17)} cursor-pointer-val"><span class="${getHighlight('m4', d.stat.m4)}" onclick="event.stopPropagation(); toggleValHighlight('m4', '${d.stat.m4}')">${d.stat.m4}</span></td>
+                    <td class="text-xs ${d.stat.m5>0?'text-blue-600 font-bold':'text-slate-400'} ${getColClass(18)} cursor-pointer-val"><span class="${getHighlight('m5', d.stat.m5)}" onclick="event.stopPropagation(); toggleValHighlight('m5', '${d.stat.m5}')">${d.stat.m5}</span></td>
+                    <td class="text-xs ${d.stat.m7>0?'text-blue-600 font-bold':'text-slate-400'} ${getColClass(19)} cursor-pointer-val"><span class="${getHighlight('m7', d.stat.m7)}" onclick="event.stopPropagation(); toggleValHighlight('m7', '${d.stat.m7}')">${d.stat.m7}</span></td>
+                    <td class="text-xs ${d.stat.m8>0?'text-blue-600 font-bold':'text-slate-400'} ${getColClass(20)} cursor-pointer-val"><span class="${getHighlight('m8', d.stat.m8)}" onclick="event.stopPropagation(); toggleValHighlight('m8', '${d.stat.m8}')">${d.stat.m8}</span></td>
+                    <td class="text-xs ${d.stat.mNo>0?'text-slate-700 font-bold':'text-slate-400'} ${getColClass(21)} cursor-pointer-val"><span class="${getHighlight('mNo', d.stat.mNo)}" onclick="event.stopPropagation(); toggleValHighlight('mNo', '${d.stat.mNo}')">${d.stat.mNo}</span></td>
+                    <td class="text-slate-600 font-mono tracking-tighter text-xs ${getColClass(22)} cursor-pointer-val"><span class="${getHighlight('section', d.stat.section)}" onclick="event.stopPropagation(); toggleValHighlight('section', '${d.stat.section}')">${d.stat.section}</span></td>
                 </tr>
             `}).join('');
         }
@@ -1060,7 +1384,9 @@
                 const activeTh = document.getElementById(`th-col-${activeColIndex}`);
                 if (activeTh) activeTh.classList.add('active-col-header');
             }
-            renderTable(allDrawData.slice().reverse());
+            // [fix-327] applyAllFilters로 통합 — dateFilter/selection/detective 보존
+            if (typeof applyAllFilters === 'function') applyAllFilters();
+            else renderTable(allDrawData.slice().reverse());
         }
 
         function toggleValHighlight(col, val) {
@@ -1069,17 +1395,45 @@
             } else {
                 selectedHighlight = { col: col, val: val };
             }
-            renderTable(allDrawData.slice().reverse());
+            // [fix-327] applyAllFilters로 통합 — dateFilter/selection/detective 보존
+            if (typeof applyAllFilters === 'function') applyAllFilters();
+            else renderTable(allDrawData.slice().reverse());
         }
 
-        function getSmartBallClass(n, mode, prevNumbers) {
+        // [fix-273] 속성별 LUT
+        const COMPOSITES_SET = new Set([4,6,8,9,10,12,14,15,16,18,20,21,22,24,25,26,27,28,30,32,33,34,35,36,38,39,40,42,44,45]);
+        const SQUARES_SET = new Set([1,4,9,16,25,36]);
+        const TRIANGULARS_SET = new Set([1,3,6,10,15,21,28,36,45]);
+        const MUL7_SET = new Set([7,14,21,28,35,42]);
+        const MUL8_SET = new Set([8,16,24,32,40]);
+
+        function getSmartBallClass(n, mode, prevNumbers, currentDraw) {
             if (mode === 'normal') {
                 if (n <= 10) return 'ball-y'; if (n <= 20) return 'ball-b';
                 if (n <= 30) return 'ball-r'; if (n <= 40) return 'ball-g'; return 'ball-gr';
             }
             if (mode === 'oe') return (n % 2 !== 0) ? 'ball-odd' : 'ball-even';
             if (mode === 'lh') return (n <= 23) ? 'ball-low' : 'ball-high';
-            if (mode === 'prime') return PRIMES.includes(n) ? 'ball-prime' : 'ball-composite';
+            if (mode === 'prime') return PRIMES.includes(n) ? 'ball-active' : 'ball-dim';
+            // [fix-273] 새로운 속성별 모드
+            if (mode === 'composite')  return COMPOSITES_SET.has(n) ? 'ball-active' : 'ball-dim';
+            if (mode === 'square')     return SQUARES_SET.has(n) ? 'ball-active' : 'ball-dim';
+            if (mode === 'triangular') return TRIANGULARS_SET.has(n) ? 'ball-active' : 'ball-dim';
+            if (mode === 'mul3')       return (n % 3 === 0) ? 'ball-active' : 'ball-dim';
+            if (mode === 'mul4')       return (n % 4 === 0) ? 'ball-active' : 'ball-dim';
+            if (mode === 'mul5')       return (n % 5 === 0) ? 'ball-active' : 'ball-dim';
+            if (mode === 'mul7')       return MUL7_SET.has(n) ? 'ball-active' : 'ball-dim';
+            if (mode === 'mul8')       return MUL8_SET.has(n) ? 'ball-active' : 'ball-dim';
+            if (mode === 'mulNone')    return (n % 3 !== 0 && n % 4 !== 0 && n % 5 !== 0) ? 'ball-active' : 'ball-dim';
+            if (mode === 'consecutive') {
+                // 같은 회차 내에서 연속된 번호 (당첨번호 sorted 후 인접)
+                if (!currentDraw || !currentDraw.numbers) return 'ball-dim';
+                const sorted = [...currentDraw.numbers].sort((a, b) => a - b);
+                for (let i = 0; i < sorted.length - 1; i++) {
+                    if (sorted[i + 1] === sorted[i] + 1 && (sorted[i] === n || sorted[i+1] === n)) return 'ball-active';
+                }
+                return 'ball-dim';
+            }
             if (mode === 'neighbor') {
                 if (!prevNumbers) return 'ball-dim';
                 const isNeighbor = prevNumbers.some(prev => (prev > 1 && n === prev - 1) || (prev < 45 && n === prev + 1));
@@ -1090,12 +1444,238 @@
                 if (!prevNumbers) return 'ball-dim';
                 return prevNumbers.includes(n) ? 'ball-active' : 'ball-dim';
             }
+            // 표시 변경 모드 — 번호대별/9궁/로또용지
+            if (mode === 'range') {
+                if (n <= 10) return 'ball-y'; if (n <= 20) return 'ball-b';
+                if (n <= 30) return 'ball-r'; if (n <= 40) return 'ball-g'; return 'ball-gr';
+            }
+            if (mode === 'palace') {
+                const palace = Math.ceil(n / 5);   // 1~9궁
+                return `ball-palace${palace}`;
+            }
+            // [fix-274] 로또용지 가로(행) — 가로1=[1..7], 가로7=[43..45]
+            if (mode === 'paperRow') {
+                const row = Math.min(Math.ceil(n / 7), 7);
+                return `ball-paper${row}`;
+            }
+            // [fix-274] 로또용지 세로(열) — 세로1=[1,8,15,22,29,36,43], 세로7=[7,14,21,28,35,42]
+            if (mode === 'paperCol') {
+                const col = ((n - 1) % 7) + 1;
+                return `ball-paper${col}`;
+            }
             return 'ball-gray';
         }
 
-        function selectRow(round) {
-            selectedRound = round;
-            renderTable(allDrawData.slice().reverse());
+        // [fix-273/274] 표시 값 변환 (palace=궁번호, paperRow=행, paperCol=열)
+        function getBallDisplayValue(n, mode) {
+            if (mode === 'palace')   return Math.ceil(n / 5);                   // 1~9
+            if (mode === 'paperRow') return Math.min(Math.ceil(n / 7), 7);      // 1~7행 (가로)
+            if (mode === 'paperCol') return ((n - 1) % 7) + 1;                  // 1~7열 (세로)
+            return n;
+        }
+
+        // [fix-273/274] 속성 모드 전환 (퀵 버튼 핸들러)
+        // detective 모드(패턴 탐정 결과 표시 중)면 캐시된 그룹을 재렌더 → 전체 회차로 안 돌아감
+        function setAttrMode(mode) {
+            const wasActive = (viewMode === mode);
+            viewMode = wasActive ? 'normal' : mode;
+            // 버튼 활성 상태 갱신
+            document.querySelectorAll('.attr-btn').forEach(b => {
+                b.classList.toggle('attr-active', !wasActive && b.dataset.mode === mode);
+            });
+            // [fix-327] applyAllFilters로 통합 — dateFilter + selectionOnly + detective 모두 보존
+            // 이전: renderTable/renderDetectiveTable 직접 호출 → 월/주차 필터 무력화 버그
+            if (typeof applyAllFilters === 'function') {
+                applyAllFilters();
+            } else {
+                // fallback (applyAllFilters 정의 전 호출 방어)
+                if (detectiveMode && lastDetectiveGroups) {
+                    renderDetectiveTable(lastDetectiveGroups);
+                } else {
+                    renderTable(allDrawData.slice().reverse());
+                }
+            }
+        }
+
+        // [fix-314] Ctrl+click 복수 선택 + 월/주차 필터 + 선택만 보기
+        let selectedRounds = new Set();
+        let dateFilterActive = false;
+        let dateFilterCriteria = { year: null, month: null, week: null };
+        let selectionOnlyMode = false;
+
+        function selectRow(round, ev) {
+            // Ctrl 또는 Cmd 키 → 복수 선택 토글
+            const isMulti = ev && (ev.ctrlKey || ev.metaKey);
+            if (isMulti) {
+                if (selectedRounds.has(round)) selectedRounds.delete(round);
+                else selectedRounds.add(round);
+                selectedRound = selectedRounds.size > 0 ? round : null;
+            } else {
+                // 단일 선택 — 기존 selectedRound 동작 유지 + selectedRounds 초기화
+                if (selectedRound === round && selectedRounds.size <= 1) {
+                    selectedRound = null;
+                    selectedRounds.clear();
+                } else {
+                    selectedRound = round;
+                    selectedRounds.clear();
+                    selectedRounds.add(round);
+                }
+            }
+            updateSelectionBar();
+            applyAllFilters();
+        }
+
+        function updateSelectionBar() {
+            const bar = document.getElementById('dtSelectionBar');
+            const cnt = document.getElementById('dtSelCount');
+            if (!bar) return;
+            if (selectedRounds.size > 0) {
+                bar.classList.remove('hidden');
+                bar.classList.add('flex');
+                if (cnt) cnt.textContent = selectedRounds.size;
+            } else {
+                bar.classList.add('hidden');
+                bar.classList.remove('flex');
+                selectionOnlyMode = false;
+                const btn = document.getElementById('btnSelFilter');
+                if (btn) btn.textContent = '선택만 보기';
+            }
+        }
+
+        function toggleSelectionFilter() {
+            if (selectedRounds.size === 0) return;
+            selectionOnlyMode = !selectionOnlyMode;
+            const btn = document.getElementById('btnSelFilter');
+            if (btn) btn.textContent = selectionOnlyMode ? '전체 보기' : '선택만 보기';
+            applyAllFilters();
+        }
+
+        function clearSelection() {
+            selectedRounds.clear();
+            selectedRound = null;
+            selectionOnlyMode = false;
+            updateSelectionBar();
+            applyAllFilters();
+        }
+
+        // 월/주차 필터 — 같은 월의 N번째 토요일 추첨이 N주차
+        function applyDateFilter() {
+            const y = parseInt(document.getElementById('dtYearFilter').value) || null;
+            const m = parseInt(document.getElementById('dtMonthFilter').value) || null;
+            const w = parseInt(document.getElementById('dtWeekFilter').value) || null;
+            if (!y && !m && !w) { clearDateFilter(); return; }
+            dateFilterActive = true;
+            dateFilterCriteria = { year: y, month: m, week: w };
+            applyAllFilters();
+        }
+
+        function clearDateFilter() {
+            // [fix-326] 초기화 — 모든 필터 (월/주차 + 선택만 보기 + detective 인과 검색 결과) 일괄 reset
+            //   이전: dateFilter만 해제 → detective 결과가 그대로 남아 화면 변화 없음 (사용자 혼란)
+            //   변경: 모든 필터 상태 reset + 일반 1245회차 리스트로 강제 복귀
+            dateFilterActive = false;
+            dateFilterCriteria = { year: null, month: null, week: null };
+            const yEl = document.getElementById('dtYearFilter');
+            const mEl = document.getElementById('dtMonthFilter');
+            const wEl = document.getElementById('dtWeekFilter');
+            if (yEl) yEl.value = '';
+            if (mEl) mEl.value = '';
+            if (wEl) wEl.value = '';
+
+            // 선택만 보기 모드도 해제
+            selectionOnlyMode = false;
+            const btnSelFilter = document.getElementById('btnSelFilter');
+            if (btnSelFilter) btnSelFilter.textContent = '선택만 보기';
+
+            // detective 결과 표시 중이면 일반 리스트로 강제 복귀 (lastDetectiveGroups는 보존 — 재실행 시 활용)
+            // 사용자가 detective 모드를 닫고 싶으면 별도 toggleDetective 사용
+            if (detectiveMode && Array.isArray(lastDetectiveGroups) && lastDetectiveGroups.length > 0) {
+                // detective 결과 패널은 그대로 두되 매트릭스는 전체 group 표시 (필터 해제 상태)
+                renderDetectiveTable(lastDetectiveGroups);
+                const badge = document.getElementById('detective-match-badge');
+                if (badge) badge.textContent = `총 ${lastDetectiveGroups.length}건`;
+                const totalEl = document.getElementById('totalCount');
+                if (totalEl) totalEl.textContent = `총 ${allDrawData.length}회차 (탐정)`;
+            } else {
+                // 일반 모드: 전체 1245회차 리스트로 복귀
+                renderTable(allDrawData.slice().reverse());
+                const totalEl = document.getElementById('totalCount');
+                if (totalEl) totalEl.textContent = `총 ${allDrawData.length}회차`;
+            }
+        }
+
+        // 어떤 회차 d가 N주차인지 계산 — 같은 월 내 추첨일 순서 (1번째=1주차)
+        function _getWeekOfMonth(dateStr, allDataSorted) {
+            if (!dateStr) return null;
+            const dt = new Date(dateStr);
+            const y = dt.getFullYear(), m = dt.getMonth() + 1;
+            // 같은 월의 모든 추첨일 ASC 정렬 → index+1 = 주차
+            const sameMonth = allDataSorted.filter(d => {
+                if (!d.date) return false;
+                const di = new Date(d.date);
+                return di.getFullYear() === y && (di.getMonth() + 1) === m;
+            }).sort((a, b) => new Date(a.date) - new Date(b.date));
+            const idx = sameMonth.findIndex(d => d.date === dateStr);
+            return idx >= 0 ? idx + 1 : null;
+        }
+
+        function _matchesDateFilter(d, allDataSorted) {
+            if (!dateFilterActive || !d.date) return true;
+            const dt = new Date(d.date);
+            const { year, month, week } = dateFilterCriteria;
+            if (year && dt.getFullYear() !== year) return false;
+            if (month && (dt.getMonth() + 1) !== month) return false;
+            if (week) {
+                const wk = _getWeekOfMonth(d.date, allDataSorted);
+                if (wk !== week) return false;
+            }
+            return true;
+        }
+
+        // 통합 필터 적용 — 월/주차 + 선택만 보기 모두 반영
+        // [fix-316] detective mode + 인과 검색 결과 활성 시 그룹 자체 필터
+        function applyAllFilters() {
+            const totalEl = document.getElementById('totalCount');
+
+            // detective mode + 인과 검색 결과가 있으면 그룹의 anchor(match)만 필터
+            if (detectiveMode && Array.isArray(lastDetectiveGroups) && lastDetectiveGroups.length > 0) {
+                let filteredGroups = lastDetectiveGroups.slice();
+                if (dateFilterActive) {
+                    filteredGroups = filteredGroups.filter(g => {
+                        const matchRow = g.rows.find(r => r.rowType === 'match');
+                        return matchRow && _matchesDateFilter(matchRow.draw, allDrawData);
+                    });
+                }
+                if (selectionOnlyMode && selectedRounds.size > 0) {
+                    filteredGroups = filteredGroups.filter(g => selectedRounds.has(g.matchRound));
+                }
+                renderDetectiveTable(filteredGroups);
+                const badge = document.getElementById('detective-match-badge');
+                if (badge) badge.textContent = `${filteredGroups.length}건 (필터 적용)`;
+                if (totalEl) {
+                    totalEl.textContent = (dateFilterActive || selectionOnlyMode)
+                        ? `필터 결과 ${filteredGroups.length}건 (탐정)`
+                        : `총 ${allDrawData.length}회차`;
+                }
+                return;
+            }
+
+            // 일반 모드 (detective off OR detective on + 인과 검색 미실행)
+            let list = allDrawData.slice();
+            if (dateFilterActive) {
+                list = list.filter(d => _matchesDateFilter(d, allDrawData));
+            }
+            if (selectionOnlyMode && selectedRounds.size > 0) {
+                list = list.filter(d => selectedRounds.has(d.round));
+            }
+            renderTable(list.slice().reverse());
+            if (totalEl) {
+                if (dateFilterActive || selectionOnlyMode) {
+                    totalEl.textContent = `필터 결과 ${list.length}건`;
+                } else {
+                    totalEl.textContent = `총 ${allDrawData.length}회차`;
+                }
+            }
         }
 
         function applyNumSearch() {
@@ -1319,12 +1899,81 @@
             return allDrawData;
         }
 
+        // [fix-270] 라인별 번호 조건 헬퍼
+        // line: 'any' | '1'..'6' | 'bonus'
+        // num: 검색할 번호 (1~45)
+        function _checkLineCondition(d, line, num) {
+            if (line === 'any') return d.numbers.includes(num) || d.bonus === num;
+            if (line === 'bonus') return d.bonus === num;
+            // 1~6: 정렬된 본번호의 N번째 위치
+            const sorted = [...d.numbers].sort((a, b) => a - b);
+            const pos = parseInt(line);
+            return sorted[pos - 1] === num;
+        }
+
+        function addLineCondition() {
+            const line = document.getElementById('dtLineSelect').value;
+            const numStr = document.getElementById('dtLineNum').value;
+            const num = parseInt(numStr);
+            if (isNaN(num) || num < 1 || num > 45) {
+                alert('번호는 1~45 사이여야 합니다.');
+                return;
+            }
+            // 중복 가드
+            if (dtLineConditions.some(c => c.line === line && c.num === num)) {
+                alert('이미 추가된 조건입니다.');
+                return;
+            }
+            dtLineConditions.push({ line, num });
+            document.getElementById('dtLineNum').value = '';
+            renderLineConditionList();
+        }
+
+        function removeLineCondition(idx) {
+            dtLineConditions.splice(idx, 1);
+            renderLineConditionList();
+        }
+
+        function renderLineConditionList() {
+            const container = document.getElementById('dtLineCondList');
+            if (!container) return;
+            if (dtLineConditions.length === 0) {
+                container.innerHTML = '<span class="text-[11px] text-slate-300 italic">조건 없음</span>';
+                return;
+            }
+            const lineLabel = (l) => ({
+                'any': '전체', 'bonus': '보너스',
+                '1': '1번', '2': '2번', '3': '3번', '4': '4번', '5': '5번', '6': '6번'
+            }[l] || l);
+            container.innerHTML = dtLineConditions.map((c, i) => `
+                <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-violet-100 text-violet-700 text-[11px] font-bold">
+                    ${lineLabel(c.line)} = ${c.num}
+                    <span class="cursor-pointer text-violet-400 hover:text-rose-500" onclick="removeLineCondition(${i})">✕</span>
+                </span>
+            `).join('');
+        }
+
+        function toggleLineAndOr() {
+            dtLineAndOr = dtLineAndOr === 'AND' ? 'OR' : 'AND';
+            document.getElementById('btnLineAndOr').textContent = dtLineAndOr;
+        }
+
+        function toggleCausalUI() {
+            const enabled = document.getElementById('dtCausalEnabled').checked;
+            document.getElementById('dtCausalForm').classList.toggle('hidden', !enabled);
+        }
+
         function matchesDetectiveConditions(d) {
             // 번호 조건
             if (dtPickedNums.size > 0) {
                 const arr = [...dtPickedNums];
                 const inDraw = n => d.numbers.includes(n);
                 if (dtAndOr === 'AND' ? !arr.every(inDraw) : !arr.some(inDraw)) return false;
+            }
+            // [fix-270] 라인별 번호 조건
+            if (dtLineConditions.length > 0) {
+                const ok = (cond) => _checkLineCondition(d, cond.line, cond.num);
+                if (dtLineAndOr === 'AND' ? !dtLineConditions.every(ok) : !dtLineConditions.some(ok)) return false;
             }
             // 총합
             const sumMin = document.getElementById('dtSumMin').value;
@@ -1359,11 +2008,47 @@
 
         function runDetective() {
             const pool = getDrawPool();
-            const ctxBefore = Math.max(0, Math.min(5, parseInt(document.getElementById('dtCtxBefore').value) || 2));
-            const ctxAfter  = Math.max(0, Math.min(5, parseInt(document.getElementById('dtCtxAfter').value)  || 1));
+            // [fix-269] parseInt('0') || 2 → 0이 falsy라서 0 입력해도 2로 fallback되던 버그 수정
+            //          isNaN 체크로 '빈 입력'과 '0 입력' 구분
+            const _rawBefore = parseInt(document.getElementById('dtCtxBefore').value);
+            const _rawAfter  = parseInt(document.getElementById('dtCtxAfter').value);
+            const ctxBefore = Math.max(0, Math.min(5, isNaN(_rawBefore) ? 2 : _rawBefore));
+            const ctxAfter  = Math.max(0, Math.min(5, isNaN(_rawAfter)  ? 1 : _rawAfter));
 
             const matchRounds = new Set();
-            pool.forEach(d => { if (matchesDetectiveConditions(d)) matchRounds.add(d.round); });
+            // [fix-270] 인과 검색 모드: 트리거 → N회 이내 앵커 → 앵커 회차를 매치로 사용
+            const causalEnabled = document.getElementById('dtCausalEnabled')?.checked;
+            if (causalEnabled) {
+                const trigLine = document.getElementById('dtCausalTrigLine').value;
+                const trigNum  = parseInt(document.getElementById('dtCausalTrigNum').value);
+                const withinN  = parseInt(document.getElementById('dtCausalWithinN').value) || 3;
+                const anchLine = document.getElementById('dtCausalAnchLine').value;
+                const anchNum  = parseInt(document.getElementById('dtCausalAnchNum').value);
+                if (isNaN(trigNum) || isNaN(anchNum)) {
+                    alert('인과 검색: 트리거 번호와 앵커 번호를 모두 입력하세요.');
+                    return;
+                }
+                // pool의 round 집합 (range 필터 적용)
+                const poolRounds = new Set(pool.map(d => d.round));
+                // 트리거 회차 찾기
+                const trigDraws = pool.filter(d => _checkLineCondition(d, trigLine, trigNum));
+                // 각 트리거 회차 idx 기준 +1 ~ +withinN 사이에서 앵커 조건 만족 회차 찾기
+                trigDraws.forEach(td => {
+                    const ti = allDrawData.findIndex(x => x.round === td.round);
+                    if (ti === -1) return;
+                    for (let k = 1; k <= withinN; k++) {
+                        const ai = ti + k;
+                        if (ai >= allDrawData.length) break;
+                        const ad = allDrawData[ai];
+                        if (!poolRounds.has(ad.round)) continue; // 회차 범위 밖이면 스킵
+                        if (_checkLineCondition(ad, anchLine, anchNum)) {
+                            matchRounds.add(ad.round);
+                        }
+                    }
+                });
+            } else {
+                pool.forEach(d => { if (matchesDetectiveConditions(d)) matchRounds.add(d.round); });
+            }
 
             // round → index 맵
             const roundIndex = new Map();
@@ -1385,6 +2070,8 @@
                 groups.push({ matchRound, rows });
             });
 
+            // [fix-274] 결과 캐시 — viewMode 변경 시 재렌더용
+            lastDetectiveGroups = groups;
             renderDetectiveTable(groups);
             renderDetectiveStats(groups, matchRounds);
 
@@ -1395,8 +2082,27 @@
 
         function renderDetectiveTable(groups) {
             const tbody = document.getElementById('drawTableBody');
+
+            // [fix-328] dateFilter/selectionOnly 활성 시 어떤 호출 경로로 들어와도 자동 적용
+            //   기존: 일부 caller(setAttrMode 등)가 renderDetectiveTable 직접 호출 → 필터 무력화 버그
+            //   변경: 함수 진입 시점에 활성 필터를 자동 적용 → 모든 caller에서 일관 동작
+            if ((typeof dateFilterActive !== 'undefined' && dateFilterActive)
+                || (typeof selectionOnlyMode !== 'undefined' && selectionOnlyMode)) {
+                groups = groups.filter(g => {
+                    const matchRow = g.rows.find(r => r.rowType === 'match');
+                    if (!matchRow) return false;
+                    if (dateFilterActive && typeof _matchesDateFilter === 'function') {
+                        if (!_matchesDateFilter(matchRow.draw, allDrawData)) return false;
+                    }
+                    if (selectionOnlyMode && typeof selectedRounds !== 'undefined' && selectedRounds.size > 0) {
+                        if (!selectedRounds.has(g.matchRound)) return false;
+                    }
+                    return true;
+                });
+            }
+
             if (groups.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="16" class="py-16 text-center text-slate-400">
+                tbody.innerHTML = `<tr><td colspan="23" class="py-16 text-center text-slate-400">
                     <span class="material-symbols-outlined text-4xl mb-2 block">search_off</span>
                     조건에 맞는 회차가 없습니다.
                 </td></tr>`;
@@ -1409,16 +2115,24 @@
                 [...group.rows].reverse().forEach(({ draw: d, rowType }) => {
                     const isMatch = rowType === 'match';
                     const trClass = isMatch ? 'dt-row-match' : rowType === 'before' ? 'dt-row-before' : 'dt-row-after';
+                    // [fix-274] viewMode 적용 — 패턴 탐정 결과에서도 속성별 보기 동작
+                    // dtPickedNums 매칭 우선(검색 강조) > viewMode 속성별 변환
                     const ballsHtml = d.numbers.map(n => {
-                        const cls = dtPickedNums.size > 0
-                            ? (dtPickedNums.has(n) ? 'ball-dt-picked' : 'ball-dt-other')
-                            : getSmartBallClass(n, 'normal', d.stat.prevNumbers);
-                        return `<span class="ball ${cls}">${n}</span>`;
+                        const cls = dtPickedNums.size > 0 && dtPickedNums.has(n)
+                            ? 'ball-dt-picked'
+                            : (viewMode !== 'normal'
+                                ? getSmartBallClass(n, viewMode, d.stat.prevNumbers, d)
+                                : (dtPickedNums.size > 0 ? 'ball-dt-other' : getSmartBallClass(n, 'normal', d.stat.prevNumbers, d)));
+                        const dispVal = getBallDisplayValue(n, viewMode);
+                        return `<span class="ball ${cls}" title="원래 번호: ${n}">${dispVal}</span>`;
                     }).join('');
-                    const bonusClass = ((n) => {
-                        if (n <= 10) return 'ball-y'; if (n <= 20) return 'ball-b';
-                        if (n <= 30) return 'ball-r'; if (n <= 40) return 'ball-g'; return 'ball-gr';
-                    })(d.bonus);
+                    const bonusClass = (viewMode === 'normal' || viewMode === 'range')
+                        ? ((n) => {
+                            if (n <= 10) return 'ball-y'; if (n <= 20) return 'ball-b';
+                            if (n <= 30) return 'ball-r'; if (n <= 40) return 'ball-g'; return 'ball-gr';
+                        })(d.bonus)
+                        : getSmartBallClass(d.bonus, viewMode, d.stat.prevNumbers, d);
+                    const bonusDisp = getBallDisplayValue(d.bonus, viewMode);
                     const roundLabel = isMatch
                         ? `<span class="round-badge-match">${d.round}회</span>`
                         : `<span class="text-slate-400 text-xs font-semibold">${d.round}회
@@ -1430,23 +2144,32 @@
                         <td class="sticky-col">${roundLabel}</td>
                         <td class="text-slate-500 text-xs">${d.date || '-'}</td>
                         <td><div class="flex items-center justify-center">${ballsHtml}</div></td>
-                        <td><span class="ball ${bonusClass} text-xs scale-90">${d.bonus || '-'}</span></td>
+                        <td><span class="ball ${bonusClass} text-xs scale-90" title="원래 번호: ${d.bonus || '-'}">${d.bonus ? bonusDisp : '-'}</span></td>
                         <td class="text-slate-700 font-bold">${d.stat.sum}</td>
                         <td class="text-slate-600">${d.stat.endSum}</td>
                         <td class="text-slate-600 font-bold">${d.stat.ac}</td>
                         <td class="${d.stat.oe === '3:3' ? 'text-emerald-600 font-bold' : 'text-slate-500'}">${d.stat.oe}</td>
                         <td class="${d.stat.lh === '3:3' ? 'text-blue-600 font-bold' : 'text-slate-500'}">${d.stat.lh}</td>
-                        <td class="${d.stat.pc === '3:3' ? 'text-orange-600 font-bold' : 'text-slate-500'}">${d.stat.pc}</td>
+                        <!-- [fix-276] 소수/합성수/삼각수 분리 -->
+                        <td class="text-xs ${d.stat.primeCount>0?'text-orange-600 font-bold':'text-slate-400'}">${d.stat.primeCount}</td>
+                        <td class="text-xs ${d.stat.compositeCount>0?'text-slate-700 font-bold':'text-slate-400'}">${d.stat.compositeCount}</td>
+                        <td class="text-xs ${d.stat.triangularCount>0?'text-pink-600 font-bold':'text-slate-400'}">${d.stat.triangularCount}</td>
                         <td class="${d.stat.neighbor > 0 ? 'text-orange-500 font-bold' : 'text-slate-400'}">${d.stat.neighbor}</td>
                         <td class="${d.stat.carryover > 0 ? 'text-purple-500 font-bold' : 'text-slate-400'}">${d.stat.carryover}</td>
                         <td class="${d.stat.consecutive > 0 ? 'text-red-500 font-bold' : 'text-slate-400'}">${d.stat.consecutive}</td>
                         <td class="text-slate-700 font-bold text-xs">${d.stat.hotCold}</td>
-                        <td class="text-slate-600 text-xs">${d.stat.multiples}</td>
+                        <!-- [fix-275] 배수 6개 분리 -->
+                        <td class="text-xs ${d.stat.m3>0?'text-blue-600 font-bold':'text-slate-400'}">${d.stat.m3}</td>
+                        <td class="text-xs ${d.stat.m4>0?'text-blue-600 font-bold':'text-slate-400'}">${d.stat.m4}</td>
+                        <td class="text-xs ${d.stat.m5>0?'text-blue-600 font-bold':'text-slate-400'}">${d.stat.m5}</td>
+                        <td class="text-xs ${d.stat.m7>0?'text-blue-600 font-bold':'text-slate-400'}">${d.stat.m7}</td>
+                        <td class="text-xs ${d.stat.m8>0?'text-blue-600 font-bold':'text-slate-400'}">${d.stat.m8}</td>
+                        <td class="text-xs ${d.stat.mNo>0?'text-slate-700 font-bold':'text-slate-400'}">${d.stat.mNo}</td>
                         <td class="text-slate-600 font-mono tracking-tighter text-xs">${d.stat.section}</td>
                     </tr>`;
                 });
                 if (gi < reversedGroups.length - 1) {
-                    html += `<tr class="dt-group-separator"><td colspan="16"></td></tr>`;
+                    html += `<tr class="dt-group-separator"><td colspan="23"></td></tr>`;
                 }
             });
             tbody.innerHTML = html;

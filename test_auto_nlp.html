@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AutoNLP Matcher Test</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            border-bottom: 3px solid #4CAF50;
+            padding-bottom: 10px;
+        }
+        .status {
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .status.loading {
+            background: #FFF9C4;
+            color: #F57F17;
+        }
+        .status.ready {
+            background: #C8E6C9;
+            color: #2E7D32;
+        }
+        .status.error {
+            background: #FFCDD2;
+            color: #C62828;
+        }
+        .test-input {
+            margin: 20px 0;
+        }
+        .test-input input {
+            width: 70%;
+            padding: 12px;
+            font-size: 16px;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+        }
+        .test-input button {
+            padding: 12px 24px;
+            font-size: 16px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-left: 10px;
+        }
+        .test-input button:hover {
+            background: #45a049;
+        }
+        .test-input button.secondary {
+            background: #2196F3;
+        }
+        .test-input button.secondary:hover {
+            background: #0b7dda;
+        }
+        .result {
+            margin: 20px 0;
+            padding: 15px;
+            background: #f9f9f9;
+            border-left: 4px solid #2196F3;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .stat-card {
+            background: #E3F2FD;
+            padding: 15px;
+            border-radius: 4px;
+            text-align: center;
+        }
+        .stat-card .label {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+        }
+        .stat-card .value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #1976D2;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧠 AutoNLP Matcher Test Console</h1>
+
+        <div id="status" class="status loading">
+            Loading vocabulary.json...
+        </div>
+
+        <div class="stats" id="stats" style="display: none;"></div>
+
+        <div class="test-input">
+            <input type="text" id="testInput" placeholder="예: 7과 8의 배수 합집합" />
+            <button onclick="runSingleTest()">단일 테스트</button>
+            <button class="secondary" onclick="runAllTests()">전체 테스트 실행</button>
+        </div>
+
+        <div id="result" class="result" style="display: none;"></div>
+    </div>
+
+    <!-- AutoNLP Scripts -->
+    <script src="/js/AutoNLPMatcher.js"></script>
+    <script src="/js/auto_nlp_loader.js"></script>
+    <script src="/js/AutoNLPMatcher.test.js"></script>
+
+    <script>
+        // autoNLPReady 이벤트 리스너
+        window.addEventListener('autoNLPReady', (event) => {
+            const { stats, loadTime } = event.detail;
+
+            // 상태 업데이트
+            const statusEl = document.getElementById('status');
+            statusEl.className = 'status ready';
+            statusEl.textContent = `✅ Ready! (Loaded in ${loadTime}ms)`;
+
+            // 통계 표시
+            const statsEl = document.getElementById('stats');
+            statsEl.style.display = 'grid';
+            statsEl.innerHTML = `
+                <div class="stat-card">
+                    <div class="label">Version</div>
+                    <div class="value">${stats.version}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Filters</div>
+                    <div class="value">${stats.filters}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Models</div>
+                    <div class="value">${stats.models}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Operations</div>
+                    <div class="value">${stats.operations}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Total Aliases</div>
+                    <div class="value">${stats.total_aliases}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Load Time</div>
+                    <div class="value">${loadTime}ms</div>
+                </div>
+            `;
+
+            console.log('%c[AutoNLP] Ready!', 'color: green; font-weight: bold;', stats);
+        });
+
+        // 에러 핸들링
+        setTimeout(() => {
+            if (!window.autoNLP || !window.autoNLP.loaded) {
+                const statusEl = document.getElementById('status');
+                statusEl.className = 'status error';
+                statusEl.textContent = '❌ Failed to load. Check console for errors.';
+            }
+        }, 5000);
+
+        // 단일 테스트
+        function runSingleTest() {
+            const input = document.getElementById('testInput').value.trim();
+            if (!input) {
+                alert('입력 텍스트를 입력하세요.');
+                return;
+            }
+
+            if (!window.autoNLP || !window.autoNLP.loaded) {
+                alert('AutoNLP가 로드되지 않았습니다.');
+                return;
+            }
+
+            const resultEl = document.getElementById('result');
+            resultEl.style.display = 'block';
+            resultEl.textContent = 'Processing...';
+
+            try {
+                const startTime = performance.now();
+                const result = window.autoNLP.match(input);
+                const elapsed = Math.round(performance.now() - startTime);
+
+                resultEl.textContent = JSON.stringify(result, null, 2) + `\n\n⏱️ ${elapsed}ms`;
+                console.log('Match Result:', result);
+            } catch (error) {
+                resultEl.textContent = `Error: ${error.message}`;
+                console.error(error);
+            }
+        }
+
+        // 전체 테스트
+        async function runAllTests() {
+            if (!window.autoNLP || !window.autoNLP.loaded) {
+                alert('AutoNLP가 로드되지 않았습니다.');
+                return;
+            }
+
+            const resultEl = document.getElementById('result');
+            resultEl.style.display = 'block';
+            resultEl.textContent = 'Running all tests...\n\nCheck console for detailed output.';
+
+            try {
+                const summary = await window.runAutoNLPTests();
+
+                resultEl.textContent = `
+=== Test Summary ===
+Total: ${summary.total}
+✅ Passed: ${summary.passed}
+❌ Failed: ${summary.failed}
+Success Rate: ${Math.round((summary.passed / summary.total) * 100)}%
+
+Performance: ${summary.performance}ms for 100 matches
+Avg: ${(summary.performance / 100).toFixed(2)}ms per match
+
+Check browser console for detailed results.
+                `;
+            } catch (error) {
+                resultEl.textContent = `Error: ${error.message}`;
+                console.error(error);
+            }
+        }
+
+        // Enter 키 이벤트
+        document.getElementById('testInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                runSingleTest();
+            }
+        });
+    </script>
+</body>
+</html>

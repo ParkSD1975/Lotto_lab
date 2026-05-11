@@ -35,6 +35,8 @@
 
     <!-- NLP Modules -->
     <script src="js/NLPProcessor.js"></script>
+    <script src="js/AutoNLPMatcher.js"></script>
+    <script src="js/auto_nlp_loader.js" defer></script>
     <script src="js/NLPInputComponent.js"></script>
     <script src="js/BasicAnalysisNLP.js"></script>
 
@@ -295,28 +297,24 @@
                             </a>
                         </div>
 
-                        <div class="space-y-6" id="filterContainer">
-                            <div class="bg-slate-50 rounded-xl p-5 border border-slate-100">
-                                <div id="nextDrawNeighborsSimple"
-                                    class="mb-4 text-sm font-bold text-slate-700 flex items-center gap-2">
-                                    <span class="material-symbols-outlined text-blue-500 text-lg">info</span>
-                                    다음 회차 이웃수 후보군
+                        <div id="filterContainer">
+                            <div id="nextDrawNeighborsSimple"
+                                class="mb-3 text-sm font-bold text-slate-700 flex items-center gap-2">
+                                <span class="material-symbols-outlined text-blue-500 text-lg">info</span>
+                                다음 회차 이웃수 후보군
+                            </div>
+                            <div class="flex items-center justify-between gap-3 py-2">
+                                <div id="nextDrawNeighborsBalls" class="flex flex-wrap gap-2 flex-1">
+                                    <!-- JS 렌더링 -->
                                 </div>
-                                <div class="flex flex-col lg:flex-row lg:items-center gap-6">
-                                    <div id="nextDrawNeighborsBalls" class="flex flex-wrap gap-2 flex-1">
-                                        <!-- JS 렌더링 -->
-                                    </div>
-                                    <div class="flex items-center gap-2 flex-shrink-0">
-                                        <span class="text-sm text-gray-500 font-bold">Min</span>
-                                        <input type="number" id="filterMin" min="0" max="6" value="0"
-                                            class="w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500"
-                                            oninput="applyFilterManual()">
-                                        <span class="text-gray-400">~</span>
-                                        <span class="text-sm text-gray-500 font-bold">Max</span>
-                                        <input type="number" id="filterMax" min="0" max="6" value="6"
-                                            class="w-16 h-9 text-center border border-gray-300 rounded-lg text-sm text-gray-900 font-bold focus:ring-blue-500 focus:border-blue-500"
-                                            oninput="applyFilterManual()">
-                                    </div>
+                                <div class="flex items-center gap-2 flex-shrink-0">
+                                    <input type="number" id="filterMin" min="0" max="6" value="0"
+                                        class="w-14 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent"
+                                        oninput="applyFilterManual()">
+                                    <span class="text-xs text-gray-400">~</span>
+                                    <input type="number" id="filterMax" min="0" max="6" value="6"
+                                        class="w-14 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent"
+                                        oninput="applyFilterManual()">
                                 </div>
                             </div>
                         </div>
@@ -342,9 +340,9 @@
                         </div>
                     </div>
 
-                    <!-- [가이드] 리스트 섹션 (Integrated Header) -->
-                    <div class="rounded-xl overflow-hidden mt-6">
-                        <div class="flex items-center justify-between mb-4 px-2">
+                    <!-- [fix-362] 리스트 섹션 — 헤더 + 표 흰 박스로 일체화 -->
+                    <div class="bg-white rounded-xl border border-gray-200 mt-6 overflow-hidden">
+                        <div class="flex items-center justify-between px-8 pt-6 pb-4 border-b border-gray-100">
                             <div>
                                 <h3 class="text-xl font-bold text-gray-900 mb-1">회차별 당첨번호 및 이웃수</h3>
                                 <p class="text-sm text-gray-600">
@@ -356,7 +354,7 @@
                             </div>
                         </div>
 
-                        <div class="overflow-x-auto custom-scrollbar border border-gray-200 rounded-xl bg-white"
+                        <div class="overflow-x-auto custom-scrollbar"
                             style="max-height: 1200px;">
                             <table class="w-full text-sm text-center">
                                 <thead
@@ -377,6 +375,248 @@
                             </table>
                         </div>
                     </div>
+
+                    <!-- ════════════════════════════════════════════════════════════ -->
+                    <!-- [fix-358] 보조지표 — 이웃수 도메인 특화 7섹션                          -->
+                    <!--   (DOM 이동: 그래프 카드 직후 + 조합 필터 위)                         -->
+                    <!-- ════════════════════════════════════════════════════════════ -->
+                    <div id="neighborAuxIndicators" class="mt-16 space-y-16" style="font-feature-settings:'tnum';letter-spacing:-0.01em">
+
+                        <!-- Section 1: 핵심 메트릭 (박스화) -->
+                        <div class="bg-white rounded-xl border border-gray-200 p-8">
+                            <div class="flex items-baseline justify-between mb-6">
+                                <h3 class="text-lg font-bold tracking-tight">핵심 메트릭</h3>
+                                <span class="text-xs text-gray-400">최근 100회 · 전체 누적 · 풀 가변 8~11</span>
+                            </div>
+                            <div class="grid grid-cols-2 sm:grid-cols-5 gap-x-8 gap-y-6">
+                                <div><div class="text-[10px] uppercase tracking-wider text-gray-400 mb-1">최근 평균</div><div class="text-3xl font-black text-blue-700"><span id="nbAvgRecent">—</span></div></div>
+                                <div><div class="text-[10px] uppercase tracking-wider text-gray-400 mb-1">전체 평균</div><div class="text-3xl font-black text-slate-700"><span id="nbAvgAll">—</span></div></div>
+                                <div><div class="text-[10px] uppercase tracking-wider text-gray-400 mb-1">최대 매칭</div><div class="flex items-baseline gap-1"><span id="nbMax" class="text-3xl font-black text-emerald-600">—</span><span class="text-xs text-gray-400">개</span></div></div>
+                                <div><div class="text-[10px] uppercase tracking-wider text-gray-400 mb-1">매칭 0 회차</div><div class="flex items-baseline gap-1"><span id="nbZeroPct" class="text-3xl font-black text-rose-600">—</span><span class="text-xs text-gray-400">%</span></div></div>
+                                <div><div class="text-[10px] uppercase tracking-wider text-gray-400 mb-1">평균 풀 크기</div><div class="flex items-baseline gap-1"><span id="nbAvgPool" class="text-3xl font-black text-violet-600">—</span><span class="text-xs text-gray-400">개</span></div></div>
+                            </div>
+                        </div>
+
+                        <!-- [Section 2 분포 히스토그램 제거 — 위 그래프 '당첨율' 탭과 중복] -->
+
+                        <!-- Section 3: 1~45 핫맵 (박스화) -->
+                        <div class="bg-white rounded-xl border border-gray-200 p-8">
+                            <div class="flex items-baseline justify-between mb-2">
+                                <h3 class="text-lg font-bold tracking-tight">번호별 이웃수 매칭 빈도 (45 핫맵)</h3>
+                                <span class="text-xs text-gray-400">색상 강도 = 매칭 횟수</span>
+                            </div>
+                            <p class="text-xs text-gray-500 mb-6">전 회차 기준 — 핫 이웃수(자주 매칭) ↔ 콜드(매칭 없음)</p>
+                            <div id="neighborHeatmap" class="grid gap-1.5" style="grid-template-columns:repeat(15, minmax(0, 1fr))"></div>
+                            <div class="flex items-center gap-4 mt-4 text-[11px] text-gray-500">
+                                <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded" style="background:#F1F5F9"></span>0회</span>
+                                <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded" style="background:#BFDBFE"></span>적음</span>
+                                <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded" style="background:#3B82F6"></span>보통</span>
+                                <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded" style="background:#1E3A8A"></span>많음</span>
+                            </div>
+                        </div>
+
+                        <!-- Section 4: ranking 표 (박스화) -->
+                        <div class="bg-white rounded-xl border border-gray-200 p-8">
+                            <div class="flex items-baseline justify-between mb-2">
+                                <h3 class="text-lg font-bold tracking-tight">이웃수 매칭 순위 (top 10 / bottom 10)</h3>
+                                <span class="text-xs text-gray-400">전 회차 누적</span>
+                            </div>
+                            <p class="text-xs text-gray-500 mb-6">상위 = 핫 이웃수 · 하위 = 콜드 이웃수</p>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-12">
+                                <div>
+                                    <div class="text-[11px] uppercase tracking-wider text-rose-600 font-bold mb-3">핫 이웃수 TOP 10</div>
+                                    <table class="w-full text-sm">
+                                        <thead class="text-[10px] uppercase tracking-wider text-gray-400 border-b border-gray-200">
+                                            <tr><th class="py-2 text-left font-medium">#</th><th class="py-2 text-left font-medium">번호</th><th class="py-2 text-right font-medium">매칭</th><th class="py-2 text-right font-medium">매칭률</th><th class="py-2 text-right font-medium">최근</th></tr>
+                                        </thead>
+                                        <tbody id="neighborHotTable" class="divide-y divide-gray-100"></tbody>
+                                    </table>
+                                </div>
+                                <div>
+                                    <div class="text-[11px] uppercase tracking-wider text-slate-500 font-bold mb-3">콜드 이웃수 BOTTOM 10</div>
+                                    <table class="w-full text-sm">
+                                        <thead class="text-[10px] uppercase tracking-wider text-gray-400 border-b border-gray-200">
+                                            <tr><th class="py-2 text-left font-medium">#</th><th class="py-2 text-left font-medium">번호</th><th class="py-2 text-right font-medium">매칭</th><th class="py-2 text-right font-medium">매칭률</th><th class="py-2 text-right font-medium">최근</th></tr>
+                                        </thead>
+                                        <tbody id="neighborColdTable" class="divide-y divide-gray-100"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Section 5: 방향성 -1 vs +1 (도메인 특화, 박스화) -->
+                        <div class="bg-white rounded-xl border border-gray-200 p-8">
+                            <div class="flex items-baseline justify-between mb-2">
+                                <h3 class="text-lg font-bold tracking-tight">방향성 분석 (−1 vs +1)</h3>
+                                <span class="text-xs text-gray-400">매칭의 좌/우 이웃 비율</span>
+                            </div>
+                            <p class="text-xs text-gray-500 mb-6">prev 회차 N에 대해 이번 회차에 등장한 매칭이 (N−1) 인지 (N+1) 인지 — 좌/우 비대칭 추적</p>
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wider font-bold mb-2" style="color:#06B6D4">−1 매칭 (왼쪽 이웃)</div>
+                                    <div class="flex items-baseline gap-1 mb-2"><span id="nbMinusPct" class="text-3xl font-black" style="color:#06B6D4">—</span><span class="text-base text-gray-400 font-bold">%</span></div>
+                                    <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden"><div id="nbMinusBar" class="h-full transition-all" style="background:#06B6D4;width:0%"></div></div>
+                                    <p class="text-[11px] text-gray-400 mt-2"><span id="nbMinusCount">0</span>건 / 총 <span id="nbTotalDir">0</span>건</p>
+                                </div>
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wider font-bold mb-2" style="color:#F97316">+1 매칭 (오른쪽 이웃)</div>
+                                    <div class="flex items-baseline gap-1 mb-2"><span id="nbPlusPct" class="text-3xl font-black" style="color:#F97316">—</span><span class="text-base text-gray-400 font-bold">%</span></div>
+                                    <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden"><div id="nbPlusBar" class="h-full transition-all" style="background:#F97316;width:0%"></div></div>
+                                    <p class="text-[11px] text-gray-400 mt-2"><span id="nbPlusCount">0</span>건 / 총 <span id="nbTotalDir">0</span>건</p>
+                                </div>
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wider text-violet-600 font-bold mb-2">양방향 동시</div>
+                                    <div class="flex items-baseline gap-1 mb-2"><span id="nbBothPct" class="text-3xl font-black text-violet-600">—</span><span class="text-base text-gray-400 font-bold">%</span></div>
+                                    <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden"><div id="nbBothBar" class="h-full bg-violet-500 transition-all" style="width:0%"></div></div>
+                                    <p class="text-[11px] text-gray-400 mt-2">−1 + +1 둘 다 매칭된 매칭수</p>
+                                </div>
+                            </div>
+                            <div class="mt-6 pt-6 border-t border-gray-100">
+                                <div class="text-[10px] uppercase tracking-wider text-gray-400 mb-2">좌·우 분포 시각화</div>
+                                <div class="flex items-center h-6 rounded-full overflow-hidden bg-gray-100">
+                                    <div id="nbDirBarMinus" class="h-full transition-all" style="background:#06B6D4;width:0%"></div>
+                                    <div id="nbDirBarBoth" class="h-full transition-all" style="background:#A78BFA;width:0%"></div>
+                                    <div id="nbDirBarPlus" class="h-full transition-all" style="background:#F97316;width:0%"></div>
+                                </div>
+                                <div class="flex justify-between mt-2 text-[10px] text-gray-500">
+                                    <span style="color:#06B6D4" class="font-bold">−1</span>
+                                    <span class="text-violet-500 font-bold">양방향</span>
+                                    <span style="color:#F97316" class="font-bold">+1</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Section 6: 인접 페어 매트릭스 top 20 (도메인 특화, 박스화) -->
+                        <div class="bg-white rounded-xl border border-gray-200 p-8">
+                            <div class="flex items-baseline justify-between mb-2">
+                                <h3 class="text-lg font-bold tracking-tight">인접 천이 페어 TOP 20</h3>
+                                <span class="text-xs text-gray-400">prev_N → this_N±1</span>
+                            </div>
+                            <p class="text-xs text-gray-500 mb-6">전 회차의 N이 이번 회차에 N−1 또는 N+1로 천이된 페어 — 인접 동조 신호</p>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-1">
+                                <table class="w-full text-sm">
+                                    <thead class="text-[10px] uppercase tracking-wider text-gray-400 border-b border-gray-200">
+                                        <tr><th class="py-2 text-left font-medium">#</th><th class="py-2 text-left font-medium">페어</th><th class="py-2 text-right font-medium">횟수</th><th class="py-2 text-right font-medium">최근</th></tr>
+                                    </thead>
+                                    <tbody id="neighborPairTable1" class="divide-y divide-gray-100"></tbody>
+                                </table>
+                                <table class="w-full text-sm">
+                                    <thead class="text-[10px] uppercase tracking-wider text-gray-400 border-b border-gray-200">
+                                        <tr><th class="py-2 text-left font-medium">#</th><th class="py-2 text-left font-medium">페어</th><th class="py-2 text-right font-medium">횟수</th><th class="py-2 text-right font-medium">최근</th></tr>
+                                    </thead>
+                                    <tbody id="neighborPairTable2" class="divide-y divide-gray-100"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- Section 7: GAP/Streak + 보너스 ±1 트래킹 (통합, 박스화) -->
+                        <div class="bg-white rounded-xl border border-gray-200 p-8">
+                            <div class="flex items-baseline justify-between mb-2">
+                                <h3 class="text-lg font-bold tracking-tight">GAP / Streak · 보너스 ±1 트래킹</h3>
+                                <span class="text-xs text-gray-400">출현 임박 + 보너스 운명</span>
+                            </div>
+                            <p class="text-xs text-gray-500 mb-6">상단: 매칭 0 연속(GAP) / 매칭 ≥1 연속(Streak) — 하단: prev 보너스의 ±1 → 이번 회차 운명</p>
+                            <div class="grid grid-cols-2 sm:grid-cols-4 gap-x-8 gap-y-6">
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wider text-gray-400 mb-1">현재 GAP</div>
+                                    <div class="flex items-baseline gap-1"><span id="nbCurGap" class="text-3xl font-black text-rose-600">—</span><span class="text-xs text-gray-400">회차 연속 매칭 0</span></div>
+                                </div>
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wider text-gray-400 mb-1">최대 GAP</div>
+                                    <div class="flex items-baseline gap-1"><span id="nbMaxGap" class="text-3xl font-black text-slate-700">—</span><span class="text-xs text-gray-400">역대</span></div>
+                                </div>
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wider text-gray-400 mb-1">현재 Streak</div>
+                                    <div class="flex items-baseline gap-1"><span id="nbCurStreak" class="text-3xl font-black text-emerald-600">—</span><span class="text-xs text-gray-400">회차 연속 ≥1</span></div>
+                                </div>
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wider text-gray-400 mb-1">최대 Streak</div>
+                                    <div class="flex items-baseline gap-1"><span id="nbMaxStreak" class="text-3xl font-black text-slate-700">—</span><span class="text-xs text-gray-400">역대</span></div>
+                                </div>
+                            </div>
+                            <div class="mt-4 pb-6 border-b border-gray-100">
+                                <div class="text-[10px] uppercase tracking-wider text-gray-400 mb-2">출현 임박 지수</div>
+                                <div class="flex items-baseline gap-2 mb-2">
+                                    <span id="nbImminence" class="text-4xl font-black text-blue-700">—</span><span class="text-base text-gray-400 font-bold">%</span>
+                                </div>
+                                <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden"><div id="nbImminenceBar" class="h-full bg-gradient-to-r from-blue-400 to-blue-600 transition-all" style="width:0%"></div></div>
+                                <p class="text-[11px] text-gray-400 mt-2">현재 GAP / 최대 GAP × 100</p>
+                            </div>
+                            <div class="mt-6 grid grid-cols-1 md:grid-cols-3 gap-8">
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wider text-blue-600 font-bold mb-2">Track A · main 진입</div>
+                                    <div class="flex items-baseline gap-1 mb-2"><span id="nbBonusToMain" class="text-3xl font-black text-blue-700">—</span><span class="text-base text-gray-400 font-bold">%</span></div>
+                                    <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden"><div id="nbBonusToMainBar" class="h-full bg-blue-500 transition-all" style="width:0%"></div></div>
+                                    <p class="text-[11px] text-gray-400 mt-2">prev 보너스 ±1 → 이번 main 등장</p>
+                                </div>
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wider text-amber-600 font-bold mb-2">Track B · bonus 매칭</div>
+                                    <div class="flex items-baseline gap-1 mb-2"><span id="nbBonusToBonus" class="text-3xl font-black text-amber-600">—</span><span class="text-base text-gray-400 font-bold">%</span></div>
+                                    <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden"><div id="nbBonusToBonusBar" class="h-full bg-amber-500 transition-all" style="width:0%"></div></div>
+                                    <p class="text-[11px] text-gray-400 mt-2">prev 보너스 ±1 → 이번 bonus 등장</p>
+                                </div>
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-2">Track C · 사라짐</div>
+                                    <div class="flex items-baseline gap-1 mb-2"><span id="nbBonusGone" class="text-3xl font-black text-slate-700">—</span><span class="text-base text-gray-400 font-bold">%</span></div>
+                                    <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden"><div id="nbBonusGoneBar" class="h-full bg-slate-500 transition-all" style="width:0%"></div></div>
+                                    <p class="text-[11px] text-gray-400 mt-2">prev 보너스 ±1 → 이번 등장 X</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Section 7 (★neighbor 차별화): 풀 크기 분포 + 풀별 평균 매칭 -->
+                        <div class="bg-white rounded-xl border border-gray-200 p-8">
+                            <div class="flex items-baseline justify-between mb-2">
+                                <h3 class="text-lg font-bold tracking-tight">풀 크기 분포 + 풀별 매칭 효율</h3>
+                                <span class="text-xs text-gray-400">prev_neighbors 풀 크기 P</span>
+                            </div>
+                            <p class="text-xs text-gray-500 mb-6">prev 회차 추첨번호 6개 ±1 → 풀 크기 P 가변 (보통 8~12). 풀이 클수록 매칭 기대값↑ — 풀별 실제 평균과 비교</p>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                <div>
+                                    <div class="text-[11px] uppercase tracking-wider text-violet-600 font-bold mb-3">풀 크기 P 분포</div>
+                                    <div class="relative" style="height:200px"><canvas id="neighborPoolSize"></canvas></div>
+                                </div>
+                                <div>
+                                    <div class="text-[11px] uppercase tracking-wider text-blue-600 font-bold mb-3">풀별 평균 매칭 카운트</div>
+                                    <table class="w-full text-sm">
+                                        <thead class="text-[10px] uppercase tracking-wider text-gray-400 border-b border-gray-200">
+                                            <tr><th class="py-2 text-left font-medium">풀 P</th><th class="py-2 text-right font-medium">회차수</th><th class="py-2 text-right font-medium">평균 매칭</th><th class="py-2 text-right font-medium">매칭률 %</th><th class="py-2 text-right font-medium">기대치</th></tr>
+                                        </thead>
+                                        <tbody id="neighborPoolStats" class="divide-y divide-gray-100"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Section 8 (★neighbor 차별화): 방향별 핫맵 분리 (-1 / +1) -->
+                        <div class="bg-white rounded-xl border border-gray-200 p-8">
+                            <div class="flex items-baseline justify-between mb-2">
+                                <h3 class="text-lg font-bold tracking-tight">방향별 매칭 핫맵 (−1 vs +1 분리)</h3>
+                                <span class="text-xs text-gray-400">번호별 좌/우 이웃 매칭 빈도</span>
+                            </div>
+                            <p class="text-xs text-gray-500 mb-6">같은 번호라도 prev_N+1 → this_N (왼쪽 이웃) 매칭과 prev_N−1 → this_N (오른쪽 이웃) 매칭이 비대칭 — 두 방향 분리 핫맵</p>
+                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                                <div>
+                                    <div class="text-[11px] uppercase tracking-wider font-bold mb-3" style="color:#06B6D4">−1 매칭 (왼쪽 이웃 매칭)</div>
+                                    <div id="neighborMinusHeatmap" class="grid gap-1.5" style="grid-template-columns:repeat(15, minmax(0, 1fr))"></div>
+                                </div>
+                                <div>
+                                    <div class="text-[11px] uppercase tracking-wider font-bold mb-3" style="color:#F97316">+1 매칭 (오른쪽 이웃 매칭)</div>
+                                    <div id="neighborPlusHeatmap" class="grid gap-1.5" style="grid-template-columns:repeat(15, minmax(0, 1fr))"></div>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-4 mt-4 text-[11px] text-gray-500">
+                                <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded" style="background:#F1F5F9"></span>0회</span>
+                                <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded" style="background:#A5F3FC"></span>−1 적음</span>
+                                <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded" style="background:#0891B2"></span>−1 많음</span>
+                                <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded" style="background:#FED7AA"></span>+1 적음</span>
+                                <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded" style="background:#C2410C"></span>+1 많음</span>
+                            </div>
+                        </div>
+
+                    </div>
+                    <!-- ════════════════════════════════════════════════════════════ -->
+
                 </div>
             </main>
         </div>
@@ -439,7 +679,7 @@
 
         // [수정] 필터 설정 저장 함수 - neighbor_number_patterns 키 유지, top-level min/max 추가
         async function saveFilterSettings() {
-            if (window.isLoadingSettings) return; // 로드 중 저장 방지
+            // [버그 수정] window.isLoadingSettings 가드 제거 — race condition으로 사용자 토글이 무시되던 문제.
             const minInput = document.getElementById('filterMin');
             const maxInput = document.getElementById('filterMax');
             const toggle = document.getElementById('applyFilterCheck');
@@ -660,6 +900,9 @@
 
                 // [추가] 새 회차 감합 시 자동 필터 적용
                 checkAndResetOnNewDraw();
+
+                // [fix-358] 보조지표 7섹션 렌더링
+                try { renderNeighborAuxIndicators(); } catch (e) { console.warn('[fix-358] aux render err', e); }
 
                 // [수정] AI 분석 자동 실행 (표준화)
                 await initDeepInsight();
@@ -1464,6 +1707,312 @@ ${contextData}
                     skipMenuFetch: true // [추가] 서버에 아직 이웃수 전용 캐시가 없으므로 404 에러를 방지하기 위해 실시간 분석으로 직행
                 });
             }
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        // [fix-358] 보조지표 7섹션 — 이웃수 도메인 특화
+        // ════════════════════════════════════════════════════════════════════
+        function renderNeighborAuxIndicators() {
+            if (!Array.isArray(allDrawData) || allDrawData.length < 2) return;
+
+            // [fix-358] DOM 이동 — 그래프 카드 직후, 조합 필터(#filter-page) 위
+            const aux = document.getElementById('neighborAuxIndicators');
+            const filterSec = document.getElementById('filter-page');
+            if (aux && filterSec && filterSec.parentNode && aux.parentNode) {
+                if (aux.nextElementSibling !== filterSec) {
+                    filterSec.parentNode.insertBefore(aux, filterSec);
+                }
+            }
+
+            // 마지막 row(가장 옛 회차)는 prev 없음 → 분석 제외
+            const rows = allDrawData.slice(0, allDrawData.length - 1);
+            const N = rows.length;
+
+            // 공통 데이터 — 방향성 + 인접 페어 + 풀 크기
+            // matched의 각 N에 대해: prev 회차에 N-1이 있으면 +1 매칭, prev 회차에 N+1이 있으면 -1 매칭
+            // (이웃수 풀에 N이 들어간 이유 = prev에 N-1 또는 N+1이 있어서)
+            let minusTotal = 0, plusTotal = 0, bothTotal = 0;
+            const pairCounts = new Map();   // "prevN,thisN" → {count, lastRound}
+            const numMatchCount = Array(46).fill(0);
+            const numLastMatch = Array(46).fill(null);
+            const numMinusCount = Array(46).fill(0);    // [fix-361] 번호별 -1 매칭 횟수
+            const numPlusCount = Array(46).fill(0);     // [fix-361] 번호별 +1 매칭 횟수
+            const poolSizes = [];
+            const poolSizeStats = new Map();              // [fix-361] poolSize → {count, totalMatch}
+            let bonusToMain = 0, bonusToBonus = 0, bonusGone = 0, bonusTotal = 0;
+            const matchCountsByK = [0, 0, 0, 0, 0, 0, 0];   // k=0..6 빈도
+            const poolWeightedExp = [0, 0, 0, 0, 0, 0, 0];  // k=0..6 weighted 이론 누적
+            const C = (n, k) => { if (k < 0 || k > n) return 0; let r = 1; for (let i = 0; i < k; i++) r = r * (n - i) / (i + 1); return r; };
+            const total456 = C(45, 6);
+
+            rows.forEach((r, idx) => {
+                const prev = allDrawData[idx + 1];
+                const prevSet = new Set(prev.numbers || []);
+                const matched = r.matchedNeighbors || [];
+                const P_size = (r.prevNeighbors || []).length;
+                poolSizes.push(P_size);
+                // [fix-361] 풀 크기별 통계 누적 (회차수 + 매칭 누적)
+                const pse = poolSizeStats.get(P_size) || { count: 0, totalMatch: 0 };
+                pse.count++;
+                pse.totalMatch += (r.neighbor_count || 0);
+                poolSizeStats.set(P_size, pse);
+
+                // 회차별 weighted 이론 (초기하분포)
+                const P = (r.prevNeighbors || []).length;
+                if (P > 0) {
+                    for (let k = 0; k <= 6; k++) {
+                        const p = C(P, k) * C(45 - P, 6 - k) / total456;
+                        poolWeightedExp[k] += p;
+                    }
+                }
+                if (r.neighbor_count >= 0 && r.neighbor_count <= 6) matchCountsByK[r.neighbor_count]++;
+
+                matched.forEach(n => {
+                    if (n >= 1 && n <= 45) {
+                        numMatchCount[n]++;
+                        if (numLastMatch[n] === null || r.round > numLastMatch[n]) numLastMatch[n] = r.round;
+                    }
+                    // 방향성: prev에 (n+1) 있으면 -1 매칭 (n = (n+1)-1) / prev에 (n-1) 있으면 +1 매칭
+                    const hasMinusSrc = (n + 1 <= 45) && prevSet.has(n + 1);   // prev에 n+1 → n은 (n+1)-1 = -1 매칭
+                    const hasPlusSrc = (n - 1 >= 1) && prevSet.has(n - 1);    // prev에 n-1 → n은 (n-1)+1 = +1 매칭
+                    if (hasMinusSrc && hasPlusSrc) bothTotal++;
+                    else if (hasMinusSrc) minusTotal++;
+                    else if (hasPlusSrc) plusTotal++;
+                    // [fix-361] 번호별 방향 카운트 (양방향이면 둘 다 증가)
+                    if (hasMinusSrc) numMinusCount[n]++;
+                    if (hasPlusSrc) numPlusCount[n]++;
+
+                    // 페어 (prev_N, this_N): -1 case는 prev_N=n+1, +1 case는 prev_N=n-1, both case는 두 페어 모두 추가
+                    if (hasMinusSrc) {
+                        const k = `${n + 1}>${n}`;
+                        const e = pairCounts.get(k) || { count: 0, lastRound: 0, prevN: n + 1, thisN: n, dir: '−1' };
+                        e.count++; if (r.round > e.lastRound) e.lastRound = r.round;
+                        pairCounts.set(k, e);
+                    }
+                    if (hasPlusSrc) {
+                        const k = `${n - 1}>${n}`;
+                        const e = pairCounts.get(k) || { count: 0, lastRound: 0, prevN: n - 1, thisN: n, dir: '+1' };
+                        e.count++; if (r.round > e.lastRound) e.lastRound = r.round;
+                        pairCounts.set(k, e);
+                    }
+                });
+
+                // 보너스 ±1 트래킹
+                if (prev.bonus != null) {
+                    bonusTotal++;
+                    const pn = (r.prevBonusNeighbors || []);
+                    const inMain = pn.some(v => (r.numbers || []).includes(v));
+                    const isBonus = pn.some(v => v === r.bonus);
+                    if (inMain) bonusToMain++;
+                    else if (isBonus) bonusToBonus++;
+                    else bonusGone++;
+                }
+            });
+
+            const dirTotal = minusTotal + plusTotal + bothTotal;
+            const avgPool = poolSizes.length ? (poolSizes.reduce((a, b) => a + b, 0) / poolSizes.length) : 0;
+
+            // ── Section 1: 핵심 메트릭만 (시계열은 위 그래프 탭과 중복 → 제거) ──
+            const recent = rows.slice(0, Math.min(100, N));
+            const recentVals = recent.map(r => r.neighbor_count);
+            const recentAvg = recentVals.length ? recentVals.reduce((a, b) => a + b, 0) / recentVals.length : 0;
+            const allAvg = N ? rows.reduce((s, r) => s + (r.neighbor_count || 0), 0) / N : 0;
+            const maxC = N ? Math.max(...rows.map(r => r.neighbor_count || 0)) : 0;
+            const zeroPct = N ? rows.filter(r => (r.neighbor_count || 0) === 0).length / N * 100 : 0;
+            setTextNb('nbAvgRecent', recentAvg.toFixed(2));
+            setTextNb('nbAvgAll', allAvg.toFixed(2));
+            setTextNb('nbMax', maxC);
+            setTextNb('nbZeroPct', zeroPct.toFixed(1));
+            setTextNb('nbAvgPool', avgPool.toFixed(1));
+
+            // ── Section 2 분포 히스토그램 제거 (위 그래프 '당첨율' 탭과 중복) ──
+
+            // ── Section 3: 1~45 핫맵 ─────────────────────────────
+            const maxMatch = Math.max(...numMatchCount.slice(1));
+            const heat = document.getElementById('neighborHeatmap');
+            if (heat) {
+                heat.innerHTML = Array.from({ length: 45 }, (_, i) => {
+                    const n = i + 1;
+                    const cnt = numMatchCount[n];
+                    const ratio = maxMatch > 0 ? cnt / maxMatch : 0;
+                    let bg, color;
+                    if (cnt === 0) { bg = '#F1F5F9'; color = '#94A3B8'; }
+                    else if (ratio < 0.33) { bg = '#BFDBFE'; color = '#1E40AF'; }
+                    else if (ratio < 0.66) { bg = '#3B82F6'; color = '#FFFFFF'; }
+                    else { bg = '#1E3A8A'; color = '#FFFFFF'; }
+                    return `<div class="rounded-md flex flex-col items-center justify-center py-2 transition-transform hover:scale-105 cursor-default" style="background:${bg};color:${color};box-shadow:0 1px 2px rgba(0,0,0,0.04)" title="${n}번 — ${cnt}회 매칭 / 최근 ${numLastMatch[n] || '-'}회">
+                        <div class="text-[13px] font-black leading-none">${n}</div>
+                        <div class="text-[9px] font-bold opacity-80 mt-0.5">${cnt}</div>
+                    </div>`;
+                }).join('');
+            }
+
+            // ── Section 4: ranking ───────────────────────────────
+            const ranking = Array.from({ length: 45 }, (_, i) => ({
+                num: i + 1, count: numMatchCount[i + 1],
+                rate: N ? numMatchCount[i + 1] / N * 100 : 0,
+                lastRound: numLastMatch[i + 1]
+            })).sort((a, b) => b.count - a.count || a.num - b.num);
+            const renderRankRow = (r, rank) => `<tr class="hover:bg-slate-50 transition-colors">
+                <td class="py-2 text-left text-[11px] text-gray-400 font-bold">${rank}</td>
+                <td class="py-2 text-left"><span class="inline-flex items-center justify-center w-7 h-7 rounded-full text-[11px] font-black" style="background:${getNbBallBg(r.num)};color:#fff;box-shadow:0 1px 2px rgba(0,0,0,0.1)">${r.num}</span></td>
+                <td class="py-2 text-right text-sm font-black text-slate-700">${r.count}</td>
+                <td class="py-2 text-right text-xs font-bold text-blue-600">${r.rate.toFixed(1)}%</td>
+                <td class="py-2 text-right text-[11px] text-gray-500">${r.lastRound || '-'}</td>
+            </tr>`;
+            const hotEl = document.getElementById('neighborHotTable');
+            const coldEl = document.getElementById('neighborColdTable');
+            if (hotEl) hotEl.innerHTML = ranking.slice(0, 10).map((r, i) => renderRankRow(r, i + 1)).join('');
+            if (coldEl) coldEl.innerHTML = ranking.slice(-10).reverse().map((r, i) => renderRankRow(r, i + 1)).join('');
+
+            // ── Section 5: 방향성 -1 vs +1 ───────────────────────
+            const minusPct = dirTotal ? minusTotal / dirTotal * 100 : 0;
+            const plusPct = dirTotal ? plusTotal / dirTotal * 100 : 0;
+            const bothPct = dirTotal ? bothTotal / dirTotal * 100 : 0;
+            setTextNb('nbMinusPct', minusPct.toFixed(1));
+            setTextNb('nbPlusPct', plusPct.toFixed(1));
+            setTextNb('nbBothPct', bothPct.toFixed(1));
+            setTextNb('nbMinusCount', minusTotal);
+            setTextNb('nbPlusCount', plusTotal);
+            document.querySelectorAll('#nbTotalDir').forEach(el => el.textContent = dirTotal);
+            const setBarNb = (id, p) => { const el = document.getElementById(id); if (el) el.style.width = Math.min(100, p) + '%'; };
+            setBarNb('nbMinusBar', minusPct);
+            setBarNb('nbPlusBar', plusPct);
+            setBarNb('nbBothBar', bothPct);
+            setBarNb('nbDirBarMinus', minusPct);
+            setBarNb('nbDirBarBoth', bothPct);
+            setBarNb('nbDirBarPlus', plusPct);
+
+            // ── Section 6: 인접 페어 top 20 ──────────────────────
+            const pairs = [...pairCounts.values()]
+                .sort((a, b) => b.count - a.count || a.prevN - b.prevN)
+                .slice(0, 20);
+            const renderPairRowNb = (p, rank) => `<tr class="hover:bg-slate-50 transition-colors">
+                <td class="py-2 text-left text-[11px] text-gray-400 font-bold">${rank}</td>
+                <td class="py-2 text-left">
+                    <span class="inline-flex items-center gap-1">
+                        <span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-black" style="background:${getNbBallBg(p.prevN)};color:#fff">${p.prevN}</span>
+                        <span class="text-[10px] font-bold ${p.dir === '−1' ? 'text-cyan-500' : 'text-orange-500'}">${p.dir}</span>
+                        <span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-black" style="background:${getNbBallBg(p.thisN)};color:#fff">${p.thisN}</span>
+                    </span>
+                </td>
+                <td class="py-2 text-right text-sm font-black text-blue-700">${p.count}<span class="text-[10px] text-gray-400 font-bold ml-0.5">회</span></td>
+                <td class="py-2 text-right text-[11px] text-gray-500">${p.lastRound || '-'}</td>
+            </tr>`;
+            const half = Math.ceil(pairs.length / 2);
+            const p1 = document.getElementById('neighborPairTable1');
+            const p2 = document.getElementById('neighborPairTable2');
+            if (p1) p1.innerHTML = pairs.slice(0, half).map((p, i) => renderPairRowNb(p, i + 1)).join('') || '<tr><td colspan="4" class="text-center py-6 text-gray-400 text-xs italic">인접 천이 페어 없음</td></tr>';
+            if (p2) p2.innerHTML = pairs.slice(half).map((p, i) => renderPairRowNb(p, i + half + 1)).join('') || '';
+
+            // ── Section 7: GAP/Streak + 보너스 ±1 ────────────────
+            let curGap = 0, curStreak = 0, maxGap = 0, maxStreak = 0, runGap = 0, runStreak = 0;
+            while (curGap < rows.length && (rows[curGap].neighbor_count || 0) === 0) curGap++;
+            while (curStreak < rows.length && (rows[curStreak].neighbor_count || 0) >= 1) curStreak++;
+            rows.forEach(r => {
+                if ((r.neighbor_count || 0) === 0) { runGap++; runStreak = 0; if (runGap > maxGap) maxGap = runGap; }
+                else { runStreak++; runGap = 0; if (runStreak > maxStreak) maxStreak = runStreak; }
+            });
+            setTextNb('nbCurGap', curGap);
+            setTextNb('nbMaxGap', maxGap);
+            setTextNb('nbCurStreak', curStreak);
+            setTextNb('nbMaxStreak', maxStreak);
+            const imm = maxGap > 0 ? Math.min(100, Math.round(curGap / maxGap * 100)) : 0;
+            setTextNb('nbImminence', imm);
+            setBarNb('nbImminenceBar', imm);
+
+            // 보너스 ±1
+            const pctA = bonusTotal ? bonusToMain / bonusTotal * 100 : 0;
+            const pctB = bonusTotal ? bonusToBonus / bonusTotal * 100 : 0;
+            const pctC = bonusTotal ? bonusGone / bonusTotal * 100 : 0;
+            setTextNb('nbBonusToMain', pctA.toFixed(1));
+            setTextNb('nbBonusToBonus', pctB.toFixed(1));
+            setTextNb('nbBonusGone', pctC.toFixed(1));
+            setBarNb('nbBonusToMainBar', pctA);
+            setBarNb('nbBonusToBonusBar', pctB);
+            setBarNb('nbBonusGoneBar', pctC);
+
+            // ── Section 7 (★차별화): 풀 크기 분포 + 풀별 매칭 효율 ──
+            const sortedPoolSizes = [...poolSizeStats.keys()].sort((a, b) => a - b);
+            const ctx7 = document.getElementById('neighborPoolSize');
+            if (ctx7) {
+                if (window._nbPoolChart) window._nbPoolChart.destroy();
+                window._nbPoolChart = new Chart(ctx7.getContext('2d'), {
+                    type: 'bar',
+                    data: {
+                        labels: sortedPoolSizes.map(p => `P=${p}`),
+                        datasets: [{
+                            label: '회차수',
+                            data: sortedPoolSizes.map(p => poolSizeStats.get(p).count),
+                            backgroundColor: '#A78BFA', borderRadius: 4, barPercentage: 0.7
+                        }]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: { callbacks: { label: (item) => `${item.parsed.y}회차` } },
+                            datalabels: { display: false }
+                        },
+                        scales: {
+                            x: { grid: { display: false }, ticks: { color: '#475569', font: { size: 10, weight: '600' } } },
+                            y: { ticks: { color: '#94A3B8', font: { size: 10 } }, grid: { color: '#F1F5F9' } }
+                        }
+                    }
+                });
+            }
+            // 풀별 통계 표
+            const tStats = document.getElementById('neighborPoolStats');
+            if (tStats) {
+                tStats.innerHTML = sortedPoolSizes.map(p => {
+                    const e = poolSizeStats.get(p);
+                    const avg = e.totalMatch / e.count;
+                    const matchRate = avg / 6 * 100;   // 추첨 6개 대비 매칭률
+                    const expected = p * 6 / 45;       // 초기하 기대값 = P*6/45
+                    const deviation = avg - expected;
+                    const devColor = deviation > 0.05 ? '#059669' : deviation < -0.05 ? '#E11D48' : '#94A3B8';
+                    return `<tr class="hover:bg-slate-50">
+                        <td class="py-2 text-left text-sm font-bold text-violet-600">${p}</td>
+                        <td class="py-2 text-right text-[11px] text-gray-500">${e.count}</td>
+                        <td class="py-2 text-right text-sm font-black text-blue-700">${avg.toFixed(2)}</td>
+                        <td class="py-2 text-right text-xs font-bold text-blue-600">${matchRate.toFixed(1)}%</td>
+                        <td class="py-2 text-right text-[11px]" style="color:${devColor}">${expected.toFixed(2)} <span class="text-[9px] ml-0.5">(${deviation >= 0 ? '+' : ''}${deviation.toFixed(2)})</span></td>
+                    </tr>`;
+                }).join('');
+            }
+
+            // ── Section 8 (★차별화): 방향별 핫맵 분리 ──────────────
+            const maxMinus = Math.max(...numMinusCount.slice(1));
+            const maxPlus = Math.max(...numPlusCount.slice(1));
+            const renderDirCell = (n, cnt, max, palette) => {
+                const ratio = max > 0 ? cnt / max : 0;
+                let bg, color;
+                if (cnt === 0) { bg = '#F1F5F9'; color = '#94A3B8'; }
+                else if (ratio < 0.33) { bg = palette[0]; color = palette[3]; }
+                else if (ratio < 0.66) { bg = palette[1]; color = '#FFFFFF'; }
+                else { bg = palette[2]; color = '#FFFFFF'; }
+                return `<div class="rounded-md flex flex-col items-center justify-center py-2 transition-transform hover:scale-105 cursor-default" style="background:${bg};color:${color};box-shadow:0 1px 2px rgba(0,0,0,0.04)" title="${n}번 — ${cnt}회">
+                    <div class="text-[13px] font-black leading-none">${n}</div>
+                    <div class="text-[9px] font-bold opacity-80 mt-0.5">${cnt}</div>
+                </div>`;
+            };
+            const cyanPalette = ['#A5F3FC', '#22D3EE', '#0891B2', '#0E7490'];
+            const orangePalette = ['#FED7AA', '#FB923C', '#C2410C', '#7C2D12'];
+            const minusEl = document.getElementById('neighborMinusHeatmap');
+            const plusEl = document.getElementById('neighborPlusHeatmap');
+            if (minusEl) minusEl.innerHTML = Array.from({ length: 45 }, (_, i) => renderDirCell(i + 1, numMinusCount[i + 1], maxMinus, cyanPalette)).join('');
+            if (plusEl) plusEl.innerHTML = Array.from({ length: 45 }, (_, i) => renderDirCell(i + 1, numPlusCount[i + 1], maxPlus, orangePalette)).join('');
+
+            console.log(`[fix-358+361] 보조지표 렌더링 완료 — 회차 ${N} / 평균 풀 ${avgPool.toFixed(1)} / 방향성 ${dirTotal}건 / 페어 ${pairCounts.size} / 풀크기 ${sortedPoolSizes.length}종`);
+        }
+
+        function setTextNb(id, val) { const el = document.getElementById(id); if (el) el.textContent = val; }
+        function getNbBallBg(n) {
+            if (n <= 10) return 'linear-gradient(135deg,#FBBF24,#F59E0B)';
+            if (n <= 20) return 'linear-gradient(135deg,#60A5FA,#2563EB)';
+            if (n <= 30) return 'linear-gradient(135deg,#F87171,#DC2626)';
+            if (n <= 40) return 'linear-gradient(135deg,#9CA3AF,#4B5563)';
+            return 'linear-gradient(135deg,#34D399,#059669)';
         }
 
     </script>

@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 
 from db.supabase_client import get_client, fetch_all_draws
 from models.ensemble import LottoEnsemble, CombinationGenerator, TASK_WEIGHTS as ENSEMBLE_TASK_WEIGHTS
+from pipeline.sla_monitor import SLAMonitor, sync_sla_to_latency_log
 
 # deep_analysis_v3.py 의 핵심 계산 함수들 임포트
 import sys, os
@@ -26,6 +27,11 @@ from routes.deep_analysis_v3 import (
     get_model_filter_expectations,
     analyze_all_regressions,
     calc_stat_correction,
+    # High-1: 4섹션 분석 함수 추가
+    analyze_tail_detailed,
+    analyze_number_band,
+    analyze_magic_square,
+    analyze_lotto_paper,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -53,6 +59,13 @@ class WeeklyPipelineV2:
         except Exception as e:
             logger.warning(f"  [WeeklyPipelineV2] predictor_pipeline init fail (skip): {e}")
             self.predictor_pipeline = None
+
+        # [P3 PATCH] EMA 평활화 — 회차 간 가중치 변동 흡수
+        # 근거: Lotto_lab_Root_Cause_Diagnosis.md (Finding #3)
+        #       model_weights가 회차 간 거의 동일 (1222 == 1223) → 추론 시 갱신 안 됨
+        # 패치 일자: 2026-05-11
+        self._prev_weights: dict | None = None
+        self._ema_alpha: float = 0.85  # 0.85 = 기존 85% + 신규 15% 반영
 
     # ──────────────────────────────────────────────────────────────────────────
     # 진입점
@@ -86,12 +99,25 @@ class WeeklyPipelineV2:
             elapsed = round((datetime.now() - start).total_seconds(), 2)
             logger.info(f"[WeeklyPipelineV2] 완료 ({elapsed}초)")
 
+            # ── Phase D: SLA Monitor → model_latency_log 동기화 ─────────────────
+            logger.info("[Phase D] SLA Monitor 동기화 중...")
+            try:
+                sync_result = sync_sla_to_latency_log(
+                    supabase_client=self.supabase,
+                    recent_n=100,
+                )
+                logger.info(f"  [D] model_latency_log 동기화: {sync_result}")
+            except Exception as e:
+                logger.warning(f"  [D] SLA 동기화 실패 (무시): {e}")
+                sync_result = {"success": False, "error": str(e)}
+
             return {
                 "success":      True,
                 "target_round": target,
                 "elapsed":      elapsed,
                 "verify":       verify_result,
                 "save":         save_result,
+                "sla_sync":     sync_result,
             }
 
         except Exception as e:
@@ -178,11 +204,61 @@ class WeeklyPipelineV2:
         """
         전체 분석 실행.
 
+        [P3 PATCH] 추론 직전 ensemble 가중치 재계산 추가 (Finding #3).
+
         Returns dict with keys:
           prediction, contribs, xai, top5_result, excl_result,
           final_probs, range_analysis, regression_analysis, combinations,
           predictor_pipeline_outputs (Master Plan Stage 1-4-E 신설)
         """
+        # ── [P3 PATCH] 추론 시점 ensemble 가중치 재계산 (EMA 평활화) ───────────
+        # 근거: 회차별 model_performance_log 기반 동적 가중치 적용
+        # EMA: 0.85 × 기존 + 0.15 × 신규 (큰 변동 흡수)
+        # 패치 일자: 2026-05-11
+        logger.info(f"  [P3] ensemble 가중치 재계산 (target_round={target_round})...")
+        try:
+            if hasattr(self.ensemble, "_update_meta_weights"):
+                # _update_meta_weights() 는 ensemble 내부 가중치를 갱신
+                # 반환값 형태(dict | None)에 무관하게 동작하도록 양방향 처리
+                ret = self.ensemble._update_meta_weights()
+                new_weights = ret if isinstance(ret, dict) else None
+                if new_weights is None:
+                    # 속성에서 직접 추출
+                    new_weights = (
+                        getattr(self.ensemble, "current_weights", None)
+                        or getattr(self.ensemble, "weights", None)
+                        or getattr(self.ensemble, "meta_weights", None)
+                        or {}
+                    )
+                # EMA 평활화 적용 (2회차 이후)
+                if self._prev_weights is not None and new_weights:
+                    smoothed = {}
+                    all_keys = set(self._prev_weights.keys()) | set(new_weights.keys())
+                    for k in all_keys:
+                        prev_v = float(self._prev_weights.get(k, 0.0) or 0.0)
+                        new_v  = float(new_weights.get(k, 0.0) or 0.0)
+                        smoothed[k] = self._ema_alpha * prev_v + (1 - self._ema_alpha) * new_v
+                    total = sum(smoothed.values()) or 1.0
+                    smoothed = {k: v / total for k, v in smoothed.items()}
+                    # ensemble 속성 갱신 (다양한 이름 호환)
+                    for attr in ("current_weights", "weights", "meta_weights"):
+                        if hasattr(self.ensemble, attr):
+                            setattr(self.ensemble, attr, smoothed)
+                            break
+                    self._prev_weights = smoothed
+                    top3 = dict(sorted(smoothed.items(), key=lambda kv: -kv[1])[:3])
+                    logger.info(f"  [P3] EMA weights top3: {top3}")
+                else:
+                    # 첫 회차 — EMA 미적용
+                    self._prev_weights = new_weights or {}
+                    top3 = dict(sorted((new_weights or {}).items(), key=lambda kv: -kv[1])[:3])
+                    logger.info(f"  [P3] 초기 weights top3: {top3}")
+            else:
+                logger.warning("  [P3] ensemble._update_meta_weights() 없음 — 스킵")
+        except Exception as e:
+            logger.warning(f"  [P3] 가중치 갱신 실패 (기존 가중치 유지): {e}")
+        # ── /P3 PATCH ──────────────────────────────────────────────────────────
+
         # ── B0. predictor_pipeline 학습/추론 (Master Plan Stage 1-4-E) ──────
         # Phase 1~4 22 predictor — filter_stats ml_recommendation 입력 제공
         predictor_pipeline_outputs = None
@@ -232,10 +308,13 @@ class WeeklyPipelineV2:
         corrected_probs = {n: v/total_c for n, v in corrected_probs.items()}
 
         # ── 3. 필터 범위 분석 (P1/P2/P8 포함) ──────────────────────────────
+        # [Stage 1-4-D-2-fix-100] 단일 앙상블 산출 통합
+        # 사용자 결정: simulate_all_filters MC 범위 폐기 → 가중평균 __ensemble__ 단일 산출 통일
         logger.info("  [B3] 필터 범위 분석...")
+        # simulate_all_filters는 필터 키 목록 추출용으로만 사용 (값은 폐기)
         range_analysis_simple, _ = simulate_all_filters(corrected_probs, draws)
         range_analysis = {}
-        for fk, fv in range_analysis_simple.items():
+        for fk in range_analysis_simple.keys():
             from models.ensemble import LottoEnsemble as LE
             auto_task = LE.get_task_for_filter(fk)
             model_exp = get_model_filter_expectations(
@@ -243,11 +322,13 @@ class WeeklyPipelineV2:
                 ensemble=self.ensemble,
             )
             ens_entry = model_exp.get("__ensemble__", {})
+            ens_min = ens_entry.get("min")
+            ens_max = ens_entry.get("max")
             range_analysis[fk] = {
-                "range":              fv,
+                "range":              [ens_min, ens_max],  # 가중평균 = 단일 앙상블
                 "primary_task":       auto_task,
-                "ensemble_min":       ens_entry.get("min"),
-                "ensemble_max":       ens_entry.get("max"),
+                "ensemble_min":       ens_min,
+                "ensemble_max":       ens_max,
                 "ensemble_ci":        ens_entry.get("ci"),
                 "model_expectations": model_exp,
             }
@@ -341,8 +422,90 @@ class WeeklyPipelineV2:
         for n in excl_10:
             gen_probs[n] = 0
         pred_obj = {"probabilities": gen_probs, "model_contributions": contribs}
+
+        # [번호대 자동 제외] 최근 5회차의 번호대 분포 패턴 → CombinationGenerator로 전달
+        # draws는 round DESC 정렬이라 처음 5개가 최근 5회차
+        recent5_patterns = []
+        for d in draws[:5]:
+            cnts = [0, 0, 0, 0, 0]
+            for n in d.get("numbers", []):
+                if   n <=  10: cnts[0] += 1
+                elif n <=  20: cnts[1] += 1
+                elif n <=  30: cnts[2] += 1
+                elif n <=  40: cnts[3] += 1
+                else:          cnts[4] += 1
+            recent5_patterns.append("-".join(str(x) for x in cnts))
+
+        # context_data 빌드 (19개 조건 필터용)
+        def _build_combo_context_weekly():
+            """weekly_pipeline용 context_data 빌드"""
+            # missing_11plus
+            missing_11plus = [n for n in range(1, 46) if stat_corrections.get(n, {}).get("current_gap", 0) >= 11]
+
+            # hot/cold 분류 (위에서 이미 계산한 freq_count 재사용)
+            hot_nums = [n for n in range(1, 46) if freq_count.get(n, 0) >= 5]
+            cold_nums = [n for n in range(1, 46) if freq_count.get(n, 0) < 3]
+
+            # 이월수
+            carryover = draws[0].get("numbers", []) if draws else []
+
+            # 최근 10회 끝수 분포
+            tail_dist_10 = [0] * 10
+            for d in draws[:10]:
+                for n in d.get("numbers", []):
+                    tail_dist_10[n % 10] += 1
+
+            # 4회 이상 미출인 끝수
+            tail_missing_4plus = [t for t in range(10) if tail_dist_10[t] <= 2]
+
+            # 최근 10회 번호대 분포
+            band_dist_10 = [0] * 5
+            for d in draws[:10]:
+                for n in d.get("numbers", []):
+                    if n <= 10: band_dist_10[0] += 1
+                    elif n <= 20: band_dist_10[1] += 1
+                    elif n <= 30: band_dist_10[2] += 1
+                    elif n <= 40: band_dist_10[3] += 1
+                    else: band_dist_10[4] += 1
+
+            # 2회 이상 미출인 번호대
+            band_missing_2plus = [idx for idx in range(5) if band_dist_10[idx] <= 5]
+
+            # 앙상블 총합 범위
+            sum_range = range_analysis.get("sum", {}).get("range", [100, 220])
+            if isinstance(sum_range, list) and len(sum_range) == 2:
+                sum_dict = {"min": sum_range[0], "max": sum_range[1]}
+            else:
+                sum_dict = {"min": 100, "max": 220}
+
+            # 끝수합 범위
+            tail_sum_range = range_analysis.get("tail_sum", {}).get("range", [15, 35])
+            if isinstance(tail_sum_range, list) and len(tail_sum_range) == 2:
+                tail_sum_dict = {"min": tail_sum_range[0], "max": tail_sum_range[1]}
+            else:
+                tail_sum_dict = {"min": 15, "max": 35}
+
+            return {
+                "top_5": top_5,
+                "exclude_10": excl_10,
+                "missing_11plus": missing_11plus,
+                "hot_numbers": hot_nums,
+                "cold_numbers": cold_nums,
+                "carryover_numbers": carryover,
+                "recent_10_tail_dist": tail_dist_10,
+                "tail_missing_4plus": tail_missing_4plus,
+                "recent_10_band_dist": band_dist_10,
+                "band_missing_2plus": band_missing_2plus,
+                "ensemble_sum_range": sum_dict,
+                "ensemble_tail_sum_range": tail_sum_dict
+            }
+
+        combo_context = _build_combo_context_weekly()
         combinations = CombinationGenerator.generate(
-            pred_obj, filter_settings={}, n_combinations=10
+            pred_obj,
+            filter_settings={"excluded_range_patterns": recent5_patterns},
+            n_combinations=6,
+            context_data=combo_context
         )
 
         # ── 6. 메타러너 상태 ─────────────────────────────────────────────────
@@ -400,8 +563,35 @@ class WeeklyPipelineV2:
         try:
             xai = analysis.get("xai", {})
             final_probs  = analysis.get("final_probs", {})
-            contributions = analysis.get("contributions", {})  # {model: {n: raw_prob}}
+            contributions = analysis.get("contribs", {})  # {model: {n: raw_prob}} — key는 "contribs"
             gnn_contribs  = contributions.get("gnn", {})       # {n: raw_prob}
+
+            # ── 모델별 raw 확률 기반 1-45 순위 계산 ────────────────────────────
+            # XAI Z-score는 평균 이하 번호를 0으로 클램핑 → 동점 발생 → 번호 오름차순 fallback
+            # raw 확률로 직접 정렬하면 45개 번호 각각에 진짜 순위 부여 가능
+            _rank_models = [
+                'xgboost', 'catboost', 'tabnet', 'cnn', 'gnn',
+                'markov', 'autoencoder', 'tft', 'mhn', 'bayesian_nn',
+            ]
+            model_ranks: dict = {}
+            for _m in _rank_models:
+                _probs = contributions.get(_m, {})
+                if _probs:
+                    _sorted = sorted(range(1, 46),
+                                     key=lambda n, p=_probs: float(p.get(n, 0.0)),
+                                     reverse=True)
+                    model_ranks[_m] = {num: (rank + 1) for rank, num in enumerate(_sorted)}
+                else:
+                    # Fallback: raw 확률 없으면 XAI Z-score(pct)로 순위 근사
+                    # (Markov처럼 contributions가 별도 경로로 채워지지 않는 모델 대응)
+                    _xai_scores = {
+                        n: float((xai.get(n) or xai.get(str(n)) or {}).get(_m, 0.0))
+                        for n in range(1, 46)
+                    }
+                    _xai_sorted = sorted(range(1, 46),
+                                         key=lambda n, s=_xai_scores: s[n],
+                                         reverse=True)
+                    model_ranks[_m] = {num: (rank + 1) for rank, num in enumerate(_xai_sorted)}
 
             # GNN이 균등 예측(uniform)이면 XAI excess = 0 → raw 확률로 대체
             gnn_xai_total = sum(
@@ -476,6 +666,17 @@ class WeeklyPipelineV2:
                     "tft_pct":         x.get("tft", 0.0),
                     "mhn_pct":         x.get("mhn", 0.0),
                     "bayesian_nn_pct": x.get("bayesian_nn", 0.0),
+                    # 모델별 raw 확률 기반 순위 (1=최고, 45=최저) — XAI 클램핑 우회
+                    "xgboost_rank":     model_ranks.get('xgboost',     {}).get(n, 45),
+                    "catboost_rank":    model_ranks.get('catboost',    {}).get(n, 45),
+                    "tabnet_rank":      model_ranks.get('tabnet',      {}).get(n, 45),
+                    "cnn_rank":         model_ranks.get('cnn',         {}).get(n, 45),
+                    "gnn_rank":         model_ranks.get('gnn',         {}).get(n, 45),
+                    "markov_rank":      model_ranks.get('markov',      {}).get(n, 45),
+                    "autoencoder_rank": model_ranks.get('autoencoder', {}).get(n, 45),
+                    "tft_rank":         model_ranks.get('tft',         {}).get(n, 45),
+                    "mhn_rank":         model_ranks.get('mhn',         {}).get(n, 45),
+                    "bayesian_nn_rank": model_ranks.get('bayesian_nn', {}).get(n, 45),
                     # 메타
                     "top_model":       x.get("top_model"),
                     "veto":            x.get("veto"),
@@ -562,21 +763,10 @@ class WeeklyPipelineV2:
                         ens_min = max(clamp[0], ens_min)
                         ens_max = min(clamp[1], ens_max)
 
-                # [fix-54-B] filter_value 형식 통일 [min, max] array
-                raw_range = fdata.get("range")
-                if isinstance(raw_range, str):
-                    # "0~2" 같은 string → [0, 2] array
-                    try:
-                        parts = [int(p.strip()) for p in raw_range.split("~")]
-                        normalized_range = parts if len(parts) == 2 else [parts[0], parts[0]]
-                    except Exception:
-                        normalized_range = [0, 6]
-                elif isinstance(raw_range, (list, tuple)) and len(raw_range) == 2:
-                    normalized_range = [int(raw_range[0]), int(raw_range[1])]
-                elif isinstance(raw_range, dict) and "min" in raw_range and "max" in raw_range:
-                    normalized_range = [int(raw_range["min"]), int(raw_range["max"])]
-                else:
-                    normalized_range = [ens_min or 0, ens_max or 6]
+                # [Stage 1-4-D-2-fix-100] filter_value = [ensemble_min, ensemble_max] 단일 산출 통일
+                # 가중평균 __ensemble__ 결과를 filter_value에도 저장 (MC simulate 결과 폐기)
+                normalized_range = [ens_min if ens_min is not None else 0,
+                                     ens_max if ens_max is not None else 6]
 
                 rows.append({
                     "target_round":       target_round,
@@ -694,6 +884,136 @@ class WeeklyPipelineV2:
         except Exception as e:
             saved["weekly_combinations"] = f"ERR: {e}"
             logger.error(f"  [C6] weekly_combinations 실패: {e}")
+
+        # ── C7. deep_analysis_history (frontend ai_deep_learning.html 호환) ────
+        # matrix_data + 4섹션 + regression_analysis를 저장
+        try:
+            # weekly_number_xai에서 방금 저장한 45행 조회
+            xai_res = self.supabase.table("weekly_number_xai") \
+                .select("*").eq("target_round", target_round).execute()
+            xai_rows = xai_res.data or []
+
+            # matrix_data 빌드: [{num, models: {model_name: {score, rank}}}, ...]
+            matrix_data = []
+            for row in xai_rows:
+                num = row.get("number")
+                models_dict = {}
+                # 11 base (10 active + nbeats 제외) — deprecated는 0으로 채워짐
+                for model_name in ["xgboost", "catboost", "tabnet", "cnn", "gnn",
+                                   "markov", "autoencoder", "tft", "mhn", "bayesian_nn",
+                                   "lstm", "transformer"]:
+                    pct_key = f"{model_name}_pct"
+                    rank_key = f"{model_name}_rank"
+                    models_dict[model_name] = {
+                        "score": float(row.get(pct_key, 0.0)),
+                        "rank": int(row.get(rank_key, 45)),
+                    }
+                matrix_data.append({"num": num, "models": models_dict})
+
+            # High-1: 4섹션 분석 계산 (deep_analysis_v3 함수 재사용)
+            final_probs = analysis.get("final_probs", {})
+            contribs = analysis.get("contribs", {})
+            history_draws = fetch_all_draws()
+
+            logger.info("  [C7] 4섹션 분석 계산 중...")
+            tail_analysis = analyze_tail_detailed(final_probs, history_draws, model_contributions=contribs)
+            number_band_analysis = analyze_number_band(final_probs, history_draws, model_contributions=contribs)
+            magic_square_analysis = analyze_magic_square(final_probs, history_draws, model_contributions=contribs)
+            lotto_paper_analysis = analyze_lotto_paper(final_probs, history_draws, model_contributions=contribs)
+
+            # regression_analysis는 Phase B에서 이미 계산됨
+            regression_analysis = analysis.get("regression_analysis", {})
+
+            # analysis_data 구조 (ai_deep_learning.js가 기대하는 형식 + 4섹션 추가)
+            analysis_data_obj = {
+                "success": True,
+                "target_round": target_round,
+                "top_5": analysis.get("top_5", []),
+                "exclude_10": analysis.get("excl_10", []),
+                "analysis": {
+                    "matrix_data": matrix_data,
+                    # High-1: 4섹션 추가
+                    "tail_analysis": tail_analysis,
+                    "number_band_analysis": number_band_analysis,
+                    "magic_square_analysis": magic_square_analysis,
+                    "lotto_paper_analysis": lotto_paper_analysis,
+                    # regression_analysis도 추가 (이미 frontend는 weekly_regression_analysis에서 직접 fetch)
+                    "regression_analysis": regression_analysis,
+                },
+                "combinations": analysis.get("combinations", [])[:10],
+            }
+
+            # deep_analysis_history upsert
+            history_row = {
+                "target_round": target_round,
+                "confidence": 75,  # 기본 신뢰도 (LLM 전략 없이 앙상블 단독)
+                "summary": f"{target_round}회차 딥러닝 앙상블 분석 (11 base + 4 Pillar)",
+                "analysis_data": analysis_data_obj,
+                "recommended_numbers": analysis.get("top_5", []),
+                "excluded_numbers": analysis.get("excl_10", []),
+                # [fix] JSONB 컬럼은 Python dict/list 직접 전달 (json.dumps 시 string 타입으로 이중 인코딩됨)
+                "combinations": analysis.get("combinations", [])[:10],
+                "number_rankings": {},  # 옵션
+                "model_rankings": {},   # 옵션
+                "applied_filters": {},
+                "model_analysis": {},
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+            self.supabase.table("deep_analysis_history") \
+                .upsert(history_row, on_conflict="target_round").execute()
+            saved["deep_analysis_history"] = "OK"
+            logger.info(f"  [C7] deep_analysis_history 저장: matrix_data={len(matrix_data)}행, "
+                       f"4섹션(tail={len(tail_analysis)}, band={len(number_band_analysis)}, "
+                       f"magic={len(magic_square_analysis)}, paper={len(lotto_paper_analysis['rows'])+len(lotto_paper_analysis['cols'])}), "
+                       f"regression={len(regression_analysis)}행")
+        except Exception as e:
+            saved["deep_analysis_history"] = f"ERR: {e}"
+            logger.error(f"  [C7] deep_analysis_history 실패: {e}")
+
+        # ── [P4 PATCH] C8. weekly_number_xai.veto 채움 ────────────────────────
+        # weekly_number_xai 저장 직후 _rank 컬럼 기반으로 veto 컬럼 채움
+        # 근거: Lotto_lab_Root_Cause_Diagnosis.md (Finding #5)
+        try:
+            from services.veto_filler import fill_veto_for_round
+            veto_result = fill_veto_for_round(target_round)
+            if veto_result["success"]:
+                d = veto_result["distribution"]
+                saved["weekly_number_xai_veto"] = (
+                    f"OK ({veto_result['updated']}rows, "
+                    f"safe={d.get('safe', 0)}, "
+                    f"exclude={d.get('exclude', 0)}, "
+                    f"neutral={d.get('neutral', 0)})"
+                )
+                logger.info(f"  [C8/P4] veto 채움: {d}")
+            else:
+                saved["weekly_number_xai_veto"] = f"WARN: {veto_result.get('error')}"
+        except Exception as e:
+            saved["weekly_number_xai_veto"] = f"ERR: {e}"
+            logger.error(f"  [C8/P4] veto 채움 실패: {e}")
+        # ── /P4 PATCH ──────────────────────────────────────────────────────────
+
+        # ── [P5 PATCH 옵션 A] C9. recommendation_backtest_runs.pillar_scores ──
+        # 4-Pillar Consensus Score (CNS/ENS/FLT/STA) 계산 + 저장
+        # 근거: Lotto_lab_Root_Cause_Diagnosis.md (Finding #1)
+        try:
+            from services.pillar_scorer import save_pillar_scores
+            pillar_result = save_pillar_scores(target_round)
+            if pillar_result["success"]:
+                s = pillar_result["scores"]
+                saved["pillar_scores"] = (
+                    f"OK (updated={pillar_result['updated']}, "
+                    f"CNS={s.get('CNS', 0):.3f}, "
+                    f"ENS={s.get('ENS', 0):.3f}, "
+                    f"FLT={s.get('FLT', 0):.3f}, "
+                    f"STA={s.get('STA', 0):.3f})"
+                )
+                logger.info(f"  [C9/P5] pillar_scores: {s}")
+            else:
+                saved["pillar_scores"] = f"WARN: {pillar_result.get('error')}"
+        except Exception as e:
+            saved["pillar_scores"] = f"ERR: {e}"
+            logger.error(f"  [C9/P5] pillar_scores 실패: {e}")
+        # ── /P5 PATCH ──────────────────────────────────────────────────────────
 
         return saved
 

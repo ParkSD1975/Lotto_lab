@@ -1,0 +1,592 @@
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\lightning\pytorch\utilities\parsing.py:213: Attribute 'loss' is an instance of `nn.Module` and is already saved during checkpointing. It is recommended to ignore them using `self.save_hyperparameters(ignore=['loss'])`.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\lightning\pytorch\utilities\parsing.py:213: Attribute 'logging_metrics' is an instance of `nn.Module` and is already saved during checkpointing. It is recommended to ignore them using `self.save_hyperparameters(ignore=['logging_metrics'])`.
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:82: UserWarning: Device used : cuda
+  warnings.warn(f"Device used : {self.device}")
+C:\Users\psdet\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytorch_tabnet\abstract_model.py:454: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
+  saved_state_dict = torch.load(f, map_location=self.device)
+================================================================================
+1222·1223회 회귀 분석 안전 재적재
+================================================================================
+
+[1] lotto_draws 로드
+총 1222회 데이터 로드
+
+[2] LottoEnsemble 초기화
+  [GNN] adjacency counts 불러옴
+[Stage 1-4-D-2] catboost registered (input_dim=n/a)
+[Stage 1-4-D-2] tabnet registered (input_dim=65)
+[Stage 1-4-D-2] tft registered (input_dim=65)
+[Stage 1-4-D-2] mhn registered (input_dim=65)
+[Stage 1-4-D-2] bayesian_nn registered (input_dim=65)
+[Stage 1-4-D-2] nbeats registered (target=sum, scalar only)
+🧠 [Meta-Learning] 진화된 동적 가중치 로드 완료: {'xgboost': 0.3049, 'lstm': 0.0, 'cnn': 0.122, 'transformer': 0.0, 'gnn': 0.1829, 'markov': 0.0976, 'autoencoder': 0.0488, 'catboost': 0.0, 'tabnet': 0.0, 'tft': 0.2439, 'mhn': 0.0, 'bayesian_nn': 0.0, 'nbeats': 0.0}
+11 base 모델 인스턴스 생성 완료
+
+================================================================================
+1223회 회귀 분석 재적재 (step 33~200)
+================================================================================
+1223회 이전 데이터: 1222회
+
+  [Batch] step 33~42 생성 중...
+    step 33 ✓
+    step 34 ✓
+    step 35 ✓
+    step 36 ✓
+    step 37 ✓
+    step 38 ✓
+    step 39 ✓
+    step 40 ✓
+    step 41 ✓
+    step 42 ✓
+  [DB] 10행 UPSERT 중...
+  [DB] 10행 UPSERT 완료 ✓
+
+  [Batch] step 43~52 생성 중...
+    step 43 ✓
+    step 44 ✓
+    step 45 ✓
+    step 46 ✓
+    step 47 ✓
+    step 48 ✓
+    step 49 ✓
+    step 50 ✓
+    step 51 ✓
+    step 52 ✓
+  [DB] 10행 UPSERT 중...
+  [DB] 10행 UPSERT 완료 ✓
+
+  [Batch] step 53~62 생성 중...
+    step 53 ✓
+    step 54 ✓
+    step 55 ✓
+    step 56 ✓
+    step 57 ✓
+    step 58 ✓
+    step 59 ✓
+    step 60 ✓
+    step 61 ✓
+    step 62 ✓
+  [DB] 10행 UPSERT 중...
+  [DB] 10행 UPSERT 완료 ✓
+
+  [Batch] step 63~72 생성 중...
+    step 63 ✓
+    step 64 ✓
+    step 65 ✓
+    step 66 ✓
+    step 67 ✓
+    step 68 ✓
+    step 69 ✓
+    step 70 ✓
+    step 71 ✓
+    step 72 ✓
+  [DB] 10행 UPSERT 중...
+  [DB] 10행 UPSERT 완료 ✓
+
+  [Batch] step 73~82 생성 중...
+    step 73 ✓
+    step 74 ✓
+    step 75 ✓
+    step 76 ✓
+    step 77 ✓
+    step 78 ✓
+    step 79 ✓
+    step 80 ✓
+    step 81 ✓
+    step 82 ✓
+  [DB] 10행 UPSERT 중...
+  [DB] 10행 UPSERT 완료 ✓
+
+  [Batch] step 83~92 생성 중...
+    step 83 ✓
+    step 84 ✓
+    step 85 ✓
+    step 86 ✓
+    step 87 ✓
+    step 88 ✓
+    step 89 ✓
+    step 90 ✓
+    step 91 ✓
+    step 92 ✓
+  [DB] 10행 UPSERT 중...
+  [DB] 10행 UPSERT 완료 ✓
+
+  [Batch] step 93~102 생성 중...
+    step 93 ✓
+    step 94 ✓
+    step 95 ✓
+    step 96 ✓
+    step 97 ✓
+    step 98 ✓
+    step 99 ✓
+    step 100 ✓
+    step 101 ✓
+    step 102 ✓
+  [DB] 10행 UPSERT 중...
+  [DB] 10행 UPSERT 완료 ✓
+
+  [Batch] step 103~112 생성 중...
+    step 103 ✓
+    step 104 ✓
+    step 105 ✓
+    step 106 ✓
+    step 107 ✓
+    step 108 ✓
+    step 109 ✓
+    step 110 ✓
+    step 111 ✓
+    step 112 ✓
+  [DB] 10행 UPSERT 중...
+  [DB] 10행 UPSERT 완료 ✓
+
+  [Batch] step 113~122 생성 중...
+    step 113 ✓
+    step 114 ✓
+    step 115 ✓
+    step 116 ✓
+    step 117 ✓
+    step 118 ✓
+    step 119 ✓
+    step 120 ✓
+    step 121 ✓
+    step 122 ✓
+  [DB] 10행 UPSERT 중...
+  [DB] 10행 UPSERT 완료 ✓
+
+  [Batch] step 123~132 생성 중...
+    step 123 ✓
+    step 124 ✓
+    step 125 ✓
+    step 126 ✓
+    step 127 ✓
+    step 128 ✓
+    step 129 ✓
+    step 130 ✓
+    step 131 ✓
+    step 132 ✓
+  [DB] 10행 UPSERT 중...
+  [DB] 10행 UPSERT 완료 ✓
+
+  [Batch] step 133~142 생성 중...
+    step 133 ✓
+    step 134 ✓
+    step 135 ✓
+    step 136 ✓
+    step 137 ✓
+    step 138 ✓
+    step 139 ✓
+    step 140 ✓
+    step 141 ✓
+    step 142 ✓
+  [DB] 10행 UPSERT 중...
+  [DB] 10행 UPSERT 완료 ✓
+
+  [Batch] step 143~152 생성 중...
+    step 143 ✓
+    step 144 ✓
+    step 145 ✓
+    step 146 ✓
+    step 147 ✓
+    step 148 ✓
+    step 149 ✓
+    step 150 ✓
+    step 151 ✓
+    step 152 ✓
+  [DB] 10행 UPSERT 중...
+  [DB] 10행 UPSERT 완료 ✓
+
+  [Batch] step 153~162 생성 중...
+    step 153 ✓
+    step 154 ✓
+    step 155 ✓
+    step 156 ✓
+    step 157 ✓
+    step 158 ✓
+    step 159 ✓
+    step 160 ✓
+    step 161 ✓
+    step 162 ✓
+  [DB] 10행 UPSERT 중...
+  [DB] 10행 UPSERT 완료 ✓
+
+  [Batch] step 163~172 생성 중...
+    step 163 ✓
+    step 164 ✓
+    step 165 ✓
+    step 166 ✓
+    step 167 ✓
+    step 168 ✓
+    step 169 ✓
+    step 170 ✓
+    step 171 ✓
+    step 172 ✓
+  [DB] 10행 UPSERT 중...
+  [DB] 10행 UPSERT 완료 ✓
+
+  [Batch] step 173~182 생성 중...
+    step 173 ✓
+    step 174 ✓
+    step 175 ✓
+    step 176 ✓
+    step 177 ✓
+    step 178 ✓
+    step 179 ✓
+    step 180 ✓
+    step 181 ✓
+    step 182 ✓
+  [DB] 10행 UPSERT 중...
+  [DB] 10행 UPSERT 완료 ✓
+
+  [Batch] step 183~192 생성 중...
+    step 183 ✓
+    step 184 ✓
+    step 185 ✓
+    step 186 ✓
+    step 187 ✓
+    step 188 ✓
+    step 189 ✓
+    step 190 ✓
+    step 191 ✓
+    step 192 ✓
+  [DB] 10행 UPSERT 중...
+  [DB] 10행 UPSERT 완료 ✓
+
+  [Batch] step 193~200 생성 중...
+    step 193 ✓
+    step 194 ✓
+    step 195 ✓
+    step 196 ✓
+    step 197 ✓
+    step 198 ✓
+    step 199 ✓
+    step 200 ✓
+  [DB] 8행 UPSERT 중...
+  [DB] 8행 UPSERT 완료 ✓
+
+1223회 총 168행 적재 완료
+
+================================================================================
+1223회 DB 검증
+================================================================================
+총 199행 적재됨
+  xgboost        : 199/199 ✓
+  cnn            : 199/199 ✓
+  gnn            : 199/199 ✓
+  markov         : 199/199 ✓
+  autoencoder    : 199/199 ✓
+  catboost       : 199/199 ✓
+  tabnet         : 199/199 ✓
+  tft            : 199/199 ✓
+  mhn            : 199/199 ✓
+  bayesian_nn    : 199/199 ✓
+  nbeats         : 199/199 ✓
+
+================================================================================
+1222회 회귀 분석 재적재 시작
+================================================================================
+
+================================================================================
+1222회 회귀 분석 재적재 (step 2~200)
+================================================================================
+1222회 이전 데이터: 1221회
+
+  [Batch] step 2~11 생성 중...
+    step 2 ✓
+    step 3 ✓
+    step 4 ✓
+    step 5 ✓
+    step 6 ✓
+    step 7 ✓
+    step 8 ✓
+    step 9 ✓
+    step 10 ✓
+    step 11 ✓
+  [DB] 10행 UPSERT 중...
+  [DB] 10행 UPSERT 완료 ✓
+
+  [Batch] step 12~21 생성 중...
+    step 12 ✓
+    step 13 ✓
+    step 14 ✓
+    step 15 ✓
+    step 16 ✓
+    step 17 ✓
+    step 18 ✓
+    step 19 ✓
+    step 20 ✓
+    step 21 ✓
+  [DB] 10행 UPSERT 중...
+  [DB] 10행 UPSERT 완료 ✓
+
+  [Batch] step 22~31 생성 중...
+    step 22 ✓
+    step 23 ✓
+    step 24 ✓
+    step 25 ✓
+    step 26 ✓
+    step 27 ✓
+    step 28 ✓
+    step 29 ✓
+    step 30 ✓
+    step 31 ✓
+  [DB] 10행 UPSERT 중...
+  [DB] 10행 UPSERT 완료 ✓
+
+  [Batch] step 32~41 생성 중...
+    step 32 ✓
+    step 33 ✓
+    step 34 ✓
+    step 35 ✓
+    step 36 ✓
+    step 37 ✓
+    step 38 ✓
+    step 39 ✓
+    step 40 ✓
+    step 41 ✓
+  [DB] 10행 UPSERT 중...
+  [DB] 10행 UPSERT 완료 ✓
+
+  [Batch] step 42~51 생성 중...
+    step 42 ✓
+    step 43 ✓
+    step 44 ✓
+    step 45 ✓
+    step 46 ✓
+    step 47 ✓
+    step 48 ✓
+    step 49 ✓
+    step 50 ✓
+    step 51 ✓
+  [DB] 10행 UPSERT 중...
+  [DB] 10행 UPSERT 완료 ✓
+
+  [Batch] step 52~61 생성 중...
+    step 52 ✓
+    step 53 ✓
+    step 54 ✓
+    step 55 ✓
+    step 56 ✓
+    step 57 ✓
+    step 58 ✓
+    step 59 ✓
+    step 60 ✓
+    step 61 ✓
+  [DB] 10행 UPSERT 중...
+  [DB] 10행 UPSERT 완료 ✓
+
+  [Batch] step 62~71 생성 중...
+    step 62 ✓
+    step 63 ✓
+    step 64 ✓
+    step 65 ✓
+    step 66 ✓
+    step 67 ✓
+    step 68 ✓
+    step 69 ✓
+    step 70 ✓
+    step 71 ✓
+  [DB] 10행 UPSERT 중...
+  [DB] 10행 UPSERT 완료 ✓
+
+  [Batch] step 72~81 생성 중...
+    step 72 ✓
+    step 73 ✓
+    step 74 ✓
+    step 75 ✓
+    step 76 ✓
+    step 77 ✓
+    step 78 ✓
+    step 79 ✓
+    step 80 ✓
+    step 81 ✓
+  [DB] 10행 UPSERT 중...
+  [DB] 10행 UPSERT 완료 ✓
+
+  [Batch] step 82~91 생성 중...
+    step 82 ✓
+    step 83 ✓
+    step 84 ✓
+    step 85 ✓
+    step 86 ✓
+    step 87 ✓
+    step 88 ✓
+    step 89 ✓
+    step 90 ✓
+    step 91 ✓
+  [DB] 10행 UPSERT 중...
+  [DB] 10행 UPSERT 완료 ✓
+
+  [Batch] step 92~101 생성 중...
+    step 92 ✓
+    step 93 ✓
+    step 94 ✓
+    step 95 ✓
+    step 96 ✓
+    step 97 ✓
+    step 98 ✓
+    step 99 ✓
+    step 100 ✓
+    step 101 ✓
+  [DB] 10행 UPSERT 중...
+  [DB] 10행 UPSERT 완료 ✓
+
+  [Batch] step 102~111 생성 중...
+    step 102 ✓
+    step 103 ✓
+    step 104 ✓
+    step 105 ✓
+    step 106 ✓
+    step 107 ✓
+    step 108 ✓
+    step 109 ✓
+    step 110 ✓
+    step 111 ✓
+  [DB] 10행 UPSERT 중...
+  [DB] 10행 UPSERT 완료 ✓
+
+  [Batch] step 112~121 생성 중...
+    step 112 ✓
+    step 113 ✓
+    step 114 ✓
+    step 115 ✓
+    step 116 ✓
+    step 117 ✓
+    step 118 ✓
+    step 119 ✓
+    step 120 ✓
+    step 121 ✓
+  [DB] 10행 UPSERT 중...
+  [DB] 10행 UPSERT 완료 ✓
+
+  [Batch] step 122~131 생성 중...
+    step 122 ✓
+    step 123 ✓
+    step 124 ✓
+    step 125 ✓
+    step 126 ✓
+    step 127 ✓
+    step 128 ✓
+    step 129 ✓
+    step 130 ✓
+    step 131 ✓
+  [DB] 10행 UPSERT 중...
+  [DB] 10행 UPSERT 완료 ✓
+
+  [Batch] step 132~141 생성 중...
+    step 132 ✓
+    step 133 ✓
+    step 134 ✓
+    step 135 ✓
+    step 136 ✓
+    step 137 ✓
+    step 138 ✓
+    step 139 ✓
+    step 140 ✓
+    step 141 ✓
+  [DB] 10행 UPSERT 중...
+  [DB] 10행 UPSERT 완료 ✓
+
+  [Batch] step 142~151 생성 중...
+    step 142 ✓
+    step 143 ✓
+    step 144 ✓
+    step 145 ✓
+    step 146 ✓
+    step 147 ✓
+    step 148 ✓
+    step 149 ✓
+    step 150 ✓
+    step 151 ✓
+  [DB] 10행 UPSERT 중...
+  [DB] 10행 UPSERT 완료 ✓
+
+  [Batch] step 152~161 생성 중...
+    step 152 ✓
+    step 153 ✓
+    step 154 ✓
+    step 155 ✓
+    step 156 ✓
+    step 157 ✓
+    step 158 ✓
+    step 159 ✓
+    step 160 ✓
+    step 161 ✓
+  [DB] 10행 UPSERT 중...
+  [DB] 10행 UPSERT 완료 ✓
+
+  [Batch] step 162~171 생성 중...
+    step 162 ✓
+    step 163 ✓
+    step 164 ✓
+    step 165 ✓
+    step 166 ✓
+    step 167 ✓
+    step 168 ✓
+    step 169 ✓
+    step 170 ✓
+    step 171 ✓
+  [DB] 10행 UPSERT 중...
+  [DB] 10행 UPSERT 완료 ✓
+
+  [Batch] step 172~181 생성 중...
+    step 172 ✓
+    step 173 ✓
+    step 174 ✓
+    step 175 ✓
+    step 176 ✓
+    step 177 ✓
+    step 178 ✓
+    step 179 ✓
+    step 180 ✓
+    step 181 ✓
+  [DB] 10행 UPSERT 중...
+  [DB] 10행 UPSERT 완료 ✓
+
+  [Batch] step 182~191 생성 중...
+    step 182 ✓
+    step 183 ✓
+    step 184 ✓
+    step 185 ✓
+    step 186 ✓
+    step 187 ✓
+    step 188 ✓
+    step 189 ✓
+    step 190 ✓
+    step 191 ✓
+  [DB] 10행 UPSERT 중...
+  [DB] 10행 UPSERT 완료 ✓
+
+  [Batch] step 192~200 생성 중...
+    step 192 ✓
+    step 193 ✓
+    step 194 ✓
+    step 195 ✓
+    step 196 ✓
+    step 197 ✓
+    step 198 ✓
+    step 199 ✓
+    step 200 ✓
+  [DB] 9행 UPSERT 중...
+  [DB] 9행 UPSERT 완료 ✓
+
+1222회 총 199행 적재 완료
+
+================================================================================
+1222회 DB 검증
+================================================================================
+총 199행 적재됨
+  xgboost        : 199/199 ✓
+  cnn            : 199/199 ✓
+  gnn            : 199/199 ✓
+  markov         : 199/199 ✓
+  autoencoder    : 199/199 ✓
+  catboost       : 199/199 ✓
+  tabnet         : 199/199 ✓
+  tft            : 199/199 ✓
+  mhn            : 199/199 ✓
+  bayesian_nn    : 199/199 ✓
+  nbeats         : 199/199 ✓
+
+================================================================================
+재적재 완료
+================================================================================

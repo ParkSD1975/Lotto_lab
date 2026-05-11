@@ -27,6 +27,8 @@
     <script src="js/deep_insight_panel.js?v=20260502c"></script>
     <script src="js/premium_insight_panel.js?v=20260502c"></script>
     <script src="js/NLPProcessor.js"></script>
+    <script src="js/AutoNLPMatcher.js"></script>
+    <script src="js/auto_nlp_loader.js" defer></script>
     <script src="js/NLPInputComponent.js"></script>
 
     <script src="js/BasicAnalysisNLP.js"></script>
@@ -86,7 +88,7 @@
 
         // [표준화] 필터 설정 저장 함수
         async function saveFilterSettings() {
-            if (window.isLoadingSettings) return;
+            // [버그 수정] window.isLoadingSettings 가드 제거 — race condition으로 사용자 토글이 무시되던 문제.
             const ranges = {};
             const keyMapping = {
                 '단번대': '1_10', '10번대': '11_20', '20번대': '21_30', '30번대': '31_40', '40번대': '41_45'
@@ -104,7 +106,18 @@
             if (minEnt && maxEnt) {
                 ranges['entropy'] = { min: parseFloat(minEnt.value), max: parseFloat(maxEnt.value) };
             }
-            const data = { ranges: ranges, recent10FilterActive: isRecentTenFilter };
+            // 최근 5회차 자동 제외 패턴
+            const autoExcludeOn = document.getElementById('autoExcludeToggle')?.checked ?? true;
+            const excludedPatterns = (allDrawData.slice(0, 5)).map(d => [
+                d.counts['단번대'], d.counts['10번대'], d.counts['20번대'], d.counts['30번대'], d.counts['40번대']
+            ].join('-'));
+
+            const data = {
+                ranges: ranges,
+                recent10FilterActive: isRecentTenFilter,
+                autoExcludeRecent5: autoExcludeOn,
+                excludedPatterns: autoExcludeOn ? excludedPatterns : []
+            };
             const enabled = document.getElementById('applyFilterCheck')?.checked ?? true;
             const targetRound = allDrawData?.[0]?.round ? allDrawData[0].round + 1 : null;
 
@@ -207,6 +220,11 @@
                     if (saved.enabled !== undefined) {
                         const chk = document.getElementById('applyFilterCheck');
                         if (chk) chk.checked = saved.enabled;
+                    }
+                    // 자동 제외 토글 복원
+                    if (saved.autoExcludeRecent5 !== undefined) {
+                        const autoChk = document.getElementById('autoExcludeToggle');
+                        if (autoChk) autoChk.checked = !!saved.autoExcludeRecent5;
                     }
                     return true;
                 }
@@ -405,7 +423,7 @@
             <aside class="w-56 bg-white border-r border-gray-200 overflow-y-auto custom-scrollbar flex-shrink-0"
                 id="lnb-container"></aside>
             <main class="flex-1 overflow-y-auto p-8 custom-scrollbar">
-                <div class="max-w-7xl mx-auto space-y-6">
+                <div class="max-w-screen-2xl mx-auto space-y-6">
                     <!-- Title -->
                     <div>
                         <h1 class="text-3xl font-bold text-gray-900 mb-1">번호대별 분석</h1>
@@ -416,98 +434,191 @@
                         <div class="grid grid-cols-5 gap-3 mb-6" id="statCards"></div>
                         <!-- AI 프리미엄 전략 리포트 -->
                         <div id="dlInsightContainer" data-indicator="number_range" class="mb-6"></div>
-                        <!-- Graph -->
+                        <!-- [fix-254] 그래프 → 번호대 매트릭스 (5개 번호대 row + 10개 ball/번호대) -->
                         <div class="mb-6">
-                            <div class="flex items-center justify-between mb-4">
+                            <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
                                 <div class="flex items-center gap-3">
-                                    <h3 class="text-xl font-bold text-gray-900">그래프</h3>
-                                    <select id="graphTypeSelect" onchange="changeGraphType(this.value)"
-                                        class="px-4 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-48 font-medium">
-                                        <option value="단번대">단번대 (1~10)</option>
-                                        <option value="10번대">10번대 (11~20)</option>
-                                        <option value="20번대">20번대 (21~30)</option>
-                                        <option value="30번대">30번대 (31~40)</option>
-                                        <option value="40번대">40번대 (41~45)</option>
-                                    </select>
+                                    <h3 class="text-xl font-bold text-gray-900">번호대 매트릭스</h3>
+                                    <span class="text-[12px] text-slate-500">최근 <span id="matrixRangeLabel" class="font-bold text-blue-600">100</span>회 등장 횟수</span>
                                 </div>
-                                <div class="flex gap-2">
-                                    <button id="tabRate" onclick="setChartTab('rate')"
-                                        class="px-4 py-2 text-sm font-medium bg-blue-500 text-white rounded-lg transition-colors">당첨율</button>
-                                    <button id="tabTrend" onclick="setChartTab('trend')"
-                                        class="px-4 py-2 text-sm font-medium bg-gray-200 text-gray-700 rounded-lg transition-colors">회차별</button>
+                                <div class="flex items-center gap-1.5 text-[10px] text-slate-500">
+                                    <span>적음</span>
+                                    <span style="display:inline-block;width:18px;height:14px;background:#e5e7eb;border-radius:2px"></span>
+                                    <span style="display:inline-block;width:18px;height:14px;background:#dbeafe;border-radius:2px"></span>
+                                    <span style="display:inline-block;width:18px;height:14px;background:#a5b4fc;border-radius:2px"></span>
+                                    <span style="display:inline-block;width:18px;height:14px;background:#818cf8;border-radius:2px"></span>
+                                    <span style="display:inline-block;width:18px;height:14px;background:#f97316;border-radius:2px"></span>
+                                    <span style="display:inline-block;width:18px;height:14px;background:#dc2626;border-radius:2px"></span>
+                                    <span>많음</span>
                                 </div>
                             </div>
-                            <div id="rateChartContainer"
-                                class="flex items-end justify-between h-64 mb-4 px-8 border-b border-gray-100 pb-4">
+
+                            <div id="numberRangeMatrix" style="display:flex; flex-direction:column; gap:3px;"></div>
+
+                            <div class="mt-3 flex items-center justify-between text-[11px] text-slate-500 flex-wrap gap-2">
+                                <span>총 <span id="matrixTotalDraws" class="font-bold text-slate-700">0</span>회 분석 · 평균 등장 <span id="matrixAvgCount" class="font-bold text-slate-700">0</span>회 · 핫 <span id="matrixHotCount" class="font-bold text-rose-600">0</span> · 콜드 <span id="matrixColdCount" class="font-bold text-slate-400">0</span></span>
+                                <span class="text-slate-400">5개 번호대 (단/10/20/30/40번대)</span>
                             </div>
-                            <div id="trendChartContainer" class="h-64 hidden"><canvas id="trendChart"></canvas></div>
                         </div>
                         <!-- Range Slider -->
                         <div>
-                            <div class="flex items-center justify-between mb-4">
+                            <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
                                 <h3 class="text-xl font-bold text-gray-900">분석 회차 범위</h3>
-                                <div class="flex items-center gap-2">
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <button onclick="setRange(1)" id="preset1"
+                                        class="px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors">1회</button>
+                                    <button onclick="setRange(3)" id="preset3"
+                                        class="px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors">3회</button>
+                                    <button onclick="setRange(5)" id="preset5"
+                                        class="px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors">5회</button>
+                                    <button onclick="setRange(10)" id="preset10"
+                                        class="px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors">10회</button>
                                     <button onclick="setRange(50)" id="preset50"
                                         class="px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors">50회</button>
                                     <button onclick="setRange(100)" id="preset100"
                                         class="px-3 py-1.5 text-sm font-medium bg-blue-500 text-white rounded-lg transition-colors">100회</button>
-                                    <button onclick="setRange(500)" id="preset500"
-                                        class="px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors">500회</button>
                                     <button onclick="setRange(1203)" id="preset1203"
                                         class="px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors">전체</button>
                                 </div>
                             </div>
                             <div class="space-y-3">
-                                <input type="range" id="rangeSlider" min="10" max="1203" value="100"
+                                <input type="range" id="rangeSlider" min="1" max="1203" value="100"
                                     oninput="updateRange(this.value, true)" />
                                 <div class="flex items-center justify-between text-sm">
                                     <span class="text-gray-600">최근 <span id="rangeDisplay"
-                                            class="font-bold text-blue-600">100</span>회 분석 대상</span>
+                                            class="font-bold text-blue-600">100</span> 분석 대상</span>
                                     <span id="totalRangeDisplay" class="text-gray-500">최대 1,203회</span>
                                 </div>
                             </div>
                         </div>
                     </div>
-                    <!-- Filter -->
-                    <!-- [가이드] 조합 필터 섹션 재구성 -->
-                    <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm" id="filter-page">
-                        <div class="flex items-center justify-between mb-6">
-                            <h3 class="text-xl font-bold text-gray-900 border-l-4 border-blue-500 pl-3">조합 필터</h3>
+                    <!-- ════════════════════════════════════════════════ -->
+                    <!-- [fix-403] 번호대 도메인 특화 보조지표 4섹션              -->
+                    <!-- ════════════════════════════════════════════════ -->
+                    <div class="bg-white rounded-xl border border-gray-200 mt-6 overflow-hidden" style="font-feature-settings:'tnum'">
+                        <!-- §1. 5 구간 카운트 시계열 -->
+                        <div class="p-8">
+                            <h3 class="text-lg text-gray-900 tracking-tight mb-1">5 구간 카운트 시계열</h3>
+                            <p class="text-xs text-gray-500 mb-4">최근 100회차 각 구간 카운트 추이 · 평균선 1.2 (= 6/5)</p>
+                            <div class="relative" style="height:240px"><canvas id="nrSeriesChart"></canvas></div>
+                        </div>
+                        <!-- §2 + §3 좌우 2분할 -->
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-0 border-t border-gray-100">
+                            <!-- §2. 5 구간 출현률 메트릭 (좌) -->
+                            <div class="p-8 lg:border-r border-gray-100">
+                                <h3 class="text-lg text-gray-900 tracking-tight mb-1">5 구간 출현률</h3>
+                                <p class="text-xs text-gray-500 mb-4">평균 카운트 · 0개 비율 · 최대 카운트</p>
+                                <div id="nrMetricGrid" class="space-y-3"></div>
+                            </div>
+                            <!-- [fix-404] §3. 5×7 카운트 매트릭스 (구간 × 0~6 카운트 회차수) -->
+                            <div class="p-8 border-t lg:border-t-0 border-gray-100">
+                                <h3 class="text-lg text-gray-900 tracking-tight mb-1">번호대 카운트 매트릭스</h3>
+                                <p class="text-xs text-gray-500 mb-4">행 = 5 구간 / 열 = 한 회차에 그 구간 카운트 (0~6) / 셀 = 회차수 + 비율</p>
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-sm" id="nrMatrix" style="border-collapse:separate;border-spacing:0">
+                                        <thead>
+                                            <tr>
+                                                <th class="py-2 px-3 text-left text-[10px] uppercase tracking-wider text-gray-400">구간</th>
+                                                <th class="py-2 px-2 text-center text-[10px] uppercase tracking-wider text-gray-400">0개</th>
+                                                <th class="py-2 px-2 text-center text-[10px] uppercase tracking-wider text-gray-400">1개</th>
+                                                <th class="py-2 px-2 text-center text-[10px] uppercase tracking-wider text-gray-400">2개</th>
+                                                <th class="py-2 px-2 text-center text-[10px] uppercase tracking-wider text-gray-400">3개</th>
+                                                <th class="py-2 px-2 text-center text-[10px] uppercase tracking-wider text-gray-400">4개</th>
+                                                <th class="py-2 px-2 text-center text-[10px] uppercase tracking-wider text-gray-400">5개</th>
+                                                <th class="py-2 px-2 text-center text-[10px] uppercase tracking-wider text-gray-400">6개</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="nrMatrixBody"></tbody>
+                                    </table>
+                                </div>
+                                <div class="mt-3 flex items-center gap-3 text-[10px] text-gray-500">
+                                    <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm" style="background:#F8FAFC"></span>0회</span>
+                                    <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm" style="background:#DBEAFE"></span>적음</span>
+                                    <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm" style="background:#3B82F6"></span>보통</span>
+                                    <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm" style="background:#1E3A8A"></span>많음</span>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- §4. 다음 회차 방향 예측 (엔트로피 기반) -->
+                        <div class="p-8 border-t border-gray-100">
+                            <div class="flex items-baseline justify-between flex-wrap gap-3 mb-4">
+                                <div>
+                                    <h3 class="text-lg text-gray-900">다음 회차 방향 예측 (엔트로피 기반)</h3>
+                                    <p class="text-xs text-gray-500 mt-1">전회차 엔트로피 기준 ±N 범위였던 과거 회차들의 다음 회차 변동</p>
+                                </div>
+                                <div class="flex items-center gap-2 text-[12px] text-gray-500">
+                                    <span>±</span>
+                                    <input type="number" id="nrNextDirRange" min="0" max="3" step="0.1" value="0.2" class="w-16 text-center text-[12px] border-0 border-b border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent" style="font-feature-settings:'tnum'">
+                                    <span>범위</span>
+                                </div>
+                            </div>
+                            <div class="flex items-baseline flex-wrap gap-x-8 gap-y-2 pb-4 mb-4 border-b border-gray-100">
+                                <div class="flex items-baseline gap-2"><span class="text-[10px] uppercase tracking-wider text-gray-400">전회차 엔트로피</span><span class="text-xl text-slate-700" id="nrNextDirPrev">—</span></div>
+                                <div class="flex items-baseline gap-2"><span class="text-[10px] uppercase tracking-wider text-gray-400">분석 범위</span><span class="text-xl text-slate-700" id="nrNextDirRangeText">—</span></div>
+                                <div class="flex items-baseline gap-2"><span class="text-[10px] uppercase tracking-wider text-gray-400">매칭 회차수</span><span class="text-xl text-blue-700" id="nrNextDirMatchN">—</span></div>
+                                <div class="flex items-baseline gap-2"><span class="text-[10px] uppercase tracking-wider text-gray-400">평균 변동</span><span class="text-xl text-slate-700" id="nrNextDirAvgDelta">—</span></div>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wider mb-2" style="color:#059669">↑ 상승</div>
+                                    <div class="flex items-baseline gap-1 mb-2"><span id="nrNextDirUpPct" class="text-3xl" style="color:#059669">—</span><span class="text-xs text-gray-400">%</span></div>
+                                    <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden mb-2"><div id="nrNextDirUpBar" class="h-full transition-all" style="background:#10B981;width:0%"></div></div>
+                                    <div class="text-[11px] text-gray-500"><span id="nrNextDirUpN">0</span>회 / 평균 <span id="nrNextDirUpAvg">0</span></div>
+                                </div>
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wider mb-2" style="color:#E11D48">↓ 하락</div>
+                                    <div class="flex items-baseline gap-1 mb-2"><span id="nrNextDirDownPct" class="text-3xl" style="color:#E11D48">—</span><span class="text-xs text-gray-400">%</span></div>
+                                    <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden mb-2"><div id="nrNextDirDownBar" class="h-full transition-all" style="background:#F43F5E;width:0%"></div></div>
+                                    <div class="text-[11px] text-gray-500"><span id="nrNextDirDownN">0</span>회 / 평균 <span id="nrNextDirDownAvg">0</span></div>
+                                </div>
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wider text-slate-500 mb-2">— 유지</div>
+                                    <div class="flex items-baseline gap-1 mb-2"><span id="nrNextDirFlatPct" class="text-3xl text-slate-500">—</span><span class="text-xs text-gray-400">%</span></div>
+                                    <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden mb-2"><div id="nrNextDirFlatBar" class="h-full transition-all" style="background:#94A3B8;width:0%"></div></div>
+                                    <div class="text-[11px] text-gray-500"><span id="nrNextDirFlatN">0</span>회</div>
+                                </div>
+                            </div>
+                            <div id="nrNextDirInsight" class="mt-4 p-3 bg-blue-50/40 border border-blue-100 rounded-lg text-[12px] text-slate-700"></div>
+                        </div>
+                    </div>
+                    <!-- ════════════════════════════════════════════════ -->
+
+                    <!-- [fix-405] Filter — 리스트 위로 이동 (조합 필터 → 회차별 리스트 직접 인접) -->
+                    <div id="filter-page" class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm mt-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-base font-semibold text-gray-800">조합 필터</h3>
                             <a href="filter.html?id=number_range_patterns"
-                                class="text-sm font-medium text-slate-500 hover:text-blue-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
-                                <span class="material-symbols-outlined text-[18px]">tune</span>
+                                class="text-xs font-medium text-slate-500 hover:text-blue-600 flex items-center gap-1 transition-colors">
+                                <span class="material-symbols-outlined text-[16px]">tune</span>
                                 필터 페이지 가기
                             </a>
                         </div>
 
-                        <div class="space-y-4" id="filterContainer">
+                        <!-- 최근 5회차 자동 제외 패턴 -->
+                        <div id="autoExcludeSection" class="mb-4 pb-3 border-b border-gray-100">
+                            <div class="flex items-center justify-between mb-2">
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs font-semibold text-gray-700">최근 5회차 자동 제외 패턴</span>
+                                    <label class="relative inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" id="autoExcludeToggle" checked onchange="onAutoExcludeToggle()" class="sr-only peer">
+                                        <div class="w-8 h-4 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600"></div>
+                                    </label>
+                                </div>
+                                <span class="text-[11px] text-gray-400">동일 패턴 추천 차단</span>
+                            </div>
+                            <div id="autoExcludeList" class="flex gap-1.5 flex-wrap"></div>
+                        </div>
+
+                        <div class="divide-y divide-gray-100" id="filterContainer">
                             <!-- JS 렌더링 (범위별 Min/Max) -->
                         </div>
-
-                        <div class="flex items-center justify-between mt-6 pt-6 border-t border-gray-100">
-                            <!-- Toggle Base -->
-                            <div class="flex items-center gap-2.5">
-                                <span class="text-sm font-bold text-gray-700">필터 적용</span>
-                                <label class="relative inline-flex items-center cursor-pointer">
-                                    <input type="checkbox" id="applyFilterCheck" onchange="applyFilter()"
-                                        class="sr-only peer">
-                                    <div
-                                        class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600">
-                                    </div>
-                                </label>
-                            </div>
-
-                            <button onclick="applyRecent10Filters()" id="recent10FilterBtn"
-                                class="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl shadow-lg shadow-blue-200 hover:shadow-xl hover:-translate-y-0.5 transition-all text-sm font-black min-w-[240px] justify-center whitespace-nowrap">
-                                <span class="material-symbols-outlined text-[18px]">auto_fix_high</span>
-                                <span id="recent10BtnText">최근 10회차 기준 설정</span>
-                            </button>
-                        </div>
+                        <!-- [fix-406] 조합필터-리스트간 필터 토글/최근10회차 버튼 제거 (간결화) -->
                     </div>
+
                     <!-- Table -->
-                    <!-- [가이드] 리스트 섹션 (Integrated Header) -->
-                    <div class="rounded-xl overflow-hidden mt-6">
-                        <div class="flex items-center justify-between mb-4 px-2">
+                    <!-- [fix-403] 리스트 섹션 — 헤더 + 표 흰 박스 일체화 -->
+                    <div class="bg-white rounded-xl border border-gray-200 mt-6 overflow-hidden">
+                        <div class="flex items-center justify-between px-8 pt-6 pb-4 border-b border-gray-100">
                             <div>
                                 <h3 class="text-xl font-bold text-gray-900 mb-1">회차별 당첨번호 및 번호대</h3>
                                 <p class="text-sm text-gray-600">최근 <span id="displayedCount"
@@ -515,7 +626,7 @@
                             </div>
                         </div>
 
-                        <div class="overflow-x-auto custom-scrollbar border border-gray-200 rounded-xl bg-white"
+                        <div class="overflow-x-auto custom-scrollbar"
                             style="max-height: 1200px;">
                             <table class="w-full text-sm text-center">
                                 <thead
@@ -755,76 +866,75 @@
                 filterState[type] = { min: minVal, max: maxVal };
 
                 const numbersHtml = rangeDefinitions[type].map(n =>
-                    `<span class="w-8 h-8 flex items-center justify-center rounded-full text-[11px] mx-0.5 font-bold ball-custom shadow-sm" style="background-color: ${rangeColors[type]};">${String(n).padStart(2, '0')}</span>`
+                    `<span class="w-8 h-8 inline-flex items-center justify-center rounded-full text-[11px] font-bold text-white shadow-sm" style="background-color: ${rangeColors[type]};">${String(n).padStart(2, '0')}</span>`
                 ).join('');
 
                 const div = document.createElement('div');
-                div.className = 'bg-slate-50 rounded-xl p-4 border border-slate-100 mb-2';
+                div.className = 'flex items-center justify-between gap-3 py-3';
 
                 div.innerHTML = `
-        <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                    <div class="flex-1">
-                        <div class="flex items-center gap-2 mb-3">
-                            <span class="px-2 py-0.5 rounded bg-white border border-slate-200 text-xs font-black text-slate-700 w-20 text-center">${type}</span>
-                            <div class="h-px flex-1 bg-slate-200"></div>
-                        </div>
-                        <div class="flex flex-wrap gap-1">
-                            ${numbersHtml}
-                        </div>
+                    <div class="flex items-center gap-3 min-w-0 flex-1">
+                        <span class="text-sm font-bold text-gray-800 w-16 flex-shrink-0">${type}</span>
+                        <div class="flex gap-1 items-center justify-center">${numbersHtml}</div>
                     </div>
-                    <div class="flex items-center gap-4 bg-white p-3 rounded-lg border border-slate-200 shadow-sm flex-shrink-0">
-                        <div class="flex items-center gap-2">
-                            <span class="text-xs font-black text-slate-500 uppercase tracking-wider">Min</span>
-                            <input type="number" id="min_${type}" oninput="applyFilterManual()" min="0" max="6" value="${minVal}"
-                                class="w-16 sm:w-20 h-9 text-center border border-gray-300 rounded-lg text-sm font-bold text-gray-900 bg-white focus:ring-blue-500 focus:border-blue-500">
-                        </div>
-                        <span class="text-sm font-black text-slate-400 px-2">~</span>
-                        <div class="flex items-center gap-2">
-                            <span class="text-xs font-black text-slate-500 uppercase tracking-wider">Max</span>
-                            <input type="number" id="max_${type}" oninput="applyFilterManual()" min="0" max="6" value="${maxVal}"
-                                class="w-16 sm:w-20 h-9 text-center border border-gray-300 rounded-lg text-sm font-bold text-gray-900 bg-white focus:ring-blue-500 focus:border-blue-500">
-                        </div>
+                    <div class="flex items-center gap-2 flex-shrink-0">
+                        <input type="number" id="min_${type}" oninput="applyFilterManual()" min="0" max="6" value="${minVal}"
+                            class="w-12 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent">
+                        <span class="text-xs text-gray-400">~</span>
+                        <input type="number" id="max_${type}" oninput="applyFilterManual()" min="0" max="6" value="${maxVal}"
+                            class="w-12 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent">
                     </div>
-                </div>
-            `;
+                `;
                 container.appendChild(div);
             });
 
-            // [New] 엔트로피 필터 추가
+            // 엔트로피 필터
             const entValues = allDrawData.slice(0, 10).map(d => d.entropy);
-            // [보정] 최근 10회차만으로 정하면 범위가 너무 좁아지므로 여유 마진(-0.25, +0.15) 추가
             const minEnt = Math.max(0.00, Math.min(...entValues) - 0.25);
             const maxEnt = Math.min(2.32, Math.max(...entValues) + 0.15);
 
             const entDiv = document.createElement('div');
-            entDiv.className = 'bg-slate-50 rounded-xl p-4 border border-slate-100 mb-2';
+            entDiv.className = 'flex items-center justify-between gap-3 py-3';
             entDiv.innerHTML = `
-                <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                    <div class="flex-1">
-                        <div class="flex items-center gap-2 mb-3">
-                            <span class="px-2 py-0.5 rounded bg-white border border-slate-200 text-xs font-black text-slate-700 w-20 text-center">엔트로피</span>
-                            <div class="h-px flex-1 bg-slate-200"></div>
-                        </div>
-                        <div class="text-xs text-gray-500 pl-2">
-                            * 엔트로피 값 범위 (0.00 ~ 2.58)
-                        </div>
-                    </div>
-                    <div class="flex items-center gap-4 bg-white p-3 rounded-lg border border-slate-200 shadow-sm flex-shrink-0">
-                        <div class="flex items-center gap-2">
-                            <span class="text-xs font-black text-slate-500 uppercase tracking-wider">Min</span>
-                            <input type="text" id="min_entropy" oninput="this.value=parseFloat(this.value||0).toFixed(2); applyFilterManual()" value="${parseFloat(minEnt).toFixed(2)}"
-                                class="w-16 sm:w-20 h-9 text-center border border-gray-300 rounded-lg text-sm font-bold text-gray-900 bg-white focus:ring-blue-500 focus:border-blue-500">
-                        </div>
-                        <span class="text-sm font-black text-slate-400 px-2">~</span>
-                        <div class="flex items-center gap-2">
-                            <span class="text-xs font-black text-slate-500 uppercase tracking-wider">Max</span>
-                            <input type="text" id="max_entropy" oninput="this.value=parseFloat(this.value||0).toFixed(2); applyFilterManual()" value="${parseFloat(maxEnt).toFixed(2)}"
-                                class="w-16 sm:w-20 h-9 text-center border border-gray-300 rounded-lg text-sm font-bold text-gray-900 bg-white focus:ring-blue-500 focus:border-blue-500">
-                        </div>
-                    </div>
+                <div class="flex items-center gap-3 min-w-0 flex-1">
+                    <span class="text-sm font-bold text-gray-800 w-16 flex-shrink-0">엔트로피</span>
+                    <span class="text-xs text-gray-400">범위 0.00 ~ 2.58</span>
+                </div>
+                <div class="flex items-center gap-2 flex-shrink-0">
+                    <input type="text" id="min_entropy" oninput="this.value=parseFloat(this.value||0).toFixed(2); applyFilterManual()" value="${parseFloat(minEnt).toFixed(2)}"
+                        class="w-14 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent">
+                    <span class="text-xs text-gray-400">~</span>
+                    <input type="text" id="max_entropy" oninput="this.value=parseFloat(this.value||0).toFixed(2); applyFilterManual()" value="${parseFloat(maxEnt).toFixed(2)}"
+                        class="w-14 h-8 text-center text-sm font-bold text-gray-900 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent">
                 </div>
             `;
             container.appendChild(entDiv);
+
+            // 자동 제외 패턴 렌더링
+            renderAutoExcludePatterns();
+        }
+
+        function renderAutoExcludePatterns() {
+            const listEl = document.getElementById('autoExcludeList');
+            if (!listEl || !allDrawData.length) return;
+            const recent5 = allDrawData.slice(0, 5);
+            listEl.innerHTML = recent5.map(draw => {
+                const pattern = [
+                    draw.counts['단번대'],
+                    draw.counts['10번대'],
+                    draw.counts['20번대'],
+                    draw.counts['30번대'],
+                    draw.counts['40번대']
+                ].join('-');
+                return `<span class="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-mono font-bold text-gray-700 bg-gray-100" title="${draw.round}회차 패턴 — 자동 제외됨">
+                    <span class="text-gray-400">${draw.round}회</span>
+                    <span class="text-red-500 line-through">${pattern}</span>
+                </span>`;
+            }).join('');
+        }
+
+        function onAutoExcludeToggle() {
+            applyFilterManual();
         }
 
         function initStatCards() {
@@ -965,27 +1075,10 @@
             renderDrawsList(allDrawData.slice(0, currentRange));
         }
 
-        // 필터 조건 적용 후 데이터 반환
+        // [fix-414] 필터 값에 따른 리스트 필터링 기능 제거 — 페이지 내 리스트/차트는 항상 currentRange 전체 데이터 표시
+        // (조합 필터 값은 saveFilterSettings로 저장되어 다른 페이지·추천 시스템에서 그대로 활용)
         function getFilteredDraws() {
-            const isEnabled = document.getElementById('applyFilterCheck')?.checked ?? true;
-            const slicedData = allDrawData.slice(0, currentRange);
-            if (!isEnabled) return slicedData;
-
-            const minEnt = parseFloat(document.getElementById('min_entropy')?.value ?? 0);
-            const maxEnt = parseFloat(document.getElementById('max_entropy')?.value ?? 2.58);
-
-            return slicedData.filter(draw => {
-                // 번호대별 카운트 조건
-                for (const type of Object.keys(rangeDefinitions)) {
-                    const min = parseInt(document.getElementById(`min_${type}`)?.value ?? 0);
-                    const max = parseInt(document.getElementById(`max_${type}`)?.value ?? 6);
-                    const count = draw.counts[type];
-                    if (count < min || count > max) return false;
-                }
-                // 엔트로피 조건
-                if (draw.entropy < minEnt || draw.entropy > maxEnt) return false;
-                return true;
-            });
+            return allDrawData.slice(0, currentRange);
         }
 
         function applyFilter() {
@@ -1066,12 +1159,13 @@
             });
         }
 
-        // ─── 슬라이더 배경 (CSS 변수) ───────────────────────────────────────
+        // ─── 슬라이더 배경 (CSS 변수) ─── [fix-254] min/max 동적 사용
         function updateSliderBackground(value) {
-            const total = allDrawData.length || 1203;
             const slider = document.getElementById('rangeSlider');
             if (slider) {
-                const percent = ((value - 10) / (total - 10)) * 100;
+                const min = parseInt(slider.min || 1);
+                const max = parseInt(slider.max || allDrawData.length || 1203);
+                const percent = Math.max(0, Math.min(100, ((value - min) / Math.max(1, max - min)) * 100));
                 slider.style.setProperty('--value-percent', percent + '%');
             }
         }
@@ -1098,10 +1192,101 @@
             }
         }
 
-        // ─── 차트 일괄 갱신 ──────────────────────────────────────────────────
+        // ─── 차트 일괄 갱신 ─── [fix-254/257] 매트릭스는 필터 적용 X (currentRange 그대로)
         function updateCharts(data) {
-            updateRateChart(data);
-            if (chartTab === 'trend') updateTrendChart();
+            // 매트릭스는 단순 등장 통계 — 조합 필터(번호대 min/max) 무관하게 currentRange 데이터 직접 사용
+            const rawData = allDrawData.slice(0, currentRange);
+            renderNumberRangeMatrix(rawData);
+        }
+
+        // [fix-254] 번호대 매트릭스 — 5 row (단/10/20/30/40번대) × 10 ball
+        function renderNumberRangeMatrix(data) {
+            const container = document.getElementById('numberRangeMatrix');
+            if (!container) return;
+            data = data || allDrawData.slice(0, currentRange);
+            const total = data.length;
+            const counts = new Array(46).fill(0);
+            data.forEach(d => (d.numbers || []).forEach(n => { if (n >= 1 && n <= 45) counts[n]++; }));
+            // 번호대별 합계
+            const ranges = ['단번대','10번대','20번대','30번대','40번대'];
+            const rangeSum = {};
+            ranges.forEach(r => {
+                rangeSum[r] = (rangeDefinitions[r] || []).reduce((s, n) => s + counts[n], 0);
+            });
+            const sums = Object.values(rangeSum);
+            const maxSum = Math.max(...sums) || 1;
+            const minSum = Math.min(...sums);
+            const avgCount = sums.reduce((a,b) => a+b, 0) / 5;
+            const sortedSums = [...sums].sort((a,b) => b - a);
+            const hotThreshold = sortedSums[1];
+            const coldThreshold = sortedSums[3];
+            let hotCount = 0, coldCount = 0;
+
+            const heatColor = (s) => {
+                if (s === 0) return { bg: '#e5e7eb', fg: '#94a3b8' };
+                const r = (s - minSum) / Math.max(1, maxSum - minSum);
+                if (r < 0.15) return { bg: '#dbeafe', fg: '#1e40af' };
+                if (r < 0.35) return { bg: '#a5b4fc', fg: '#fff' };
+                if (r < 0.55) return { bg: '#818cf8', fg: '#fff' };
+                if (r < 0.75) return { bg: '#f97316', fg: '#fff' };
+                return { bg: '#dc2626', fg: '#fff' };
+            };
+
+            const sel = (typeof selectedRangeType !== 'undefined') ? selectedRangeType : null;
+            const hasSel = !!sel;
+            let html = '';
+            ranges.forEach(r => {
+                const sum = rangeSum[r];
+                const { bg, fg } = heatColor(sum);
+                if (sum >= hotThreshold && hotThreshold > 0) hotCount++;
+                else if (sum <= coldThreshold) coldCount++;
+                const isSelected = (sel === r);
+                const isDimmed = hasSel && !isSelected;
+                let cellStyle;
+                if (!hasSel) cellStyle = `background:${bg}; color:${fg}; box-shadow:0 1px 3px rgba(0,0,0,0.08);`;
+                else if (isSelected) cellStyle = `background:${bg}; color:${fg}; box-shadow:0 0 0 3px #4F46E5, 0 4px 16px rgba(79,70,229,0.4); transform:scale(1.02); z-index:2; position:relative;`;
+                else cellStyle = `background:${bg}; color:${fg}; opacity:0.28; filter:grayscale(0.6); box-shadow:none;`;
+                // 번호별 ball 강조도 — 번호대 내 max 등장 대비
+                const rNums = rangeDefinitions[r] || [];
+                const rCounts = rNums.map(n => counts[n]);
+                const rMaxC = Math.max(...rCounts) || 1;
+                const balls = rNums.map(n => {
+                    const c = counts[n];
+                    const r2 = c / rMaxC;
+                    const ballBg = r2 === 0 ? 'rgba(255,255,255,0.08)'
+                                 : r2 < 0.5 ? 'rgba(255,255,255,0.18)'
+                                 : r2 < 0.8 ? 'rgba(255,255,255,0.4)'
+                                 : 'rgba(255,255,255,0.7)';
+                    const ballText = r2 >= 0.8 ? '#0f172a' : '#fff';
+                    const ring = r2 >= 0.95 ? 'box-shadow:0 0 0 2px rgba(255,255,255,0.95);' : '';
+                    return `<span style="display:flex;flex-direction:row;align-items:center;justify-content:center;gap:3px;width:100%;height:24px;background:${ballBg};color:${ballText};border-radius:4px;font-weight:800;line-height:1;${ring}">
+                        <span style="font-size:0.68rem;">${n}</span>
+                        <span style="font-size:0.5rem;opacity:0.85;font-weight:700;">${c}</span>
+                    </span>`;
+                }).join('');
+                // [fix-256] 모든 번호대 동일 10 컬럼 grid — 40번대는 5개 ball + 5 빈칸으로 ball 크기 균일
+                const ballsHtml = (rNums.length === 5)
+                    ? balls + Array(5).fill('<span></span>').join('')  // 빈 5칸 채움
+                    : balls;
+                html += `<div onclick="window.toggleStatCard && toggleStatCard('${r}')"
+                    style="${cellStyle} padding:5px 10px; border-radius:6px; display:grid; grid-template-columns:80px 1fr; gap:8px; align-items:center; cursor:pointer; transition:all 0.2s;"
+                    title="${r} — 합계 ${sum}회 등장"
+                    onmouseover="if(!${isSelected} && !${isDimmed}){this.style.transform='scale(1.01)'}"
+                    onmouseout="if(!${isSelected}){this.style.transform=''}">
+                    <div style="display:flex;align-items:baseline;gap:5px;">
+                        <span style="font-size:0.72rem; font-weight:900;">${r}</span>
+                        <span style="font-size:0.85rem; font-weight:900;">${sum}<span style="font-size:0.55rem; opacity:0.85; margin-left:1px;">회</span></span>
+                    </div>
+                    <div style="display:grid;grid-template-columns:repeat(10,1fr);gap:3px;">${ballsHtml}</div>
+                </div>`;
+            });
+            container.innerHTML = html;
+            const _set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+            _set('matrixRangeLabel', total);
+            _set('matrixTotalDraws', total);
+            _set('matrixAvgCount', avgCount.toFixed(1));
+            _set('matrixHotCount', hotCount);
+            _set('matrixColdCount', coldCount);
         }
 
         // ─── 당첨율 바 차트 (div 기반) ───────────────────────────────────────
@@ -1185,7 +1370,8 @@
 
         function updatePresetButtons(value) {
             const maxVal = allDrawData.length;
-            const buttons = { 50: 'preset50', 100: 'preset100', 500: 'preset500', 1203: 'preset1203' };
+            // [fix-254] preset 버튼 7개
+            const buttons = { 1:'preset1', 3:'preset3', 5:'preset5', 10:'preset10', 50:'preset50', 100:'preset100', 1203:'preset1203' };
             Object.keys(buttons).forEach(key => {
                 const btn = document.getElementById(buttons[key]);
                 if (!btn) return;
@@ -1529,9 +1715,12 @@ ${Object.entries(rangeMetrics).map(([r, m]) => `- ${r}: ${m.trend} (최근5회 �
             // 토글: 이미 켜져있으면 끄기
             if (isRecentTenFilter) {
                 isRecentTenFilter = false;
-                btn.classList.remove('from-purple-500', 'to-purple-700');
-                btn.classList.add('from-blue-500', 'to-blue-600');
-                btnText.textContent = '최근 10회차 기준 설정';
+                // [fix-406] UI 제거 — null guard
+                if (btn) {
+                    btn.classList.remove('from-purple-500', 'to-purple-700');
+                    btn.classList.add('from-blue-500', 'to-blue-600');
+                }
+                if (btnText) btnText.textContent = '최근 10회차 기준 설정';
                 // [Fix] 값 유지 + 토글 ON 유지 (사용자 요청)
                 highlightStartRound = null;
                 applyFilter();
@@ -1567,9 +1756,12 @@ ${Object.entries(rangeMetrics).map(([r, m]) => `- ${r}: ${m.trend} (최근5회 �
 
             // 3. UI 업데이트 (보라색 토글)
             isRecentTenFilter = true;
-            btn.classList.remove('from-blue-500', 'to-blue-600');
-            btn.classList.add('from-purple-500', 'to-purple-700');
-            btnText.textContent = '필터 해제';
+            // [fix-406] UI 제거 — null guard
+            if (btn) {
+                btn.classList.remove('from-blue-500', 'to-blue-600');
+                btn.classList.add('from-purple-500', 'to-purple-700');
+            }
+            if (btnText) btnText.textContent = '필터 해제';
 
             if (chk) chk.checked = true;
 
@@ -1579,6 +1771,230 @@ ${Object.entries(rangeMetrics).map(([r, m]) => `- ${r}: ${m.trend} (최근5회 �
 
             console.log('최근 10회차 번호대(엔트로피 포함) 필터 적용 완료');
         }
+
+        // ════════════════════════════════════════════════════════════
+        // [fix-403] 번호대 도메인 보조지표 4섹션 렌더
+        // ════════════════════════════════════════════════════════════
+        let nrSeriesChartInst = null;
+        function renderNrAuxIndicators() {
+            if (!allDrawData || allDrawData.length < 30) return;
+            renderNrSeries();
+            renderNrMetrics();
+            renderNrMatrix();
+            renderNrNextDirPredictor();
+        }
+
+        // §1. 5 구간 시계열
+        function renderNrSeries() {
+            const canvas = document.getElementById('nrSeriesChart');
+            if (!canvas) return;
+            const data = allDrawData.slice(0, 100).slice().reverse();   // 최근 100, 좌→우 = 과거→최신
+            const labels = data.map(d => d.round);
+            const ranges = ['단번대','10번대','20번대','30번대','40번대'];
+            const colors = ['#F97316','#38BDF8','#EF4444','#6B7280','#84CC16'];
+            const datasets = ranges.map((r, i) => ({
+                label: r,
+                data: data.map(d => d.counts?.[r] || 0),
+                borderColor: colors[i],
+                backgroundColor: colors[i] + '12',
+                borderWidth: 1.5,
+                pointRadius: 0,
+                tension: 0.3,
+                fill: false
+            }));
+            if (nrSeriesChartInst) nrSeriesChartInst.destroy();
+            nrSeriesChartInst = new Chart(canvas.getContext('2d'), {
+                type: 'line',
+                data: { labels, datasets },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 }, color: '#475569' } },
+                        tooltip: { mode: 'index', intersect: false },
+                        datalabels: { display: false }
+                    },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { color: '#94A3B8', font: { size: 10 }, maxTicksLimit: 8 } },
+                        y: { min: 0, max: 6, ticks: { stepSize: 1, color: '#94A3B8', font: { size: 10 } }, grid: { color: '#F1F5F9' } }
+                    }
+                }
+            });
+        }
+
+        // §2. 5 구간 메트릭
+        function renderNrMetrics() {
+            const el = document.getElementById('nrMetricGrid');
+            if (!el) return;
+            const ranges = ['단번대','10번대','20번대','30번대','40번대'];
+            const colors = { '단번대':'#F97316','10번대':'#38BDF8','20번대':'#EF4444','30번대':'#6B7280','40번대':'#84CC16' };
+            const N = allDrawData.length;
+            el.innerHTML = ranges.map(r => {
+                const counts = allDrawData.map(d => d.counts?.[r] || 0);
+                const avg = counts.reduce((a,b) => a+b, 0) / N;
+                const zero = counts.filter(c => c === 0).length;
+                const zeroPct = (zero / N * 100);
+                const max = Math.max(...counts);
+                return `<div class="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+                    <div class="flex items-center gap-2">
+                        <span class="inline-block w-2 h-2 rounded-full" style="background:${colors[r]}"></span>
+                        <span class="text-sm text-slate-700">${r}</span>
+                    </div>
+                    <div class="flex items-baseline gap-4 text-[12px]">
+                        <span class="text-gray-400">평균 <span class="text-slate-700">${avg.toFixed(2)}</span></span>
+                        <span class="text-gray-400">0개 <span class="text-rose-600">${zeroPct.toFixed(0)}%</span></span>
+                        <span class="text-gray-400">최대 <span class="text-emerald-600">${max}</span></span>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        // [fix-404] §3. 5×7 카운트 매트릭스 (구간별 한 회차 카운트 0~6 분포)
+        function renderNrMatrix() {
+            const el = document.getElementById('nrMatrixBody');
+            if (!el) return;
+            const ranges = ['단번대','10번대','20번대','30번대','40번대'];
+            const rangeColors = { '단번대':'#F97316','10번대':'#38BDF8','20번대':'#EF4444','30번대':'#6B7280','40번대':'#84CC16' };
+            const N = allDrawData.length;
+
+            // 5×7 카운트 매트릭스 빌드: counts[range][k] = 그 구간이 k개 출현한 회차수
+            const matrix = {};
+            ranges.forEach(r => { matrix[r] = [0,0,0,0,0,0,0]; });
+            allDrawData.forEach(d => {
+                ranges.forEach(r => {
+                    const c = Math.min(6, Math.max(0, d.counts?.[r] || 0));
+                    matrix[r][c]++;
+                });
+            });
+
+            // heatmap 색상: 비율 0~25% → 4단계 그라디언트
+            // 0회=#F8FAFC, ~3%=#EFF6FF, ~10%=#DBEAFE, ~20%=#93C5FD, ~30%=#3B82F6, ~40%+=#1E3A8A
+            const cellStyle = (count) => {
+                if (count === 0) return { bg: '#F8FAFC', fg: '#CBD5E1' };
+                const pct = count / N * 100;
+                if (pct < 3) return { bg: '#EFF6FF', fg: '#475569' };
+                if (pct < 10) return { bg: '#DBEAFE', fg: '#1E40AF' };
+                if (pct < 20) return { bg: '#93C5FD', fg: '#0C2A66' };
+                if (pct < 30) return { bg: '#3B82F6', fg: '#FFFFFF' };
+                return { bg: '#1E3A8A', fg: '#FFFFFF' };
+            };
+
+            // 각 구간의 평균 카운트 (모달 위 표시는 §2가 담당, 여기서는 행 라벨에만)
+            el.innerHTML = ranges.map(r => {
+                const row = matrix[r];
+                const cells = row.map((cnt, k) => {
+                    const { bg, fg } = cellStyle(cnt);
+                    const pct = N ? (cnt / N * 100) : 0;
+                    if (cnt === 0) {
+                        return `<td class="px-1 py-1" style="text-align:center">
+                            <div class="rounded-md py-2" style="background:${bg};color:${fg};font-feature-settings:'tnum'">
+                                <div class="text-[13px]">—</div>
+                                <div class="text-[10px] opacity-70">·</div>
+                            </div>
+                        </td>`;
+                    }
+                    return `<td class="px-1 py-1" style="text-align:center">
+                        <div class="rounded-md py-2 transition-colors" style="background:${bg};color:${fg};font-feature-settings:'tnum'" title="${r} ${k}개 → ${cnt}회 (${pct.toFixed(1)}%)">
+                            <div class="text-[13px]">${cnt}</div>
+                            <div class="text-[10px] opacity-80">${pct.toFixed(1)}%</div>
+                        </div>
+                    </td>`;
+                }).join('');
+                return `<tr>
+                    <td class="py-1 px-3 text-left">
+                        <div class="flex items-center gap-2">
+                            <span class="inline-block w-2 h-2 rounded-full" style="background:${rangeColors[r]}"></span>
+                            <span class="text-sm text-slate-700">${r}</span>
+                        </div>
+                    </td>
+                    ${cells}
+                </tr>`;
+            }).join('');
+        }
+
+        // §4. 엔트로피 기반 다음 회차 방향 예측
+        function renderNrNextDirPredictor() {
+            const range = parseFloat(document.getElementById('nrNextDirRange')?.value) || 0.2;
+            const prev = allDrawData[0]?.entropy;
+            if (prev == null) return;
+            const lower = prev - range;
+            const upper = prev + range;
+
+            const matches = [];
+            for (let i = 1; i < allDrawData.length - 1; i++) {
+                const e_i = allDrawData[i].entropy;
+                if (e_i == null || e_i < lower || e_i > upper) continue;
+                const e_next = allDrawData[i - 1].entropy;
+                if (e_next == null) continue;
+                matches.push({ round: allDrawData[i].round, e: e_i, nextE: e_next, delta: e_next - e_i });
+            }
+
+            const ups = matches.filter(m => m.delta > 0);
+            const downs = matches.filter(m => m.delta < 0);
+            const flats = matches.filter(m => m.delta === 0);
+            const N = matches.length;
+            const avgDelta = N ? matches.reduce((s,m) => s + m.delta, 0) / N : 0;
+            const upAvg = ups.length ? ups.reduce((s,m) => s + m.delta, 0) / ups.length : 0;
+            const downAvg = downs.length ? downs.reduce((s,m) => s + m.delta, 0) / downs.length : 0;
+            const upPct = N ? ups.length / N * 100 : 0;
+            const downPct = N ? downs.length / N * 100 : 0;
+            const flatPct = N ? flats.length / N * 100 : 0;
+
+            const setText = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+            const setBar = (id, p) => { const el = document.getElementById(id); if (el) el.style.width = Math.min(100, p) + '%'; };
+            setText('nrNextDirPrev', prev.toFixed(3));
+            setText('nrNextDirRangeText', `${lower.toFixed(2)}~${upper.toFixed(2)}`);
+            setText('nrNextDirMatchN', N);
+            setText('nrNextDirAvgDelta', `${avgDelta >= 0 ? '+' : ''}${avgDelta.toFixed(3)}`);
+            setText('nrNextDirUpPct', upPct.toFixed(1));
+            setText('nrNextDirDownPct', downPct.toFixed(1));
+            setText('nrNextDirFlatPct', flatPct.toFixed(1));
+            setText('nrNextDirUpN', ups.length);
+            setText('nrNextDirDownN', downs.length);
+            setText('nrNextDirFlatN', flats.length);
+            setText('nrNextDirUpAvg', `+${upAvg.toFixed(3)}`);
+            setText('nrNextDirDownAvg', downAvg.toFixed(3));
+            setBar('nrNextDirUpBar', upPct);
+            setBar('nrNextDirDownBar', downPct);
+            setBar('nrNextDirFlatBar', flatPct);
+
+            const insightEl = document.getElementById('nrNextDirInsight');
+            if (insightEl) {
+                if (N === 0) {
+                    insightEl.innerHTML = `<span class="text-gray-400">전회차 엔트로피 ${prev.toFixed(3)} ±${range} 범위에 해당하는 과거 회차 없음.</span>`;
+                } else {
+                    const dir = upPct > downPct ? '상승' : downPct > upPct ? '하락' : '균형';
+                    const dirColor = upPct > downPct ? '#059669' : downPct > upPct ? '#E11D48' : '#475569';
+                    const expectedAvg = prev + avgDelta;
+                    const nextEs = matches.map(m => m.nextE).slice().sort((a,b) => a-b);
+                    const p10 = nextEs[Math.max(0, Math.floor(N * 0.10))];
+                    const p90 = nextEs[Math.min(N - 1, Math.ceil(N * 0.90) - 1)];
+                    insightEl.innerHTML = `
+                        과거 엔트로피 <span style="color:#1e293b">${lower.toFixed(2)}~${upper.toFixed(2)}</span> 범위(${N}회차)에서 다음 회차는
+                        <span style="color:${dirColor}">${dir}</span> 우세 — 평균 변동 <span style="color:#1e293b">${avgDelta >= 0 ? '+' : ''}${avgDelta.toFixed(3)}</span>.
+                        <div class="mt-2 pt-2 border-t border-blue-100/60 text-[12px]">
+                            <span class="text-gray-500">▸ 예상 엔트로피</span>
+                            평균 진행 시 <span style="color:#1e293b">${expectedAvg.toFixed(3)}</span> ·
+                            폭넓게 80% (P10~P90) <span style="color:#475569">${p10.toFixed(3)}~${p90.toFixed(3)}</span>
+                        </div>
+                        <div class="mt-1 text-[11px] text-gray-400">엔트로피 ↑ = 분포 균형 / 엔트로피 ↓ = 한 구간 몰림</div>
+                    `;
+                }
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const inp = document.getElementById('nrNextDirRange');
+            if (inp) inp.addEventListener('input', () => renderNrNextDirPredictor());
+            // 데이터 로드 후 보조지표 자동 렌더 (allDrawData 채워질 때까지 대기)
+            const tryRender = () => {
+                if (allDrawData && allDrawData.length > 0) {
+                    renderNrAuxIndicators();
+                } else {
+                    setTimeout(tryRender, 200);
+                }
+            };
+            setTimeout(tryRender, 500);
+        });
     </script>
 
     <!-- AI QnA Sidebar Modal -->

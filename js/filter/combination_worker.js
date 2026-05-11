@@ -176,6 +176,10 @@ function parseFilters(raw) {
     if (raw.numberRangeFilter) {
         F.numRanges = raw.numberRangeFilter.ranges || {};  // {1_10:{min,max}, ...}
         F.entropyRange = raw.numberRangeFilter.entropy || null; // {min, max}
+        // 최근 5회차 자동 제외 패턴 (autoExcludeRecent5)
+        if (raw.numberRangeFilter.excludedPatterns && raw.numberRangeFilter.excludedPatterns.length > 0) {
+            F.excludedDecadePatterns = new Set(raw.numberRangeFilter.excludedPatterns);
+        }
     }
 
     // ── 9궁 (마방진) ──
@@ -343,11 +347,12 @@ function checkFilters(a, b, c, d, e, f, F) {
     if (F.consecutiveCounts !== undefined || F.runFilters) {
         // 정렬된 입력(a<b<c<d<e<f) 기준으로 연속 런 계산
         const arr6 = [a, b, c, d, e, f];
-        let maxRun = 1, curRun = 1;
+        let maxRun = 1, curRun = 1, pairCount = 0;
         let run3 = false, run4 = false, run5 = false, run6 = false;
 
         for (let i = 1; i < 6; i++) {
             if (arr6[i] === arr6[i - 1] + 1) {
+                pairCount++;
                 curRun++;
                 if (curRun === 3) run3 = true;
                 if (curRun === 4) run4 = true;
@@ -358,7 +363,7 @@ function checkFilters(a, b, c, d, e, f, F) {
                 curRun = 1;
             }
         }
-        if (F.consecutiveCounts && !F.consecutiveCounts.has(maxRun < 2 ? 0 : maxRun - 1)) return false;
+        if (F.consecutiveCounts && !F.consecutiveCounts.has(pairCount)) return false;
         if (F.runFilters) {
             const rf = F.runFilters;
             if (rf.run3 && rf.run3.enabled !== undefined) { if (rf.run3.enabled && !run3) return false; }
@@ -524,16 +529,20 @@ function checkFilters(a, b, c, d, e, f, F) {
     }
 
     // ── 번호대 (1_10 / 11_20 / 21_30 / 31_40 / 41_45) ──
-    if (F.numRanges) {
+    if (F.numRanges || F.excludedDecadePatterns) {
         const ranges = F.numRanges;
         let c1 = 0, c2 = 0, c3 = 0, c4 = 0, c5 = 0;
         const cnt = (n) => { if (n <= 10) c1++; else if (n <= 20) c2++; else if (n <= 30) c3++; else if (n <= 40) c4++; else c5++; };
         cnt(a); cnt(b); cnt(c); cnt(d); cnt(e); cnt(f);
-        const r10 = ranges['1_10'];  if (r10 && r10.min !== undefined) { if (c1 < r10.min || c1 > r10.max) return false; }
-        const r20 = ranges['11_20']; if (r20 && r20.min !== undefined) { if (c2 < r20.min || c2 > r20.max) return false; }
-        const r30 = ranges['21_30']; if (r30 && r30.min !== undefined) { if (c3 < r30.min || c3 > r30.max) return false; }
-        const r40 = ranges['31_40']; if (r40 && r40.min !== undefined) { if (c4 < r40.min || c4 > r40.max) return false; }
-        const r45 = ranges['41_45']; if (r45 && r45.min !== undefined) { if (c5 < r45.min || c5 > r45.max) return false; }
+        if (ranges) {
+            const r10 = ranges['1_10'];  if (r10 && r10.min !== undefined) { if (c1 < r10.min || c1 > r10.max) return false; }
+            const r20 = ranges['11_20']; if (r20 && r20.min !== undefined) { if (c2 < r20.min || c2 > r20.max) return false; }
+            const r30 = ranges['21_30']; if (r30 && r30.min !== undefined) { if (c3 < r30.min || c3 > r30.max) return false; }
+            const r40 = ranges['31_40']; if (r40 && r40.min !== undefined) { if (c4 < r40.min || c4 > r40.max) return false; }
+            const r45 = ranges['41_45']; if (r45 && r45.min !== undefined) { if (c5 < r45.min || c5 > r45.max) return false; }
+        }
+        // 최근 5회차 자동 제외 패턴
+        if (F.excludedDecadePatterns && F.excludedDecadePatterns.has(`${c1}-${c2}-${c3}-${c4}-${c5}`)) return false;
     }
 
     // ── 엔트로피 ──
@@ -777,12 +786,12 @@ function checkFiltersGetStage(a, b, c, d, e, f, F) {
     }
     if (F.consecutiveCounts !== undefined || F.runFilters) {
         const arr6 = [a, b, c, d, e, f];
-        let maxRun = 1, curRun = 1;
+        let maxRun = 1, curRun = 1, pairCount = 0;
         let run3 = false, run4 = false, run5 = false, run6 = false;
         for (let i = 1; i < 6; i++) {
-            if (arr6[i] === arr6[i - 1] + 1) { curRun++; if (curRun >= 3) run3 = true; if (curRun >= 4) run4 = true; if (curRun >= 5) run5 = true; if (curRun === 6) run6 = true; if (curRun > maxRun) maxRun = curRun; } else curRun = 1;
+            if (arr6[i] === arr6[i - 1] + 1) { pairCount++; curRun++; if (curRun >= 3) run3 = true; if (curRun >= 4) run4 = true; if (curRun >= 5) run5 = true; if (curRun === 6) run6 = true; if (curRun > maxRun) maxRun = curRun; } else curRun = 1;
         }
-        if (F.consecutiveCounts && !F.consecutiveCounts.has(maxRun < 2 ? 0 : maxRun - 1)) return '연번 개수';
+        if (F.consecutiveCounts && !F.consecutiveCounts.has(pairCount)) return '연번 개수';
         if (F.runFilters) {
             const rf = F.runFilters;
             if (rf.run3 && rf.run3.enabled && !run3) return '연번(3연속)';
@@ -791,15 +800,18 @@ function checkFiltersGetStage(a, b, c, d, e, f, F) {
             if (rf.run6 && rf.run6.enabled && !run6) return '연번(6연속)';
         }
     }
-    if (F.numRanges) {
+    if (F.numRanges || F.excludedDecadePatterns) {
         let c1 = 0, c2 = 0, c3 = 0, c4 = 0, c5 = 0;
         const cnt = (n) => { if (n <= 10) c1++; else if (n <= 20) c2++; else if (n <= 30) c3++; else if (n <= 40) c4++; else c5++; };
         cnt(a); cnt(b); cnt(c); cnt(d); cnt(e); cnt(f);
-        const r10 = F.numRanges['1_10']; if (r10 && r10.min !== undefined && (c1 < r10.min || c1 > r10.max)) return '번호대 1~10';
-        const r20 = F.numRanges['11_20']; if (r20 && r20.min !== undefined && (c2 < r20.min || c2 > r20.max)) return '번호대 11~20';
-        const r30 = F.numRanges['21_30']; if (r30 && r30.min !== undefined && (c3 < r30.min || c3 > r30.max)) return '번호대 21~30';
-        const r40 = F.numRanges['31_40']; if (r40 && r40.min !== undefined && (c4 < r40.min || c4 > r40.max)) return '번호대 31~40';
-        const r45 = F.numRanges['41_45']; if (r45 && r45.min !== undefined && (c5 < r45.min || c5 > r45.max)) return '번호대 41~45';
+        if (F.numRanges) {
+            const r10 = F.numRanges['1_10']; if (r10 && r10.min !== undefined && (c1 < r10.min || c1 > r10.max)) return '번호대 1~10';
+            const r20 = F.numRanges['11_20']; if (r20 && r20.min !== undefined && (c2 < r20.min || c2 > r20.max)) return '번호대 11~20';
+            const r30 = F.numRanges['21_30']; if (r30 && r30.min !== undefined && (c3 < r30.min || c3 > r30.max)) return '번호대 21~30';
+            const r40 = F.numRanges['31_40']; if (r40 && r40.min !== undefined && (c4 < r40.min || c4 > r40.max)) return '번호대 31~40';
+            const r45 = F.numRanges['41_45']; if (r45 && r45.min !== undefined && (c5 < r45.min || c5 > r45.max)) return '번호대 41~45';
+        }
+        if (F.excludedDecadePatterns && F.excludedDecadePatterns.has(`${c1}-${c2}-${c3}-${c4}-${c5}`)) return '번호대 제외패턴';
     }
     if (F.entropyRange) {
         const eMin = parseFloat(F.entropyRange.min);
@@ -1129,9 +1141,10 @@ function buildStages(F) {
         stages.push({
             name: '연번', key: 'consecutive_count', fn(a, b, c, d, e, f) {
                 const arr6 = [a, b, c, d, e, f];
-                let maxRun = 1, cur = 1, run3 = false, run4 = false, run5 = false, run6 = false;
+                let maxRun = 1, cur = 1, pairCount = 0, run3 = false, run4 = false, run5 = false, run6 = false;
                 for (let i = 1; i < 6; i++) {
                     if (arr6[i] === arr6[i - 1] + 1) {
+                        pairCount++;
                         cur++;
                         if (cur === 3) run3 = true;
                         if (cur === 4) run4 = true;
@@ -1140,7 +1153,7 @@ function buildStages(F) {
                         if (cur > maxRun) maxRun = cur;
                     } else { cur = 1; }
                 }
-                if (cons && !cons.has(maxRun < 2 ? 0 : maxRun - 1)) return false;
+                if (cons && !cons.has(pairCount)) return false;
                 if (rf) {
                     if (rf.run3 && rf.run3.enabled && !run3) return false;
                     if (rf.run4 && rf.run4.enabled && !run4) return false;
@@ -1312,19 +1325,23 @@ function buildStages(F) {
     }
 
     // ── 번호대 ──────────────────────────────────────
-    if (F.numRanges) {
+    if (F.numRanges || F.excludedDecadePatterns) {
         const ranges = F.numRanges;
+        const excPat = F.excludedDecadePatterns;
         stages.push({
             name: '번호대', key: 'number_range_patterns', fn(a, b, c, d, e, f) {
                 let c1 = 0, c2 = 0, c3 = 0, c4 = 0, c5 = 0;
                 const cnt = n => { if (n <= 10) c1++; else if (n <= 20) c2++; else if (n <= 30) c3++; else if (n <= 40) c4++; else c5++; };
                 cnt(a); cnt(b); cnt(c); cnt(d); cnt(e); cnt(f);
-                const r10 = ranges['1_10'], r20 = ranges['11_20'], r30 = ranges['21_30'], r40 = ranges['31_40'], r45 = ranges['41_45'];
-                if (r10 && r10.min !== undefined && (c1 < r10.min || c1 > r10.max)) return false;
-                if (r20 && r20.min !== undefined && (c2 < r20.min || c2 > r20.max)) return false;
-                if (r30 && r30.min !== undefined && (c3 < r30.min || c3 > r30.max)) return false;
-                if (r40 && r40.min !== undefined && (c4 < r40.min || c4 > r40.max)) return false;
-                if (r45 && r45.min !== undefined && (c5 < r45.min || c5 > r45.max)) return false;
+                if (ranges) {
+                    const r10 = ranges['1_10'], r20 = ranges['11_20'], r30 = ranges['21_30'], r40 = ranges['31_40'], r45 = ranges['41_45'];
+                    if (r10 && r10.min !== undefined && (c1 < r10.min || c1 > r10.max)) return false;
+                    if (r20 && r20.min !== undefined && (c2 < r20.min || c2 > r20.max)) return false;
+                    if (r30 && r30.min !== undefined && (c3 < r30.min || c3 > r30.max)) return false;
+                    if (r40 && r40.min !== undefined && (c4 < r40.min || c4 > r40.max)) return false;
+                    if (r45 && r45.min !== undefined && (c5 < r45.min || c5 > r45.max)) return false;
+                }
+                if (excPat && excPat.has(`${c1}-${c2}-${c3}-${c4}-${c5}`)) return false;
                 return true;
             }
         });
@@ -1703,10 +1720,11 @@ function countIndependent(rawFilters) {
         // 연번
         if (counts.consecutiveFilter !== undefined) {
             const arr6 = [a, b, c, d, e, f];
-            let maxRun = 1, curRun = 1;
+            let maxRun = 1, curRun = 1, pairCount = 0;
             let run3 = false, run4 = false, run5 = false, run6 = false;
             for (let ii = 1; ii < 6; ii++) {
                 if (arr6[ii] === arr6[ii-1]+1) {
+                    pairCount++;
                     curRun++;
                     if (curRun === 3) run3 = true;
                     if (curRun === 4) run4 = true;
@@ -1716,7 +1734,7 @@ function countIndependent(rawFilters) {
                 } else { curRun = 1; }
             }
             let pass = true;
-            if (F.consecutiveCounts && !F.consecutiveCounts.has(maxRun < 2 ? 0 : maxRun - 1)) pass = false;
+            if (F.consecutiveCounts && !F.consecutiveCounts.has(pairCount)) pass = false;
             if (pass && F.runFilters) {
                 const rf = F.runFilters;
                 if (rf.run3 && rf.run3.enabled !== undefined && rf.run3.enabled && !run3) pass = false;
@@ -1741,6 +1759,8 @@ function countIndependent(rawFilters) {
                 if (pass) { const r40=ranges['31_40']; if (r40&&r40.min!==undefined&&(c4<r40.min||c4>r40.max)) pass=false; }
                 if (pass) { const r45=ranges['41_45']; if (r45&&r45.min!==undefined&&(c5<r45.min||c5>r45.max)) pass=false; }
             }
+            // 최근 5회차 자동 제외 패턴
+            if (pass && F.excludedDecadePatterns && F.excludedDecadePatterns.has(`${c1}-${c2}-${c3}-${c4}-${c5}`)) pass=false;
             if (pass && F.entropyRange) {
                 const eMin=parseFloat(F.entropyRange.min), eMax=parseFloat(F.entropyRange.max);
                 if (!isNaN(eMin)||!isNaN(eMax)) {

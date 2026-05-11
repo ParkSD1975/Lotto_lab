@@ -30,6 +30,8 @@
     <script src="js/deep_insight_panel.js?v=20260502c"></script>
     <script src="js/deep_insight_panel_v3.js?v=20260502c"></script>
     <script src="js/NLPProcessor.js"></script>
+    <script src="js/AutoNLPMatcher.js"></script>
+    <script src="js/auto_nlp_loader.js" defer></script>
     <script src="js/NLPInputComponent.js"></script>
     <script src="js/BasicAnalysisNLP.js"></script>
     <script src="js/aiProxy.js?v=20260502c"></script>
@@ -113,7 +115,10 @@
             deactivateRecent10IfActive();
         }
 
-        // [Fix] 필터 저장 — Utils.saveFilter 사용으로 StorageEvent 발생 + 대시보드 동기화
+        // [fix-298] 필터 저장 — 대시보드 _saveDashboardFilter 패턴 미러링
+        //   1) NULL row (master fallback) 갱신 → localStorage + DB sync용
+        //   2) targetRound row (다음 회차 specific) 갱신 → 대시보드 specific 매치 일치 보장
+        // 양쪽 모두 갱신해야 분석페이지↔대시보드 양방향 동기화가 깨지지 않음.
         async function saveFilterSettings() {
             const groups = {};
             Object.keys(paperDefinitions).forEach(type => {
@@ -131,10 +136,22 @@
             const data = { groups: groups, recent10FilterActive: isRecentTenFilter };
             const enabled = document.getElementById('applyFilterCheck').checked;
 
+            // [fix-298] targetRound = 다음 회차 (대시보드 _saveDashboardFilter 패턴과 일치)
+            const latestRound = (typeof allDrawData !== 'undefined' && allDrawData && allDrawData[0]) ? allDrawData[0].round : null;
+            const targetRound = latestRound != null ? latestRound + 1 : null;
+
             if (window.Utils && window.Utils.saveFilter) {
                 try {
                     _paperSelfSaving = true;
+                    // 1) NULL row 저장 (localStorage + DB master fallback)
                     await window.Utils.saveFilter('lotto_paper_pattern', data, enabled);
+                    // 2) targetRound row 저장 (DB specific match) — Utils.saveFilter는 NULL이 1순위라
+                    //    targetRound row는 filterService를 직접 호출
+                    if (targetRound != null && window.filterService?.initialized && typeof window.filterService.saveSetting === 'function') {
+                        try {
+                            await window.filterService.saveSetting('lotto_paper_pattern', data, enabled, targetRound);
+                        } catch (e) { /* 무시 */ }
+                    }
                 } finally {
                     _paperSelfSaving = false;
                 }
@@ -300,20 +317,20 @@
             margin-bottom: 1.5rem;
         }
 
-        /* 🔹 미니멀 언더바 입력창 스타일 (사용자 지정: 호버 시 화살표 노출) */
+        /* 🔹 미니멀 언더바 입력창 — number_range 페이지와 동일 스펙 (text-sm, font-bold) */
         .range-input {
-            width: 52px;
+            width: 56px;
             height: 32px;
             text-align: center;
-            font-weight: 900;
-            font-size: 1.1rem;
-            color: #1e293b;
+            font-weight: 700;          /* number_range: text-sm font-bold */
+            font-size: 0.875rem;       /* number_range: 14px */
+            color: #111827;            /* text-gray-900 */
             background: transparent;
             border: none;
-            border-bottom: 2px solid #e2e8f0;
+            border-bottom: 2px solid #e5e7eb;  /* border-gray-200 */
             outline: none;
             border-radius: 0;
-            transition: all 0.2s;
+            transition: border-color 0.18s;
             appearance: auto;
         }
 
@@ -334,8 +351,8 @@
         }
 
         .range-input:focus {
-            border-bottom-color: #3b82f6;
-            color: #3b82f6;
+            border-bottom-color: #3b82f6;  /* focus:border-blue-500 */
+            color: #111827;                /* 색상 유지 — 폰트 굵기/크기 일관성 */
         }
 
         /* 숫자 입력 스피너: 호버 시에만 노출 */
@@ -585,67 +602,158 @@
                             </div>
                         </div>
 
+                        <!-- [fix-247] 그래프 → 로또용지 매트릭스 (7×7 grid + heat color + 등장 횟수) -->
                         <div class="mb-6">
-                            <div class="flex items-center justify-between mb-4">
+                            <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
                                 <div class="flex items-center gap-3">
-                                    <h3 class="text-xl font-bold text-gray-900">그래프</h3>
-                                    <select id="graphTypeSelect" onchange="changeGraphType(this.value)"
-                                        class="w-40 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                                        <option value="가로1">가로1 (Row 1)</option>
-                                        <option value="가로2">가로2 (Row 2)</option>
-                                        <option value="가로3">가로3 (Row 3)</option>
-                                        <option value="가로4">가로4 (Row 4)</option>
-                                        <option value="가로5">가로5 (Row 5)</option>
-                                        <option value="가로6">가로6 (Row 6)</option>
-                                        <option value="가로7">가로7 (Row 7)</option>
-                                        <option value="세로1">세로1 (Col 1)</option>
-                                        <option value="세로2">세로2 (Col 2)</option>
-                                        <option value="세로3">세로3 (Col 3)</option>
-                                        <option value="세로4">세로4 (Col 4)</option>
-                                        <option value="세로5">세로5 (Col 5)</option>
-                                        <option value="세로6">세로6 (Col 6)</option>
-                                        <option value="세로7">세로7 (Col 7)</option>
-                                    </select>
+                                    <h3 class="text-xl font-bold text-gray-900">로또용지 매트릭스</h3>
+                                    <span class="text-[12px] text-slate-500">최근 <span id="matrixRangeLabel" class="font-bold text-blue-600">100</span>회 등장 횟수</span>
                                 </div>
-                                <div class="flex gap-2">
-                                    <button id="tabRate" onclick="setChartTab('rate')"
-                                        class="px-4 py-2 text-sm font-medium bg-blue-500 text-white rounded-lg transition-colors">당첨율</button>
-                                    <button id="tabTrend" onclick="setChartTab('trend')"
-                                        class="px-4 py-2 text-sm font-medium bg-gray-200 text-gray-700 rounded-lg transition-colors">회차별</button>
+                                <div id="matrixLegend" class="flex items-center gap-1.5 text-[10px] text-slate-500">
+                                    <span>적음</span>
+                                    <span style="display:inline-block;width:18px;height:14px;background:#e5e7eb;border-radius:2px"></span>
+                                    <span style="display:inline-block;width:18px;height:14px;background:#dbeafe;border-radius:2px"></span>
+                                    <span style="display:inline-block;width:18px;height:14px;background:#a5b4fc;border-radius:2px"></span>
+                                    <span style="display:inline-block;width:18px;height:14px;background:#818cf8;border-radius:2px"></span>
+                                    <span style="display:inline-block;width:18px;height:14px;background:#f97316;border-radius:2px"></span>
+                                    <span style="display:inline-block;width:18px;height:14px;background:#dc2626;border-radius:2px"></span>
+                                    <span>많음</span>
                                 </div>
                             </div>
 
-                            <div id="rateChartContainer" class="h-64 mb-4 border-b border-gray-100 pb-4">
-                                <canvas id="rateChart"></canvas>
+                            <!-- [fix-248] 매트릭스 박스 제거 + 가로/세로 라벨 grid layout -->
+                            <div style="max-width:540px; margin:0 auto;">
+                                <div id="lottoPaperWrapper" style="display:grid; grid-template-columns:24px repeat(7, 1fr); grid-template-rows:auto repeat(7, auto); gap:4px;">
+                                    <!-- 좌상단 빈 칸 -->
+                                    <div></div>
+                                    <!-- 상단: 세로1~세로7 라벨 (클릭 가능) -->
+                                    <div data-paper-label="세로1" onclick="window.toggleStatCard && toggleStatCard('세로1')" style="font-size:0.6rem; font-weight:700; color:#94a3b8; text-align:center; cursor:pointer; padding:2px 0;" class="paper-col-label">세1</div>
+                                    <div data-paper-label="세로2" onclick="window.toggleStatCard && toggleStatCard('세로2')" style="font-size:0.6rem; font-weight:700; color:#94a3b8; text-align:center; cursor:pointer; padding:2px 0;" class="paper-col-label">세2</div>
+                                    <div data-paper-label="세로3" onclick="window.toggleStatCard && toggleStatCard('세로3')" style="font-size:0.6rem; font-weight:700; color:#94a3b8; text-align:center; cursor:pointer; padding:2px 0;" class="paper-col-label">세3</div>
+                                    <div data-paper-label="세로4" onclick="window.toggleStatCard && toggleStatCard('세로4')" style="font-size:0.6rem; font-weight:700; color:#94a3b8; text-align:center; cursor:pointer; padding:2px 0;" class="paper-col-label">세4</div>
+                                    <div data-paper-label="세로5" onclick="window.toggleStatCard && toggleStatCard('세로5')" style="font-size:0.6rem; font-weight:700; color:#94a3b8; text-align:center; cursor:pointer; padding:2px 0;" class="paper-col-label">세5</div>
+                                    <div data-paper-label="세로6" onclick="window.toggleStatCard && toggleStatCard('세로6')" style="font-size:0.6rem; font-weight:700; color:#94a3b8; text-align:center; cursor:pointer; padding:2px 0;" class="paper-col-label">세6</div>
+                                    <div data-paper-label="세로7" onclick="window.toggleStatCard && toggleStatCard('세로7')" style="font-size:0.6rem; font-weight:700; color:#94a3b8; text-align:center; cursor:pointer; padding:2px 0;" class="paper-col-label">세7</div>
+                                    <!-- 좌측: 가로1~가로7 라벨 + 셀 (JS 렌더) -->
+                                    <div id="lottoPaperMatrix" style="grid-column:1 / span 8; display:contents;"></div>
+                                </div>
                             </div>
-                            <div id="trendChartContainer" class="h-64 hidden"><canvas id="trendChart"></canvas></div>
+
+                            <div class="mt-3 flex items-center justify-between text-[11px] text-slate-500 flex-wrap gap-2">
+                                <span>총 <span id="matrixTotalDraws" class="font-bold text-slate-700">0</span>회 분석 · 평균 등장 <span id="matrixAvgCount" class="font-bold text-slate-700">0</span>회 · 핫 <span id="matrixHotCount" class="font-bold text-rose-600">0</span> · 콜드 <span id="matrixColdCount" class="font-bold text-slate-400">0</span></span>
+                                <span class="text-slate-400">실제 한국 로또 용지 7×7 형태 (1~45 + 빈칸 4)</span>
+                            </div>
                         </div>
 
                         <div>
                             <div class="flex items-center justify-between mb-4">
                                 <h3 class="text-xl font-bold text-gray-900">분석 회차 범위</h3>
                                 <div class="flex items-center gap-2">
+                                    <button onclick="setRange(1)" id="preset1"
+                                        class="px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors">1회</button>
+                                    <button onclick="setRange(3)" id="preset3"
+                                        class="px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors">3회</button>
+                                    <button onclick="setRange(5)" id="preset5"
+                                        class="px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors">5회</button>
+                                    <button onclick="setRange(10)" id="preset10"
+                                        class="px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors">10회</button>
                                     <button onclick="setRange(50)" id="preset50"
                                         class="px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors">50회</button>
                                     <button onclick="setRange(100)" id="preset100"
                                         class="px-3 py-1.5 text-sm font-medium bg-blue-500 text-white rounded-lg transition-colors">100회</button>
-                                    <button onclick="setRange(500)" id="preset500"
-                                        class="px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors">500회</button>
                                     <button onclick="setRange(1203)" id="preset1203"
                                         class="px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors">전체</button>
                                 </div>
                             </div>
                             <div class="space-y-3">
-                                <input type="range" id="rangeSlider" min="10" max="1203" value="100"
+                                <input type="range" id="rangeSlider" min="1" max="1203" value="100"
                                     oninput="updateRange(this.value)" class="accent-blue-500" />
                                 <div class="flex items-center justify-between text-sm">
                                     <span class="text-gray-600">최근 <span id="rangeDisplay"
-                                            class="font-bold text-blue-600">100</span>회 분석 대상</span>
+                                            class="font-bold text-blue-600">100</span> 분석 대상</span>
                                     <span id="totalRangeDisplay" class="text-gray-500">최대 1,203회</span>
                                 </div>
                             </div>
                         </div>
                     </div>
+
+                    <!-- ════════════════════════════════════════════════ -->
+                    <!-- [fix-412] 로또용지 도메인 특화 보조지표 4섹션         -->
+                    <!-- ════════════════════════════════════════════════ -->
+                    <div class="bg-white rounded-xl border border-gray-200 mt-6 overflow-hidden" style="font-feature-settings:'tnum'">
+                        <!-- [fix-413] §1. 선택 라인 시계열 — 통계카드 연동 단일 차트 -->
+                        <div class="p-8">
+                            <div class="flex items-baseline justify-between flex-wrap gap-3 mb-2">
+                                <div>
+                                    <h3 class="text-lg text-gray-900 tracking-tight mb-1">선택 라인 시계열</h3>
+                                    <p class="text-xs text-gray-500">기본값 가로1 · 상단 통계카드 또는 매트릭스 라벨 클릭 → 라인 변경 · 평균선 0.86 가이드</p>
+                                </div>
+                                <div class="flex items-baseline gap-2">
+                                    <span class="text-[10px] uppercase tracking-wider text-gray-400">선택</span>
+                                    <span id="lpSeriesSelected" class="text-sm text-slate-700">없음</span>
+                                </div>
+                            </div>
+                            <div class="relative" style="height:240px"><canvas id="lpSeriesChart"></canvas></div>
+                            <div id="lpSeriesEmpty" class="hidden text-center py-8 text-sm text-gray-400">
+                                통계카드(가로1~7 / 세로1~7)를 클릭하면 해당 라인 시계열이 표시됩니다.
+                            </div>
+                        </div>
+                        <!-- §2 + §3 좌우 2분할 -->
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-0 border-t border-gray-100">
+                            <div class="p-8 lg:border-r border-gray-100">
+                                <h3 class="text-lg text-gray-900 tracking-tight mb-1">14라인 출현률</h3>
+                                <p class="text-xs text-gray-500 mb-4">가로 7 + 세로 7 — 평균 / 0개 비율 / 최대</p>
+                                <div id="lpMetricGrid" class="grid grid-cols-2 gap-x-6"></div>
+                            </div>
+                            <div class="p-8 border-t lg:border-t-0 border-gray-100">
+                                <h3 class="text-lg text-gray-900 tracking-tight mb-1">공간 패턴 빈도</h3>
+                                <p class="text-xs text-gray-500 mb-4">6번호의 7×7 기하 분포 — 5종 패턴</p>
+                                <div id="lpPatternGrid" class="space-y-2"></div>
+                            </div>
+                        </div>
+                        <!-- §4. 다음 회차 라인 활성도 예측 -->
+                        <div class="p-8 border-t border-gray-100">
+                            <div class="flex items-baseline justify-between flex-wrap gap-3 mb-4">
+                                <div>
+                                    <h3 class="text-lg text-gray-900">다음 회차 라인 활성도 예측</h3>
+                                    <p class="text-xs text-gray-500 mt-1">전회차 활성 라인 수 ±N였던 과거 회차들의 다음 회차 변동</p>
+                                </div>
+                                <div class="flex items-center gap-2 text-[12px] text-gray-500">
+                                    <span>±</span>
+                                    <input type="number" id="lpNextDirRange" min="0" max="5" step="1" value="1" class="w-14 text-center text-[12px] border-0 border-b border-gray-200 focus:border-blue-500 focus:outline-none focus:ring-0 bg-transparent" style="font-feature-settings:'tnum'">
+                                    <span>범위</span>
+                                </div>
+                            </div>
+                            <div class="flex items-baseline flex-wrap gap-x-8 gap-y-2 pb-4 mb-4 border-b border-gray-100">
+                                <div class="flex items-baseline gap-2"><span class="text-[10px] uppercase tracking-wider text-gray-400">전회차 활성 라인</span><span class="text-xl text-slate-700" id="lpNextDirPrev">—</span></div>
+                                <div class="flex items-baseline gap-2"><span class="text-[10px] uppercase tracking-wider text-gray-400">분석 범위</span><span class="text-xl text-slate-700" id="lpNextDirRangeText">—</span></div>
+                                <div class="flex items-baseline gap-2"><span class="text-[10px] uppercase tracking-wider text-gray-400">매칭 회차수</span><span class="text-xl text-blue-700" id="lpNextDirMatchN">—</span></div>
+                                <div class="flex items-baseline gap-2"><span class="text-[10px] uppercase tracking-wider text-gray-400">평균 변동</span><span class="text-xl text-slate-700" id="lpNextDirAvgDelta">—</span></div>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wider mb-2" style="color:#059669">↑ 라인 증가</div>
+                                    <div class="flex items-baseline gap-1 mb-2"><span id="lpNextDirUpPct" class="text-3xl" style="color:#059669">—</span><span class="text-xs text-gray-400">%</span></div>
+                                    <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden mb-2"><div id="lpNextDirUpBar" class="h-full transition-all" style="background:#10B981;width:0%"></div></div>
+                                    <div class="text-[11px] text-gray-500"><span id="lpNextDirUpN">0</span>회 / 평균 <span id="lpNextDirUpAvg">0</span></div>
+                                </div>
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wider mb-2" style="color:#E11D48">↓ 라인 감소</div>
+                                    <div class="flex items-baseline gap-1 mb-2"><span id="lpNextDirDownPct" class="text-3xl" style="color:#E11D48">—</span><span class="text-xs text-gray-400">%</span></div>
+                                    <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden mb-2"><div id="lpNextDirDownBar" class="h-full transition-all" style="background:#F43F5E;width:0%"></div></div>
+                                    <div class="text-[11px] text-gray-500"><span id="lpNextDirDownN">0</span>회 / 평균 <span id="lpNextDirDownAvg">0</span></div>
+                                </div>
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wider mb-2" style="color:#475569">→ 동일</div>
+                                    <div class="flex items-baseline gap-1 mb-2"><span id="lpNextDirFlatPct" class="text-3xl" style="color:#475569">—</span><span class="text-xs text-gray-400">%</span></div>
+                                    <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden mb-2"><div id="lpNextDirFlatBar" class="h-full transition-all" style="background:#94A3B8;width:0%"></div></div>
+                                    <div class="text-[11px] text-gray-500"><span id="lpNextDirFlatN">0</span>회</div>
+                                </div>
+                            </div>
+                            <div id="lpNextDirInsight" class="mt-4 p-3 bg-blue-50/40 border border-blue-100 rounded-lg text-[12px] text-slate-700"></div>
+                        </div>
+                    </div>
+                    <!-- ════════════════════════════════════════════════ -->
 
                     <!-- [가이드] 조합 필터 섹션 재구성 -->
                     <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm" id="filter-page">
@@ -753,6 +861,8 @@
                 initStatCards();
                 updateRange(currentRange);
                 initDeepInsight(); // [추가] AI 패널 초기화
+                // [fix-412] 보조지표 4섹션 렌더
+                if (typeof renderLpAuxIndicators === 'function') renderLpAuxIndicators();
 
                 // [추가] 새 회차 감지 시 자동 필터 적용
                 checkAndResetOnNewDraw();
@@ -967,15 +1077,16 @@
                 selectedPaperType = type;
             }
             updateStatCardStyles();
-
-            if (selectedPaperType) {
-                document.getElementById('graphTypeSelect').value = selectedPaperType;
-            }
+            // [fix-248] graphTypeSelect 제거됨 — 안전 가드
+            const gtSel = document.getElementById('graphTypeSelect');
+            if (gtSel && selectedPaperType) gtSel.value = selectedPaperType;
 
             const displayData = allDrawData.slice(0, currentRange);
             renderDrawsList(displayData);
             updateCharts(displayData);
             initDeepInsight();
+            // [fix-413] 통계카드 ↔ §1 시계열 동기화
+            if (typeof renderLpSeries === 'function') renderLpSeries();
         }
 
         function updateStatCardStyles() {
@@ -1002,15 +1113,41 @@
         }
 
         let debounceTimer = null;
+        // [fix-250] setRange 함수 정의 — preset 버튼 onclick에서 호출
+        function setRange(value) {
+            const slider = document.getElementById('rangeSlider');
+            if (slider) slider.value = value;
+            updateRange(value);
+            // 활성 버튼 표시
+            const presetIds = ['preset1','preset3','preset5','preset10','preset50','preset100','preset1203'];
+            presetIds.forEach(id => {
+                const btn = document.getElementById(id);
+                if (!btn) return;
+                btn.className = 'px-3 py-1.5 text-sm font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors';
+            });
+            const presetMap = {1:'preset1', 3:'preset3', 5:'preset5', 10:'preset10', 50:'preset50', 100:'preset100'};
+            const v = parseInt(value);
+            const activeId = presetMap[v] || (v === 1203 ? 'preset1203' : null);
+            if (activeId) {
+                const activeBtn = document.getElementById(activeId);
+                if (activeBtn) activeBtn.className = 'px-3 py-1.5 text-sm font-medium bg-blue-500 text-white rounded-lg transition-colors';
+            }
+        }
+        window.setRange = setRange;
+
         function updateRange(value) {
             markManual(); // [추가] 수동 조작 마킹
             currentRange = parseInt(value);
             document.getElementById('rangeDisplay').textContent = value + '회';
 
-            // Slider Styling (Fill)
-            const percent = ((value - 10) / (1203 - 10)) * 100;
+            // [fix-250] Slider Styling (Fill) — slider min/max 동적 사용
             const slider = document.getElementById('rangeSlider');
-            if (slider) slider.style.setProperty('--value-percent', percent + '%');
+            if (slider) {
+                const min = parseInt(slider.min || 1);
+                const max = parseInt(slider.max || 1203);
+                const percent = Math.max(0, Math.min(100, ((value - min) / Math.max(1, max - min)) * 100));
+                slider.style.setProperty('--value-percent', percent + '%');
+            }
 
             // Debounce Heavy Logic
             if (debounceTimer) clearTimeout(debounceTimer);
@@ -1209,8 +1346,112 @@
         }
 
         function updateCharts(data) {
-            updateRateChart(data);
-            if (chartTab === 'trend') updateTrendChart();
+            // [fix-247] 차트 → 로또용지 매트릭스로 통합 호출
+            renderLottoPaperMatrix(data);
+        }
+
+        // [fix-247] 로또용지 매트릭스: 7×7 grid + heat color + 등장 횟수
+        // 한국 로또 종이 layout: 1~45 (7행 × 7열) — 마지막 행 4칸 빈칸
+        function renderLottoPaperMatrix(data) {
+            const container = document.getElementById('lottoPaperMatrix');
+            if (!container) return;
+            data = data || allDrawData.slice(0, currentRange);
+            const total = data.length;
+            // 1~45 번호별 등장 횟수
+            const counts = new Array(46).fill(0);
+            data.forEach(d => (d.numbers || []).forEach(n => { if (n >= 1 && n <= 45) counts[n]++; }));
+            const numCounts = counts.slice(1);
+            const maxCount = Math.max(...numCounts) || 1;
+            const minCount = Math.min(...numCounts);
+            const avgCount = numCounts.reduce((a,b) => a+b, 0) / 45;
+            // 핫(상위 25%) / 콜드(하위 25%)
+            const sorted = [...numCounts].sort((a,b) => b - a);
+            const hotThreshold = sorted[Math.floor(sorted.length * 0.22)];
+            const coldThreshold = sorted[Math.floor(sorted.length * 0.78)];
+            let hotCount = 0, coldCount = 0;
+
+            const heatColor = (c) => {
+                if (c === 0) return { bg: '#e5e7eb', fg: '#94a3b8' };
+                const r = (c - minCount) / Math.max(1, maxCount - minCount);
+                if (r < 0.15) return { bg: '#dbeafe', fg: '#1e40af' };
+                if (r < 0.35) return { bg: '#a5b4fc', fg: '#fff' };
+                if (r < 0.55) return { bg: '#818cf8', fg: '#fff' };
+                if (r < 0.75) return { bg: '#f97316', fg: '#fff' };
+                return { bg: '#dc2626', fg: '#fff' };
+            };
+
+            // [fix-248] 7행: 좌측 가로 라벨 + 7개 cell
+            const rowDef = [
+                { label: '가로1', nums: [1,2,3,4,5,6,7] },
+                { label: '가로2', nums: [8,9,10,11,12,13,14] },
+                { label: '가로3', nums: [15,16,17,18,19,20,21] },
+                { label: '가로4', nums: [22,23,24,25,26,27,28] },
+                { label: '가로5', nums: [29,30,31,32,33,34,35] },
+                { label: '가로6', nums: [36,37,38,39,40,41,42] },
+                { label: '가로7', nums: [43,44,45,null,null,null,null] }
+            ];
+            const sel = (typeof selectedPaperType !== 'undefined') ? selectedPaperType : null;
+            const hasSel = !!sel;
+            let html = '';
+            rowDef.forEach((row, rIdx) => {
+                const rowKey = row.label;
+                const rowSelected = (sel === rowKey);
+                const rowShort = rowKey.replace('가로', '가');
+                // [fix-249] 선택된 가로 라인이 아닌 가로 라벨 dim
+                const rowDim = hasSel && !rowSelected;
+                const rowColor = rowSelected ? '#1E293B' : (rowDim ? '#cbd5e1' : '#475569');
+                const rowFontWeight = rowSelected ? '900' : '700';
+                html += `<div data-paper-label="${rowKey}" onclick="window.toggleStatCard && toggleStatCard('${rowKey}')" style="font-size:0.62rem; font-weight:${rowFontWeight}; color:${rowColor}; display:flex; align-items:center; justify-content:flex-end; padding-right:4px; cursor:pointer; transition:color 0.15s;">${rowShort}</div>`;
+                // 7개 cell
+                row.nums.forEach((n, cIdx) => {
+                    if (n == null) {
+                        html += `<div style="height:44px;"></div>`;
+                        return;
+                    }
+                    const c = counts[n];
+                    const { bg, fg } = heatColor(c);
+                    if (c >= hotThreshold && hotThreshold > 0) hotCount++;
+                    else if (c <= coldThreshold) coldCount++;
+                    // 선택된 가로 라인 또는 세로 라인에 속하면 강조
+                    const colKey = `세로${cIdx + 1}`;
+                    const isInSelected = (sel === rowKey) || (sel === colKey && (paperDefinitions[colKey] || []).includes(n));
+                    // [fix-249] 강한 하이라이트 — 선택 영역은 더 진한 ring + scale, 비선택은 opacity dim + grayscale
+                    let cellStyle;
+                    if (!hasSel) {
+                        // 선택 없음: 평범
+                        cellStyle = `background:${bg}; color:${fg}; box-shadow:0 1px 2px rgba(0,0,0,0.05);`;
+                    } else if (isInSelected) {
+                        // 선택 영역: 강한 ring + 살짝 확대
+                        cellStyle = `background:${bg}; color:${fg}; box-shadow:0 0 0 3px #4F46E5, 0 4px 12px rgba(79,70,229,0.35); transform:scale(1.06); z-index:2; position:relative;`;
+                    } else {
+                        // 비선택: dim (opacity + 채도 낮춤)
+                        cellStyle = `background:${bg}; color:${fg}; opacity:0.28; filter:grayscale(0.6); box-shadow:none;`;
+                    }
+                    html += `<div style="${cellStyle} height:44px; display:flex; flex-direction:column; align-items:center; justify-content:center; border-radius:6px; transition:all 0.2s; cursor:default;" title="${n}번 — 최근 ${total}회 중 ${c}회 등장 (${(c/Math.max(total,1)*100).toFixed(1)}%)" onmouseover="if(!${isInSelected}){this.style.transform='scale(1.08)'}" onmouseout="if(!${isInSelected}){this.style.transform=''}">
+                        <span style="font-size:0.78rem; font-weight:900; line-height:1; letter-spacing:-0.02em;">${n}</span>
+                        <span style="font-size:0.56rem; font-weight:700; opacity:0.95; margin-top:1px;">${c}</span>
+                    </div>`;
+                });
+            });
+            container.innerHTML = html;
+
+            // [fix-249] 세로 라벨 강조 + 비선택 dim
+            document.querySelectorAll('.paper-col-label').forEach(el => {
+                const key = el.dataset.paperLabel;
+                const selected = (sel === key);
+                const dim = hasSel && !selected;
+                el.style.color = selected ? '#4F46E5' : (dim ? '#cbd5e1' : '#475569');
+                el.style.fontWeight = selected ? '900' : '700';
+                el.style.transition = 'color 0.15s';
+            });
+
+            // stat 라벨 갱신
+            const _set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+            _set('matrixRangeLabel', total);
+            _set('matrixTotalDraws', total);
+            _set('matrixAvgCount', avgCount.toFixed(1));
+            _set('matrixHotCount', hotCount);
+            _set('matrixColdCount', coldCount);
         }
 
         function updateRateChart(data) {
@@ -1735,6 +1976,324 @@ ${contextData}
                 qnaContent.scrollTop = qnaContent.scrollHeight;
             }
         }
+
+        // ════════════════════════════════════════════════════════════
+        // [fix-412] 로또용지 도메인 보조지표 4섹션 렌더
+        // ════════════════════════════════════════════════════════════
+
+        // 좌표 헬퍼 — 1~45 → (row, col) 7×7 그리드 (행 0~6, 열 0~6, 마지막 행 4칸은 빈칸)
+        function lpCoord(n) {
+            return { r: Math.floor((n - 1) / 7), c: (n - 1) % 7 };
+        }
+
+        // 인접 검사 — 8방향
+        function lpAdjacent(a, b) {
+            const ca = lpCoord(a), cb = lpCoord(b);
+            const dr = Math.abs(ca.r - cb.r), dc = Math.abs(ca.c - cb.c);
+            return (dr <= 1 && dc <= 1) && !(dr === 0 && dc === 0);
+        }
+
+        // 6번호 → 인접 그래프 union-find로 최대 클러스터 크기
+        function lpMaxClusterSize(nums) {
+            const parent = nums.slice().reduce((acc, n) => (acc[n] = n, acc), {});
+            const find = (x) => parent[x] === x ? x : (parent[x] = find(parent[x]));
+            const union = (x, y) => { const rx = find(x), ry = find(y); if (rx !== ry) parent[rx] = ry; };
+            for (let i = 0; i < nums.length; i++) {
+                for (let j = i + 1; j < nums.length; j++) {
+                    if (lpAdjacent(nums[i], nums[j])) union(nums[i], nums[j]);
+                }
+            }
+            const groupSize = {};
+            nums.forEach(n => {
+                const root = find(n);
+                groupSize[root] = (groupSize[root] || 0) + 1;
+            });
+            return Math.max(...Object.values(groupSize));
+        }
+
+        // 패턴 분류 — 우선순위 순서로 한 회차 → 한 패턴
+        function lpClassifyPattern(nums) {
+            const coords = nums.map(lpCoord);
+            // 가로/세로 라인별 카운트
+            const rowCount = [0, 0, 0, 0, 0, 0, 0];
+            const colCount = [0, 0, 0, 0, 0, 0, 0];
+            coords.forEach(c => { rowCount[c.r]++; colCount[c.c]++; });
+            const maxRow = Math.max(...rowCount);
+            const maxCol = Math.max(...colCount);
+            // 대각선 (r-c, r+c)
+            const diagDown = {}; // r-c
+            const diagUp = {};   // r+c
+            coords.forEach(c => {
+                diagDown[c.r - c.c] = (diagDown[c.r - c.c] || 0) + 1;
+                diagUp[c.r + c.c] = (diagUp[c.r + c.c] || 0) + 1;
+            });
+            const maxDiag = Math.max(...Object.values(diagDown), ...Object.values(diagUp));
+
+            // 클러스터 (3+ 인접)
+            const maxCluster = lpMaxClusterSize(nums);
+
+            // 우선순위:
+            // 1. 직선 수평 (4+)
+            // 2. 직선 수직 (4+)
+            // 3. 대각선 (4+)
+            // 4. 클러스터 (3+ 인접)
+            // 5. 분산 (인접 페어 ≤1, 라인당 ≤1)
+            if (maxRow >= 4) return 'line_h';
+            if (maxCol >= 4) return 'line_v';
+            if (maxDiag >= 4) return 'diag';
+            if (maxCluster >= 3) return 'cluster';
+            // 분산: 라인당 ≤1 + 인접 페어 ≤1
+            const dispersed = (maxRow <= 1 && maxCol <= 1);
+            if (dispersed) return 'dispersed';
+            return 'mixed';
+        }
+
+        // [fix-413/415] §1. 선택 라인 시계열 — 단일 차트 + 통계카드 연동
+        // 기본값: 미선택 시 '가로1' 자동 표시 — 사용자가 카드 클릭하면 그 라인으로 전환
+        let lpSeriesChartInst = null;
+        function renderLpSeries() {
+            if (!allDrawData || allDrawData.length < 30) return;
+            const canvas = document.getElementById('lpSeriesChart');
+            const emptyEl = document.getElementById('lpSeriesEmpty');
+            const selectedEl = document.getElementById('lpSeriesSelected');
+            if (!canvas) return;
+
+            const userSel = (typeof selectedPaperType !== 'undefined' && selectedPaperType) ? selectedPaperType : null;
+            const sel = userSel || '가로1';   // [fix-415] 기본값 가로1
+
+            if (selectedEl) selectedEl.textContent = userSel ? userSel : `${sel} (기본값)`;
+
+            canvas.style.display = 'block';
+            if (emptyEl) emptyEl.classList.add('hidden');
+
+            const data = allDrawData.slice(0, 100).slice().reverse();
+            const labels = data.map(d => d.round);
+            const counts = data.map(d => d.counts?.[sel] || 0);
+            const N = counts.length;
+            const avg = N ? counts.reduce((a, b) => a + b, 0) / N : 0;
+
+            const accent = (typeof paperColors !== 'undefined' && paperColors[sel]) ? paperColors[sel] : (sel.startsWith('가로') ? '#1E293B' : '#4F46E5');
+
+            const datasets = [
+                {
+                    label: sel,
+                    data: counts,
+                    borderColor: accent,
+                    backgroundColor: accent + '14',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                    tension: 0.3,
+                    fill: true
+                },
+                {
+                    label: '평균 0.86',
+                    data: new Array(N).fill(6 / 7),
+                    borderColor: '#CBD5E1',
+                    borderWidth: 1,
+                    borderDash: [4, 4],
+                    pointRadius: 0,
+                    fill: false
+                },
+                {
+                    label: `${sel} 평균 ${avg.toFixed(2)}`,
+                    data: new Array(N).fill(avg),
+                    borderColor: accent + '99',
+                    borderWidth: 1,
+                    borderDash: [2, 3],
+                    pointRadius: 0,
+                    fill: false
+                }
+            ];
+
+            if (lpSeriesChartInst) lpSeriesChartInst.destroy();
+            lpSeriesChartInst = new Chart(canvas.getContext('2d'), {
+                type: 'line',
+                data: { labels, datasets },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 }, color: '#475569' } },
+                        tooltip: { mode: 'index', intersect: false },
+                        datalabels: { display: false }
+                    },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { color: '#94A3B8', font: { size: 10 }, maxTicksLimit: 8 } },
+                        y: { min: 0, max: 6, ticks: { stepSize: 1, color: '#94A3B8', font: { size: 10 } }, grid: { color: '#F1F5F9' } }
+                    }
+                }
+            });
+        }
+
+        // §2. 14라인 출현률 메트릭
+        function renderLpMetrics() {
+            const el = document.getElementById('lpMetricGrid');
+            if (!el) return;
+            const N = allDrawData.length;
+            const lines = [];
+            for (let i = 1; i <= 7; i++) lines.push(`가로${i}`);
+            for (let i = 1; i <= 7; i++) lines.push(`세로${i}`);
+
+            const rowHtml = (line) => {
+                const counts = allDrawData.map(d => d.counts?.[line] || 0);
+                const avg = counts.reduce((a,b) => a+b, 0) / N;
+                const zero = counts.filter(c => c === 0).length;
+                const zeroPct = (zero / N * 100);
+                const max = Math.max(...counts);
+                const isHorz = line.startsWith('가로');
+                return `<div class="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+                    <div class="flex items-center gap-2">
+                        <span class="inline-block w-2 h-2 rounded-full" style="background:${isHorz ? '#475569' : '#4F46E5'}"></span>
+                        <span class="text-sm text-slate-700">${line}</span>
+                    </div>
+                    <div class="flex items-baseline gap-3 text-[11px]">
+                        <span class="text-gray-400">평균 <span class="text-slate-700">${avg.toFixed(2)}</span></span>
+                        <span class="text-gray-400">0개 <span class="text-rose-600">${zeroPct.toFixed(0)}%</span></span>
+                        <span class="text-gray-400">max <span class="text-emerald-600">${max}</span></span>
+                    </div>
+                </div>`;
+            };
+
+            // 좌측 컬럼 = 가로 7, 우측 컬럼 = 세로 7
+            const horzHtml = lines.slice(0, 7).map(rowHtml).join('');
+            const vertHtml = lines.slice(7).map(rowHtml).join('');
+            el.innerHTML = `<div>${horzHtml}</div><div>${vertHtml}</div>`;
+        }
+
+        // §3. 공간 패턴 빈도 (5종)
+        function renderLpPatterns() {
+            const el = document.getElementById('lpPatternGrid');
+            if (!el) return;
+            const N = allDrawData.length;
+            const counts = { line_h: 0, line_v: 0, diag: 0, cluster: 0, dispersed: 0, mixed: 0 };
+            const recentByPat = { line_h: [], line_v: [], diag: [], cluster: [], dispersed: [], mixed: [] };
+
+            allDrawData.forEach(d => {
+                const p = lpClassifyPattern(d.numbers);
+                counts[p]++;
+                if (recentByPat[p].length < 3) recentByPat[p].push(d.round);
+            });
+
+            const defs = [
+                { key: 'line_h',    label: '직선 수평',  desc: '같은 가로라인 4+', color: '#0F172A' },
+                { key: 'line_v',    label: '직선 수직',  desc: '같은 세로라인 4+', color: '#4F46E5' },
+                { key: 'diag',      label: '대각선',     desc: '대각 4+ 정렬',     color: '#F97316' },
+                { key: 'cluster',   label: '클러스터',   desc: '3+ 인접 그룹',     color: '#EC4899' },
+                { key: 'dispersed', label: '분산',       desc: '라인당 ≤1',        color: '#10B981' },
+                { key: 'mixed',     label: '혼합',       desc: '나머지',           color: '#94A3B8' }
+            ];
+            // 비율 정렬 (큰 순)
+            defs.sort((a, b) => counts[b.key] - counts[a.key]);
+
+            el.innerHTML = defs.map(def => {
+                const c = counts[def.key];
+                const pct = N ? (c / N * 100) : 0;
+                const recent = recentByPat[def.key].slice(0, 3).join(', ');
+                return `<div class="flex items-center gap-3 py-1.5">
+                    <span class="inline-block w-2 h-2 rounded-full shrink-0" style="background:${def.color}"></span>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-baseline justify-between gap-2">
+                            <div class="flex items-baseline gap-2">
+                                <span class="text-sm text-slate-700">${def.label}</span>
+                                <span class="text-[10px] text-gray-400">${def.desc}</span>
+                            </div>
+                            <span class="text-[12px] text-slate-700" style="font-feature-settings:'tnum'"><span class="text-blue-700">${c}</span><span class="text-gray-400">회 · ${pct.toFixed(1)}%</span></span>
+                        </div>
+                        <div class="w-full h-1 bg-gray-100 rounded mt-1 overflow-hidden">
+                            <div class="h-full" style="background:${def.color};width:${Math.min(100, pct).toFixed(1)}%"></div>
+                        </div>
+                        ${recent ? `<div class="text-[10px] text-gray-400 mt-1">최근: ${recent}</div>` : ''}
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        // §4. 다음 회차 라인 활성도 예측
+        function renderLpNextDirPredictor() {
+            const range = parseInt(document.getElementById('lpNextDirRange')?.value, 10) || 1;
+            if (!allDrawData || allDrawData.length < 30) return;
+            const activeCount = (d) => {
+                let n = 0;
+                Object.keys(paperDefinitions).forEach(k => { if ((d.counts?.[k] || 0) > 0) n++; });
+                return n;
+            };
+            const prevActive = activeCount(allDrawData[0]);
+            const lower = prevActive - range;
+            const upper = prevActive + range;
+
+            const matches = [];
+            for (let i = 1; i < allDrawData.length - 1; i++) {
+                const a = activeCount(allDrawData[i]);
+                if (a < lower || a > upper) continue;
+                const aNext = activeCount(allDrawData[i - 1]);
+                matches.push({ round: allDrawData[i].round, a, next: aNext, delta: aNext - a });
+            }
+            const ups = matches.filter(m => m.delta > 0);
+            const downs = matches.filter(m => m.delta < 0);
+            const flats = matches.filter(m => m.delta === 0);
+            const N = matches.length;
+            const avgDelta = N ? matches.reduce((s,m) => s + m.delta, 0) / N : 0;
+            const upAvg = ups.length ? ups.reduce((s,m) => s + m.delta, 0) / ups.length : 0;
+            const downAvg = downs.length ? downs.reduce((s,m) => s + m.delta, 0) / downs.length : 0;
+            const upPct = N ? ups.length / N * 100 : 0;
+            const downPct = N ? downs.length / N * 100 : 0;
+            const flatPct = N ? flats.length / N * 100 : 0;
+
+            const setText = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+            const setBar = (id, p) => { const el = document.getElementById(id); if (el) el.style.width = Math.min(100, p) + '%'; };
+            setText('lpNextDirPrev', `${prevActive}/14`);
+            setText('lpNextDirRangeText', `${lower}~${upper}`);
+            setText('lpNextDirMatchN', N);
+            setText('lpNextDirAvgDelta', `${avgDelta >= 0 ? '+' : ''}${avgDelta.toFixed(2)}`);
+            setText('lpNextDirUpPct', upPct.toFixed(1));
+            setText('lpNextDirDownPct', downPct.toFixed(1));
+            setText('lpNextDirFlatPct', flatPct.toFixed(1));
+            setText('lpNextDirUpN', ups.length);
+            setText('lpNextDirDownN', downs.length);
+            setText('lpNextDirFlatN', flats.length);
+            setText('lpNextDirUpAvg', `+${upAvg.toFixed(2)}`);
+            setText('lpNextDirDownAvg', downAvg.toFixed(2));
+            setBar('lpNextDirUpBar', upPct);
+            setBar('lpNextDirDownBar', downPct);
+            setBar('lpNextDirFlatBar', flatPct);
+
+            const insightEl = document.getElementById('lpNextDirInsight');
+            if (insightEl) {
+                if (N === 0) {
+                    insightEl.innerHTML = `<span class="text-gray-400">전회차 활성 라인 ${prevActive}/14 ±${range} 범위에 해당하는 과거 회차 없음.</span>`;
+                } else {
+                    const dir = upPct > downPct ? '증가' : downPct > upPct ? '감소' : '균형';
+                    const dirColor = upPct > downPct ? '#059669' : downPct > upPct ? '#E11D48' : '#475569';
+                    const expectedAvg = prevActive + avgDelta;
+                    const nextAs = matches.map(m => m.next).slice().sort((a,b) => a-b);
+                    const p10 = nextAs[Math.max(0, Math.floor(N * 0.10))];
+                    const p90 = nextAs[Math.min(N - 1, Math.ceil(N * 0.90) - 1)];
+                    insightEl.innerHTML = `
+                        과거 활성 라인 <span style="color:#1e293b">${lower}~${upper}/14</span> 범위(${N}회차)에서 다음 회차는
+                        <span style="color:${dirColor}">${dir}</span> 우세 — 평균 변동 <span style="color:#1e293b">${avgDelta >= 0 ? '+' : ''}${avgDelta.toFixed(2)}</span>.
+                        <div class="mt-2 pt-2 border-t border-blue-100/60 text-[12px]">
+                            <span class="text-gray-500">▸ 예상 활성 라인</span>
+                            평균 진행 시 <span style="color:#1e293b">${expectedAvg.toFixed(1)}/14</span> ·
+                            폭넓게 80% (P10~P90) <span style="color:#475569">${p10}~${p90}/14</span>
+                        </div>
+                        <div class="mt-1 text-[11px] text-gray-400">활성 라인 = counts ≥ 1인 가로/세로 라인 수 (최대 14)</div>
+                    `;
+                }
+            }
+        }
+
+        // 통합 렌더 + 이벤트
+        function renderLpAuxIndicators() {
+            if (!allDrawData || allDrawData.length < 30) return;
+            renderLpSeries();
+            renderLpMetrics();
+            renderLpPatterns();
+            renderLpNextDirPredictor();
+        }
+        document.addEventListener('DOMContentLoaded', () => {
+            const inp = document.getElementById('lpNextDirRange');
+            if (inp) inp.addEventListener('input', () => renderLpNextDirPredictor());
+        });
 
     </script>
 

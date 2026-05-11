@@ -88,6 +88,12 @@ document.addEventListener("DOMContentLoaded", function () {
             sidebarUrl: null,
             type: 'full'
         },
+        // [fix-386] 분석 매트릭스 페이지 — 자체 컨트롤 + 모달 사용, LNB 없음
+        'analysis_matrix.html': {
+            gnbIndex: -1,        // GNB 활성 인덱스 없음 (헤더 매트릭스 아이콘은 nav 외부)
+            sidebarUrl: null,
+            type: 'full'
+        },
         // 그 외 나머지는 모두 '기초 분석'으로 간주 (기본값)
         'default': {
             gnbIndex: 2,
@@ -142,12 +148,44 @@ document.addEventListener("DOMContentLoaded", function () {
                 setTimeout(() => window.AcctPanel?.refresh(), 50);
             }
 
-            // GNB 메뉴 처리
-            const nav = container.querySelector('nav');
-            if (nav && nav.children[config.gnbIndex]) {
-                const activeLink = nav.children[config.gnbIndex];
-                activeLink.classList.add('active');
-            }
+            // GNB 메뉴 처리 — [fix-285] 견고한 active 처리 + 재시도 로직
+            const applyGnbActive = () => {
+                const nav = container.querySelector('nav');
+                if (!nav) return false;
+                const currentFile = (window.location.pathname.split('/').pop() || 'index.html').toLowerCase();
+                const links = nav.querySelectorAll('a.gnb-link');
+                if (links.length === 0) return false;
+                const activate = (link) => {
+                    link.classList.add('active');
+                    link.style.color = '#1d4ed8';
+                    link.style.fontWeight = '600';
+                    if (!link.querySelector('.gnb-underline')) {
+                        const u = document.createElement('span');
+                        u.className = 'gnb-underline';
+                        u.style.cssText = 'position:absolute;left:14px;right:14px;bottom:0;height:2px;background:#1d4ed8;border-radius:1px';
+                        link.appendChild(u);
+                    }
+                };
+                // 기존 active 모두 클리어 (페이지 이동 시 잔재 방지)
+                links.forEach(l => {
+                    l.classList.remove('active');
+                    l.style.color = '';
+                    l.style.fontWeight = '';
+                    l.querySelector('.gnb-underline')?.remove();
+                });
+                let activated = false;
+                links.forEach(link => {
+                    const href = (link.getAttribute('href') || '').split('?')[0].toLowerCase();
+                    if (href === currentFile) { activate(link); activated = true; }
+                });
+                if (!activated && config.gnbIndex !== undefined && links[config.gnbIndex]) {
+                    activate(links[config.gnbIndex]);
+                }
+                return true;
+            };
+            // 즉시 시도 + 100/300/600/1200ms 재시도 (innerHTML 비동기 페인트 보정)
+            applyGnbActive();
+            [100, 300, 600, 1200].forEach(ms => setTimeout(applyGnbActive, ms));
 
             // [NEW] 모달 HTML 주입 (없으면)
             if (!document.getElementById('createAnalysisModal')) {
@@ -475,6 +513,88 @@ function highlightCurrentPage() {
 // ==========================================
 // 6. [NEW] 커스텀 메뉴 렌더링 함수
 // ==========================================
+// [fix-384/385] LNB 다중 선택 스타일 + 숨긴 분석 푸터 (1회 주입)
+(function injectLnbSelectionStyle() {
+    if (document.getElementById('lnb-multi-select-style')) return;
+    const style = document.createElement('style');
+    style.id = 'lnb-multi-select-style';
+    style.textContent = `
+        .nav-link.lnb-selected { background: #DBEAFE !important; color: #1E40AF !important; box-shadow: inset 3px 0 0 0 #3B82F6; }
+        .lnb-selection-bar { animation: lnbSelectFadeIn 0.15s ease; }
+        @keyframes lnbSelectFadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+        .lnb-archived-footer { margin-top: 16px; padding: 8px 12px; border-top: 1px solid #F1F5F9; }
+        .lnb-archived-footer button { font-size: 11px; color: #94A3B8; cursor: pointer; background: transparent; border: 0; padding: 4px 0; }
+        .lnb-archived-footer button:hover { color: #475569; }
+        .lnb-archived-list { padding: 4px 0; }
+        .lnb-archived-item { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; font-size: 12px; color: #94A3B8; border-radius: 6px; }
+        .lnb-archived-item:hover { background: #F8FAFC; color: #475569; }
+        .lnb-archived-item .label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .lnb-archived-item button { font-size: 10px; color: #2563EB; padding: 2px 6px; }
+        .lnb-archived-item button:hover { color: #1E40AF; background: #EFF6FF; border-radius: 4px; }
+    `;
+    document.head.appendChild(style);
+})();
+
+// [fix-385] LNB 푸터 — 숨긴 분석 토글 + 재활성화
+async function renderArchivedFooter(navContainer) {
+    if (!navContainer) return;
+    let footer = navContainer.parentNode.querySelector('.lnb-archived-footer');
+    if (footer) footer.remove();
+
+    // archived 갯수 조회
+    const { count } = await window.supabaseClient
+        .from('ai_custom_analyses')
+        .select('id', { count: 'exact', head: true })
+        .is('target_round', null)
+        .eq('is_archived', true);
+
+    if (!count || count === 0) return;   // archived 없으면 푸터 표시 X
+
+    footer = document.createElement('div');
+    footer.className = 'lnb-archived-footer';
+    footer.innerHTML = `<button data-toggle="archived" class="flex items-center gap-1.5">
+        <span class="material-symbols-outlined" style="font-size:14px">visibility_off</span>
+        숨긴 분석 (${count})
+    </button>
+    <div class="lnb-archived-list" style="display:none"></div>`;
+    navContainer.parentNode.appendChild(footer);
+
+    const toggle = footer.querySelector('[data-toggle="archived"]');
+    const list = footer.querySelector('.lnb-archived-list');
+    toggle.onclick = async () => {
+        if (list.style.display === 'none') {
+            // 펼침 + 데이터 로드
+            const { data, error } = await window.supabaseClient
+                .from('ai_custom_analyses')
+                .select('id, title')
+                .is('target_round', null)
+                .eq('is_archived', true)
+                .order('updated_at', { ascending: false });
+            if (error) { alert('숨긴 분석 로드 실패'); return; }
+            list.innerHTML = (data || []).map(item => `
+                <div class="lnb-archived-item" data-id="${item.id}">
+                    <span class="label" title="${item.title || ''}">${item.title || '(제목 없음)'}</span>
+                    <button data-act="restore">↶ 복원</button>
+                </div>
+            `).join('');
+            list.querySelectorAll('[data-act="restore"]').forEach(b => b.onclick = async (e) => {
+                e.stopPropagation();
+                const id = b.closest('.lnb-archived-item').dataset.id;
+                const { error: e2 } = await window.supabaseClient
+                    .from('ai_custom_analyses')
+                    .update({ is_archived: false })
+                    .eq('id', id);
+                if (e2) { alert('복원 실패'); return; }
+                // LNB 새로고침
+                renderCustomMenuItems();
+            });
+            list.style.display = 'block';
+        } else {
+            list.style.display = 'none';
+        }
+    };
+}
+
 async function renderCustomMenuItems() {
     const navContainer = document.getElementById('customAnalysisNav');
     if (!navContainer) return null;
@@ -494,10 +614,12 @@ async function renderCustomMenuItems() {
         window._customMenuStorageKey = storageKey;
 
         // [수정] 내 분석 + 공용(user_id가 null) 분석 모두 가져오기
+        // [fix-385] is_archived = false 만 표시 (숨김 처리된 분석 제외)
         let _menuQuery = window.supabaseClient
             .from('ai_custom_analyses')
-            .select('id, title, type, filter_config, user_id')
+            .select('id, title, type, filter_config, user_id, is_archived')
             .is('target_round', null)
+            .or('is_archived.is.null,is_archived.eq.false')
             .order('created_at', { ascending: true });
 
         if (_menuUserId) {
@@ -542,6 +664,99 @@ async function renderCustomMenuItems() {
 
         // 3. 메뉴 아이템 생성 및 추가
         if (analyses && analyses.length > 0) {
+            // [fix-384] 다중 선택 상태 + 선택 바
+            const selectedSet = new Set();
+            let selectionBar = navContainer.parentNode.querySelector('.lnb-selection-bar');
+            if (selectionBar) selectionBar.remove();
+            selectionBar = document.createElement('div');
+            selectionBar.className = 'lnb-selection-bar sticky top-0 z-10 px-3 py-2 bg-blue-50 border-b border-blue-100 flex items-center justify-between';
+            selectionBar.style.display = 'none';
+            navContainer.parentNode.insertBefore(selectionBar, navContainer);
+
+            const updateSelectionBar = () => {
+                if (selectedSet.size === 0) {
+                    selectionBar.style.display = 'none';
+                    return;
+                }
+                selectionBar.style.display = 'flex';
+                // [fix-385] 숨김(권장) + 삭제(영구) 두 버튼 분리
+                selectionBar.innerHTML = `
+                    <span class="text-[11px] text-blue-700">${selectedSet.size}개 선택</span>
+                    <div class="flex gap-3 items-center">
+                        <button class="text-[11px] text-slate-500 hover:text-slate-700" data-act="clear">해제</button>
+                        <button class="text-[11px] text-amber-600 hover:text-amber-700 flex items-center gap-1" data-act="archive" title="숨김 — 메뉴/필터/조합에서 숨김 (DB 보존, 재활성화 가능)">
+                            <span class="material-symbols-outlined" style="font-size:14px">visibility_off</span>숨김
+                        </button>
+                        <button class="text-[11px] text-rose-600 hover:text-rose-700 flex items-center gap-1" data-act="delete" title="영구 삭제 — DB에서 완전 제거">
+                            <span class="material-symbols-outlined" style="font-size:14px">delete</span>삭제
+                        </button>
+                    </div>
+                `;
+                selectionBar.querySelector('[data-act="clear"]').onclick = () => {
+                    selectedSet.clear();
+                    navContainer.querySelectorAll('.lnb-selected').forEach(el => el.classList.remove('lnb-selected'));
+                    updateSelectionBar();
+                };
+                // [fix-385] 숨김 (UPDATE is_archived=true)
+                selectionBar.querySelector('[data-act="archive"]').onclick = async () => {
+                    const cnt = selectedSet.size;
+                    if (!confirm(`선택한 ${cnt}개 분석을 숨길까요?\n(메뉴/필터/조합에서 안 보이지만 DB에는 보존됩니다. 추후 재활성화 가능)`)) return;
+                    const ids = [...selectedSet];
+                    try {
+                        const { error } = await window.supabaseClient
+                            .from('ai_custom_analyses')
+                            .update({ is_archived: true })
+                            .in('id', ids);
+                        if (error) throw error;
+                        ids.forEach(id => {
+                            const el = navContainer.querySelector(`[data-analysis-id="${id}"]`);
+                            if (el) el.remove();
+                        });
+                        selectedSet.clear();
+                        updateSelectionBar();
+                        const params = new URLSearchParams(window.location.search);
+                        const curId = params.get('id');
+                        if (curId && ids.includes(curId)) {
+                            alert(`${cnt}개 분석 숨김 처리됨. 현재 페이지도 숨김 대상입니다.`);
+                            window.location.href = 'index.html';
+                        } else {
+                            console.log(`[fix-385] ${cnt}개 분석 숨김 처리`);
+                        }
+                    } catch (e) {
+                        alert('숨김 처리 실패: ' + e.message);
+                    }
+                };
+                // 영구 삭제 (DELETE)
+                selectionBar.querySelector('[data-act="delete"]').onclick = async () => {
+                    const cnt = selectedSet.size;
+                    if (!confirm(`선택한 ${cnt}개 분석을 영구 삭제할까요?\n(되돌릴 수 없습니다. 모든 페이지에서 사라집니다)`)) return;
+                    const ids = [...selectedSet];
+                    try {
+                        const { error } = await window.supabaseClient
+                            .from('ai_custom_analyses')
+                            .delete()
+                            .in('id', ids);
+                        if (error) throw error;
+                        ids.forEach(id => {
+                            const el = navContainer.querySelector(`[data-analysis-id="${id}"]`);
+                            if (el) el.remove();
+                        });
+                        selectedSet.clear();
+                        updateSelectionBar();
+                        const params = new URLSearchParams(window.location.search);
+                        const curId = params.get('id');
+                        if (curId && ids.includes(curId)) {
+                            alert(`${cnt}개 분석 삭제됨. 현재 페이지 분석도 삭제되었습니다.`);
+                            window.location.href = 'index.html';
+                        } else {
+                            console.log(`[fix-385] ${cnt}개 분석 영구 삭제`);
+                        }
+                    } catch (e) {
+                        alert('삭제 실패: ' + e.message);
+                    }
+                };
+            };
+
             analyses.forEach(item => {
                 const params = new URLSearchParams(window.location.search);
                 const currentId = params.get('id');
@@ -553,6 +768,7 @@ async function renderCustomMenuItems() {
 
                 const link = document.createElement('a');
                 link.href = `custom_analysis.html?id=${item.id}`;
+                link.dataset.analysisId = item.id;   // [fix-384] 삭제 시 DOM 매칭
 
                 if (isActive) {
                     link.className = 'nav-link flex items-center justify-between px-3 py-2 text-sm font-semibold bg-blue-50 text-blue-700 border-l-4 border-blue-500 rounded-lg transition-colors';
@@ -572,8 +788,27 @@ async function renderCustomMenuItems() {
                     </span>
                     ${filterBadge}
                 `;
+
+                // [fix-384] Ctrl/Cmd + 클릭 = 다중 선택 (navigation 차단)
+                link.addEventListener('click', (e) => {
+                    if (e.ctrlKey || e.metaKey) {
+                        e.preventDefault();
+                        if (selectedSet.has(item.id)) {
+                            selectedSet.delete(item.id);
+                            link.classList.remove('lnb-selected');
+                        } else {
+                            selectedSet.add(item.id);
+                            link.classList.add('lnb-selected');
+                        }
+                        updateSelectionBar();
+                    }
+                    // 일반 클릭은 그대로 navigation
+                });
+
                 navContainer.appendChild(link);
             });
+            // [fix-385] LNB 하단 — 숨긴 분석 보기 토글
+            renderArchivedFooter(navContainer);
         } else {
             // 분석이 없을 때 빈 상태 표시
             navContainer.innerHTML = `
@@ -650,6 +885,115 @@ function initHeaderModalFunctions() {
         modal.classList.add('hidden');
     };
 
+    // [Stage 1-4-D-2-fix-106] 필터 합집합/교집합 패턴 사전 계산기
+    // — "7배수 8배수 합집합", "소수 합성수 교집합" 같은 패턴을 AI 거치지 않고 직접 계산
+    function _computeFilterCombination(prompt) {
+        const text = prompt.replace(/\s+/g, '');
+        // 1) X배수 / Y배수 / Z배수 ... 추출 (3, 4, 5, 7, 8 지원)
+        const multipleRe = /(\d+)배수/g;
+        const mults = [];
+        let m;
+        while ((m = multipleRe.exec(text)) !== null) {
+            const v = parseInt(m[1]);
+            if (v >= 2 && v <= 9) mults.push(v);
+        }
+        // 2) 합집합/교집합/차집합 키워드
+        const op = /합집합|union/i.test(text) ? 'union'
+                 : /교집합|intersection/i.test(text) ? 'intersection'
+                 : null;
+        if (mults.length < 2 || !op) return null;
+
+        // 3) 1~45 중 각 배수의 set 빌드
+        const sets = mults.map(m => {
+            const s = new Set();
+            for (let n = m; n <= 45; n += m) s.add(n);
+            return s;
+        });
+
+        // 4) op 적용
+        let result;
+        if (op === 'union') {
+            result = new Set();
+            sets.forEach(s => s.forEach(n => result.add(n)));
+        } else {
+            result = new Set([...sets[0]].filter(n => sets.every(s => s.has(n))));
+        }
+
+        const sorted = [...result].sort((a, b) => a - b);
+        const opLabel = op === 'union' ? '합집합' : '교집합';
+        return {
+            type: 'static',
+            target_numbers: sorted,
+            description: `${mults.join('배수, ')}배수 ${opLabel} (총 ${sorted.length}개 번호)`,
+            _matched_pattern: true
+        };
+    }
+
+    // [Stage 1-4-D-2-fix-203] AutoNLP 기반 직접 계산 (Phase 3)
+    // — AutoNLPMatcher가 매칭한 필터/연산자로 AI 우회 처리
+    function _computeFromAutoNLP(prompt, nlpResult, title) {
+        try {
+            const { filters, operations, confidence } = nlpResult;
+
+            // 필터가 2개 미만이면 합집합/교집합 불가
+            if (!filters || filters.length < 2) return null;
+
+            // 연산자 확인
+            const operation = operations && operations.length > 0 ? operations[0] : null;
+            if (!operation || !['union', 'intersection'].includes(operation.canonical)) {
+                return null;
+            }
+
+            // 배수 필터만 지원 (mul3~mul9)
+            const mulFilters = filters.filter(f => f.canonical.startsWith('mul'));
+            if (mulFilters.length < 2) return null;
+
+            // 배수 값 추출
+            const mults = mulFilters.map(f => {
+                const match = f.canonical.match(/mul(\d+)/);
+                return match ? parseInt(match[1]) : null;
+            }).filter(v => v !== null && v >= 2 && v <= 9);
+
+            if (mults.length < 2) return null;
+
+            // set 빌드
+            const sets = mults.map(m => {
+                const s = new Set();
+                for (let n = m; n <= 45; n += m) s.add(n);
+                return s;
+            });
+
+            // 연산 적용
+            let result;
+            if (operation.canonical === 'union') {
+                result = new Set();
+                sets.forEach(s => s.forEach(n => result.add(n)));
+            } else {
+                result = new Set([...sets[0]].filter(n => sets.every(s => s.has(n))));
+            }
+
+            const sorted = [...result].sort((a, b) => a - b);
+            const opLabel = operation.canonical === 'union' ? '합집합' : '교집합';
+            const filterLabels = mulFilters.map(f => f.matched_text || f.canonical).join(', ');
+
+            return {
+                type: 'static',
+                target_numbers: sorted,
+                description: `${filterLabels} ${opLabel} (총 ${sorted.length}개 번호)`,
+                rules: {
+                    source: 'auto_nlp',
+                    filters: mulFilters.map(f => f.canonical),
+                    operation: operation.canonical,
+                    confidence: confidence
+                },
+                _matched_auto_nlp: true
+            };
+        } catch (e) {
+            console.warn('[_computeFromAutoNLP] Error:', e);
+            return null;
+        }
+    }
+
     // 1단계: 프롬프트 분석 (Real AI by Edge Function)
     window.analyzePrompt = async function () {
         const title = document.getElementById('newAnalysisTitle')?.value.trim();
@@ -660,6 +1004,48 @@ function initHeaderModalFunctions() {
             return;
         }
 
+        // ── 단계 1: AutoNLP 매칭 (Phase 3 fix-203) ──────────────────────
+        let nlpResult = null;
+        try {
+            if (window.autoNLP && window.autoNLP.loaded) {
+                nlpResult = window.autoNLP.match(prompt);
+                console.log('[analyzePrompt fix-203] AutoNLP intent:', nlpResult.intent, 'conf:', nlpResult.confidence);
+            }
+        } catch (e) {
+            console.warn('[analyzePrompt fix-203] AutoNLP error:', e);
+        }
+
+        // ── 단계 2: filter_combination 의도 + 신뢰도 ≥ 0.8 → AI 우회 직접 계산 ──
+        if (nlpResult && nlpResult.intent === 'filter_combination' && nlpResult.confidence >= 0.8) {
+            const directResult = _computeFromAutoNLP(prompt, nlpResult, title);
+            if (directResult) {
+                const result = {
+                    title: title,
+                    prompt: prompt,
+                    ...directResult
+                };
+                console.log('[analyzePrompt fix-203] AutoNLP 직접 계산:', result);
+                tempAnalysisData = result;
+                showPreview(result);
+                return;
+            }
+        }
+
+        // ── 단계 3: 기존 정규식 fallback (역호환) ──────────────────────
+        const directResult = _computeFilterCombination(prompt);
+        if (directResult) {
+            const result = {
+                title: title,
+                prompt: prompt,
+                ...directResult
+            };
+            console.log('[analyzePrompt fix-106] regex fallback:', result);
+            tempAnalysisData = result;
+            showPreview(result);
+            return;
+        }
+
+        // ── 단계 4: AI 호출 (기존 그대로) ──────────────────────────────
         // 로딩 UI
         const btnAnalyze = document.getElementById('btnAnalyze');
         if (!btnAnalyze) return;

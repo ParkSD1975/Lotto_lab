@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import os
 import sys
+from datetime import datetime, timezone
 from typing import Any
 
 import numpy as np
@@ -679,6 +680,108 @@ class RecommendationBacktest:
 
         lines.append(bar)
         return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # Supabase 적재 (recommendation_backtest_runs 테이블)
+    # ------------------------------------------------------------------
+    def save_backtest_to_db(
+        self,
+        backtest_result: dict,
+        supabase_client: Any = None,
+    ) -> dict:
+        """50회차 백테스트 결과를 recommendation_backtest_runs 테이블에 INSERT.
+
+        Args:
+            backtest_result: run() 결과
+            supabase_client: Supabase 클라이언트 (None이면 get_client 호출)
+
+        Returns:
+            {success: bool, rows_inserted: int, error: str?}
+
+        Supabase 테이블 스키마 (실제):
+            run_id (uuid, not null) — 각 백테스트 실행 ID
+            target_round (int, not null)
+            recommendations (int[], not null) — 추천 번호 배열
+            exclusions (int[], not null) — 제외 번호 배열
+            actual_numbers (int[])
+            hit_count (int, default 0) — recommendations 중 실제 적중 개수
+            exclusion_correct_count (int, default 0) — exclusions 중 실제 미출 개수
+            pillar_scores (jsonb) — 4 Pillar 점수
+            pillar_shap (jsonb) — SHAP 기여도
+            wall_time_ms (float)
+            memory_mb (float)
+            forced_includes/excludes (int[])
+            notes (text)
+            created_at (timestamptz)
+        """
+        if supabase_client is None:
+            try:
+                from db.supabase_client import get_client
+                supabase_client = get_client()
+            except Exception as e:
+                return {"success": False, "rows_inserted": 0, "error": f"supabase unavailable: {e}"}
+
+        if not isinstance(backtest_result, dict):
+            return {"success": False, "rows_inserted": 0, "error": "invalid backtest_result"}
+
+        per_round = backtest_result.get("per_round_details") or []
+        if not isinstance(per_round, list) or not per_round:
+            return {"success": False, "rows_inserted": 0, "error": "no per_round_details"}
+
+        pillar_contrib = backtest_result.get("pillar_contributions") or {}
+
+        # 단일 run_id (이번 백테스트 실행 전체에 공통)
+        import uuid
+        run_id = str(uuid.uuid4())
+
+        rows = []
+        for r in per_round:
+            if not isinstance(r, dict):
+                continue
+            target_round = r.get("round")
+            if not isinstance(target_round, int) or target_round <= 0:
+                continue
+
+            recs = r.get("recommendations", [])
+            excs = r.get("exclusions", [])
+            actual = r.get("actual", [])
+            rec_hit = int(r.get("rec_hit", 0))
+            exc_hit = int(r.get("exc_hit", 0))
+
+            # pillar_shap: 4 Pillar SHAP 기여도
+            pillar_shap_val = {
+                "ENS": round(float(pillar_contrib.get(1, 0.0)), 4),
+                "FLT": round(float(pillar_contrib.get(2, 0.0)), 4),
+                "STA": round(float(pillar_contrib.get(3, 0.0)), 4),
+                "CNS": round(float(pillar_contrib.get(4, 0.0)), 4),
+            }
+
+            # pillar_scores: 실제 Pillar 매트릭스에서 추출 (옵션)
+            # 여기선 스텁으로 None 처리 (추후 pillars 매트릭스 활용)
+            pillar_scores_val = None
+
+            row = {
+                "run_id": run_id,
+                "target_round": target_round,
+                "recommendations": recs,
+                "exclusions": excs,
+                "actual_numbers": actual if actual else None,
+                "hit_count": rec_hit,
+                "exclusion_correct_count": len(excs) - exc_hit,  # 제외가 정답 회피 개수
+                "pillar_scores": pillar_scores_val,
+                "pillar_shap": pillar_shap_val,
+            }
+            rows.append(row)
+
+        if not rows:
+            return {"success": False, "rows_inserted": 0, "error": "no valid rounds to insert"}
+
+        try:
+            # 일괄 INSERT (기존 데이터 삭제 안 함 — run_id가 매번 새로 생성되므로 중복 없음)
+            supabase_client.table("recommendation_backtest_runs").insert(rows).execute()
+            return {"success": True, "rows_inserted": len(rows), "run_id": run_id}
+        except Exception as e:
+            return {"success": False, "rows_inserted": 0, "error": str(e)}
 
 
 # ──────────────────────────────────────────────────────────────────────

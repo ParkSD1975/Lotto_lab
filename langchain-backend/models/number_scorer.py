@@ -162,6 +162,11 @@ class NumberScorer:
             sig_norm = _minmax01(sig)  # 0~1
             out = out * np.exp(-0.5 * sig_norm)
 
+        # ★ Stage 6 fix (2026-05-04): P1 min-max 정규화 (0~1)
+        # 이전: ensemble_probs raw 값 ~0.022 (1/45) → P2/P3 (0~1)에 압도됨
+        # SHAP P1=0.02로 final_score 무시 → 추천 hit 0.7
+        # 이후: P2/P3과 동일 0~1 스케일 → Ridge 가중치(0.312) 그대로 작동
+        out = _minmax01(out)
         return out
 
     # ------------------------------------------------------------------
@@ -176,6 +181,7 @@ class NumberScorer:
 
         Args:
             filter_stats_result: FilterStatsComputer.compute_all() 결과 list[dict]
+                                 또는 Phase1Registry.predict_all() 결과 {"phase1": {...}}
                                  또는 {key: filter_dict} 형태도 허용.
             draws_so_far       : 직전 회차 history (carryover/neighbor 추정용)
 
@@ -183,6 +189,12 @@ class NumberScorer:
             shape (45,) float64 — 0~1 정규화된 통과도.
         """
         compliance = np.zeros(45, dtype=np.float64)
+
+        # Phase1Registry 출력 형식 {"phase1": {...}} 감지
+        if isinstance(filter_stats_result, dict) and "phase1" in filter_stats_result:
+            return self._compute_pillar_2_from_phase1(
+                filter_stats_result["phase1"], draws_so_far
+            )
 
         filters: list[dict] = []
         if isinstance(filter_stats_result, list):
@@ -206,6 +218,117 @@ class NumberScorer:
                 total_w += w
             compliance[n - 1] = score / total_w if total_w > 0 else 0.0
 
+        return compliance
+
+    def _compute_pillar_2_from_phase1(
+        self,
+        phase1_outputs: dict,
+        draws_so_far: list[dict] | None,
+    ) -> np.ndarray:
+        """Phase1Registry.predict_all() 출력으로부터 Pillar 2 산출.
+
+        핵심 5 predictor 활용:
+        - endings_distribution (digit_distribution) → 끝수별 카운트 분포
+        - high_low (categorical_low_high) → 저/고 분포
+        - decade (decade_distribution) → 번호대 분포
+        - gung (gung_distribution) → 9궁 분포
+        - hotcold (hotcold) → 핫콜드 그룹
+        """
+        compliance = np.full(45, 0.5, dtype=np.float64)
+
+        # 1) 끝수 분포 (digit_distribution)
+        digit_pred = phase1_outputs.get("digit_distribution") or {}
+        digit_per_cat = digit_pred.get("per_category") or {}
+        if isinstance(digit_per_cat, dict):
+            # per_category = {digit_0: {expected_ratio: float, ...}, ...}
+            for n in range(1, 46):
+                key = f"digit_{n % 10}"
+                cat_info = digit_per_cat.get(key)
+                if isinstance(cat_info, dict):
+                    ratio = cat_info.get("expected_ratio", 0.0)
+                    compliance[n - 1] += float(ratio) * 0.2  # 가중 0.2
+
+        # 2) 고저 (categorical_low_high)
+        lowhigh_pred = phase1_outputs.get("categorical_low_high") or {}
+        lowhigh_per_cat = lowhigh_pred.get("per_category") or {}
+        if isinstance(lowhigh_per_cat, dict):
+            low_info = lowhigh_per_cat.get("low")
+            high_info = lowhigh_per_cat.get("high")
+            low_ratio = low_info.get("expected_ratio", 0.5) if isinstance(low_info, dict) else 0.5
+            high_ratio = high_info.get("expected_ratio", 0.5) if isinstance(high_info, dict) else 0.5
+            for n in range(1, 46):
+                if n <= 22:
+                    compliance[n - 1] += float(low_ratio) * 0.2
+                else:
+                    compliance[n - 1] += float(high_ratio) * 0.2
+
+        # 3) 번호대 (decade_distribution)
+        decade_pred = phase1_outputs.get("decade_distribution") or {}
+        decade_per_cat = decade_pred.get("per_category") or {}
+        if isinstance(decade_per_cat, dict):
+            # decade_labels = ["1-9", "10-19", "20-29", "30-39", "40-45"]
+            decade_mapping = {
+                "1-9": range(1, 10),
+                "10-19": range(10, 20),
+                "20-29": range(20, 30),
+                "30-39": range(30, 40),
+                "40-45": range(40, 46),
+            }
+            for label, rng in decade_mapping.items():
+                cat_info = decade_per_cat.get(label)
+                if isinstance(cat_info, dict):
+                    ratio = cat_info.get("expected_ratio", 0.0)
+                    for n in rng:
+                        compliance[n - 1] += float(ratio) * 0.2
+
+        # 4) 9궁 (gung_distribution)
+        gung_pred = phase1_outputs.get("gung_distribution") or {}
+        gung_per_cat = gung_pred.get("per_category") or {}
+        if isinstance(gung_per_cat, dict):
+            # gung_i: n in [i*5+1, i*5+5]
+            for i in range(9):
+                key = f"gung_{i}"
+                cat_info = gung_per_cat.get(key)
+                if isinstance(cat_info, dict):
+                    ratio = cat_info.get("expected_ratio", 0.0)
+                    for n in range(i * 5 + 1, min(i * 5 + 6, 46)):
+                        compliance[n - 1] += float(ratio) * 0.2
+
+        # 5) 핫콜드 (hotcold)
+        hotcold_pred = phase1_outputs.get("hotcold") or {}
+        hotcold_per_cat = hotcold_pred.get("per_category") or {}
+        if isinstance(hotcold_per_cat, dict):
+            # hotcold는 window별 (w_5/10/15/20) hot/neutral/cold 풀 제공
+            # w_10_hot members를 우선 활용
+            for w_key in ["w_10_hot", "w_15_hot", "w_20_hot", "w_5_hot"]:
+                cat_info = hotcold_per_cat.get(w_key)
+                if isinstance(cat_info, dict):
+                    members = cat_info.get("members") or []
+                    if isinstance(members, (list, tuple)):
+                        for h in members:
+                            if isinstance(h, int) and 1 <= h <= 45:
+                                compliance[h - 1] += 0.15  # hot 가산
+                        break  # 첫 윈도우만 사용
+
+            for w_key in ["w_10_cold", "w_15_cold", "w_20_cold", "w_5_cold"]:
+                cat_info = hotcold_per_cat.get(w_key)
+                if isinstance(cat_info, dict):
+                    members = cat_info.get("members") or []
+                    if isinstance(members, (list, tuple)):
+                        for c in members:
+                            if isinstance(c, int) and 1 <= c <= 45:
+                                compliance[c - 1] -= 0.1  # cold 감점
+                        break
+
+        # ★ Stage 6 fix A1 (2026-05-04): standardize + sigmoid → 차별화 강화
+        # 이전: clip 0~1 → 모든 번호의 P2가 0.4~0.7 범위로 균등 (분산 작음, 압도성 0.91)
+        # 이후: (x - mean) / std 후 sigmoid → 평균 ±1σ 차이를 0~1로 spread
+        # 효과: 동일 평균 유지하지만 번호별 차별화 ↑, final_score에서 P2 영향 균형
+        mu = float(np.mean(compliance))
+        sigma = float(np.std(compliance)) or 1e-6
+        z = (compliance - mu) / sigma
+        # sigmoid: 0~1, 평균 0.5, ±1σ 약 0.27/0.73
+        compliance = 1.0 / (1.0 + np.exp(-z))
         return compliance
 
     @staticmethod
@@ -423,16 +546,29 @@ class NumberScorer:
         per_cat = payload.get("per_category") or {}
         if not isinstance(per_cat, dict):
             return v
-        hot_pool = per_cat.get("hot_pool") or per_cat.get("hot") or []
-        cold_pool = per_cat.get("cold_pool") or per_cat.get("cold") or []
-        if isinstance(hot_pool, (list, tuple)):
-            for n in hot_pool:
-                if isinstance(n, int) and 1 <= n <= 45:
-                    v[n - 1] = 1.0
-        if isinstance(cold_pool, (list, tuple)):
-            for n in cold_pool:
-                if isinstance(n, int) and 1 <= n <= 45:
-                    v[n - 1] = 0.0
+
+        # hotcold는 window별 (w_5/10/15/20) hot/neutral/cold 풀 제공
+        # w_10_hot members를 hot으로, w_10_cold를 cold로 설정
+        for w_key in ["w_10_hot", "w_15_hot", "w_20_hot", "w_5_hot"]:
+            cat_info = per_cat.get(w_key)
+            if isinstance(cat_info, dict):
+                members = cat_info.get("members") or []
+                if isinstance(members, (list, tuple)):
+                    for n in members:
+                        if isinstance(n, int) and 1 <= n <= 45:
+                            v[n - 1] = 1.0
+                    break  # 첫 윈도우만 사용
+
+        for w_key in ["w_10_cold", "w_15_cold", "w_20_cold", "w_5_cold"]:
+            cat_info = per_cat.get(w_key)
+            if isinstance(cat_info, dict):
+                members = cat_info.get("members") or []
+                if isinstance(members, (list, tuple)):
+                    for n in members:
+                        if isinstance(n, int) and 1 <= n <= 45:
+                            v[n - 1] = 0.0
+                    break
+
         return v
 
     @staticmethod

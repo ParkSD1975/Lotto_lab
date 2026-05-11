@@ -2865,6 +2865,24 @@ async def get_deep_analysis(round_num: int = None):
                 traceback.print_exc()
                 model_scores, gap, streak, avg_hit, sample_count_hit, hit_dist = {}, 0, 0, 0, 0, {}
 
+            # [fix-205] ensemble_exp + model_exp 추가 적재 — frontend AI종합 컬럼 NULL 방지
+            # 변환: model_scores[m].score (0~100) → model_exp[m] = score/100 * len(nums)
+            target_count = max(1, len(nums))
+            model_exp_dict = {}
+            for m, s in (model_scores or {}).items():
+                if isinstance(s, dict):
+                    sc = s.get("score", 0) or 0
+                else:
+                    sc = float(s or 0)
+                try:
+                    model_exp_dict[m] = round(float(sc) / 100.0 * target_count, 4)
+                except Exception:
+                    model_exp_dict[m] = 0.0
+            ensemble_exp_val = (
+                round(sum(model_exp_dict.values()) / len(model_exp_dict), 4)
+                if model_exp_dict else None
+            )
+
             custom_evaluations.append({
                 "id": analysis.get("id"),
                 "title": analysis.get("title", ""),
@@ -2876,6 +2894,8 @@ async def get_deep_analysis(round_num: int = None):
                 "gap": gap,
                 "str": streak,
                 "model_scores": model_scores,
+                "model_exp": model_exp_dict,        # [신규] 모델별 기댓값
+                "ensemble_exp": ensemble_exp_val,   # [신규] AI 종합 기댓값 (model_exp 평균)
             })
 
         # [3] 회귀분석 (P3: ensemble 인스턴스 전달 → predict_regression() 별도 경로)
@@ -2912,14 +2932,29 @@ async def get_deep_analysis(round_num: int = None):
             probs.sort(key=lambda x: x[1], reverse=True)
             model_all_probs[m] = {num: (idx, prob) for idx, (num, prob) in enumerate(probs)}
 
+        # [flat 모델 fallback] 균등 분포 모델은 GAP 가중 빈도 점수로 대체
+        # — 직전 100회차 출현 빈도 + 현재 GAP 보너스 기반 percentile
+        freq_window = history_draws[-100:] if history_draws else []
+        freq_raw = {}
+        for n in range(1, 46):
+            freq_count = sum(1 for d in freq_window if n in d.get("numbers", []))
+            sc_n = stat_corrections.get(n, {})
+            # GAP 보너스: gap_ratio >= 1.0 이면 소폭 부스트
+            gap_boost = 1.1 if sc_n.get("gap_ratio", 0) >= 1.0 else 1.0
+            freq_raw[n] = freq_count * gap_boost
+        # 빈도 기준 percentile rank (0=최빈 → 100점, 44=최소 → 약 2점)
+        freq_sorted = sorted(freq_raw.items(), key=lambda x: x[1], reverse=True)
+        freq_fallback_score = {num: max(0.0, (45 - rank) / 45 * 100)
+                               for rank, (num, _) in enumerate(freq_sorted)}
+
         matrix_data = []
         for n in range(1, 46):
             m_scores = {}
             total_model_score = 0
             for m in models:
                 if model_is_flat.get(m, False):
-                    # 균등 분포 → 모든 번호에 동일 점수 (인위적 순위 방지)
-                    norm_score = 50
+                    # 균등 분포 → GAP 가중 빈도 기반 percentile (회차별 미세 변동)
+                    norm_score = freq_fallback_score.get(n, 50.0)
                 elif n in model_all_probs[m]:
                     rank, raw_prob = model_all_probs[m][n]
                     percentile_score = max(0, (45 - rank) / 45 * 100)
@@ -3078,12 +3113,94 @@ async def get_deep_analysis(round_num: int = None):
         )
         exclude_10 = bottom_15_with_safety[:10]
 
-        # [6] 조합 (10게임) - corrected_probs 기반
+        # [6] 조합 (6게임) - corrected_probs 기반 + 19개 조건 필터
         gen_probs = corrected_probs.copy()
         for n in exclude_10: gen_probs[n] = 0
         pred_obj = prediction.copy()
         pred_obj["probabilities"] = gen_probs
-        combinations = CombinationGenerator.generate(pred_obj, filter_settings=filter_settings, n_combinations=10)
+
+        # context_data 빌드 (19개 조건 필터용)
+        def _build_combo_context_inner():
+            """조합 생성용 context_data 빌드"""
+            # missing_11plus: current_gap >= 11
+            missing_11plus = [n for n in range(1, 46) if stat_corrections.get(n, {}).get("current_gap", 0) >= 11]
+
+            # hot/cold 번호 추출
+            hot_nums = []
+            cold_nums = []
+            if hot_cold_data:
+                hot_nums = hot_cold_data.get("hot", {}).get("numbers_detail", [])
+                if isinstance(hot_nums, list):
+                    hot_nums = [x["num"] if isinstance(x, dict) else x for x in hot_nums]
+                else:
+                    hot_nums = []
+
+                cold_nums = hot_cold_data.get("cold", {}).get("numbers_detail", [])
+                if isinstance(cold_nums, list):
+                    cold_nums = [x["num"] if isinstance(x, dict) else x for x in cold_nums]
+                else:
+                    cold_nums = []
+
+            # 이월수: 직전 회차 번호
+            carryover = history_draws[0].get("numbers", []) if history_draws else []
+
+            # 최근 10회 끝수 분포
+            tail_dist_10 = [0] * 10
+            for draw in history_draws[:10]:
+                for n in draw.get("numbers", []):
+                    tail_dist_10[n % 10] += 1
+
+            # 4회 이상 미출인 끝수 (최근 10회 기준 count <= 2)
+            tail_missing_4plus = [t for t in range(10) if tail_dist_10[t] <= 2]
+
+            # 최근 10회 번호대 분포
+            band_dist_10 = [0] * 5
+            for draw in history_draws[:10]:
+                for n in draw.get("numbers", []):
+                    if n <= 10: band_dist_10[0] += 1
+                    elif n <= 20: band_dist_10[1] += 1
+                    elif n <= 30: band_dist_10[2] += 1
+                    elif n <= 40: band_dist_10[3] += 1
+                    else: band_dist_10[4] += 1
+
+            # 2회 이상 미출인 번호대 (평균 count <= 0.5, 즉 총합 <= 5)
+            band_missing_2plus = [idx for idx in range(5) if band_dist_10[idx] <= 5]
+
+            # 앙상블 총합 범위: filter_settings의 sum_range 사용
+            sum_range = filter_settings.get("sum_range", {"min": 100, "max": 220})
+
+            # 끝수합 범위: range_analysis에서 tail_sum 가져오기, 없으면 기본값
+            tail_sum_range = range_analysis.get("tail_sum", {}).get("range", [15, 35])
+            if isinstance(tail_sum_range, list) and len(tail_sum_range) == 2:
+                tail_sum_dict = {"min": tail_sum_range[0], "max": tail_sum_range[1]}
+            elif isinstance(tail_sum_range, str) and "~" in tail_sum_range:
+                parts = tail_sum_range.split("~")
+                tail_sum_dict = {"min": int(parts[0]), "max": int(parts[1])}
+            else:
+                tail_sum_dict = {"min": 15, "max": 35}
+
+            return {
+                "top_5": top_5,
+                "exclude_10": exclude_10,
+                "missing_11plus": missing_11plus,
+                "hot_numbers": hot_nums,
+                "cold_numbers": cold_nums,
+                "carryover_numbers": carryover,
+                "recent_10_tail_dist": tail_dist_10,
+                "tail_missing_4plus": tail_missing_4plus,
+                "recent_10_band_dist": band_dist_10,
+                "band_missing_2plus": band_missing_2plus,
+                "ensemble_sum_range": sum_range,
+                "ensemble_tail_sum_range": tail_sum_dict
+            }
+
+        combo_context = _build_combo_context_inner()
+        combinations = CombinationGenerator.generate(
+            pred_obj,
+            filter_settings=filter_settings,
+            n_combinations=6,
+            context_data=combo_context
+        )
 
         # [9] LLM 전략 분석 (신규 통합)
         strategy = await _ask_llm_strategy_v3(

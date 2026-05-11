@@ -1,14 +1,16 @@
-"""DynamicIndependentCountPredictor — 회귀(2~200) Tier 1 가변 카테고리 ICP.
+"""Stage 2 Tier 1 — DynamicIndependentCountPredictor.
 
-회귀 N=k 정의:
-  t회차 분석에서 (t-k)회차의 6번호 + 보너스 = N=k 풀 (7명).
-  t회차 본 풀 멤버 중 1명 이상이 다시 등장 → N=k 활성.
+회귀 N 정의 (Master Plan Stage 2):
+  - 직전 N회차 본번호 풀(unique)과 현 회차 본번호(6개)의 교집합 크기
+  - 회귀 1: 직전 1회차 본번호와 겹치는 수 (이월수)
+  - 회귀 2~200: 직전 N회차 본번호 unique 풀과 겹치는 수
+  - 본번호 6개만 사용 (보너스 제외)
 
-활성 N은 매 회차 16~30개 동적 변동.
-신뢰 N (sample >= threshold)만 11 base 학습, sparse N은 빈도 fallback.
+활성 N: 과거 회차에서 의미 있는 패턴 발생 (sample >= 10) N 값 (매 회차 16~30개 동적)
+신뢰 N: sample >= 50, XGBoost + CatBoost + Markov 통합
+Sparse N: sample < 50, 빈도 + Bayesian uncertainty
 
-본 베이스의 IndependentCountPredictor를 199개 N에 일괄 적용하는 것은 비효율 →
-가벼운 모델(XGBoost / Markov / Bayesian) 한정 + 신뢰 N만 ML.
+11 base 중 가벼운 모델 (XGBoost / CatBoost / Markov) 한정.
 """
 
 from __future__ import annotations
@@ -24,9 +26,9 @@ import config
 
 
 # 회귀 기본 파라미터 (config에 설정 없으면 본 default 사용)
-_REGRESSION_N_RANGE: tuple[int, int] = getattr(config, "REGRESSION_N_RANGE", (2, 200))
+_REGRESSION_N_RANGE: tuple[int, int] = getattr(config, "REGRESSION_N_RANGE", (1, 200))
 _REGRESSION_SAMPLE_THRESHOLD: int = getattr(config, "REGRESSION_SAMPLE_THRESHOLD", 50)
-_REGRESSION_N_CLASSES: int = 8  # 0~7 count (풀 7명까지 가능)
+_REGRESSION_N_CLASSES: int = 7  # 0~6 count (본번호 6개 매칭 최대 6)
 
 
 # ────────────────── 데이터 클래스 ──────────────────
@@ -47,20 +49,14 @@ class _NHead:
 # ────────────────── 풀/카운트 추출 유틸 ──────────────────
 
 
-def _draw_seven(d: dict) -> set[int]:
-    """단일 회차의 6번호 + 보너스 = 7명 풀."""
+def _draw_main_numbers(d: dict) -> set[int]:
+    """단일 회차 본번호 6개만 (보너스 제외). Stage 2 회귀 정의."""
     nums: set[int] = set()
     for n in d.get("numbers", []):
         try:
             nums.add(int(n))
         except (TypeError, ValueError):
             continue
-    bonus = d.get("bonus")
-    if bonus is not None:
-        try:
-            nums.add(int(bonus))
-        except (TypeError, ValueError):
-            pass
     return nums
 
 
@@ -91,7 +87,7 @@ def compute_active_n(
     if target_round not in idx_map:
         return {}
     t_idx = idx_map[target_round]
-    target_pool = _draw_seven(ordered[t_idx])
+    target_pool = _draw_main_numbers(ordered[t_idx])
 
     n_min, n_max = int(n_range[0]), int(n_range[1])
     active: dict[int, list[int]] = {}
@@ -99,7 +95,7 @@ def compute_active_n(
         prev_idx = t_idx - N
         if prev_idx < 0:
             continue
-        prev_pool = _draw_seven(ordered[prev_idx])
+        prev_pool = _draw_main_numbers(ordered[prev_idx])
         overlap = sorted(prev_pool & target_pool)
         if overlap:
             active[N] = overlap
@@ -120,7 +116,7 @@ def compute_pool_size_for_n(
     prev_idx = t_idx - N
     if prev_idx < 0:
         return 0
-    return len(_draw_seven(ordered[prev_idx]))
+    return len(_draw_main_numbers(ordered[prev_idx]))
 
 
 def _count_regression_at(
@@ -132,8 +128,8 @@ def _count_regression_at(
     prev_idx = t_idx - N
     if prev_idx < 0:
         return None
-    target_pool = _draw_seven(ordered[t_idx])
-    prev_pool = _draw_seven(ordered[prev_idx])
+    target_pool = _draw_main_numbers(ordered[t_idx])
+    prev_pool = _draw_main_numbers(ordered[prev_idx])
     return len(target_pool & prev_pool)
 
 
@@ -416,16 +412,31 @@ class DynamicIndependentCountPredictor:
 
     # ────── 추론 ──────
 
-    def predict(self, draws_so_far: list[dict]) -> dict:
-        """가장 최근 회차의 다음 회차에 대한 활성 N별 분포 산출.
+    def predict(self, draws_so_far: list[dict], target_round: int | None = None) -> dict:
+        """target_round에 대한 활성 N별 분포 산출. predictor 표준 출력 형식.
+
+        Args:
+            draws_so_far: target_round 미만 회차 리스트
+            target_round: 예측 대상 회차 (None이면 draws_so_far 마지막 + 1)
 
         Returns:
           {
-            "active_N_set": list[int],
-            "per_N_dist": {N: list[float] len=n_classes},
-            "per_N_expected": {N: float},
-            "per_N_pool_size": {N: int},
-            "per_N_narrative": {N: str},
+            "per_n": {
+                N: {
+                    "absolute_dist": [P(0)~P(6)],
+                    "expected_count": E,
+                    "regression_pool_size": M,
+                    "expected_ratio": E / M,
+                    "narrative": "...",
+                    "confidence": "high|low",
+                    "sample_size": int,
+                    "model_contributions": {model_name: weight},
+                },
+                ...
+            },
+            "active_n_count": int,
+            "dense_n_count": int,
+            "aggregated_expected": float,
           }
         """
         if not draws_so_far:
@@ -436,63 +447,87 @@ class DynamicIndependentCountPredictor:
         if T < 2:
             return self._empty_payload()
 
-        # 다음 회차 = ordered 마지막 직후. 가장 최근 회차의 round 번호 + 1을
-        # 사용하지만 실제 데이터에 없으니 t_idx = T (가상). prev pool은 ordered[T - N].
+        # target_round 결정
         latest_round = int(ordered[-1].get("round", 0))
-        target_round_virtual = latest_round + 1
+        if target_round is None:
+            target_round_val = latest_round + 1
+        else:
+            target_round_val = int(target_round)
 
-        # 활성 N 식별 — 가상 회차의 풀이 없으므로 "이전 풀들의 멤버 중 다음 회차 출현
-        # 가능성"이 1 이상인 N = (T-N)이 0 이상이고 prev pool != empty
-        # 활성 정의를 학습 시점 직전 회차 기준으로 (latest 회차 t_idx = T-1)
-        # 활성 N: (T-1) 회차 본 풀과 (T-1-N) 풀 overlap >= 1
-        active_now = compute_active_n(latest_round, ordered, self.n_range)
-        active_set = sorted(active_now.keys())
+        # 활성 N 식별 (historical 회차 중 활성 N 패턴 10회 이상인 N)
+        n_min, n_max = self.n_range
+        active_set: list[int] = []
+        for N in range(n_min, min(n_max + 1, T)):
+            # N회 전 데이터가 있는지 확인
+            if T < N:
+                continue
+            # 과거 회차 중 N 활성 패턴 샘플 수
+            count_samples = 0
+            for t in range(N, T):
+                prev_idx = t - N
+                if prev_idx >= 0:
+                    count_samples += 1
+            # 최소 10 샘플 이상이면 활성
+            if count_samples >= 10:
+                active_set.append(N)
 
-        per_N_dist: dict[int, list[float]] = {}
-        per_N_exp: dict[int, float] = {}
-        per_N_pool: dict[int, int] = {}
-        per_N_narr: dict[int, str] = {}
+        per_n: dict[int, dict] = {}
+        expected_list: list[float] = []
+        dense_count = 0
 
-        # 누적 dense 카운트 시계열 (각 N별 history)
+        # 각 활성 N별 예측
         for N in active_set:
             head = self.heads.get(N)
-            # 다음 회차(가상)의 N회 전 풀 = ordered[T - N] (target_idx = T, prev_idx = T - N)
-            prev_idx = T - N
-            pool_size = len(_draw_seven(ordered[prev_idx])) if 0 <= prev_idx < T else 0
-            # target_round_virtual의 N회 전 = ordered[T - N] (T-1+1-N = T-N)
-            # 학습 안 된 N (n_range 안이지만 head 없는 경우) → uniform
-            if head is None:
-                dist = np.full(self.n_classes, 1.0 / self.n_classes)
-                expected = float(np.sum(dist * np.arange(self.n_classes)))
-                per_N_dist[N] = dist.tolist()
-                per_N_exp[N] = expected
-                per_N_pool[N] = pool_size
-                per_N_narr[N] = (
-                    f"N={N} pool {pool_size} expected {int(round(expected))} (uniform prior)"
-                )
-                continue
 
-            # 각 base의 prob 결합
+            # 회귀 풀 크기 (직전 N회차 unique 본번호)
+            pool: set[int] = set()
+            for i in range(min(N, T)):
+                pool.update(_draw_main_numbers(ordered[T - 1 - i]))
+            pool_size = len(pool)
+
+            # 누적 카운트 시계열
             dense = np.zeros(T, dtype=np.float32)
             for t in range(N, T):
                 c = _count_regression_at(ordered, t, N)
                 if c is not None:
-                    dense[t] = float(c)
-            sub = dense.copy()
-            # dormancy: 마지막 활성(>0) idx 부터 T까지 거리
-            active_idx = np.where(dense > 0)[0]
-            if len(active_idx) > 0:
-                dormancy = T - 1 - int(active_idx[-1])
-            else:
-                dormancy = T
-            vec = _build_n_features(sub, pool_size, dormancy, self.feature_dim)
+                    dense[t] = float(min(c, 6))  # 0~6 clipping
 
+            count_hist = dense[dense > 0] if (dense > 0).any() else dense[N:]
+            sample_size = int((dense[N:] >= 0).sum())  # N 이후 모든 회차
+
+            # dormancy
+            active_idx = np.where(dense > 0)[0]
+            dormancy = T - 1 - int(active_idx[-1]) if len(active_idx) > 0 else T
+
+            # 학습 안 된 N → uniform prior
+            if head is None:
+                dist = np.full(self.n_classes, 1.0 / self.n_classes)
+                expected = float(np.sum(dist * np.arange(self.n_classes)))
+                per_n[N] = {
+                    "absolute_dist": dist.tolist(),
+                    "expected_count": expected,
+                    "regression_pool_size": pool_size,
+                    "expected_ratio": expected / max(pool_size, 1),
+                    "narrative": f"회귀 N={N} 풀 {pool_size}개 중 {expected:.1f}개 매칭 가능성 (prior)",
+                    "confidence": "low",
+                    "sample_size": sample_size,
+                }
+                expected_list.append(expected)
+                continue
+
+            # feature 벡터
+            vec = _build_n_features(dense[:T], pool_size, dormancy, self.feature_dim)
+
+            # base 모델 앙상블
             probs_list: list[np.ndarray] = []
+            model_weights: dict[str, float] = {}
+
             if head.is_reliable and head.base_models:
                 for name, mdl in head.base_models.items():
                     p = self._model_proba(name, mdl, vec)
                     if p is not None:
                         probs_list.append(self._normalize_prob_shape(p))
+                        model_weights[name] = 1.0 / len(head.base_models)
 
             if probs_list:
                 avg = np.mean(np.stack(probs_list, axis=0), axis=0)
@@ -500,26 +535,36 @@ class DynamicIndependentCountPredictor:
                     avg = avg / avg.sum()
                 else:
                     avg = head.prior.copy()
+                confidence = "high"
+                if head.is_reliable:
+                    dense_count += 1
             else:
                 avg = head.prior.copy()
+                confidence = "low"
+                model_weights = {"frequency": 1.0}
 
             expected = float(np.sum(avg * np.arange(self.n_classes)))
-            top_class = int(np.argmax(avg))
-            top_p = float(avg[top_class])
 
-            per_N_dist[N] = avg.tolist()
-            per_N_exp[N] = expected
-            per_N_pool[N] = pool_size
-            per_N_narr[N] = (
-                f"N={N} pool {pool_size} expected {top_class} (P={top_p * 100:.1f}%)"
-            )
+            per_n[N] = {
+                "absolute_dist": avg.tolist(),
+                "expected_count": expected,
+                "regression_pool_size": pool_size,
+                "expected_ratio": expected / max(pool_size, 1),
+                "narrative": (
+                    f"회귀 N={N} 풀 {pool_size}개 중 {expected:.1f}개 매칭 가능성 "
+                    f"({'신뢰도 높음' if confidence == 'high' else '신뢰도 낮음'}, sample={sample_size})"
+                ),
+                "confidence": confidence,
+                "sample_size": sample_size,
+                "model_contributions": model_weights,
+            }
+            expected_list.append(expected)
 
         return {
-            "active_N_set": active_set,
-            "per_N_dist": per_N_dist,
-            "per_N_expected": per_N_exp,
-            "per_N_pool_size": per_N_pool,
-            "per_N_narrative": per_N_narr,
+            "per_n": per_n,
+            "active_n_count": len(active_set),
+            "dense_n_count": dense_count,
+            "aggregated_expected": float(np.mean(expected_list)) if expected_list else 0.0,
         }
 
     def _model_proba(self, name: str, mdl, vec: np.ndarray) -> Optional[np.ndarray]:
@@ -558,11 +603,10 @@ class DynamicIndependentCountPredictor:
 
     def _empty_payload(self) -> dict:
         return {
-            "active_N_set": [],
-            "per_N_dist": {},
-            "per_N_expected": {},
-            "per_N_pool_size": {},
-            "per_N_narrative": {},
+            "per_n": {},
+            "active_n_count": 0,
+            "dense_n_count": 0,
+            "aggregated_expected": 0.0,
         }
 
     # ────── persistence ──────
@@ -651,14 +695,189 @@ def _generate_fake_draws(n_rounds: int, seed: int = config.RANDOM_SEED) -> list[
 
 
 def main() -> None:
-    """python -m predictors.regression_predictor --smoke."""
+    """python -m predictors.regression_predictor --smoke | --target-round 1223 | --validate 50."""
     import argparse
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--smoke", action="store_true")
     parser.add_argument("--rounds", type=int, default=200)
+    parser.add_argument("--target-round", type=int, help="predict for target round (Supabase)")
+    parser.add_argument("--validate", type=int, help="walk-forward validate last N rounds")
     args = parser.parse_args()
 
+    # ──── target-round ────
+    if args.target_round:
+        from db.supabase_client import get_client
+
+        print(f"[regression_predictor] target_round={args.target_round}")
+        try:
+            supabase = get_client()
+            response = (
+                supabase.table("lotto_draws")
+                .select("round, numbers, bonus")
+                .order("round", desc=False)
+                .execute()
+            )
+            raw = response.data if hasattr(response, "data") else response
+        except Exception as e:
+            print(f"  [FAIL] supabase error: {e}")
+            return
+
+        if not raw:
+            print("  [FAIL] no draws from supabase")
+            return
+
+        draws = []
+        for r in raw:
+            nums = r.get("numbers")
+            if not nums or len(nums) != 6:
+                continue
+            draws.append(
+                {
+                    "round": r["round"],
+                    "numbers": list(nums),
+                    "bonus": r.get("bonus"),
+                }
+            )
+        print(f"  loaded {len(draws)} draws")
+
+        # 학습 (전체 데이터)
+        predictor = DynamicIndependentCountPredictor(
+            feature_dim=24,
+            sample_threshold=50,
+            n_range=(2, 200),
+            active_models=("xgboost", "markov"),  # bayesian_nn은 선택적
+        )
+        print("  training...")
+        history = predictor.train(draws)
+        print(f"    candidates: {history['n_total_candidates']}")
+        print(f"    trained N: {len(history['trained_n'])}")
+        print(f"    fallback N: {len(history['fallback_n'])}")
+
+        # 추론 (target_round 이전 회차만 사용)
+        train_subset = [d for d in draws if int(d.get("round", 0)) < args.target_round]
+        print(f"  predicting (train_subset={len(train_subset)} rounds)...")
+        out = predictor.predict(train_subset, args.target_round)
+        print(f"    active_n_count: {out['active_n_count']}")
+        print(f"    dense_n_count: {out['dense_n_count']}")
+        print(f"    aggregated_expected: {out['aggregated_expected']:.2f}")
+
+        # 출력 예시 3~5개
+        sample_N = sorted(out["per_n"].keys())[:5]
+        print("\n  sample output (first 5 N):")
+        for N in sample_N:
+            res = out["per_n"][N]
+            print(f"    N={N} (sample={res['sample_size']}, conf={res['confidence']})")
+            print(f"      expected_count={res['expected_count']:.2f}")
+            print(f"      expected_ratio={res['expected_ratio']:.3f}")
+            print(f"      narrative={res['narrative']}")
+            print(f"      model_contributions={res['model_contributions']}")
+        return
+
+    # ──── validate ────
+    if args.validate:
+        from db.supabase_client import get_client
+
+        print(f"[regression_predictor] walk-forward validate last {args.validate} rounds")
+        try:
+            supabase = get_client()
+            response = (
+                supabase.table("lotto_draws")
+                .select("round, numbers, bonus")
+                .order("round", desc=False)
+                .execute()
+            )
+            raw = response.data if hasattr(response, "data") else response
+        except Exception as e:
+            print(f"  [FAIL] supabase error: {e}")
+            return
+
+        draws = []
+        for r in raw:
+            nums = r.get("numbers")
+            if not nums or len(nums) != 6:
+                continue
+            draws.append(
+                {
+                    "round": r["round"],
+                    "numbers": list(nums),
+                    "bonus": r.get("bonus"),
+                }
+            )
+        if len(draws) < args.validate:
+            print(f"  [FAIL] not enough draws ({len(draws)} < {args.validate})")
+            return
+
+        ordered = _ordered_draws(draws)
+        train_draws = ordered[: -args.validate]
+        test_rounds = ordered[-args.validate :]
+
+        predictor = DynamicIndependentCountPredictor(
+            feature_dim=24,
+            sample_threshold=50,
+            n_range=(2, 200),
+            active_models=("xgboost", "markov"),
+        )
+        print("  training...")
+        predictor.train(train_draws)
+        print(f"    active N (from heads): {len(predictor.heads)}")
+
+        # walk-forward 검증 (CE 계산)
+        total_ce = 0.0
+        total_count = 0
+        for test_d in test_rounds:
+            target_round = int(test_d["round"])
+            # target_round 이전 회차만 사용
+            train_subset = [
+                d for d in ordered if int(d.get("round", 0)) < target_round
+            ]
+            out = predictor.predict(train_subset, target_round)
+            if not out["per_n"]:
+                continue
+
+            # 실제 회귀 매칭 카운트 계산
+            test_six = set(test_d.get("numbers", []))
+            for N in out["per_n"].keys():
+                # (target_round - N) 회차 풀
+                ref_round = target_round - N
+                ref_d = next(
+                    (d for d in ordered if int(d.get("round", 0)) == ref_round), None
+                )
+                if ref_d is None:
+                    continue
+                # N회 전 unique 풀 (본번호만)
+                pool: set[int] = set()
+                for i in range(min(N, len(ordered))):
+                    d_idx = next(
+                        (
+                            idx
+                            for idx, d in enumerate(ordered)
+                            if int(d.get("round", 0)) == target_round - 1 - i
+                        ),
+                        None,
+                    )
+                    if d_idx is not None:
+                        pool.update(_draw_main_numbers(ordered[d_idx]))
+                true_count = len(pool & test_six)
+                true_count = min(true_count, 6)  # clamp 0~6
+
+                pred_dist = np.asarray(
+                    out["per_n"][N]["absolute_dist"], dtype=np.float64
+                )
+                # cross-entropy
+                ce = -np.log(pred_dist[true_count] + 1e-9)
+                total_ce += ce
+                total_count += 1
+
+        avg_ce = total_ce / max(total_count, 1)
+        print(
+            f"\n  walk-forward validate: avg CE={avg_ce:.4f} (over {total_count} N-pairs)"
+        )
+        # 빈도 베이스라인과 비교 (reference)
+        print("    (lower CE is better; frequency baseline ~ 1.8~2.2)")
+        return
+
+    # ──── smoke ────
     if not args.smoke:
         parser.print_help()
         return
@@ -689,26 +908,29 @@ def main() -> None:
     # 추론
     print("  predicting (smoke)...")
     out = predictor.predict(draws)
-    active_set = out["active_N_set"]
-    print(f"    active N at predict: {len(active_set)} (range {min(active_set) if active_set else None}~{max(active_set) if active_set else None})")
+    per_n = out["per_n"]
+    active_n_count = out["active_n_count"]
+    print(f"    active N at predict: {active_n_count} (dense: {out['dense_n_count']})")
+    print(f"    aggregated_expected: {out['aggregated_expected']:.2f}")
 
-    # per_N_dist 정합 (각 dist 합 ~= 1)
+    # per_n dist 정합 (각 dist 합 ~= 1)
     bad = []
-    for N, dist in out["per_N_dist"].items():
+    for N, result in per_n.items():
+        dist = result["absolute_dist"]
         s = sum(dist)
         if abs(s - 1.0) > 1e-3:
             bad.append((N, s))
-    print(f"    dist normalization OK: {len(out['per_N_dist']) - len(bad)}/{len(out['per_N_dist'])}")
+    print(f"    dist normalization OK: {len(per_n) - len(bad)}/{len(per_n)}")
     if bad:
         print(f"    misnormalized: {bad[:5]}")
 
     # 활성 N 16~30개 확인 (200 회차 가짜 데이터에서 자연 회귀 발생 빈도)
     # plan은 실제 lotto 1100 회차 가정 — 200으로는 더 많을 수도 있음
-    print(f"    plan target: active N 16~30 per round (current: {len(active_set)})")
+    print(f"    plan target: active N 16~30 per round (current: {active_n_count})")
 
     # 1~3 sample narrative
-    for N in active_set[:3]:
-        print(f"    {out['per_N_narrative'][N]}")
+    for N in sorted(per_n.keys())[:3]:
+        print(f"    {per_n[N]['narrative']}")
 
     # save / load 검증
     import tempfile

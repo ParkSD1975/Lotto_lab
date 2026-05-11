@@ -31,6 +31,8 @@
 
     <!-- NLP Modules -->
     <script src="js/NLPProcessor.js"></script>
+    <script src="js/AutoNLPMatcher.js"></script>
+    <script src="js/auto_nlp_loader.js" defer></script>
     <script src="js/NLPInputComponent.js"></script>
     <script src="js/BasicAnalysisNLP.js"></script>
 
@@ -241,6 +243,25 @@
             transform: scale(1.1);
             background: #2563EB;
         }
+
+        /* [fix-329] 보조 분석 전용 — impeccable 가이드 (underline-only, tabular-nums) */
+        .lh-input {
+            background: transparent;
+            border: 0;
+            border-bottom: 1px solid #E5E7EB;
+            padding: 4px 18px 4px 6px;
+            font-size: 13px;
+            color: #0F172A;
+            outline: none;
+            transition: border-color 180ms ease;
+            font-feature-settings: "tnum";
+            -moz-appearance: textfield;
+        }
+        .lh-input:focus { border-bottom-color: #3B82F6; }
+        .lh-input::-webkit-inner-spin-button,
+        .lh-input::-webkit-outer-spin-button { opacity: 0.5; margin-left: 4px; }
+        #lhMarkovTable td, #lhBonusCorrTable td, #lhGapTable td { padding: 8px 8px; border-bottom: 1px solid #F3F4F6; }
+        #lhMarkovTable tbody tr:hover, #lhBonusCorrTable tbody tr:hover, #lhGapTable tbody tr:hover { background: #FAFAFA; }
     </style>
 </head>
 
@@ -317,6 +338,132 @@
                         </div>
                     </div>
 
+                    <!-- ════════════════════════════════════════════════ -->
+                    <!-- [fix-329] 저고 보조 분석 7종 — 단일 흰 박스 통합     -->
+                    <!-- ════════════════════════════════════════════════ -->
+                    <div class="bg-white rounded-xl border border-gray-200 mb-6 overflow-hidden">
+
+                        <!-- §1. 시계열 추세 (저 카운트 MA + 캘린더 히트맵) -->
+                        <div class="p-8">
+                            <div class="flex items-baseline justify-between mb-6">
+                                <div>
+                                    <h3 class="text-lg font-bold text-gray-900 tracking-tight">시계열 추세</h3>
+                                    <p class="text-xs text-gray-500 mt-1">저 카운트(0~6, 1~22 기준) 이동평균 + ±1σ · 평균선 3.0 (이항분포 기대값)</p>
+                                </div>
+                                <div class="flex items-baseline gap-2 text-xs text-gray-500">
+                                    <label>MA 윈도우</label>
+                                    <input type="number" id="lhMaWindow" value="10" min="3" max="50" oninput="renderLhMa()"
+                                        class="lh-input w-16 text-center tabular-nums">
+                                    <span>회</span>
+                                </div>
+                            </div>
+                            <div class="h-64 mb-6"><canvas id="lhMaChart"></canvas></div>
+                            <div class="pt-6 border-t border-gray-100">
+                                <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-3">저 카운트 캘린더 (좌=과거, 우=최신)</div>
+                                <div id="lhCalendar"></div>
+                            </div>
+                        </div>
+
+                        <!-- §2 + §3 : 비율 분포 + streak 분포 (2분할) -->
+                        <div class="border-t border-gray-100 grid grid-cols-1 lg:grid-cols-2 lg:divide-x lg:divide-gray-100">
+                            <div class="p-8">
+                                <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">저:고 비율 분포</h3>
+                                <p class="text-xs text-gray-500 mb-4">7개 비율 출현 회수 · 점선 = 이항분포 이론값</p>
+                                <div class="h-56"><canvas id="lhRatioDist"></canvas></div>
+                                <div id="lhRatioDistStats" class="mt-3 text-xs text-gray-600 tabular-nums"></div>
+                            </div>
+                            <div class="p-8 border-t lg:border-t-0 border-gray-100">
+                                <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">streak 분포</h3>
+                                <p class="text-xs text-gray-500 mb-4">같은 비율 연속 출현 길이 분포</p>
+                                <div class="h-56"><canvas id="lhStreakDist"></canvas></div>
+                                <div id="lhStreakDistStats" class="mt-3 text-xs text-gray-600 tabular-nums"></div>
+                            </div>
+                        </div>
+
+                        <!-- §4. Markov 전이 행렬 -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">Markov 전이 행렬</h3>
+                            <p class="text-xs text-gray-500 mb-4">이전 회차 비율 → 다음 회차 비율 (7×7) · 각 행 합 = 100%</p>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-sm tabular-nums" id="lhMarkovTable">
+                                    <thead>
+                                        <tr class="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                            <th class="py-2 pr-3 border-b border-gray-200">이전\\다음</th>
+                                            <th class="py-2 px-2 border-b border-gray-200 text-right">6:0</th>
+                                            <th class="py-2 px-2 border-b border-gray-200 text-right">5:1</th>
+                                            <th class="py-2 px-2 border-b border-gray-200 text-right">4:2</th>
+                                            <th class="py-2 px-2 border-b border-gray-200 text-right">3:3</th>
+                                            <th class="py-2 px-2 border-b border-gray-200 text-right">2:4</th>
+                                            <th class="py-2 px-2 border-b border-gray-200 text-right">1:5</th>
+                                            <th class="py-2 px-2 border-b border-gray-200 text-right">0:6</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="lhMarkovBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- §5. 보너스볼 ↔ 저고 상관 분석 (low_high 고유) -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">보너스볼 ↔ 저고 상관</h3>
+                            <p class="text-xs text-gray-500 mb-4">직전 회차 보너스(저≤22 / 고≥23) → 다음 회차 비율 분포 · ★ = 행 최빈</p>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-sm tabular-nums" id="lhBonusCorrTable">
+                                    <thead>
+                                        <tr class="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                            <th class="py-2 pr-3 border-b border-gray-200">직전 보너스</th>
+                                            <th class="py-2 px-2 border-b border-gray-200 text-right">6:0</th>
+                                            <th class="py-2 px-2 border-b border-gray-200 text-right">5:1</th>
+                                            <th class="py-2 px-2 border-b border-gray-200 text-right">4:2</th>
+                                            <th class="py-2 px-2 border-b border-gray-200 text-right">3:3</th>
+                                            <th class="py-2 px-2 border-b border-gray-200 text-right">2:4</th>
+                                            <th class="py-2 px-2 border-b border-gray-200 text-right">1:5</th>
+                                            <th class="py-2 px-2 border-b border-gray-200 text-right">0:6</th>
+                                            <th class="py-2 pl-3 border-b border-gray-200 text-right">N</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="lhBonusCorrBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- §6. 시퀀스 패턴 검색 -->
+                        <div class="p-8 border-t border-gray-100">
+                            <div class="flex items-baseline justify-between mb-1">
+                                <h3 class="text-lg font-bold text-gray-900 tracking-tight">시퀀스 패턴 검색</h3>
+                                <div class="flex items-baseline gap-2 text-xs text-gray-500">
+                                    <label>시퀀스 길이</label>
+                                    <input type="number" id="lhSeqLen" value="3" min="2" max="10" oninput="renderLhSeq()"
+                                        class="lh-input w-16 text-center tabular-nums">
+                                </div>
+                            </div>
+                            <p class="text-xs text-gray-500 mb-4">최근 N개 비율 시퀀스와 동일한 과거 패턴 → 다음 회차 분포</p>
+                            <div id="lhSeqPanel"></div>
+                        </div>
+
+                        <!-- §7. 7비 미출현 갭 -->
+                        <div class="p-8 border-t border-gray-100">
+                            <h3 class="text-lg font-bold text-gray-900 tracking-tight mb-1">7비 미출현 갭</h3>
+                            <p class="text-xs text-gray-500 mb-4">각 비율 마지막 출현 후 경과 + z-score</p>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-sm tabular-nums" id="lhGapTable">
+                                    <thead>
+                                        <tr class="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                            <th class="py-2 pr-3 border-b border-gray-200">비율</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">출현/회</th>
+                                            <th class="py-2 px-3 border-b border-gray-200 text-right">미출현 갭</th>
+                                            <th class="py-2 pl-3 border-b border-gray-200 text-right">z-score</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="lhGapBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- ════════════════════════════════════════════════ -->
+                    <!-- [/fix-329] 단일 박스 통합 끝                       -->
+                    <!-- ════════════════════════════════════════════════ -->
+
                     <div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
                         <div class="flex items-center justify-between mb-4">
                             <h3 class="text-xl font-bold text-gray-900">조합 필터</h3>
@@ -360,9 +507,9 @@
                         </div>
                     </div>
 
-                    <!-- [표준화] 리스트 섹션 (Integrated Header) -->
-                    <div class="rounded-xl overflow-hidden mt-6">
-                        <div class="flex items-center justify-between mb-4 px-2">
+                    <!-- [fix-396] 리스트 섹션 — 헤더 + 표 흰 박스 일체화 -->
+                    <div class="bg-white rounded-xl border border-gray-200 mt-6 overflow-hidden">
+                        <div class="flex items-center justify-between px-8 pt-6 pb-4 border-b border-gray-100">
                             <div>
                                 <h3 class="text-xl font-bold text-gray-900 mb-1">회차별 당첨번호 및 저고 비율</h3>
                                 <p class="text-sm text-gray-600">최근 <span id="displayedCount"
@@ -374,7 +521,7 @@
                             </button>
                         </div>
 
-                        <div class="overflow-x-auto custom-scrollbar border border-gray-200 rounded-xl bg-white"
+                        <div class="overflow-x-auto custom-scrollbar"
                             style="max-height: 600px;">
                             <table class="w-full text-sm">
                                 <thead
@@ -936,6 +1083,8 @@
             rangeDebounceTimer = setTimeout(() => {
                 updateStatistics();
                 applyFilter();
+                // [fix-329] 보조 분석 7종 갱신
+                if (typeof renderAllLhSupp === 'function') renderAllLhSupp();
             }, 300); // 300ms delay to prevent jitter during sliding
         }
 
@@ -1694,6 +1843,400 @@
                 }
             }
         });
+
+        // ════════════════════════════════════════════════════════════
+        // [fix-329] 저고 보조 분석 7종 — impeccable 가이드
+        // 라이트 모드, 단일 액센트(#3B82F6), tabular-nums, 박스 일변도 회피
+        // ════════════════════════════════════════════════════════════
+        const LH_ACCENT = '#3B82F6';
+        const LH_ACCENT_LIGHT = 'rgba(59, 130, 246, 0.08)';
+        const LH_GRID = '#F1F5F9';
+        const LH_INK_1 = '#0F172A';
+        const LH_INK_2 = '#475569';
+        const LH_INK_3 = '#94A3B8';
+        // 7 ratio 색상 토큰 — 저↔고 그라디언트 (파랑 = 저 우세, 빨강 = 고 우세)
+        const LH_RATIO_COLORS = {
+            '6:0': '#1E40AF', '5:1': '#3B82F6', '4:2': '#06B6D4',
+            '3:3': '#94A3B8', '2:4': '#F97316', '1:5': '#EF4444', '0:6': '#991B1B'
+        };
+
+        let _lhCache = null;
+        function getLhCache() {
+            if (_lhCache) return _lhCache;
+            const data = window.allDrawData || allDrawData || [];
+            _lhCache = data.map(d => {
+                const nums = d.numbers || [];
+                const lowCount = nums.filter(n => n <= 22).length;
+                const ratio = `${lowCount}:${6 - lowCount}`;
+                const sorted = [...nums].sort((a, b) => a - b);
+                const total = nums.reduce((a, b) => a + b, 0);
+                const tailSum = nums.reduce((a, b) => a + (b % 10), 0);
+                const oddCount = nums.filter(x => x % 2 !== 0).length;
+                let cons = 0;
+                for (let i = 0; i < sorted.length - 1; i++) if (sorted[i + 1] === sorted[i] + 1) cons++;
+                const dec = [0, 0, 0, 0, 0];
+                nums.forEach(x => dec[Math.min(Math.floor((x - 1) / 10), 4)]++);
+                const dMean = dec.reduce((a, b) => a + b, 0) / 5;
+                const decVar = dec.reduce((a, b) => a + (b - dMean) ** 2, 0) / 5;
+                const diffs = new Set();
+                for (let i = 0; i < nums.length; i++) for (let j = i + 1; j < nums.length; j++) diffs.add(Math.abs(nums[i] - nums[j]));
+                const ac = Math.max(0, diffs.size - 5);
+                return {
+                    round: d.round, lowCount, ratio, total, tailSum, oddCount, cons, decVar, ac,
+                    bonus: d.bonus,
+                    bonusLow: d.bonus != null && d.bonus <= 22
+                };
+            });
+            return _lhCache;
+        }
+        function invalidateLhCache() { _lhCache = null; }
+
+        function renderAllLhSupp() {
+            try {
+                if (!allDrawData || allDrawData.length === 0) return;
+                renderLhMa();
+                renderLhCalendar();
+                renderLhRatioDist();
+                renderLhStreakDist();
+                renderLhMarkov();
+                renderLhBonusCorr();
+                renderLhSeq();
+                renderLhGap();
+            } catch (e) { console.warn('[lh-supp]', e); }
+        }
+
+        // ─── §1-A. 시계열 추세 (저 카운트 MA + ±1σ) ───
+        let lhMaInst = null;
+        function renderLhMa() {
+            const canvas = document.getElementById('lhMaChart');
+            if (!canvas) return;
+            const win = Math.max(3, Math.min(50, parseInt(document.getElementById('lhMaWindow').value) || 10));
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getLhCache().slice(0, range).slice().reverse();
+            if (cache.length === 0) return;
+            const labels = cache.map(d => d.round);
+            const counts = cache.map(d => d.lowCount);
+            const ma = [], up = [], lo = [];
+            for (let i = 0; i < counts.length; i++) {
+                const s = Math.max(0, i - win + 1);
+                const sl = counts.slice(s, i + 1);
+                const m = sl.reduce((a, b) => a + b, 0) / sl.length;
+                const v = sl.reduce((a, b) => a + (b - m) ** 2, 0) / sl.length;
+                const sd = Math.sqrt(v);
+                ma.push(m); up.push(m + sd); lo.push(m - sd);
+            }
+            if (lhMaInst) lhMaInst.destroy();
+            lhMaInst = new Chart(canvas.getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels, datasets: [
+                        { label: '저 카운트', data: counts, borderColor: 'rgba(15,23,42,0.35)', borderWidth: 1, pointRadius: 0, fill: false, tension: 0.25 },
+                        { label: `이동평균 ${win}회`, data: ma, borderColor: LH_ACCENT, borderWidth: 2, pointRadius: 0, fill: false, tension: 0.25 },
+                        { label: '±1σ', data: up, borderColor: 'rgba(59,130,246,0.25)', borderWidth: 1, pointRadius: 0, borderDash: [3, 3], fill: '+1', backgroundColor: LH_ACCENT_LIGHT },
+                        { label: ' ', data: lo, borderColor: 'rgba(59,130,246,0.25)', borderWidth: 1, pointRadius: 0, borderDash: [3, 3], fill: false },
+                        { label: '평균 3.0', data: Array(counts.length).fill(3.0), borderColor: 'rgba(15,23,42,0.35)', borderDash: [4, 4], borderWidth: 1, pointRadius: 0, fill: false }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top', align: 'end', labels: { boxWidth: 6, font: { size: 11, family: 'Pretendard' }, color: LH_INK_2 } } },
+                    scales: {
+                        y: { min: 0, max: 6, grid: { color: LH_GRID, drawBorder: false }, ticks: { color: LH_INK_3, font: { size: 11 }, stepSize: 1 } },
+                        x: { grid: { display: false }, ticks: { color: LH_INK_3, font: { size: 11 }, display: range < 80, autoSkip: true, maxRotation: 0 } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+        }
+
+        // ─── §1-B. 캘린더 히트맵 (저 카운트 + 보너스볼 마커) ───
+        function renderLhCalendar() {
+            const c = document.getElementById('lhCalendar');
+            if (!c) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getLhCache().slice(0, range).slice().reverse();
+            const cols = range <= 50 ? 10 : range <= 100 ? 20 : range <= 300 ? 25 : 30;
+            // 저고 색온도 그라디언트 (파랑 = 저 우세, 빨강 = 고 우세)
+            const colorOf = (n) => {
+                if (n == null) return '#F8FAFC';
+                if (n <= 1) return '#991B1B';      // 고 극단 (1개 이하 저)
+                if (n === 2) return '#F97316';
+                if (n === 3) return '#94A3B8';      // 균형
+                if (n === 4) return '#06B6D4';
+                return '#1E40AF';                    // 저 극단 (5~6 저)
+            };
+            const fgOf = (n) => (n <= 2 || n >= 4) ? '#fff' : LH_INK_1;
+            const fontMain = cols >= 25 ? 11 : 12;
+            const fontRd = cols >= 25 ? 8 : 9;
+            const pad = cols >= 25 ? '4px 0 3px' : '6px 0 4px';
+            let html = `<div style="display:grid;grid-template-columns:repeat(${cols},minmax(0,1fr));gap:2px">`;
+            for (const d of cache) {
+                const dotColor = d.bonusLow ? '#3B82F6' : '#EF4444';
+                html += `<div title="${d.round}회 · ${d.ratio} · 보너스 ${d.bonus}(${d.bonusLow ? '저' : '고'})" style="background:${colorOf(d.lowCount)};color:${fgOf(d.lowCount)};text-align:center;padding:${pad};border-radius:2px;line-height:1.05;font-feature-settings:'tnum';position:relative">
+                    <div style="font-size:${fontMain}px;font-weight:700">${d.lowCount}</div>
+                    <div style="font-size:${fontRd}px;font-weight:500;opacity:0.65;letter-spacing:-0.02em">${d.round}</div>
+                    <span style="position:absolute;top:2px;right:2px;width:5px;height:5px;border-radius:50%;background:${dotColor};box-shadow:0 0 0 1px rgba(255,255,255,0.6)" title="보너스 ${d.bonusLow ? '저(≤22)' : '고(≥23)'}"></span>
+                </div>`;
+            }
+            c.innerHTML = html + '</div>';
+        }
+
+        // ─── §2. 저:고 비율 분포 (관측 vs 이론) ───
+        let lhRatioDistInst = null;
+        function renderLhRatioDist() {
+            const canvas = document.getElementById('lhRatioDist');
+            const statsEl = document.getElementById('lhRatioDistStats');
+            if (!canvas) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getLhCache().slice(0, range);
+            if (cache.length === 0) return;
+            const labels = ['6:0', '5:1', '4:2', '3:3', '2:4', '1:5', '0:6'];
+            const counts = labels.map(r => cache.filter(d => d.ratio === r).length);
+            const total = cache.length;
+            // THEORETICAL_STATS 재사용 (line 537~545)
+            const expected = labels.map(r => (THEORETICAL_STATS[r]?.percent || 0) / 100 * total);
+            const colors = labels.map(r => LH_RATIO_COLORS[r]);
+            if (lhRatioDistInst) lhRatioDistInst.destroy();
+            lhRatioDistInst = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [
+                        { label: '관측', data: counts, backgroundColor: colors, borderRadius: 2, borderSkipped: false },
+                        { label: '기대값', data: expected, type: 'line', borderColor: 'rgba(15,23,42,0.4)', borderDash: [3, 3], borderWidth: 1, pointRadius: 2, pointBackgroundColor: 'rgba(15,23,42,0.4)', fill: false }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { grid: { color: LH_GRID, drawBorder: false }, ticks: { color: LH_INK_3, font: { size: 11 } } },
+                        x: { grid: { display: false }, ticks: { color: LH_INK_2, font: { size: 11 } } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+            const top = labels.map((r, i) => ({ r, c: counts[i], pct: counts[i] / total * 100, expected: (THEORETICAL_STATS[r]?.percent || 0), diff: counts[i] / total * 100 - (THEORETICAL_STATS[r]?.percent || 0) })).sort((a, b) => b.c - a.c);
+            const mostC = top[0];
+            statsEl.innerHTML = `
+                <span class="text-gray-500">최다</span> <b style="color:${LH_RATIO_COLORS[mostC.r]}">${mostC.r}</b> ${mostC.pct.toFixed(1)}% (이론 ${mostC.expected.toFixed(1)}%, 편향 ${mostC.diff >= 0 ? '+' : ''}${mostC.diff.toFixed(1)}%p)
+            `;
+        }
+
+        // ─── §3. streak 분포 ───
+        let lhStreakDistInst = null;
+        function renderLhStreakDist() {
+            const canvas = document.getElementById('lhStreakDist');
+            const statsEl = document.getElementById('lhStreakDistStats');
+            if (!canvas) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getLhCache().slice(0, range);
+            if (cache.length === 0) return;
+            const streaks = [];
+            let cur = 1;
+            for (let i = 1; i < cache.length; i++) {
+                if (cache[i].ratio === cache[i - 1].ratio) cur++;
+                else { streaks.push(cur); cur = 1; }
+            }
+            streaks.push(cur);
+            const maxLen = Math.min(8, Math.max(...streaks));
+            const labels = [], values = [];
+            for (let len = 1; len <= maxLen; len++) {
+                labels.push(String(len));
+                values.push(streaks.filter(s => s === len).length);
+            }
+            const above = streaks.filter(s => s > maxLen).length;
+            if (above > 0) { labels.push(`${maxLen + 1}+`); values.push(above); }
+            if (lhStreakDistInst) lhStreakDistInst.destroy();
+            lhStreakDistInst = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: { labels, datasets: [{ label: '발생 횟수', data: values, backgroundColor: LH_ACCENT, borderRadius: 2, borderSkipped: false }] },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { grid: { color: LH_GRID, drawBorder: false }, ticks: { color: LH_INK_3, font: { size: 11 } } },
+                        x: { grid: { display: false }, ticks: { color: LH_INK_2, font: { size: 11 } }, title: { display: true, text: '연속 길이', color: LH_INK_3, font: { size: 11 } } }
+                    },
+                    animation: { duration: 200 }
+                }
+            });
+            const meanStreak = streaks.reduce((a, b) => a + b, 0) / streaks.length;
+            const maxStreakObs = Math.max(...streaks);
+            statsEl.innerHTML = `
+                <span class="text-gray-500">평균</span> <b style="color:${LH_ACCENT}">${meanStreak.toFixed(2)}</b>
+                <span class="text-gray-300 mx-2">·</span>
+                <span class="text-gray-500">최대</span> <b>${maxStreakObs}회</b>
+            `;
+        }
+
+        // ─── §4. Markov 전이 행렬 ───
+        function renderLhMarkov() {
+            const tbody = document.getElementById('lhMarkovBody');
+            if (!tbody) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getLhCache().slice(0, range);
+            if (cache.length < 2) return;
+            const labels = ['6:0', '5:1', '4:2', '3:3', '2:4', '1:5', '0:6'];
+            const matrix = {};
+            labels.forEach(r => { matrix[r] = {}; labels.forEach(s => matrix[r][s] = 0); });
+            const asc = cache.slice().reverse();
+            for (let i = 1; i < asc.length; i++) {
+                const prev = asc[i - 1].ratio, next = asc[i].ratio;
+                if (matrix[prev] && matrix[prev][next] !== undefined) matrix[prev][next]++;
+            }
+            tbody.innerHTML = labels.map(prev => {
+                const rowSum = labels.reduce((a, s) => a + matrix[prev][s], 0);
+                const cells = labels.map(next => {
+                    const v = matrix[prev][next];
+                    if (rowSum === 0) return `<td class="text-right py-1.5 px-2" style="color:${LH_INK_3}">−</td>`;
+                    const pct = v / rowSum * 100;
+                    const isMax = pct === Math.max(...labels.map(s => matrix[prev][s] / rowSum * 100));
+                    const bg = pct > 0 ? `background:rgba(59,130,246,${Math.min(0.5, pct / 100 * 1.2)})` : '';
+                    return `<td class="text-right py-1.5 px-2" style="${bg};color:${pct >= 30 ? '#fff' : LH_INK_2};${isMax && pct > 0 ? 'font-weight:700' : ''}">${pct.toFixed(0)}%</td>`;
+                }).join('');
+                return `<tr>
+                    <td class="font-medium py-1.5 pr-3" style="color:${LH_RATIO_COLORS[prev]}">${prev}</td>
+                    ${cells}
+                </tr>`;
+            }).join('');
+        }
+
+        // ─── §5. 보너스볼 ↔ 저고 상관 (low_high 고유) ───
+        function renderLhBonusCorr() {
+            const tbody = document.getElementById('lhBonusCorrBody');
+            if (!tbody) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getLhCache().slice(0, range);
+            if (cache.length < 2) return;
+            const asc = cache.slice().reverse();
+            const labels = ['6:0', '5:1', '4:2', '3:3', '2:4', '1:5', '0:6'];
+            const matrix = { 'low': {}, 'high': {} };
+            labels.forEach(r => { matrix.low[r] = 0; matrix.high[r] = 0; });
+            for (let i = 1; i < asc.length; i++) {
+                const prevBon = asc[i - 1].bonusLow ? 'low' : 'high';
+                const nextRatio = asc[i].ratio;
+                if (matrix[prevBon][nextRatio] !== undefined) matrix[prevBon][nextRatio]++;
+            }
+            const rowDef = [
+                { key: 'low', label: '저 (≤22)', color: '#3B82F6' },
+                { key: 'high', label: '고 (≥23)', color: '#EF4444' }
+            ];
+            tbody.innerHTML = rowDef.map(({ key, label, color }) => {
+                const rowSum = labels.reduce((a, r) => a + matrix[key][r], 0);
+                const maxPct = rowSum > 0 ? Math.max(...labels.map(r => matrix[key][r] / rowSum * 100)) : 0;
+                const cells = labels.map(r => {
+                    const v = matrix[key][r];
+                    if (rowSum === 0) return `<td class="text-right py-2 px-2" style="color:${LH_INK_3}">−</td>`;
+                    const pct = v / rowSum * 100;
+                    const star = pct === maxPct && pct > 0 ? ' ★' : '';
+                    const bg = pct > 0 ? `background:rgba(59,130,246,${Math.min(0.45, pct / 100 * 1.2)})` : '';
+                    return `<td class="text-right py-2 px-2" style="${bg};color:${pct >= 30 ? '#fff' : LH_INK_2};${star ? 'font-weight:700' : ''}">${pct.toFixed(0)}%${star}</td>`;
+                }).join('');
+                return `<tr>
+                    <td class="font-medium py-2 pr-3" style="color:${color}">${label}</td>
+                    ${cells}
+                    <td class="text-right py-2 pl-3" style="color:${LH_INK_3}">${rowSum}</td>
+                </tr>`;
+            }).join('');
+        }
+
+        // ─── §6. 시퀀스 패턴 검색 ───
+        function renderLhSeq() {
+            const panel = document.getElementById('lhSeqPanel');
+            if (!panel) return;
+            const len = Math.max(2, Math.min(10, parseInt(document.getElementById('lhSeqLen').value) || 3));
+            const cache = getLhCache();
+            if (cache.length === 0) { panel.innerHTML = '<div class="text-sm text-gray-400">데이터 없음</div>'; return; }
+            const asc = cache.slice().reverse();
+            if (asc.length < len + 1) { panel.innerHTML = '<div class="text-sm text-gray-400">데이터 부족</div>'; return; }
+            const recent = asc.slice(-len).map(d => d.ratio);
+            const recentStr = recent.join(',');
+            const matches = [];
+            for (let i = 0; i < asc.length - len; i++) {
+                const slice = asc.slice(i, i + len).map(d => d.ratio);
+                if (slice.join(',') === recentStr && i + len < asc.length - len) {
+                    matches.push({ nextRatio: asc[i + len].ratio });
+                }
+            }
+            const dist = {};
+            matches.forEach(m => { dist[m.nextRatio] = (dist[m.nextRatio] || 0) + 1; });
+            const distSorted = Object.entries(dist).sort((a, b) => b[1] - a[1]);
+            let html = `<div class="mb-4 text-xs"><span class="text-gray-500">최근 ${len}개 시퀀스 →</span> `;
+            html += recent.map(v => `<span class="inline-block px-2 py-0.5 rounded mx-0.5 tabular-nums" style="background:${LH_ACCENT_LIGHT};color:${LH_RATIO_COLORS[v] || LH_ACCENT};font-weight:600">${v}</span>`).join('<span class="text-gray-300 mx-0.5">→</span>');
+            html += '</div>';
+            if (matches.length === 0) {
+                html += `<div class="text-sm text-gray-400 italic py-3">동일 시퀀스 없음. 길이를 줄여보세요.</div>`;
+            } else {
+                html += `<div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">다음 회차 비율 분포 (${matches.length}건)</div>`;
+                html += '<div class="space-y-1.5">';
+                distSorted.forEach(([r, c]) => {
+                    const pct = (c / matches.length * 100).toFixed(0);
+                    html += `<div class="flex items-center gap-3 text-xs tabular-nums">
+                        <span class="w-12 text-right" style="color:${LH_RATIO_COLORS[r] || LH_INK_2};font-weight:600">${r}</span>
+                        <div class="flex-1 h-1.5 rounded-full overflow-hidden" style="background:${LH_GRID}">
+                            <div style="background:${LH_RATIO_COLORS[r] || LH_ACCENT};height:100%;width:${pct}%"></div>
+                        </div>
+                        <span class="w-12 text-right" style="color:${LH_INK_3}">${c}회 (${pct}%)</span>
+                    </div>`;
+                });
+                html += '</div>';
+            }
+            panel.innerHTML = html;
+        }
+
+        // ─── §7. 7비 미출현 갭 ───
+        function renderLhGap() {
+            const tbody = document.getElementById('lhGapBody');
+            if (!tbody) return;
+            const range = (typeof currentRange !== 'undefined') ? currentRange : 100;
+            const cache = getLhCache().slice(0, range);
+            if (cache.length === 0) return;
+            const labels = ['6:0', '5:1', '4:2', '3:3', '2:4', '1:5', '0:6'];
+            const rows = labels.map(r => {
+                let currentGap = -1;
+                for (let i = 0; i < cache.length; i++) {
+                    if (cache[i].ratio === r) { currentGap = i; break; }
+                }
+                const apperIdx = [];
+                cache.forEach((d, idx) => { if (d.ratio === r) apperIdx.push(idx); });
+                let avgGap = null, sigma = null;
+                if (apperIdx.length >= 2) {
+                    const ints = [];
+                    for (let i = 1; i < apperIdx.length; i++) ints.push(apperIdx[i] - apperIdx[i - 1]);
+                    avgGap = ints.reduce((a, b) => a + b, 0) / ints.length;
+                    sigma = Math.sqrt(ints.reduce((a, b) => a + (b - avgGap) ** 2, 0) / ints.length);
+                }
+                const gapForZ = currentGap >= 0 ? currentGap : cache.length;
+                const z = (avgGap !== null && sigma > 0) ? (gapForZ - avgGap) / sigma : null;
+                const totalCount = apperIdx.length;
+                const avgPerDraw = totalCount / cache.length;
+                return { r, avgPerDraw, currentGap, z };
+            });
+            tbody.innerHTML = rows.map(rw => {
+                let zStyle = `color:${LH_INK_3}`, zLabel = '−';
+                if (rw.z !== null) {
+                    zLabel = (rw.z > 0 ? '+' : '') + rw.z.toFixed(1) + 'σ';
+                    if (rw.z >= 1.5) zStyle = 'color:#F43F5E;font-weight:600';
+                    else if (rw.z >= 0.5) zStyle = `color:${LH_ACCENT}`;
+                    else if (rw.z <= -0.5) zStyle = 'color:#10B981';
+                    else zStyle = `color:${LH_INK_2}`;
+                }
+                const gapText = rw.currentGap >= 0 ? `${rw.currentGap}회 전` : '없음';
+                const dotColor = LH_RATIO_COLORS[rw.r];
+                return `<tr>
+                    <td class="py-2 pr-3" style="color:${LH_INK_1}">
+                        <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${dotColor};margin-right:8px;vertical-align:middle"></span>${rw.r}
+                    </td>
+                    <td class="text-right py-2 px-3" style="color:${LH_INK_3}">${(rw.avgPerDraw * 100).toFixed(1)}%</td>
+                    <td class="text-right py-2 px-3" style="color:${LH_INK_1};font-weight:600">${gapText}</td>
+                    <td class="text-right py-2 pl-3" style="${zStyle}">${zLabel}</td>
+                </tr>`;
+            }).join('');
+        }
+        // ════════════════════════════════════════════════════════════
+        // [/fix-329]
+        // ════════════════════════════════════════════════════════════
     </script>
     <!-- AI Q&A Sidebar (Floating Right) -->
     <div id="aiQnaModal"

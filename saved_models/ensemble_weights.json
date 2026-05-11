@@ -1,0 +1,15 @@
+{
+  "xgboost": 0.282,
+  "lstm": 0.0,
+  "cnn": 0.141,
+  "transformer": 0.0,
+  "gnn": 0.176,
+  "markov": 0.085,
+  "autoencoder": 0.035,
+  "catboost": 0.035,
+  "tabnet": 0.035,
+  "tft": 0.176,
+  "mhn": 0.035,
+  "bayesian_nn": 0.0,
+  "nbeats": 0.0
+}
