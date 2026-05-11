@@ -39,7 +39,7 @@ MODEL_RANK_COLUMNS: list[tuple[str, str]] = [
     ("tft",         "tft_rank"),
     ("mhn",         "mhn_rank"),
     ("bayesian_nn", "bayesian_nn_rank"),
-    # ("nbeats",      "nbeats_rank"),   # DB C3 패치 후 활성화
+    ("nbeats",      "nbeats_rank"),   # [2026-05-12 결정 B] DB nbeats_rank 컬럼 추가 후 활성
 ]
 
 # 임계 파라미터

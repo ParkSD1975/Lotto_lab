@@ -752,11 +752,14 @@ class LottoEnsemble:
 
         new_base_specs = [
             # (key, module_path, class_name, needs_input_dim)
-            ("catboost",    "models.catboost_model",    "LottoCatBoost",   False),
-            ("tabnet",      "models.tabnet_model",      "LottoTabNet",     True),
-            ("tft",         "models.tft_model",         "LottoTFT",        True),
-            ("mhn",         "models.mhn_model",         "LottoMHN",        True),
-            ("bayesian_nn", "models.bayesian_nn_model", "LottoBayesianNN", True),
+            ("catboost",    "models.catboost_model",      "LottoCatBoost",     False),
+            ("tabnet",      "models.tabnet_model",        "LottoTabNet",       True),
+            ("tft",         "models.tft_model",           "LottoTFT",          True),
+            ("mhn",         "models.mhn_model",           "LottoMHN",          True),
+            ("bayesian_nn", "models.bayesian_nn_model",   "LottoBayesianNN",   True),
+            # [2026-05-12 사용자 결정 B] nbeats binary classifier 활성화 — 11 base 통일
+            # 기존 sum predictor(self.nbeats)는 그대로 유지, 별도 per-number 모델 추가
+            ("nbeats",      "models.nbeats_classifier",   "LottoNBeatsBinary", True),
         ]
 
         for key, mod_path, cls_name, needs_dim in new_base_specs:

@@ -645,8 +645,8 @@ class WeeklyPipelineV2:
                     gnn_pct = round(float(raw_gnn) * 100, 2)
                 else:
                     gnn_pct = x.get("gnn", 0.0)
-                # Stage 1-4-D-2-fix-6: 11 base 토폴로지 통일 (사용자 결정 #24)
-                # 메인 1~45 binary classifier 11 base — nbeats 제외 (스칼라 시계열 분해 전용)
+                # Stage 1-4-D-2-fix-6: 11 base 토폴로지 통일 (사용자 결정 #24 → #24-B 갱신)
+                # [2026-05-12 사용자 결정 B] nbeats binary classifier 활성화 — 11 base *모두* per-number
                 # LSTM / Transformer는 폐기되었으나 schema 백워드 호환 위해 0 저장
                 rows.append({
                     "target_round":    target_round,
@@ -660,12 +660,13 @@ class WeeklyPipelineV2:
                     # deprecated (사용자 결정 #24, weight 0 — 호환 위해 0.0 저장)
                     "lstm_pct":        0.0,
                     "transformer_pct": 0.0,
-                    # 5 신규 base (Stage 1-4-D-2 학습 산출물)
+                    # 6 신규 base (Stage 1-4-D-2 + 2026-05-12 nbeats 옵션 B)
                     "catboost_pct":    x.get("catboost", 0.0),
                     "tabnet_pct":      x.get("tabnet", 0.0),
                     "tft_pct":         x.get("tft", 0.0),
                     "mhn_pct":         x.get("mhn", 0.0),
                     "bayesian_nn_pct": x.get("bayesian_nn", 0.0),
+                    "nbeats_pct":      x.get("nbeats", 0.0),  # [B] 11번째 base 활성화
                     # 모델별 raw 확률 기반 순위 (1=최고, 45=최저) — XAI 클램핑 우회
                     "xgboost_rank":     model_ranks.get('xgboost',     {}).get(n, 45),
                     "catboost_rank":    model_ranks.get('catboost',    {}).get(n, 45),
@@ -677,6 +678,7 @@ class WeeklyPipelineV2:
                     "tft_rank":         model_ranks.get('tft',         {}).get(n, 45),
                     "mhn_rank":         model_ranks.get('mhn',         {}).get(n, 45),
                     "bayesian_nn_rank": model_ranks.get('bayesian_nn', {}).get(n, 45),
+                    "nbeats_rank":      model_ranks.get('nbeats',      {}).get(n, 45),  # [B] 신규
                     # 메타
                     "top_model":       x.get("top_model"),
                     "veto":            x.get("veto"),

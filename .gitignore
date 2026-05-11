@@ -27,5 +27,6 @@ langchain-backend/saved_models/pillar_meta_weights.json
 !langchain-backend/saved_models/ssl_backbone.pt
 !langchain-backend/saved_models/tft_main45.pt
 !langchain-backend/saved_models/gnn_feature_transformer.pkl
+!langchain-backend/saved_models/nbeats_main45.pt
 ai_deep_learning.html.bak
 ai_combination.html.bak

@@ -31,7 +31,7 @@ MODEL_RANK_COLUMNS: list[str] = [
     "xgboost_rank", "catboost_rank", "tabnet_rank",
     "cnn_rank", "gnn_rank", "markov_rank",
     "autoencoder_rank", "tft_rank", "mhn_rank", "bayesian_nn_rank",
-    # "nbeats_rank",   # C3 패치 후 추가
+    "nbeats_rank",   # [2026-05-12 결정 B] 11 base 통일
 ]
 
 
