@@ -732,7 +732,9 @@
                                     <span id="indep-count-manual_${f.id}" class="hidden text-[10px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full whitespace-nowrap"></span>
                                     ${(() => {
                                         // [fix-424] 대상수 ≤ 6인 경우 max는 대상수로 cap, 초과하면 6 — 다음 회차 매칭 가능 한계
-                                        const _targetN = (f.numbers || []).length;
+                                        // [fix-2026-05-12] f.numbers → f.selected_numbers (DB 실제 컬럼명, fix-424 오타 수정)
+                                        // 오타로 _targetN=0 → _cap=0 → min/max 모두 0으로 clamp되던 버그
+                                        const _targetN = (f.selected_numbers || []).length;
                                         const _cap = Math.min(6, _targetN);
                                         const _minVal = Math.max(0, Math.min(_cap, parseInt(f.min_match) || 0));
                                         const _maxVal = Math.max(0, Math.min(_cap, parseInt(f.max_match) || 0));
