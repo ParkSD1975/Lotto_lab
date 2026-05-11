@@ -218,9 +218,9 @@ class WeeklyPipelineV2:
         logger.info(f"  [P3] ensemble 가중치 재계산 (target_round={target_round})...")
         try:
             if hasattr(self.ensemble, "_update_meta_weights"):
-                # _update_meta_weights() 는 ensemble 내부 가중치를 갱신
-                # 반환값 형태(dict | None)에 무관하게 동작하도록 양방향 처리
-                ret = self.ensemble._update_meta_weights()
+                # _update_meta_weights(draws) — draws 인자 필수, self.weights에 저장 (반환 None)
+                # P3 fix-1: 원본 P 문서가 인자 없는 호출로 가정했으나 실제 시그니처는 draws 받음
+                ret = self.ensemble._update_meta_weights(draws)
                 new_weights = ret if isinstance(ret, dict) else None
                 if new_weights is None:
                     # 속성에서 직접 추출
