@@ -151,8 +151,10 @@ def _compute_frequency_penalty(
     coef = 1.0
 
     # 1) 직전 N회 출현 페널티
+    # CRITICAL: draws_so_far는 round DESC 정렬 (최신=index 0) → [:N]이 최근 N회
+    # 기존 [-N:] 버그: 가장 오래된 N회를 가져와서 favorite bias 미해결 (reviewer 발견)
     recent_numbers: set[int] = set()
-    for draw in draws_so_far[-recent_window:]:
+    for draw in draws_so_far[:recent_window]:
         nums = draw.get("numbers") if isinstance(draw, dict) else draw
         if isinstance(nums, (list, tuple, set)):
             for x in nums:

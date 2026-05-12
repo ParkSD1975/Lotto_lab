@@ -89,6 +89,10 @@ class WeeklyPipelineV2:
             verify_result = self._verify_previous(latest_round, draws)
 
             # ── Phase B: 딥러닝 전체 분석 ────────────────────────────────────
+            # [데이터 누수 방지] target_round 이전 회차만 사용 (reviewer 권장)
+            # 정상 운영(target = latest+1)은 영향 없음. backtest target 지정 시 누수 차단.
+            draws = [d for d in draws if d.get("round") is not None and d["round"] < target]
+            logger.info(f"  analysis draws (cutoff): {len(draws)}회차 (round < {target})")
             logger.info("[Phase B] 딥러닝 분석 실행 중...")
             analysis = self._run_analysis(draws, target)
 
