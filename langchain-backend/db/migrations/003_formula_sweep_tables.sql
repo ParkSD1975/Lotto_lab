@@ -89,4 +89,30 @@ DROP POLICY IF EXISTS "anon_select_sweep_results" ON formula_sweep_results;
 CREATE POLICY "anon_select_sweep_results" ON formula_sweep_results
   FOR SELECT TO anon USING (true);
 
--- service_role 전체 권한은 기본값 (RLS bypass)
+-- INSERT/UPDATE/DELETE policy (서버가 SUPABASE_KEY=anon 사용 시 필수)
+-- [2026-05-13 보완] Phase 1 적용 시 누락 → API run_sweep 42501 RLS violation 발생 후 추가
+DROP POLICY IF EXISTS "anon_insert_sweep_jobs" ON formula_sweep_jobs;
+CREATE POLICY "anon_insert_sweep_jobs" ON formula_sweep_jobs
+  FOR INSERT TO anon WITH CHECK (true);
+
+DROP POLICY IF EXISTS "anon_update_sweep_jobs" ON formula_sweep_jobs;
+CREATE POLICY "anon_update_sweep_jobs" ON formula_sweep_jobs
+  FOR UPDATE TO anon USING (true);
+
+DROP POLICY IF EXISTS "anon_delete_sweep_jobs" ON formula_sweep_jobs;
+CREATE POLICY "anon_delete_sweep_jobs" ON formula_sweep_jobs
+  FOR DELETE TO anon USING (true);
+
+DROP POLICY IF EXISTS "anon_insert_sweep_results" ON formula_sweep_results;
+CREATE POLICY "anon_insert_sweep_results" ON formula_sweep_results
+  FOR INSERT TO anon WITH CHECK (true);
+
+DROP POLICY IF EXISTS "anon_update_sweep_results" ON formula_sweep_results;
+CREATE POLICY "anon_update_sweep_results" ON formula_sweep_results
+  FOR UPDATE TO anon USING (true);
+
+DROP POLICY IF EXISTS "anon_delete_sweep_results" ON formula_sweep_results;
+CREATE POLICY "anon_delete_sweep_results" ON formula_sweep_results
+  FOR DELETE TO anon USING (true);
+
+-- service_role 키 사용 시 RLS bypass (위 정책 불필요)
