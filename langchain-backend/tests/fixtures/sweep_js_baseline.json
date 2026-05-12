@@ -1,0 +1,152 @@
+{
+  "description": "JS simulator_evaluator.js baseline results for cross-validation",
+  "test_cases": [
+    {
+      "name": "W1_union_W2_round_1224",
+      "formula": {
+        "version": "v5-multi",
+        "workspaces": [
+          {
+            "id": "ws-1",
+            "label": "W1",
+            "cards": [
+              {"type": "round", "digitMode": "thousands", "offset": 0},
+              {"type": "date", "datePart": "day", "offset": 0},
+              {"type": "date", "datePart": "month", "offset": 0},
+              {"type": "line", "offset": 1}
+            ],
+            "transforms": [
+              {"op": "+", "value": 1, "isVariable": false},
+              {"op": "+", "value": 2, "isVariable": false},
+              {"op": "+", "value": 2, "isVariable": false},
+              {"op": "*", "value": 2, "isVariable": false}
+            ],
+            "mode": "auto"
+          },
+          {
+            "id": "ws-2",
+            "label": "W2",
+            "cards": [
+              {
+                "type": "regref",
+                "sourceWsId": "ws-1",
+                "refType": "all_main_bonus"
+              }
+            ],
+            "transforms": [
+              {"op": "+", "value": 79, "isVariable": true},
+              {"op": "%", "value": 46, "isVariable": false}
+            ],
+            "mode": "auto"
+          }
+        ],
+        "combineOps": [
+          {"leftWsId": "ws-1", "op": "union", "rightWsId": "ws-2"}
+        ],
+        "combinePostTransforms": [],
+        "combinePostExpand": true
+      },
+      "round": 1224,
+      "var_value": 79,
+      "expected_result": "PLACEHOLDER_TO_BE_FILLED_BY_JS"
+    },
+    {
+      "name": "simple_round_plus_1",
+      "formula": {
+        "version": "v5-multi",
+        "workspaces": [
+          {
+            "id": "ws-1",
+            "label": "W1",
+            "cards": [
+              {"type": "round", "digitMode": "thousands", "offset": 0}
+            ],
+            "transforms": [
+              {"op": "+", "value": 1, "isVariable": false}
+            ],
+            "mode": "auto"
+          }
+        ],
+        "combineOps": [],
+        "combinePostTransforms": [],
+        "combinePostExpand": false
+      },
+      "round": 1224,
+      "var_value": null,
+      "expected_result": [1225]
+    },
+    {
+      "name": "tail_expand",
+      "formula": {
+        "version": "v5-multi",
+        "workspaces": [
+          {
+            "id": "ws-1",
+            "label": "W1",
+            "cards": [
+              {"type": "tail", "tailNum": 3}
+            ],
+            "transforms": [],
+            "mode": "auto"
+          }
+        ],
+        "combineOps": [],
+        "combinePostTransforms": [],
+        "combinePostExpand": false
+      },
+      "round": 1224,
+      "var_value": null,
+      "expected_result": [3, 13, 23, 33, 43]
+    },
+    {
+      "name": "line_offset_1",
+      "formula": {
+        "version": "v5-multi",
+        "workspaces": [
+          {
+            "id": "ws-1",
+            "label": "W1",
+            "cards": [
+              {"type": "line", "offset": 1}
+            ],
+            "transforms": [],
+            "mode": "auto"
+          }
+        ],
+        "combineOps": [],
+        "combinePostTransforms": [],
+        "combinePostExpand": false
+      },
+      "round": 1224,
+      "var_value": null,
+      "expected_result": "DEPENDS_ON_1223_NUMBERS"
+    },
+    {
+      "name": "scalar_mode_sum",
+      "formula": {
+        "version": "v5-multi",
+        "workspaces": [
+          {
+            "id": "ws-1",
+            "label": "W1",
+            "cards": [
+              {"type": "num", "num": 10},
+              {"type": "num", "num": 20}
+            ],
+            "transforms": [
+              {"op": "+", "value": 5, "isVariable": false},
+              {"op": "%", "value": 45, "isVariable": false}
+            ],
+            "mode": "scalar"
+          }
+        ],
+        "combineOps": [],
+        "combinePostTransforms": [],
+        "combinePostExpand": false
+      },
+      "round": 1224,
+      "var_value": null,
+      "expected_result": [35]
+    }
+  ]
+}
