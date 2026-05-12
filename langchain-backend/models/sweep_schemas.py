@@ -181,7 +181,7 @@ class SweepCriteria(BaseModel):
     """연속 hit 판정 기준"""
     min_consecutive: int = 3  # 최소 N연속 hit
     include_bonus: bool = False  # 보너스 번호 포함 여부
-    max_avg_gap: Optional[float] = None  # 평균 gap 상한 (None=무제한)
+    min_avg_gap: Optional[float] = None  # 평균 gap 하한 (None=무제한). 평균 간격이 이 값 이상인 산식만 채택.
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -199,9 +199,11 @@ class SweepHitRecord(BaseModel):
 
 
 class SweepResult(BaseModel):
-    """단일 변수값 sweep 결과"""
-    var_value: int
-    longest_consecutive: int  # 최장 N연속 hit
-    total_hits: int  # 총 hit 회차 수
-    avg_gap: float  # hit 간 평균 간격
+    """단일 변수값 sweep 결과 — DB(formula_sweep_results) 컬럼명과 1:1 정합."""
+    variable_value: int  # 변수 치환값
+    target_numbers: list[int]  # 최신 회차 산출 번호 (DB NOT NULL)
+    max_consecutive: int  # 최장 N연속 hit
+    avg_gap_rounds: float  # hit 간 평균 간격
+    hit_count: int = 0  # 총 1+ hit 회차 수
+    total_evaluated: int = 0  # 평가 회차 수 (DB NOT NULL)
     history: list[SweepHitRecord]  # 회차별 상세

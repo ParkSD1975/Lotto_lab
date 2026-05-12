@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fixture JS Evaluator</title>
+</head>
+<body>
+    <h1>Fixture JS Evaluator</h1>
+    <p>Opening console... (F12)</p>
+
+    <script src="../../js/simulator_evaluator.js"></script>
+    <script>
+        console.log('[Fixture Evaluator] Loading...');
+
+        const SAMPLE_DRAWS = [
+            {
+                round: 1224,
+                drawNo: 1224,
+                date: "2025-01-04",
+                drawDate: "2025-01-04",
+                numbers: [1, 2, 3, 4, 5, 6],
+                bonus: 7
+            },
+            {
+                round: 1223,
+                drawNo: 1223,
+                date: "2024-12-28",
+                drawDate: "2024-12-28",
+                numbers: [8, 15, 22, 29, 36, 43],
+                bonus: 10
+            },
+            {
+                round: 1222,
+                drawNo: 1222,
+                date: "2024-12-21",
+                drawDate: "2024-12-21",
+                numbers: [5, 12, 19, 26, 33, 40],
+                bonus: 45
+            },
+            {
+                round: 1221,
+                drawNo: 1221,
+                date: "2024-12-14",
+                drawDate: "2024-12-14",
+                numbers: [7, 14, 21, 28, 35, 42],
+                bonus: 3
+            },
+            {
+                round: 1220,
+                drawNo: 1220,
+                date: "2024-12-07",
+                drawDate: "2024-12-07",
+                numbers: [2, 9, 16, 23, 30, 37],
+                bonus: 44
+            }
+        ];
+
+        // Test Case 1: W1_union_W2_round_1224 (복잡한 regref)
+        const formula1 = {
+            version: "v5-multi",
+            workspaces: [
+                {
+                    id: "ws-1",
+                    label: "W1",
+                    cards: [
+                        {type: "round", digitMode: "thousands", offset: 0},
+                        {type: "date", datePart: "day", offset: 0},
+                        {type: "date", datePart: "month", offset: 0},
+                        {type: "line", offset: 1}
+                    ],
+                    transforms: [
+                        {op: "+", value: 1, isVariable: false},
+                        {op: "+", value: 2, isVariable: false},
+                        {op: "+", value: 2, isVariable: false},
+                        {op: "*", value: 2, isVariable: false}
+                    ],
+                    mode: "auto"
+                },
+                {
+                    id: "ws-2",
+                    label: "W2",
+                    cards: [
+                        {
+                            type: "regref",
+                            sourceWsId: "ws-1",
+                            refType: "all_main_bonus"
+                        }
+                    ],
+                    transforms: [
+                        {op: "+", value: 79, isVariable: true},
+                        {op: "%", value: 46, isVariable: false}
+                    ],
+                    mode: "auto"
+                }
+            ],
+            combineOps: [
+                {leftWsId: "ws-1", op: "union", rightWsId: "ws-2"}
+            ],
+            combinePostTransforms: [],
+            combinePostExpand: true
+        };
+
+        // Test Case 2: line_offset_1
+        const formula2 = {
+            version: "v5-multi",
+            workspaces: [
+                {
+                    id: "ws-1",
+                    label: "W1",
+                    cards: [
+                        {type: "line", offset: 1}
+                    ],
+                    transforms: [],
+                    mode: "auto"
+                }
+            ],
+            combineOps: [],
+            combinePostTransforms: [],
+            combinePostExpand: false
+        };
+
+        console.log('=== Test Case 1: W1_union_W2_round_1224 ===');
+        try {
+            const result1 = window.evalSimulatorFormulaForDraw(formula1, SAMPLE_DRAWS, 1224, 45);
+            console.log('Result:', JSON.stringify(result1));
+            console.log('Array format for fixture:', JSON.stringify(result1));
+        } catch (e) {
+            console.error('Test 1 Error:', e);
+        }
+
+        console.log('\n=== Test Case 2: line_offset_1 ===');
+        try {
+            const result2 = window.evalSimulatorFormulaForDraw(formula2, SAMPLE_DRAWS, 1224, 45);
+            console.log('Result:', JSON.stringify(result2));
+            console.log('Array format for fixture:', JSON.stringify(result2));
+        } catch (e) {
+            console.error('Test 2 Error:', e);
+        }
+
+        console.log('\n[Fixture Evaluator] Done. Copy the arrays above into sweep_js_baseline.json');
+    </script>
+</body>
+</html>

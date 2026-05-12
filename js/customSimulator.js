@@ -90,6 +90,9 @@ const CustomSim = {
             // 8. 저장된 필터 목록 로드 (S8)
             await CustomSim._loadSavedFilters();
 
+            // 9. Sweep 이벤트 바인딩 (Stage 6-F-X Phase 5)
+            CustomSim._bindSweepEvents();
+
             console.log('[CustomSim v5-multi] 초기화 완료');
         } catch (e) {
             console.error('[CustomSim v5-multi] Init Error:', e);
@@ -1464,12 +1467,15 @@ const CustomSim = {
                                 // [fix-372] 칩 안 inline 숫자 편집 — 연산자 그대로 + input으로 값 변경
                                 const sym = { '+': '+', '-': '−', '*': '×', '/': '÷', '%': 'mod' }[t.op] || t.op;
                                 const isTail = (t.op === '%' && t.value == 10);
+                                const isVar = t.isVariable || false;
+                                const varClass = isVar ? ' ws-var-chip' : '';
                                 if (isTail) {
-                                    return `<span class="ws-tx-chip text-[10px]">끝수<span class="ws-tx-chip-x cursor-pointer ml-1" data-tx-x="${i}" data-ws-id="${ws.id}">✕</span></span>`;
+                                    return `<span class="ws-tx-chip${varClass} text-[10px]">끝수<span class="ws-tx-var-toggle" data-tx-var-toggle="${i}" data-ws-id="${ws.id}">$</span><span class="ws-tx-chip-x cursor-pointer ml-1" data-tx-x="${i}" data-ws-id="${ws.id}">✕</span></span>`;
                                 }
-                                return `<span class="ws-tx-chip text-[10px] inline-flex items-center gap-0.5" style="padding:2px 6px">
+                                return `<span class="ws-tx-chip${varClass} text-[10px] inline-flex items-center gap-0.5" style="padding:2px 6px">
                                     <span class="font-bold">${sym}</span>
-                                    <input type="number" class="ws-tx-val-edit" data-tx-i="${i}" data-ws-id="${ws.id}" value="${t.value}" style="width:42px;background:transparent;border:none;outline:none;text-align:center;font-size:10px;font-weight:700;color:inherit;padding:0;-moz-appearance:textfield" min="0">
+                                    <input type="number" class="ws-tx-val-edit" data-tx-i="${i}" data-ws-id="${ws.id}" value="${isVar ? 'x' : t.value}" style="width:42px;background:transparent;border:none;outline:none;text-align:center;font-size:10px;font-weight:700;color:inherit;padding:0;-moz-appearance:textfield" min="0" ${isVar ? 'disabled' : ''}>
+                                    <span class="ws-tx-var-toggle" data-tx-var-toggle="${i}" data-ws-id="${ws.id}">$</span>
                                     <span class="ws-tx-chip-x cursor-pointer" data-tx-x="${i}" data-ws-id="${ws.id}" style="margin-left:2px">✕</span>
                                 </span>`;
                             }).join('')
@@ -1571,6 +1577,15 @@ const CustomSim = {
                 ws.mode = modes[(curIdx + 1) % modes.length];
                 CustomSim._renderWorkspaces();
                 CustomSim.refreshPreview();
+            });
+        });
+
+        // Stage 6-F-X: 변수 토글 ($)
+        container.querySelectorAll('.ws-tx-var-toggle').forEach(el => {
+            el.addEventListener('click', (e) => {
+                const wsId = el.dataset.wsId;
+                const idx = parseInt(el.dataset.txVarToggle);
+                CustomSim._onVarToggle(wsId, idx);
             });
         });
 
@@ -2595,6 +2610,17 @@ const CustomSim = {
         const zeroHitRate = total > 0 ? (zeroHitRounds / total * 100).toFixed(1) : '0.0';
         const bonusHitCount = realRows.filter(r => r.isBonusHit).length;
 
+        // 최근 N회차 평균 적중수 (realRows는 round DESC 정렬 → slice(0, n)이 최근 n회)
+        const _avgRecent = (n) => {
+            const slice = realRows.slice(0, n);
+            if (slice.length === 0) return '0.0';
+            const sum = slice.reduce((acc, r) => acc + (r.hitCount || 0), 0);
+            return (sum / slice.length).toFixed(1);
+        };
+        const avgRecent10 = _avgRecent(10);
+        const avgRecent5  = _avgRecent(5);
+        const avgRecent3  = _avgRecent(3);
+
         // ── 미당첨 gap 계산 (시간 ASC 순 = 과거→현재) ──
         // 직전 적중 회차 이후 그 회차까지 몇 번째 미적중인지
         // 예: 1219 적중 → 1220=1회, 1221=2회, 1222=3회 미당첨
@@ -2711,7 +2737,7 @@ const CustomSim = {
         }).join('');
 
         el.innerHTML = `
-            <!-- KPI 4 카드 -->
+            <!-- KPI 7 카드 (메인 4 + 최근 N회차 평균 3) — 1행 통합 -->
             <div class="kpi-grid border-y border-slate-100 mb-5">
                 <div class="kpi-cell">
                     <div class="kpi-value text-emerald-600">${avgHitRate}%</div>
@@ -2728,6 +2754,18 @@ const CustomSim = {
                 <div class="kpi-cell">
                     <div class="kpi-value text-slate-400">${zeroHitRate}%</div>
                     <div class="kpi-label">0-적중 회차</div>
+                </div>
+                <div class="kpi-cell sub">
+                    <div class="kpi-value">${avgRecent10}</div>
+                    <div class="kpi-label">최근 10회 평균</div>
+                </div>
+                <div class="kpi-cell sub">
+                    <div class="kpi-value">${avgRecent5}</div>
+                    <div class="kpi-label">최근 5회 평균</div>
+                </div>
+                <div class="kpi-cell sub">
+                    <div class="kpi-value">${avgRecent3}</div>
+                    <div class="kpi-label">최근 3회 평균</div>
                 </div>
             </div>
 
@@ -3601,6 +3639,362 @@ const CustomSim = {
     showLoading: (show) => {
         const o = document.getElementById('loading-overlay');
         if (o) o.classList.toggle('hidden', !show);
+    },
+
+    // ============================================================
+    // Stage 6-F-X: Formula Variable Sweep (Phase 5)
+    // ============================================================
+
+    /**
+     * 변수 토글 ($) — transform의 isVariable 플래그 전환
+     */
+    _onVarToggle: (wsId, transformIdx) => {
+        const ws = CustomSim.workspaces.find(w => w.id === wsId);
+        if (!ws) return;
+
+        const tx = ws.transforms[transformIdx];
+        if (!tx) return;
+
+        tx.isVariable = !tx.isVariable;
+
+        // 변수 1개 이상 있으면 "Sweep 실행" 버튼 활성화
+        const hasVar = CustomSim.workspaces.some(w =>
+            w.transforms.some(t => t.isVariable)
+        );
+        document.getElementById('btn-sweep-run').disabled = !hasVar;
+
+        // 변수 개수 표시
+        const varCount = CustomSim.workspaces.reduce((sum, w) =>
+            sum + w.transforms.filter(t => t.isVariable).length, 0
+        );
+        document.getElementById('sweep-var-count').textContent = `(변수 ${varCount}개)`;
+
+        CustomSim._renderWorkspaces();
+        CustomSim._save();
+    },
+
+    /**
+     * v5-multi 산식 직렬화 (Sweep API 요청용)
+     */
+    _serializeFormula: () => {
+        return {
+            version: 'v5-multi',
+            workspaces: CustomSim.workspaces.map(ws => ({
+                id: ws.id,
+                label: ws.label,
+                cards: ws.cards.map(c => ({ ...c })),  // shallow copy
+                transforms: ws.transforms.map(t => ({
+                    op: t.op,
+                    value: t.value,
+                    isVariable: !!t.isVariable
+                })),
+                mode: ws.mode,
+                hiddenInOutput: !!ws.hiddenInOutput,
+                setOpOverride: ws.setOpOverride ? { ...ws.setOpOverride } : null,
+            })),
+            combineOps: CustomSim.combineOps.map(co => ({ ...co })),
+            combinePostTransforms: CustomSim.combinePostTransforms.map(t => ({
+                op: t.op,
+                value: t.value
+            })),
+            combinePostExpand: !!CustomSim.combinePostExpand,
+        };
+    },
+
+    /**
+     * 변수 경로 추출 (isVariable=true인 transform 위치)
+     */
+    _findVariablePaths: () => {
+        const paths = [];
+        for (const ws of CustomSim.workspaces) {
+            ws.transforms.forEach((t, idx) => {
+                if (t.isVariable) {
+                    paths.push({
+                        ws_id: ws.id,
+                        transform_idx: idx,
+                        field: 'value'
+                    });
+                }
+            });
+        }
+        return paths;
+    },
+
+    /**
+     * Sweep 모달 열기
+     */
+    _openSweepModal: () => {
+        const paths = CustomSim._findVariablePaths();
+        if (paths.length === 0) {
+            alert('변수가 없습니다. 변환 칩의 $ 버튼을 클릭하여 변수를 지정하세요.');
+            return;
+        }
+
+        // 변수 위치 표시 (첫 변수만)
+        const first = paths[0];
+        const ws = CustomSim.workspaces.find(w => w.id === first.ws_id);
+        const wsLabel = ws ? ws.label : first.ws_id;
+        document.getElementById('sweep-var-path').textContent =
+            `${wsLabel} 변환 #${first.transform_idx + 1}`;
+
+        document.getElementById('sweep-modal-overlay').style.display = 'flex';
+    },
+
+    /**
+     * Sweep 모달 닫기
+     */
+    _closeSweepModal: () => {
+        document.getElementById('sweep-modal-overlay').style.display = 'none';
+    },
+
+    /**
+     * Sweep 실행 API 호출
+     */
+    _runSweep: async () => {
+        const formula = CustomSim._serializeFormula();
+        const variable_paths = CustomSim._findVariablePaths();
+        const variable_range = {
+            min: parseInt(document.getElementById('sweep-min').value),
+            max: parseInt(document.getElementById('sweep-max').value),
+            step: parseInt(document.getElementById('sweep-step').value),
+        };
+        const criteria = {
+            min_consecutive: parseInt(document.getElementById('sweep-min-consec').value),
+            include_bonus: document.getElementById('sweep-include-bonus').checked,
+            min_avg_gap: parseFloat(document.getElementById('sweep-min-gap').value),
+        };
+
+        // 모달 닫기
+        CustomSim._closeSweepModal();
+
+        // 진행률 표시
+        document.getElementById('sweep-running').style.display = 'block';
+
+        try {
+            const _sweepBase = (window.LANGCHAIN_CONFIG && window.LANGCHAIN_CONFIG.URL) || 'http://127.0.0.1:8000';
+            const res = await fetch(`${_sweepBase}/api/sweep/run`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    formula,
+                    variable_paths,
+                    variable_range,
+                    criteria,
+                }),
+            });
+
+            const data = await res.json();
+            const job_id = data.job_id;
+
+            // 진행률 폴링
+            CustomSim._pollSweepProgress(job_id);
+        } catch (e) {
+            console.error('[Sweep] API Error:', e);
+            alert('Sweep 실행 실패: ' + e.message);
+            document.getElementById('sweep-running').style.display = 'none';
+        }
+    },
+
+    /**
+     * Sweep 진행률 폴링 (2초 간격)
+     */
+    _pollSweepProgress: async (job_id) => {
+        const poll = async () => {
+            try {
+                const _sweepBase = (window.LANGCHAIN_CONFIG && window.LANGCHAIN_CONFIG.URL) || 'http://127.0.0.1:8000';
+                const res = await fetch(`${_sweepBase}/api/sweep/${job_id}/status`);
+                const data = await res.json();
+
+                const { status, progress } = data;
+                const { current, total, eta_seconds } = progress;
+
+                // 진행률 갱신
+                const pct = total > 0 ? Math.round((current / total) * 100) : 0;
+                document.getElementById('sweep-progress-text').textContent =
+                    `${current}/${total}`;
+                document.getElementById('sweep-progress-fill').style.width = `${pct}%`;
+
+                // ETA 표시
+                const eta = eta_seconds
+                    ? `${Math.round(eta_seconds)}초`
+                    : '--';
+                document.getElementById('sweep-eta').textContent = eta;
+
+                // complete 시 결과 렌더
+                if (status === 'complete') {
+                    document.getElementById('sweep-running').style.display = 'none';
+                    await CustomSim._renderSweepResults(job_id);
+                    return;
+                }
+
+                // failed 시 에러 표시
+                if (status === 'failed') {
+                    document.getElementById('sweep-running').style.display = 'none';
+                    alert('Sweep 실행 실패');
+                    return;
+                }
+
+                // 2초 후 재폴링
+                setTimeout(poll, 2000);
+            } catch (e) {
+                console.error('[Sweep Poll] Error:', e);
+                document.getElementById('sweep-running').style.display = 'none';
+            }
+        };
+
+        poll();
+    },
+
+    /**
+     * Sweep 결과 렌더링 (Phase 6 상세 구현)
+     */
+    _renderSweepResults: async (job_id) => {
+        try {
+            const _sweepBase = (window.LANGCHAIN_CONFIG && window.LANGCHAIN_CONFIG.URL) || 'http://127.0.0.1:8000';
+            const res = await fetch(`${_sweepBase}/api/sweep/${job_id}/results?min_consecutive=3&limit=500`);
+            const data = await res.json();
+
+            const { results, total } = data;
+
+            // 그룹핑 (5/4/3연속)
+            const by_consec = { 5: [], 4: [], 3: [] };
+            for (const r of results) {
+                const k = Math.min(r.max_consecutive, 5);
+                if (k >= 3) by_consec[k].push(r);
+            }
+
+            // 결과 섹션 표시
+            document.getElementById('sweep-total-results').textContent = total;
+            document.getElementById('sweep-results-section').style.display = 'block';
+
+            // 결과 그룹 렌더링
+            const container = document.getElementById('sweep-results-groups');
+            container.innerHTML = `
+                <div class="mb-8">
+                    <h4 class="text-sm font-semibold text-gray-700 mb-3">
+                        5연속 hit 산식 <span class="text-xs font-normal text-gray-500">${by_consec[5].length}건</span>
+                    </h4>
+                    <div id="sweep-5-list" class="space-y-2"></div>
+                </div>
+                <div class="mb-8">
+                    <h4 class="text-sm font-semibold text-gray-700 mb-3">
+                        4연속 hit 산식 <span class="text-xs font-normal text-gray-500">${by_consec[4].length}건</span>
+                    </h4>
+                    <div id="sweep-4-list" class="space-y-2"></div>
+                </div>
+                <div class="mb-8">
+                    <h4 class="text-sm font-semibold text-gray-700 mb-3">
+                        3연속 hit 산식 <span class="text-xs font-normal text-gray-500">${by_consec[3].length}건</span>
+                    </h4>
+                    <div id="sweep-3-list" class="space-y-2"></div>
+                </div>
+            `;
+
+            // 각 그룹 카드 렌더
+            CustomSim._renderSweepCardList('sweep-5-list', by_consec[5], job_id);
+            CustomSim._renderSweepCardList('sweep-4-list', by_consec[4], job_id);
+            CustomSim._renderSweepCardList('sweep-3-list', by_consec[3], job_id);
+        } catch (e) {
+            console.error('[Sweep Results] Error:', e);
+        }
+    },
+
+    /**
+     * Sweep 결과 카드 목록 렌더링
+     */
+    _renderSweepCardList: (containerId, results, job_id) => {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+
+        if (results.length === 0) {
+            container.innerHTML = '<div class="text-xs text-gray-400 italic">결과 없음</div>';
+            return;
+        }
+
+        container.innerHTML = results.map(r => {
+            // target_numbers 렌더 (ball)
+            const targets = r.target_numbers || [];
+            const targetBalls = targets.slice(0, 10).map(n => {
+                const color = CustomSim._ballColor(n);
+                return `<span class="ball ball-sm ${color}">${n}</span>`;
+            }).join('');
+
+            return `
+                <div class="sweep-card" data-job-id="${job_id}" data-var-value="${r.variable_value}">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-xs text-gray-500">
+                            var = <span class="font-mono font-semibold text-gray-800" style="font-feature-settings: 'tnum'">${r.variable_value}</span>
+                        </span>
+                        <span class="text-xs text-gray-500">평균 ${r.avg_gap_rounds.toFixed(1)}회 간격</span>
+                    </div>
+                    <div class="target-numbers flex flex-wrap gap-1.5 mb-2">
+                        ${targetBalls}
+                        ${targets.length > 10 ? `<span class="text-xs text-gray-400">+${targets.length - 10}</span>` : ''}
+                    </div>
+                    <div class="flex items-center justify-between text-xs text-gray-500">
+                        <span>${r.hit_count} hit / ${r.max_consecutive}연속</span>
+                        <button class="btn-history text-blue-500 hover:underline" data-job-id="${job_id}" data-var-value="${r.variable_value}">
+                            과거 통계 ▶
+                        </button>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        // 과거 통계 버튼 이벤트 바인딩
+        container.querySelectorAll('.btn-history').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const jid = e.target.dataset.jobId;
+                const vval = e.target.dataset.varValue;
+                CustomSim._openHistoryModal(jid, vval);
+            });
+        });
+    },
+
+    /**
+     * 과거 통계 모달 열기 (Phase 6)
+     */
+    _openHistoryModal: async (job_id, variable_value) => {
+        try {
+            const _sweepBase = (window.LANGCHAIN_CONFIG && window.LANGCHAIN_CONFIG.URL) || 'http://127.0.0.1:8000';
+            const res = await fetch(`${_sweepBase}/api/sweep/${job_id}/results/${variable_value}/history`);
+            const data = await res.json();
+
+            // 모달 렌더 (간단한 alert 대신 HTML 모달 구현 가능)
+            // 여기서는 console로 출력
+            console.log('[History Modal]', data);
+            alert(`var=${variable_value}\n최장 연속: ${data.max_consecutive}\n총 hit: ${data.hit_count}\n평균 간격: ${data.avg_gap_rounds.toFixed(1)}`);
+        } catch (e) {
+            console.error('[History Modal] Error:', e);
+            alert('과거 통계 조회 실패');
+        }
+    },
+
+    /**
+     * Sweep 버튼/모달 이벤트 바인딩
+     */
+    _bindSweepEvents: () => {
+        const btnRun = document.getElementById('btn-sweep-run');
+        const btnCancel = document.getElementById('btn-sweep-cancel');
+        const btnStart = document.getElementById('btn-sweep-start');
+
+        if (btnRun) {
+            btnRun.addEventListener('click', () => {
+                CustomSim._openSweepModal();
+            });
+        }
+
+        if (btnCancel) {
+            btnCancel.addEventListener('click', () => {
+                CustomSim._closeSweepModal();
+            });
+        }
+
+        if (btnStart) {
+            btnStart.addEventListener('click', () => {
+                CustomSim._runSweep();
+            });
+        }
     },
 };
 

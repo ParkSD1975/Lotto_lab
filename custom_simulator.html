@@ -270,6 +270,53 @@
         .btn-primary:hover { background: #4338ca; transform: translateY(-1px); }
         .btn-primary:active { transform: translateY(0); }
 
+        /* ============================================================
+           BTN-SWEEP — Sweep 실행 전용 (블랙 & 핑크)
+           Sweep 기능 차별화 강조. 다른 btn-primary와 분리.
+        ============================================================ */
+        .btn-sweep {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            font-size: 12.5px;
+            font-weight: 700;
+            color: #F472B6;                /* pink-400 */
+            background: #0F172A;           /* slate-900 deep black */
+            border: 0;
+            border-radius: 8px;
+            cursor: pointer;
+            letter-spacing: -0.01em;
+            transition: background 200ms ease, color 200ms ease,
+                        transform 150ms ease, box-shadow 200ms ease;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+        }
+        .btn-sweep:hover:not(:disabled) {
+            background: #1E293B;           /* slate-800 */
+            color: #EC4899;                /* pink-500 */
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(236, 72, 153, 0.18);
+        }
+        .btn-sweep:active:not(:disabled) {
+            transform: translateY(0);
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+        }
+        .btn-sweep:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+            color: #94A3B8;
+            background: #334155;
+            box-shadow: none;
+        }
+        .btn-sweep .material-symbols-outlined {
+            color: #EC4899;                /* pink-500 — 아이콘 강조 */
+            font-size: 14px;
+            transition: color 200ms ease;
+        }
+        .btn-sweep:disabled .material-symbols-outlined {
+            color: #94A3B8;
+        }
+
         .btn-ghost {
             display: inline-flex;
             align-items: center;
@@ -345,28 +392,46 @@
         ============================================================ */
         .kpi-grid {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
+            grid-template-columns: repeat(7, minmax(0, 1fr));
             gap: 0;
         }
         .kpi-cell {
-            padding: 16px 20px;
+            padding: 14px 12px;
             border-right: 1px solid var(--divider);
+            min-width: 0;
         }
         .kpi-cell:last-child { border-right: 0; }
         .kpi-value {
-            font-size: 24px;
+            font-size: 22px;
             font-weight: 800;
             color: var(--ink-primary);
             line-height: 1.2;
             letter-spacing: -0.02em;
+            font-feature-settings: "tnum";
+            white-space: nowrap;
         }
         .kpi-label {
-            font-size: 11px;
+            font-size: 10.5px;
             font-weight: 600;
             color: var(--ink-tertiary);
             text-transform: uppercase;
-            letter-spacing: 0.05em;
+            letter-spacing: 0.04em;
             margin-top: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        /* 최근 N회차 평균 — sub-KPI (작은 톤, 같은 행 내 시각적 차별) */
+        .kpi-cell.sub .kpi-value {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--ink-secondary, #334155);
+        }
+        .kpi-cell.sub .kpi-label {
+            text-transform: none;
+            letter-spacing: 0;
+            font-weight: 500;
+            color: var(--ink-tertiary);
         }
 
         /* 보정 표시 — 부드러운 amber 강조 */
@@ -444,14 +509,24 @@
             .sim-bottom aside { border-right: 0; border-bottom: 1px solid var(--divider); }
             .sim-bottom aside,
             .sim-bottom section { max-height: none !important; }
-            .kpi-grid { grid-template-columns: repeat(2, 1fr); }
-            .kpi-cell:nth-child(1), .kpi-cell:nth-child(2) {
+            /* 7 카드를 2행으로 재배치 (메인 4 + sub 3) */
+            .kpi-grid {
+                grid-template-columns: repeat(4, 1fr);
+                grid-auto-flow: row;
+            }
+            .kpi-cell { padding: 12px 10px; }
+            .kpi-cell:nth-child(1),
+            .kpi-cell:nth-child(2),
+            .kpi-cell:nth-child(3),
+            .kpi-cell:nth-child(4) {
                 border-bottom: 1px solid var(--divider);
             }
-            .kpi-cell:nth-child(2) { border-right: 0; }
+            .kpi-cell:nth-child(4) { border-right: 0; }
+            .kpi-cell:nth-child(7) { border-right: 0; }
             header { padding: 16px !important; }
             .h-emphasis { font-size: 22px; }
-            .kpi-value { font-size: 20px; }
+            .kpi-value { font-size: 18px; }
+            .kpi-cell.sub .kpi-value { font-size: 16px; }
         }
         @media (max-width: 480px) {
             .settings-section { padding: 14px 12px; }
@@ -819,6 +894,91 @@
         }
         .ws-tx-chip-x:hover { color: var(--danger); }
 
+        /* Stage 6-F-X: 변수 마킹 칩 (Sweep) */
+        .ws-var-chip {
+            background: rgba(59, 130, 246, 0.08) !important;
+            border: 1px solid #3B82F6 !important;
+            color: #3B82F6 !important;
+        }
+        .ws-var-chip::before {
+            content: "$";
+            margin-right: 4px;
+            font-weight: 700;
+        }
+        .ws-tx-var-toggle {
+            cursor: pointer;
+            color: var(--ink-quaternary);
+            font-size: 10px;
+            font-weight: 900;
+            margin-left: 2px;
+            padding: 0 4px;
+            transition: color 150ms;
+        }
+        .ws-tx-var-toggle:hover {
+            color: #3B82F6;
+        }
+
+        /* Sweep 모달 (미니멀, 박스 X) */
+        .sweep-modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(15, 23, 42, 0.5);
+            backdrop-filter: blur(4px);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .sweep-modal {
+            background: #FAFAFA;
+            border-radius: 12px;
+            padding: 32px;
+            max-width: 480px;
+            width: 100%;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        }
+        .sweep-input {
+            background: transparent;
+            border: 0;
+            border-bottom: 1px solid #E5E7EB;
+            padding: 6px 0;
+            font-feature-settings: "tnum";
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--ink-primary);
+            text-align: center;
+            outline: none;
+            transition: border-bottom-color 150ms;
+        }
+        .sweep-input:focus { border-bottom-color: #3B82F6; }
+
+        /* Sweep 진행률 바 */
+        .sweep-progress-bar {
+            height: 4px;
+            background: #E5E7EB;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+        .sweep-progress-fill {
+            height: 100%;
+            background: #3B82F6;
+            transition: width 200ms ease-out;
+        }
+
+        /* Sweep 결과 카드 (박스 일변도 X, 분리선만) */
+        .sweep-card {
+            padding: 16px 0;
+            border-bottom: 1px solid #F1F5F9;
+            transition: background 150ms;
+        }
+        .sweep-card:hover {
+            background: rgba(59, 130, 246, 0.02);
+        }
+        .sweep-card .font-mono {
+            font-family: 'JetBrains Mono', 'D2Coding', monospace;
+        }
+
         /* 집합 연산 버튼 */
         .ws-setop-btn {
             padding: 4px 10px;
@@ -904,18 +1064,6 @@
             border-color: var(--accent);
             background: var(--accent-soft);
         }
-        .ws-empty-hint {
-            /* placeholder */
-        }
-        .ws-cards {
-            /* cards container */
-        }
-        .ws-tx-controls {
-            /* transform controls */
-        }
-        .ws-tx-chain {
-            /* transform chain */
-        }
         .ws-reset {
             font-size: 11px;
             color: var(--ink-tertiary);
@@ -968,16 +1116,36 @@
         <!-- ============================================================
              상단 헤더 (얇게)
         ============================================================ -->
-        <header class="px-8 py-5 flex items-center justify-between border-b border-slate-100">
-            <div>
+        <header class="px-8 py-5 flex items-center justify-between gap-6 flex-wrap border-b border-slate-100">
+            <!-- 좌측: 제목 -->
+            <div class="flex-shrink-0">
                 <h1 class="h-title">커스텀 시뮬레이터</h1>
                 <p class="meta mt-0.5">나만의 수식으로 검증하는 로또 전략</p>
             </div>
-            <div class="flex items-center gap-2">
-                <!-- 저장은 선택사항 — 사용자가 마음에 드는 수식을 만든 뒤에만 클릭 -->
-                <button id="btn-save" class="btn-ghost text-xs" disabled title="작업한 수식을 필터로 저장 (선택사항)">
-                    <span class="material-symbols-outlined text-[14px]">bookmark</span>
-                    필터로 저장 (선택)
+
+            <!-- 우측: 데이터 소스 + 액션 (inline) -->
+            <div class="flex items-center gap-5 flex-wrap">
+                <!-- 데이터 소스 — 헤더 inline -->
+                <div class="flex items-baseline gap-2">
+                    <span class="meta tracking-wide uppercase" style="font-size:10px;letter-spacing:0.08em;">데이터</span>
+                    <button id="db-chip-korea" class="db-chip db-chip-active" data-db="korea">
+                        🇰🇷 한국
+                    </button>
+                    <span class="text-slate-200">|</span>
+                    <select id="db-select-overseas" class="select-underline min-w-[180px] text-xs">
+                        <option value="">해외 로또 선택...</option>
+                    </select>
+                </div>
+
+                <!-- 메타 (옵션, hidden 기본) -->
+                <span id="db-meta" class="meta hidden">
+                    <span id="db-meta-format"></span> · 보너스 <span id="db-meta-bonus"></span>개 · <span id="db-meta-max"></span>까지
+                </span>
+
+                <!-- 필터 저장 -->
+                <button id="btn-save" class="btn-ghost text-xs" disabled title="작업한 수식을 필터로 저장">
+                    <span class="material-symbols-outlined text-[14px]">save</span>
+                    필터저장
                 </button>
             </div>
         </header>
@@ -986,24 +1154,24 @@
              상단: 설정 영역 (전체 가로)
         ============================================================ -->
         <div class="bg-white">
-            <!-- ── §1. 데이터 소스 ── -->
-            <div class="settings-section">
-                <div class="h-section mb-3">데이터 소스</div>
-                <div class="flex items-center gap-3 flex-wrap">
-                    <button id="db-chip-korea" class="db-chip db-chip-active" data-db="korea">
-                        🇰🇷 한국
+            <!-- ── §1. 저장된 시뮬레이터 필터 (접기 가능) — 데이터 소스는 헤더로 이동 ── -->
+            <div class="settings-section boxed">
+                <div class="flex items-center justify-between mb-3">
+                    <button id="btn-toggle-saved" class="flex items-center gap-2 hover:opacity-80 transition-opacity" type="button">
+                        <span id="saved-toggle-icon" class="material-symbols-outlined text-[18px] text-slate-400 transition-transform">expand_more</span>
+                        <div class="h-section">저장된 시뮬레이터 필터</div>
+                        <span id="saved-count-badge" class="text-[10px] text-slate-400 font-medium">(0)</span>
                     </button>
-                    <span class="text-slate-200">|</span>
-                    <select id="db-select-overseas" class="select-underline min-w-[200px]">
-                        <option value="">해외 로또 선택...</option>
-                    </select>
+                    <button id="btn-refresh-saved" class="btn-ghost text-xs">
+                        <span class="material-symbols-outlined text-[14px]">refresh</span>새로고침
+                    </button>
                 </div>
-                <div id="db-meta" class="meta mt-2 hidden">
-                    <span id="db-meta-format"></span> · 보너스 <span id="db-meta-bonus"></span>개 · <span id="db-meta-max"></span>까지
+                <div id="saved-filters-wrapper" class="overflow-hidden transition-all duration-200">
+                    <div id="saved-filters-area" class="space-y-1" style="max-height: 480px; overflow-y: auto; padding-right: 4px;"></div>
                 </div>
             </div>
 
-            <!-- ── §2. 작업 공간 (드래그앤드롭 + 패턴 자동 감지) — v5 재설계 ── -->
+            <!-- ── §2. 수식 작업 공간 (드래그앤드롭 + 패턴 자동 감지) — v5 재설계 ── -->
             <div class="settings-section boxed">
                 <div class="flex items-center justify-between mb-3">
                     <div class="h-section">수식 작업 공간</div>
@@ -1081,24 +1249,84 @@
                         <span class="material-symbols-outlined text-[14px]">restart_alt</span>전체 초기화
                     </button>
                 </div>
+
+                <!-- Stage 6-F-X: Variable Sweep 실행 버튼 -->
+                <div class="flex items-center justify-between mt-3 pt-3 border-t border-slate-100">
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs text-slate-500 font-bold">변수 Sweep:</span>
+                        <span id="sweep-var-count" class="text-xs text-slate-400">(변수 0개)</span>
+                    </div>
+                    <button id="btn-sweep-run" class="btn-sweep" disabled>
+                        <span class="material-symbols-outlined">tune</span>Sweep 실행
+                    </button>
+                </div>
             </div>
 
-            <!-- ── §3. 저장된 시뮬레이터 필터 (접기 가능) ── -->
-            <div class="settings-section boxed">
-                <div class="flex items-center justify-between mb-3">
-                    <button id="btn-toggle-saved" class="flex items-center gap-2 hover:opacity-80 transition-opacity" type="button">
-                        <span id="saved-toggle-icon" class="material-symbols-outlined text-[18px] text-slate-400 transition-transform">expand_more</span>
-                        <div class="h-section">저장된 시뮬레이터 필터</div>
-                        <span id="saved-count-badge" class="text-[10px] text-slate-400 font-medium">(0)</span>
-                    </button>
-                    <button id="btn-refresh-saved" class="btn-ghost text-xs">
-                        <span class="material-symbols-outlined text-[14px]">refresh</span>새로고침
-                    </button>
-                </div>
-                <div id="saved-filters-wrapper" class="overflow-hidden transition-all duration-200">
-                    <div id="saved-filters-area" class="space-y-1" style="max-height: 480px; overflow-y: auto; padding-right: 4px;"></div>
+            <!-- Sweep 설정 모달 -->
+            <div id="sweep-modal-overlay" class="sweep-modal-overlay" style="display: none;">
+                <div class="sweep-modal">
+                    <h2 class="text-lg font-bold tracking-tight mb-2">변수 Sweep 설정</h2>
+                    <p class="text-xs text-gray-500 mb-6">변수 위치: <span id="sweep-var-path"></span></p>
+
+                    <!-- 범위 입력 -->
+                    <div class="flex items-center gap-4 mb-6">
+                        <label class="text-xs text-gray-600">범위</label>
+                        <input type="number" id="sweep-min" class="sweep-input w-24" value="2">
+                        <span class="text-gray-400">~</span>
+                        <input type="number" id="sweep-max" class="sweep-input w-24" value="1000">
+                        <span class="text-gray-400">step</span>
+                        <input type="number" id="sweep-step" class="sweep-input w-16" value="1">
+                    </div>
+
+                    <!-- 기준 -->
+                    <div class="mb-6">
+                        <label class="block text-xs text-gray-600 mb-2">판정 기준</label>
+                        <div class="flex items-center gap-2 mb-2">
+                            <span class="text-sm">연속</span>
+                            <input type="number" id="sweep-min-consec" class="sweep-input w-12" value="3">
+                            <span class="text-sm">회 이상</span>
+                        </div>
+                        <label class="flex items-center gap-2 mt-3">
+                            <input type="checkbox" id="sweep-include-bonus" checked>
+                            <span class="text-sm">보너스 당첨 포함</span>
+                        </label>
+                        <div class="flex items-center gap-2 mt-3">
+                            <span class="text-sm">평균 간격</span>
+                            <input type="number" id="sweep-min-gap" class="sweep-input w-16" value="10">
+                            <span class="text-sm">회 이상</span>
+                        </div>
+                    </div>
+
+                    <!-- 실행/취소 -->
+                    <div class="flex justify-end gap-3">
+                        <button id="btn-sweep-cancel" class="btn-ghost">취소</button>
+                        <button id="btn-sweep-start" class="btn-primary">실행</button>
+                    </div>
                 </div>
             </div>
+
+            <!-- Sweep 진행률 표시 -->
+            <div id="sweep-running" class="settings-section boxed mt-4" style="display: none;">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-sm font-medium">Sweep 실행 중</span>
+                    <span class="text-xs text-gray-500">
+                        <span id="sweep-progress-text">0/1000</span> · ETA <span id="sweep-eta">--</span>
+                    </span>
+                </div>
+                <div class="sweep-progress-bar">
+                    <div id="sweep-progress-fill" class="sweep-progress-fill" style="width: 0%;"></div>
+                </div>
+            </div>
+
+            <!-- Sweep 결과 대시보드 (Phase 6에서 추가 예정) -->
+            <div id="sweep-results-section" class="settings-section boxed mt-4" style="display: none;">
+                <h3 class="text-lg font-bold tracking-tight mb-2">Sweep 결과</h3>
+                <p class="text-xs text-gray-500 mb-6"><span id="sweep-total-results">0</span>개 산식 발견</p>
+
+                <!-- 결과 그룹 (5연속 / 4연속 / 3연속) -->
+                <div id="sweep-results-groups"></div>
+            </div>
+
         </div>
 
         <!-- ============================================================

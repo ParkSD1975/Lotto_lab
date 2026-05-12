@@ -578,8 +578,8 @@ def test_sweep_basic(sample_draws):
     # 결과 구조 검증 (적중 기준은 데이터 의존)
     assert isinstance(results, list)
     for r in results:
-        assert r.var_value in range(2, 6)
-        assert r.longest_consecutive >= 2
+        assert r.variable_value in range(2, 6)
+        assert r.max_consecutive >= 2
         assert len(r.history) > 0
 
 
@@ -699,6 +699,53 @@ def test_single_evaluation_performance(sample_draws):
 
     # 50ms 목표 (여유 100ms)
     assert elapsed < 0.1, f"단일 평가 너무 느림: {elapsed*1000:.2f}ms"
+
+
+def test_regref_cycle_blocked(sample_draws):
+    """regref 순환 참조 차단: W1→W2, W2→W1 사이클 시 빈 결과 반환"""
+    formula_dict = {
+        "version": "v5-multi",
+        "workspaces": [
+            {
+                "id": "ws-1",
+                "label": "W1",
+                "cards": [
+                    {
+                        "type": "regref",
+                        "sourceWsId": "ws-2",
+                        "refType": "line",
+                    }
+                ],
+                "transforms": [],
+                "mode": "auto",
+                "hiddenInOutput": False,
+            },
+            {
+                "id": "ws-2",
+                "label": "W2",
+                "cards": [
+                    {
+                        "type": "regref",
+                        "sourceWsId": "ws-1",
+                        "refType": "line",
+                    }
+                ],
+                "transforms": [],
+                "mode": "auto",
+                "hiddenInOutput": False,
+            },
+        ],
+        "combineOps": [{"leftWsId": "ws-1", "op": "union", "rightWsId": "ws-2"}],
+        "combinePostTransforms": [],
+        "combinePostExpand": False,
+    }
+
+    formula = FormulaV5Multi(**formula_dict)
+    engine = FormulaSweepEngine(formula, [], sample_draws)
+
+    # 순환 감지 → 빈 배열
+    result = engine.evaluate_at_round(0, target_idx=0)
+    assert result == []  # 순환 감지로 빈 배열
 
 
 if __name__ == "__main__":

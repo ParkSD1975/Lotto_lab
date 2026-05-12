@@ -12,6 +12,7 @@ from routes import predictions, performance, explain, pipeline, deep_analysis_v3
 from routes import smart_query, llm_filter
 from routes import predictions_v4           # P: Single Source of Truth API v4
 from routes import insight_v4                # Master Plan Stage 5: v3 컴포넌트 backend
+from routes import sweep                      # Stage 6-F-X: Formula Sweep Phase 4
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 # T-1 결정 C: v1 (WeeklyPipeline) 폐기 — v2가 single source of truth
@@ -90,6 +91,7 @@ app.include_router(smart_query.router)
 app.include_router(llm_filter.router)
 app.include_router(predictions_v4.router)  # P: weekly_* 읽기 전용 엔드포인트
 app.include_router(insight_v4.router)      # Stage 5: deep_insight_panel_v3.js backend
+app.include_router(sweep.router)            # Stage 6-F-X: Formula Sweep Phase 4
 
 
 @app.get("/debug-env")

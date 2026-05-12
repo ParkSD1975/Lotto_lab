@@ -38,10 +38,10 @@
         /* [수정] 2. 상단 컨트롤 바 글래스모피즘(반투명 유리) 효과 적용 */
         .ctrl-bar {
             position: sticky; top: 64px; z-index: 40;
-            background: #ffffff; /* [수정] 불투명 배경으로 변경 */
-            border-bottom: 1px solid rgba(226, 232, 240, 0.8);
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-            transition: all 0.3s ease;
+            background: #ffffff;
+            border-bottom: 1px solid #F1F5F9;
+            box-shadow: 0 1px 0 rgba(15, 23, 42, 0.02);
+            transition: box-shadow 0.2s ease;
         }
 
         /* [수정] 3. 그룹 카드 디자인 고급화 & 마우스 호버 효과 */
@@ -65,15 +65,21 @@
         .spin { display:inline-block; animation:spin 0.8s linear infinite; }
 
         /* [수정] 4. 다운로드 드롭다운 메뉴 호버 디테일 */
-        .dl-dropdown { 
-            position:absolute; right:0; top:calc(100%+6px); background:#fff; 
-            border:1px solid #e2e8f0; border-radius:14px; box-shadow:0 8px 32px rgba(0,0,0,0.12); 
-            z-index:50; min-width:170px; padding:6px 0; 
+        .dl-dropdown {
+            position:absolute; right:0; top:calc(100%+6px); background:#fff;
+            border:1px solid #F1F5F9; border-radius:8px;
+            box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
+            z-index:50; min-width:180px; padding:4px 0;
             transform-origin: top right;
-            animation: fadeIn 0.15s ease-out; 
+            animation: fadeIn 0.15s ease-out;
         }
-        .dl-item { display:flex; align-items:center; gap:10px; padding:10px 16px; font-size:12px; font-weight:600; color:#374151; cursor:pointer; transition:all 0.15s ease; }
-        .dl-item:hover { background:#eff6ff; color:#1d4ed8; padding-left:20px; } /* 마우스 올리면 글씨가 파랗게 되고 살짝 우측으로 밀림 */
+        .dl-item {
+            display:flex; align-items:center; gap:10px;
+            padding:8px 14px; font-size:12.5px; font-weight:500;
+            color:#475569; cursor:pointer;
+            transition: color 150ms ease, background 150ms ease;
+        }
+        .dl-item:hover { background: rgba(15, 23, 42, 0.05); color:#0F172A; }
 
         /* 텔레그램 토스트 */
         #tgToast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(20px); opacity:0; transition:all 0.3s; z-index:9999; pointer-events:none; }
@@ -91,43 +97,32 @@
 
 <div id="gnb-container"></div>
 
-<!-- ══ 컨트롤 바 ══ -->
+<!-- ══ 컨트롤 바 — 미니멀 헤더 (S2 리디자인) ══ -->
 <div class="ctrl-bar no-print">
-    <div class="max-w-5xl mx-auto px-6 py-3 flex items-center justify-between gap-3 flex-wrap">
-        <div class="flex items-center gap-3">
-            <span class="material-symbols-outlined text-blue-600" style="font-size:22px;">print</span>
-            <h1 class="text-[17px] font-semibold text-slate-900">출력</h1>
-            <span id="ctrlBadge" class="hidden px-2.5 py-0.5 bg-blue-100 text-blue-700 text-[12px] font-semibold rounded-full"></span>
-            <!-- [추가] 넘버링 수정 버튼 (중복 발견시 표시) -->
-            <button id="btnFixNames" onclick="OP.fixGroupNames()" class="hidden px-2.5 py-0.5 bg-rose-100 text-rose-700 text-[12px] font-semibold rounded-full hover:bg-rose-200 transition-colors">
-                번호 중복 해결하기
-            </button>
+    <div class="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between gap-6 flex-wrap">
+        <!-- 좌측: 제목 + meta -->
+        <div class="flex items-baseline gap-3">
+            <h1 class="hdr-title">출력</h1>
+            <span id="ctrlBadge" class="hdr-meta hidden"></span>
+            <button id="btnFixNames" onclick="OP.fixGroupNames()" class="hdr-warn hidden">번호 중복 해결</button>
         </div>
-        <div class="flex items-center gap-2 flex-shrink-0 flex-wrap">
-            <!-- [fix-305] 셋연산: 체크된 조합이 있을 때만 노출 -->
-            <span id="selCount" class="hidden px-2.5 py-1.5 bg-blue-100 text-blue-700 text-[12px] font-bold rounded-lg whitespace-nowrap">0개 선택</span>
-            <button id="btnSetUnion"     onclick="OP.computeSet('union')"      class="setop-btn hidden" title="합집합 — 선택 조합의 모든 번호">
-                <span class="material-symbols-outlined" style="font-size:15px;">join_full</span>합집합
-            </button>
-            <button id="btnSetIntersect" onclick="OP.computeSet('intersect')"  class="setop-btn hidden" title="교집합 — 선택 조합 공통 번호">
-                <span class="material-symbols-outlined" style="font-size:15px;">join_inner</span>교집합
-            </button>
-            <button id="btnSetDifference" onclick="OP.computeSet('difference')" class="setop-btn hidden" title="차집합 — 첫 선택 − 나머지">
-                <span class="material-symbols-outlined" style="font-size:15px;">join_left</span>차집합
-            </button>
-            <button id="btnSetComplement" onclick="OP.computeSet('complement')" class="setop-btn hidden" title="미포함 — 1~45 중 선택 조합에 없는 번호">
-                <span class="material-symbols-outlined" style="font-size:15px;">block</span>미포함
-            </button>
-            <button id="btnSetClear" onclick="OP.clearSelection()" class="setop-btn-ghost hidden" title="선택 해제">
-                <span class="material-symbols-outlined" style="font-size:15px;">restart_alt</span>해제
-            </button>
-            <span id="setSeparator" class="hidden mx-1 text-slate-200">|</span>
 
-            <!-- 다운로드 드롭다운 -->
+        <!-- 우측: 액션 -->
+        <div class="flex items-center flex-wrap">
+            <!-- 셋연산 -->
+            <span id="selCount" class="hdr-meta hdr-meta-accent hidden mr-3"></span>
+            <button id="btnSetUnion"      onclick="OP.computeSet('union')"      class="hdr-btn hidden" title="합집합 — 선택 조합의 모든 번호">합집합</button>
+            <button id="btnSetIntersect"  onclick="OP.computeSet('intersect')"  class="hdr-btn hidden" title="교집합 — 선택 조합 공통 번호">교집합</button>
+            <button id="btnSetDifference" onclick="OP.computeSet('difference')" class="hdr-btn hidden" title="차집합 — 첫 선택 − 나머지">차집합</button>
+            <button id="btnSetComplement" onclick="OP.computeSet('complement')" class="hdr-btn hidden" title="미포함 — 1~45 중 선택 조합에 없는 번호">미포함</button>
+            <button id="btnSetClear"      onclick="OP.clearSelection()"          class="hdr-btn-muted hidden" title="선택 해제">해제</button>
+            <span id="setSeparator" class="hdr-divider hidden"></span>
+
+            <!-- 다운로드 -->
             <div class="relative" id="dlWrap">
-                <button onclick="OP.toggleDl()" class="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg hover:border-blue-400 hover:text-blue-600 transition-all no-print">
-                    <span class="material-symbols-outlined" style="font-size:15px;">download</span>다운로드
-                    <span class="material-symbols-outlined" style="font-size:14px;">expand_more</span>
+                <button onclick="OP.toggleDl()" class="hdr-btn">
+                    다운로드
+                    <span class="hdr-caret">▾</span>
                 </button>
                 <div id="dlDropdown" class="dl-dropdown hidden">
                     <div class="dl-item" onclick="OP.downloadAllTxt()">
@@ -142,33 +137,28 @@
                     </div>
                 </div>
             </div>
-            <!-- 텔레그램 전체 전송 -->
-            <button id="btnTgAll" onclick="OP.sendAllTelegram()" class="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold text-sky-600 bg-sky-50 border border-sky-200 rounded-lg hover:bg-sky-100 transition-all no-print hidden">
-                <span class="material-symbols-outlined" style="font-size:15px;">send</span>텔레그램 전송
-            </button>
+
+            <!-- 텔레그램 (primary, underline 강조) -->
+            <button id="btnTgAll" onclick="OP.sendAllTelegram()" class="hdr-btn-accent no-print hidden">텔레그램 전송</button>
+
+            <span class="hdr-divider"></span>
+
             <!-- 조합으로 -->
-            <a href="combination_generator.html" class="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold text-slate-500 bg-white border border-slate-200 rounded-lg hover:border-slate-400 hover:text-slate-700 transition-all no-print">
-                <span class="material-symbols-outlined" style="font-size:15px;">arrow_back</span>조합으로
-            </a>
+            <a href="combination_generator.html" class="hdr-btn-muted no-print">← 조합으로</a>
         </div>
     </div>
 
-    <!-- [fix-305] 셋연산 결과 영역 — 컨트롤 바 아래 펼쳐짐 -->
-    <div id="setOpResult" class="hidden border-t border-slate-100 bg-blue-50/40">
+    <!-- 셋연산 결과 영역 — 미니멀 (배경 X, 분리선만) -->
+    <div id="setOpResult" class="hidden border-t border-slate-100">
         <div class="max-w-5xl mx-auto px-6 py-3">
             <div class="flex items-center justify-between gap-3 mb-2 flex-wrap">
-                <div class="flex items-center gap-2">
-                    <span class="material-symbols-outlined text-blue-600" style="font-size:18px;">rule</span>
-                    <span id="setOpResultLabel" class="text-[12px] font-bold text-slate-700"></span>
-                    <span id="setOpResultCount" class="text-[11px] font-medium text-slate-500"></span>
+                <div class="flex items-baseline gap-2">
+                    <span id="setOpResultLabel" class="text-[13px] font-bold text-slate-900 tracking-tight"></span>
+                    <span id="setOpResultCount" class="text-[11px] font-medium text-slate-400"></span>
                 </div>
-                <div class="flex items-center gap-1.5">
-                    <button onclick="OP.copyResult()" class="setop-btn-ghost text-[11px]" title="번호 복사">
-                        <span class="material-symbols-outlined" style="font-size:14px;">content_copy</span>복사
-                    </button>
-                    <button onclick="OP.hideResult()" class="setop-btn-ghost text-[11px]" title="닫기">
-                        <span class="material-symbols-outlined" style="font-size:14px;">close</span>닫기
-                    </button>
+                <div class="flex items-center">
+                    <button onclick="OP.copyResult()" class="hdr-btn" title="번호 복사">복사</button>
+                    <button onclick="OP.hideResult()" class="hdr-btn-muted" title="닫기">닫기</button>
                 </div>
             </div>
             <div id="setOpResultBalls" class="flex items-center gap-1.5 flex-wrap"></div>
@@ -177,21 +167,106 @@
 </div>
 
 <style>
-    .setop-btn {
-        display: inline-flex; align-items: center; gap: 4px;
-        padding: 6px 10px; font-size: 12px; font-weight: 600;
-        color: #475569; background: #fff; border: 1px solid #e2e8f0; border-radius: 8px;
-        cursor: pointer; transition: all .15s;
+    /* ──────────────────────────────────────────────────────────────
+       S2 헤더 — 미니멀 (박스 X, 단일 액센트, 텍스트 위주)
+       원칙: 데이터가 주인공. 컨트롤은 절제.
+    ────────────────────────────────────────────────────────────── */
+    .hdr-title {
+        font-size: 16px;
+        font-weight: 700;
+        color: #0F172A;
+        letter-spacing: -0.01em;
+        line-height: 1;
     }
-    .setop-btn:hover:not(:disabled) { border-color: #1d4ed8; color: #1d4ed8; background: #eff6ff; }
-    .setop-btn:disabled { opacity: .4; cursor: not-allowed; }
-    .setop-btn-ghost {
-        display: inline-flex; align-items: center; gap: 4px;
-        padding: 6px 10px; font-size: 12px; font-weight: 500;
-        color: #94a3b8; background: transparent; border: 1px solid transparent; border-radius: 8px;
-        cursor: pointer; transition: all .15s;
+    .hdr-meta {
+        font-size: 12px;
+        font-weight: 500;
+        color: #94A3B8;
+        font-feature-settings: "tnum";
+        line-height: 1;
     }
-    .setop-btn-ghost:hover { color: #475569; background: #f1f5f9; }
+    .hdr-meta-accent {
+        color: #0F172A;
+        font-weight: 700;
+    }
+    .hdr-btn {
+        display: inline-flex; align-items: center; gap: 4px;
+        padding: 6px 10px;
+        font-size: 12.5px;
+        font-weight: 500;
+        color: #475569;
+        background: transparent;
+        border: 0;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: color 150ms ease, background 150ms ease;
+        line-height: 1.4;
+        text-decoration: none;
+    }
+    .hdr-btn:hover:not(:disabled) {
+        color: #0F172A;
+        background: rgba(15, 23, 42, 0.05);
+    }
+    .hdr-btn.is-active {
+        color: #0F172A;
+        background: rgba(15, 23, 42, 0.08);
+        font-weight: 600;
+    }
+    .hdr-btn:disabled { opacity: .35; cursor: not-allowed; }
+    .hdr-btn-muted {
+        display: inline-flex; align-items: center; gap: 4px;
+        padding: 6px 10px;
+        font-size: 12.5px;
+        font-weight: 500;
+        color: #94A3B8;
+        background: transparent;
+        border: 0;
+        cursor: pointer;
+        transition: color 150ms ease;
+        text-decoration: none;
+        line-height: 1.4;
+    }
+    .hdr-btn-muted:hover { color: #0F172A; }
+    .hdr-btn-accent {
+        display: inline-flex; align-items: center;
+        padding: 6px 10px;
+        font-size: 12.5px;
+        font-weight: 600;
+        color: #0F172A;
+        background: transparent;
+        border: 0;
+        border-bottom: 1.5px solid transparent;
+        border-radius: 0;
+        cursor: pointer;
+        transition: border-bottom-color 150ms ease;
+        line-height: 1.4;
+    }
+    .hdr-btn-accent:hover { border-bottom-color: #0F172A; }
+    .hdr-divider {
+        display: inline-block;
+        width: 1px;
+        height: 14px;
+        background: #E2E8F0;
+        margin: 0 8px;
+        vertical-align: middle;
+    }
+    .hdr-caret {
+        font-size: 10px;
+        color: #94A3B8;
+        margin-left: 2px;
+    }
+    .hdr-warn {
+        font-size: 11px;
+        font-weight: 600;
+        color: #DC2626;
+        background: transparent;
+        border: 0;
+        border-bottom: 1px dashed #DC2626;
+        padding: 2px 2px;
+        cursor: pointer;
+        transition: opacity 150ms;
+    }
+    .hdr-warn:hover { opacity: 0.7; }
 </style>
 
 <!-- ══ 메인 ══ -->

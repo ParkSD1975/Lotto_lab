@@ -149,19 +149,23 @@ class FormulaSweepEngine:
                 )
 
             # 연속 hit 판정
-            longest_consecutive = self._longest_consecutive(history)
-            total_hits = sum(1 for h in history if h.hit_count > 0)
-            avg_gap = self._compute_avg_gap(history)
+            max_consecutive = self._longest_consecutive(history)
+            hit_count = sum(1 for h in history if h.hit_count > 0)
+            avg_gap_rounds = self._compute_avg_gap(history)
 
             # 기준 충족 여부
-            if longest_consecutive >= criteria.min_consecutive:
-                if criteria.max_avg_gap is None or avg_gap <= criteria.max_avg_gap:
+            if max_consecutive >= criteria.min_consecutive:
+                if criteria.min_avg_gap is None or avg_gap_rounds >= criteria.min_avg_gap:
+                    # target_numbers: 최신(첫번째) 회차의 산출 결과
+                    target_numbers = history[0].targets if history else []
                     results.append(
                         SweepResult(
-                            var_value=var_value,
-                            longest_consecutive=longest_consecutive,
-                            total_hits=total_hits,
-                            avg_gap=avg_gap,
+                            variable_value=var_value,
+                            target_numbers=target_numbers,
+                            max_consecutive=max_consecutive,
+                            avg_gap_rounds=avg_gap_rounds,
+                            hit_count=hit_count,
+                            total_evaluated=len(history),
                             history=history,
                         )
                     )

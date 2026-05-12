@@ -10,16 +10,47 @@
             "id": "ws-1",
             "label": "W1",
             "cards": [
-              {"type": "round", "digitMode": "thousands", "offset": 0},
-              {"type": "date", "datePart": "day", "offset": 0},
-              {"type": "date", "datePart": "month", "offset": 0},
-              {"type": "line", "offset": 1}
+              {
+                "type": "round",
+                "digitMode": "thousands",
+                "offset": 0
+              },
+              {
+                "type": "date",
+                "datePart": "day",
+                "offset": 0
+              },
+              {
+                "type": "date",
+                "datePart": "month",
+                "offset": 0
+              },
+              {
+                "type": "line",
+                "offset": 1
+              }
             ],
             "transforms": [
-              {"op": "+", "value": 1, "isVariable": false},
-              {"op": "+", "value": 2, "isVariable": false},
-              {"op": "+", "value": 2, "isVariable": false},
-              {"op": "*", "value": 2, "isVariable": false}
+              {
+                "op": "+",
+                "value": 1,
+                "isVariable": false
+              },
+              {
+                "op": "+",
+                "value": 2,
+                "isVariable": false
+              },
+              {
+                "op": "+",
+                "value": 2,
+                "isVariable": false
+              },
+              {
+                "op": "*",
+                "value": 2,
+                "isVariable": false
+              }
             ],
             "mode": "auto"
           },
@@ -34,21 +65,79 @@
               }
             ],
             "transforms": [
-              {"op": "+", "value": 79, "isVariable": true},
-              {"op": "%", "value": 46, "isVariable": false}
+              {
+                "op": "+",
+                "value": 79,
+                "isVariable": true
+              },
+              {
+                "op": "%",
+                "value": 46,
+                "isVariable": false
+              }
             ],
             "mode": "auto"
           }
         ],
         "combineOps": [
-          {"leftWsId": "ws-1", "op": "union", "rightWsId": "ws-2"}
+          {
+            "leftWsId": "ws-1",
+            "op": "union",
+            "rightWsId": "ws-2"
+          }
         ],
         "combinePostTransforms": [],
         "combinePostExpand": true
       },
       "round": 1224,
       "var_value": 79,
-      "expected_result": "PLACEHOLDER_TO_BE_FILLED_BY_JS"
+      "expected_result": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45
+      ]
     },
     {
       "name": "simple_round_plus_1",
@@ -59,10 +148,18 @@
             "id": "ws-1",
             "label": "W1",
             "cards": [
-              {"type": "round", "digitMode": "thousands", "offset": 0}
+              {
+                "type": "round",
+                "digitMode": "thousands",
+                "offset": 0
+              }
             ],
             "transforms": [
-              {"op": "+", "value": 1, "isVariable": false}
+              {
+                "op": "+",
+                "value": 1,
+                "isVariable": false
+              }
             ],
             "mode": "auto"
           }
@@ -73,7 +170,9 @@
       },
       "round": 1224,
       "var_value": null,
-      "expected_result": [1225]
+      "expected_result": [
+        1225
+      ]
     },
     {
       "name": "tail_expand",
@@ -84,7 +183,10 @@
             "id": "ws-1",
             "label": "W1",
             "cards": [
-              {"type": "tail", "tailNum": 3}
+              {
+                "type": "tail",
+                "tailNum": 3
+              }
             ],
             "transforms": [],
             "mode": "auto"
@@ -96,7 +198,13 @@
       },
       "round": 1224,
       "var_value": null,
-      "expected_result": [3, 13, 23, 33, 43]
+      "expected_result": [
+        3,
+        13,
+        23,
+        33,
+        43
+      ]
     },
     {
       "name": "line_offset_1",
@@ -107,7 +215,10 @@
             "id": "ws-1",
             "label": "W1",
             "cards": [
-              {"type": "line", "offset": 1}
+              {
+                "type": "line",
+                "offset": 1
+              }
             ],
             "transforms": [],
             "mode": "auto"
@@ -119,7 +230,14 @@
       },
       "round": 1224,
       "var_value": null,
-      "expected_result": "DEPENDS_ON_1223_NUMBERS"
+      "expected_result": [
+        8,
+        15,
+        22,
+        29,
+        36,
+        43
+      ]
     },
     {
       "name": "scalar_mode_sum",
@@ -130,12 +248,26 @@
             "id": "ws-1",
             "label": "W1",
             "cards": [
-              {"type": "num", "num": 10},
-              {"type": "num", "num": 20}
+              {
+                "type": "num",
+                "num": 10
+              },
+              {
+                "type": "num",
+                "num": 20
+              }
             ],
             "transforms": [
-              {"op": "+", "value": 5, "isVariable": false},
-              {"op": "%", "value": 45, "isVariable": false}
+              {
+                "op": "+",
+                "value": 5,
+                "isVariable": false
+              },
+              {
+                "op": "%",
+                "value": 45,
+                "isVariable": false
+              }
             ],
             "mode": "scalar"
           }
@@ -146,7 +278,9 @@
       },
       "round": 1224,
       "var_value": null,
-      "expected_result": [35]
+      "expected_result": [
+        35
+      ]
     }
   ]
 }
