@@ -208,7 +208,11 @@ def compute_pillar_scores(target_round: int) -> dict[str, float]:
 
 
 def save_pillar_scores(target_round: int) -> dict[str, Any]:
-    """4-Pillar 점수 계산 후 recommendation_backtest_runs에 저장."""
+    """[DEPRECATED 2026-05-13] backtest 전용 — production은 save_pillar_scores_to_weekly 사용.
+
+    recommendation_backtest_runs 테이블에 저장. stage6_full_backtest 등 백테스트 호출처에서만 사용.
+    production weekly_pipeline_v2는 P5 재설계로 weekly_predictions에 저장하도록 변경됨.
+    """
     try:
         supabase = get_client()
         scores = compute_pillar_scores(target_round)
@@ -237,6 +241,63 @@ def save_pillar_scores(target_round: int) -> dict[str, Any]:
         }
 
 
+def save_pillar_scores_to_weekly(target_round: int) -> dict[str, Any]:
+    """[P5 재설계 2026-05-13] 4-Pillar 점수 계산 후 weekly_predictions에 저장.
+
+    production 경로의 정합 저장처. (기존 save_pillar_scores는 backtest 전용 deprecated.)
+
+    Args:
+        target_round: 대상 회차
+
+    Returns:
+        {success, scores, updated, error}
+        - updated == 0이면 weekly_predictions에 해당 회차 row 부재 (경고)
+    """
+    try:
+        supabase = get_client()
+        scores = compute_pillar_scores(target_round)
+
+        # 사전 점검: row 존재 여부 확인 (R2 완화)
+        check = supabase.table("weekly_predictions") \
+            .select("target_round") \
+            .eq("target_round", target_round) \
+            .execute()
+        if not (check.data or []):
+            logger.warning(
+                f"  [PillarScorer.save_to_weekly] weekly_predictions row 부재 "
+                f"(target_round={target_round}) — UPDATE 0 rows 예상"
+            )
+
+        response = supabase.table("weekly_predictions") \
+            .update({"pillar_scores": scores}) \
+            .eq("target_round", target_round) \
+            .execute()
+
+        updated = len(response.data or [])
+
+        logger.info(
+            f"  [PillarScorer.save_to_weekly] target_round={target_round} "
+            f"updated={updated} CNS={scores.get('CNS')} ENS={scores.get('ENS')} "
+            f"FLT={scores.get('FLT')} STA={scores.get('STA')}"
+        )
+
+        return {
+            "success": True,
+            "scores": scores,
+            "updated": updated,
+            "error": None,
+        }
+
+    except Exception as e:
+        logger.error(f"  [PillarScorer.save_to_weekly] FAILED: {e}")
+        return {
+            "success": False,
+            "scores": {},
+            "updated": 0,
+            "error": str(e),
+        }
+
+
 def composite_pillar_score(scores: dict) -> float:
     """4-Pillar 가중 종합 (CNS 0.3 + ENS 0.3 + FLT 0.2 + STA 0.2)."""
     return (
@@ -249,7 +310,10 @@ def composite_pillar_score(scores: dict) -> float:
 
 def backfill_all_rounds(start_round: int | None = None,
                         end_round: int | None = None) -> dict[str, Any]:
-    """과거 회차 일괄 pillar_scores 계산 + 저장."""
+    """[DEPRECATED 2026-05-13] backtest 전용 — production은 backfill_weekly_rounds 사용.
+
+    과거 회차 일괄 pillar_scores 계산 + 저장 (recommendation_backtest_runs 대상).
+    """
     try:
         supabase = get_client()
 
@@ -289,6 +353,51 @@ def backfill_all_rounds(start_round: int | None = None,
         return {"total_rounds": 0, "success": 0, "failed": 0, "error": str(e)}
 
 
+def backfill_weekly_rounds(start_round: int | None = None,
+                           end_round: int | None = None) -> dict[str, Any]:
+    """[P5 재설계 2026-05-13] 과거 production 회차 pillar_scores 일괄 채움.
+
+    weekly_predictions에서 대상 회차 조회 후 save_pillar_scores_to_weekly 반복 호출.
+    """
+    try:
+        supabase = get_client()
+
+        query = supabase.table("weekly_predictions") \
+            .select("target_round")
+        if start_round is not None:
+            query = query.gte("target_round", start_round)
+        if end_round is not None:
+            query = query.lte("target_round", end_round)
+
+        response = query.execute()
+        all_rounds = sorted(set(r["target_round"] for r in (response.data or [])))
+
+        total = len(all_rounds)
+        success = 0
+        failed = 0
+
+        logger.info(f"  [PillarScorer.backfill_weekly] {total} rounds to process...")
+        for i, rnd in enumerate(all_rounds, 1):
+            result = save_pillar_scores_to_weekly(rnd)
+            if result["success"] and result["updated"] > 0:
+                success += 1
+            else:
+                failed += 1
+
+            if i % 10 == 0:
+                logger.info(f"  [PillarScorer.backfill_weekly] {i}/{total} done")
+
+        return {
+            "total_rounds": total,
+            "success": success,
+            "failed": failed,
+        }
+
+    except Exception as e:
+        logger.error(f"  [PillarScorer.backfill_weekly] FAILED: {e}")
+        return {"total_rounds": 0, "success": 0, "failed": 0, "error": str(e)}
+
+
 # ── 스크립트 직접 실행 ────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import argparse
@@ -296,7 +405,11 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Pillar Scorer — compute and save CNS/ENS/FLT/STA")
     parser.add_argument("--round", type=int, default=None, help="단일 회차 처리")
-    parser.add_argument("--backfill", action="store_true", help="전체 backfill")
+    parser.add_argument("--backfill", action="store_true", help="전체 backfill (deprecated, backtest 전용)")
+    parser.add_argument("--to-weekly", action="store_true",
+                        help="weekly_predictions에 저장 (production 재설계)")
+    parser.add_argument("--backfill-weekly", action="store_true",
+                        help="weekly_predictions backfill (production 재설계)")
     parser.add_argument("--start", type=int, default=None)
     parser.add_argument("--end", type=int, default=None)
     parser.add_argument("--dry-run", action="store_true", help="DB 저장 없이 계산만")
@@ -304,9 +417,20 @@ if __name__ == "__main__":
 
     logging.basicConfig(level=logging.INFO)
 
-    if args.backfill:
+    if args.backfill_weekly:
+        result = backfill_weekly_rounds(args.start, args.end)
+        print(f"Backfill weekly: {result}")
+    elif args.backfill:
         result = backfill_all_rounds(args.start, args.end)
-        print(f"Backfill: {result}")
+        print(f"Backfill (deprecated, backtest): {result}")
+    elif args.round and args.to_weekly:
+        if args.dry_run:
+            scores = compute_pillar_scores(args.round)
+            print(f"Round {args.round} pillar_scores (DRY RUN):")
+            print(json.dumps(scores, indent=2))
+        else:
+            result = save_pillar_scores_to_weekly(args.round)
+            print(f"Round {args.round} → weekly: {result}")
     elif args.round:
         if args.dry_run:
             scores = compute_pillar_scores(args.round)
@@ -314,9 +438,10 @@ if __name__ == "__main__":
             print(json.dumps(scores, indent=2))
         else:
             result = save_pillar_scores(args.round)
-            print(f"Round {args.round}: {result}")
+            print(f"Round {args.round} (deprecated, backtest): {result}")
     else:
         print("Usage:")
-        print("  python -m services.pillar_scorer --round 1224")
-        print("  python -m services.pillar_scorer --round 1224 --dry-run")
-        print("  python -m services.pillar_scorer --backfill --start 1173 --end 1222")
+        print("  python -m services.pillar_scorer --round 1224 --to-weekly")
+        print("  python -m services.pillar_scorer --round 1224 --to-weekly --dry-run")
+        print("  python -m services.pillar_scorer --backfill-weekly --start 1223 --end 1224")
+        print("  (deprecated) python -m services.pillar_scorer --backfill --start 1173 --end 1222")

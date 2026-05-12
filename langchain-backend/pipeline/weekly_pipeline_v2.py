@@ -989,12 +989,12 @@ class WeeklyPipelineV2:
             logger.error(f"  [C8/P4] veto 채움 실패: {e}")
         # ── /P4 PATCH ──────────────────────────────────────────────────────────
 
-        # ── [P5 PATCH 옵션 A] C9. recommendation_backtest_runs.pillar_scores ──
-        # 4-Pillar Consensus Score (CNS/ENS/FLT/STA) 계산 + 저장
+        # ── [P5 재설계 2026-05-13] C9. weekly_predictions.pillar_scores ──
+        # 4-Pillar Consensus Score (CNS/ENS/FLT/STA) 계산 + 저장 (정합 저장처)
         # 근거: Lotto_lab_Root_Cause_Diagnosis.md (Finding #1)
         try:
-            from services.pillar_scorer import save_pillar_scores
-            pillar_result = save_pillar_scores(target_round)
+            from services.pillar_scorer import save_pillar_scores_to_weekly
+            pillar_result = save_pillar_scores_to_weekly(target_round)
             if pillar_result["success"]:
                 s = pillar_result["scores"]
                 saved["pillar_scores"] = (
