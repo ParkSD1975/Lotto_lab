@@ -272,22 +272,68 @@ class WeeklyPipelineV2:
                 logger.warning(f"  predictor_pipeline 실패 (fallback): {e}")
                 predictor_pipeline_outputs = None
 
-        # ── 1. 앙상블 예측 (P4 Top5 + P5 Veto) ──────────────────────────────
-        logger.info("  [B1] 앙상블 예측...")
-        top5_result = self.ensemble.predict_top5(draws)
-        excl_result = self.ensemble.predict_exclusion_with_veto(draws)
-        prediction  = top5_result.get("full_probs") or {}
-        contribs    = top5_result.get("contributions", {})
-        xai         = top5_result.get("xai_contributions", {})
-        evidence    = top5_result.get("evidence", {})
+        # ── [B1] NumberRecommender 경로 (마스터 플랜 Stage 3-C) ─────────────
+        logger.info("  [B1] NumberRecommender 경로...")
 
-        # fallback: predict()에서 가져오기
-        if not prediction:
-            base = self.ensemble.predict(draws)
-            prediction = base.get("probabilities", {})
-            contribs   = base.get("model_contributions", {})
-            xai        = base.get("xai_contributions", {})
-            evidence   = base.get("evidence", {})
+        # B1-A: contributions 추출
+        result = self.ensemble.predict_with_task(draws, task="recommend_top")
+        final_probs = result["probabilities"]
+        contribs = result["model_contributions"]
+        xai = result.get("xai_contributions", {})
+        evidence = result.get("evidence", {})
+        prediction = final_probs
+
+        # B1-B: rankings (model별 1~45 순위)
+        from models.model_rank_extractor import ModelRankExtractor
+        extractor = ModelRankExtractor()
+        rankings = extractor.extract_rankings(contribs)
+
+        # B1-C: consensus_metrics
+        from models.consensus_analyzer import ConsensusAnalyzer
+        analyzer = ConsensusAnalyzer()
+        consensus_metrics = analyzer.compute_metrics(rankings)
+
+        # B1-D: bayesian_sigma (Stage 6-G까지 None fallback)
+        bayesian_sigma = None
+
+        # B1-E: 4 Pillar 점수
+        from models.number_scorer import NumberScorer
+        scorer = NumberScorer()
+        scores = scorer.score_numbers(
+            ensemble_probs=final_probs,
+            filter_stats_result=predictor_pipeline_outputs,
+            predictor_pipeline_outputs=predictor_pipeline_outputs,
+            consensus_metrics=consensus_metrics,
+            draws_so_far=draws[:20],
+            bayesian_sigma=bayesian_sigma,
+        )
+
+        # B1-F: filter_compliance
+        filter_compliance = self._compute_filter_compliance(
+            predictor_pipeline_outputs, draws
+        )
+
+        # B1-G: expert_memo
+        expert_memo = self._load_expert_memo(target_round)
+
+        # B1-H: NumberRecommender 호출 (CRITICAL: draws_so_far + target_round 반드시 전달)
+        from models.number_recommender import NumberRecommender
+        recommender = NumberRecommender(scorer=scorer)
+        recs = recommender.select_recommendations(
+            scores=scores,
+            consensus_metrics=consensus_metrics,
+            filter_compliance=filter_compliance,
+            expert_memo=expert_memo,
+            n_top=5,
+            bayesian_sigma=bayesian_sigma,
+            target_round=target_round,    # Stage 6-D Plackett-Luce
+            draws_so_far=draws,           # [P1] 빈도 페널티 활성화 — 절대 누락 금지
+        )
+        top_5 = [entry["number"] for entry in recs]
+
+        # B1-I: 제외 10 (기존 유지)
+        excl_result = self.ensemble.predict_exclusion_with_veto(draws)
+        excl_10 = [e["number"] for e in excl_result.get("exclusions", [])][:10]
 
         final_probs = prediction
 
@@ -347,77 +393,7 @@ class WeeklyPipelineV2:
 
         # ── 5. 조합 생성 (10게임) ────────────────────────────────────────────
         logger.info("  [B5] 조합 생성...")
-        top_5   = [e["number"] for e in top5_result.get("top_numbers", [])][:5]
-        excl_10 = [e["number"] for e in excl_result.get("exclusions", [])][:10]
-
-        # [Stage 1-4-D-2-fix-48] Hot/Cold 균형 룰 적용
-        # 사용자 결정: '추천 5가 cold만 → 결함. Hot 최소 2 / Cold 최대 2'
-        try:
-            from db.supabase_client import get_client
-            client = get_client()
-            recent_res = client.table("lotto_draws") \
-                .select("round, numbers") \
-                .lte("round", target_round - 1) \
-                .order("round", desc=True) \
-                .limit(20).execute()
-            recent_draws = recent_res.data or []
-            freq_count = {n: 0 for n in range(1, 46)}
-            for d in recent_draws:
-                for n in (d.get("numbers") or []):
-                    if 1 <= n <= 45:
-                        freq_count[n] += 1
-
-            def _classify(n):
-                fc = freq_count.get(n, 0)
-                if fc >= 5: return "hot"
-                if fc >= 3: return "neutral"
-                return "cold"
-
-            # 후보 풀 — 상위 15개 (top_5 외 보충 후보)
-            top_candidates = [e["number"] for e in top5_result.get("top_numbers", [])][:15]
-            top_candidates = [n for n in top_candidates if n not in excl_10]
-
-            balanced = list(top_5)
-            cur_hot = sum(1 for n in balanced if _classify(n) == "hot")
-            cur_cold = sum(1 for n in balanced if _classify(n) == "cold")
-
-            # 룰: Hot 최소 2, Cold 최대 2
-            # 1) Hot 부족 → Hot 후보로 cold 교체
-            if cur_hot < 2:
-                hot_pool = [n for n in top_candidates if _classify(n) == "hot" and n not in balanced]
-                cold_in_top = [n for n in balanced if _classify(n) == "cold"]
-                # 가장 prob 낮은 cold부터 교체
-                cold_in_top.sort(key=lambda n: corrected_probs.get(n, 0))
-                for new_n in hot_pool:
-                    if cur_hot >= 2 or not cold_in_top:
-                        break
-                    old_n = cold_in_top.pop(0)
-                    idx = balanced.index(old_n)
-                    balanced[idx] = new_n
-                    cur_hot += 1
-                    cur_cold -= 1
-
-            # 2) Cold 초과 → Cold 후보 일부를 Neutral/Hot 후보로 교체
-            if cur_cold > 2:
-                non_cold_pool = [n for n in top_candidates if _classify(n) != "cold" and n not in balanced]
-                cold_in_top = [n for n in balanced if _classify(n) == "cold"]
-                cold_in_top.sort(key=lambda n: corrected_probs.get(n, 0))
-                while cur_cold > 2 and non_cold_pool and cold_in_top:
-                    new_n = non_cold_pool.pop(0)
-                    old_n = cold_in_top.pop(0)
-                    idx = balanced.index(old_n)
-                    balanced[idx] = new_n
-                    cur_cold -= 1
-
-            if balanced != top_5:
-                logger.info(f"  [B5/fix-48] Hot/Cold 균형 적용: {top_5} → {balanced}")
-                logger.info(f"             Hot/Neutral/Cold = "
-                            f"{sum(1 for n in balanced if _classify(n)=='hot')}/"
-                            f"{sum(1 for n in balanced if _classify(n)=='neutral')}/"
-                            f"{sum(1 for n in balanced if _classify(n)=='cold')}")
-                top_5 = balanced
-        except Exception as e:
-            logger.warning(f"  [B5/fix-48] Hot/Cold 균형 룰 실패 (무시): {e}")
+        # top_5, excl_10은 이미 B1-H/I에서 산출됨 (Hot/Cold 균형은 NumberRecommender 내부로 이전)
         gen_probs = corrected_probs.copy()
         for n in excl_10:
             gen_probs[n] = 0
@@ -511,6 +487,17 @@ class WeeklyPipelineV2:
         # ── 6. 메타러너 상태 ─────────────────────────────────────────────────
         meta_status = self.ensemble.meta_learner_status()
 
+        # ── B1-J: top5_result 호환 구조 조립 (weekly_recommendations 저장용) ───
+        # NumberRecommender.select_recommendations() 결과 → predict_top5 형식 변환
+        top5_result = {
+            "top_numbers": recs,  # list[dict] with number, score, consensus, etc.
+            "full_probs": final_probs,
+            "contributions": contribs,
+            "xai_contributions": xai,
+            "evidence": evidence,
+            "method": "number_recommender",
+        }
+
         return {
             "final_probs":        final_probs,
             "corrected_probs":    corrected_probs,
@@ -527,6 +514,10 @@ class WeeklyPipelineV2:
             "meta_status":        meta_status,
             # Master Plan Stage 1-4-E 신설 — Phase 1~4 22 predictor 출력
             "predictor_pipeline_outputs": predictor_pipeline_outputs,
+            # [Phase 1 옵션 B] NumberRecommender 산출물
+            "recs":               recs,
+            "scores":             scores,
+            "consensus_metrics":  consensus_metrics,
         }
 
     # ──────────────────────────────────────────────────────────────────────────
@@ -1018,6 +1009,48 @@ class WeeklyPipelineV2:
         # ── /P5 PATCH ──────────────────────────────────────────────────────────
 
         return saved
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # [Phase 1 옵션 B] NumberRecommender 경로 헬퍼 메서드
+    # ──────────────────────────────────────────────────────────────────────────
+    def _load_expert_memo(self, target_round: int) -> dict | None:
+        """expert_memos 테이블에서 forced_includes/excludes 로드 (graceful fallback)."""
+        try:
+            from db.supabase_client import get_client
+            supabase = get_client()
+            res = supabase.table("expert_memos") \
+                .select("forced_includes, forced_excludes") \
+                .eq("target_round", target_round) \
+                .order("created_at", desc=True) \
+                .limit(1) \
+                .execute()
+            if res.data:
+                row = res.data[0]
+                return {
+                    "forced_includes": row.get("forced_includes") or [],
+                    "forced_excludes": row.get("forced_excludes") or [],
+                }
+        except Exception as e:
+            logger.warning(f"  [B1-G] expert_memos 로드 실패 (None fallback): {e}")
+        return None
+
+    def _compute_filter_compliance(
+        self,
+        predictor_pipeline_outputs: dict | None,
+        draws: list,
+    ) -> "np.ndarray":
+        """21지표 통과도 (45,) ndarray. NumberScorer._compute_pillar_2 위임."""
+        import numpy as np
+        try:
+            from models.number_scorer import NumberScorer
+            scorer = NumberScorer()
+            p2 = scorer._compute_pillar_2(predictor_pipeline_outputs, draws[:20] if draws else None)
+            if isinstance(p2, np.ndarray) and p2.shape == (45,):
+                return p2
+        except Exception as e:
+            logger.warning(f"  [B1-F] filter_compliance 산출 실패 (균등 fallback): {e}")
+        # fallback: 균등 0.5
+        return np.full(45, 0.5, dtype=np.float64)
 
 
 # ── 스크립트 직접 실행 지원 ────────────────────────────────────────────────────

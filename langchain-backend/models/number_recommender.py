@@ -587,6 +587,29 @@ class NumberRecommender:
             )
             result.append(entry)
 
+        # ── fix-48 흡수: Hot/Cold 균형 ────────────────────────────────────
+        try:
+            picked_numbers = [r["number"] for r in result]
+            # candidates는 위 단계의 후보 풀 (top 15)
+            balanced_numbers = self._apply_hotcold_balance(
+                picked=picked_numbers,
+                candidates=candidates,
+                draws_so_far=draws_so_far,
+                scores=scores,
+            )
+            if balanced_numbers != picked_numbers:
+                # 균형 변경 발생 → result 재조립
+                result = [self._build_rec_entry(
+                    n=n,
+                    scores=scores,
+                    consensus_metrics=consensus_metrics,
+                    comp=comp,
+                    bayesian_sigma=bayesian_sigma,
+                    memo_forced=(n in memo_forced),
+                ) for n in balanced_numbers]
+        except Exception as e:
+            print(f"[NumberRecommender] hotcold_balance 실패 (무시): {e}")
+
         return result[:n_top]
 
     @staticmethod
@@ -624,6 +647,89 @@ class NumberRecommender:
             "narrative_seed": seed,
             "memo_forced": bool(memo_forced),
         }
+
+    def _apply_hotcold_balance(
+        self,
+        picked: list[int],
+        candidates: list[int],
+        draws_so_far: list[dict] | None,
+        scores: dict[int, float],
+        hot_min: int = 2,
+        cold_max: int = 2,
+        freq_window: int = 20,
+    ) -> list[int]:
+        """Hot/Cold 균형 강제 (fix-48 흡수 — weekly_pipeline_v2 line 353-420에서 이전).
+
+        룰:
+          - Hot 최소 2 (최근 freq_window회에 5번 이상 출현)
+          - Cold 최대 2 (최근 freq_window회에 3번 미만 출현)
+
+        Args:
+            picked: NumberRecommender가 선출한 top_5
+            candidates: 보충 후보 풀 (top 15)
+            draws_so_far: 회차 history (round DESC)
+            scores: {n: score}
+            hot_min/cold_max: 균형 임계
+            freq_window: 빈도 산출 윈도우
+
+        Returns:
+            균형 조정된 picked (len 동일)
+        """
+        if not draws_so_far or not picked:
+            return picked
+
+        recent = draws_so_far[:freq_window] if len(draws_so_far) >= freq_window else draws_so_far
+        freq_count = {n: 0 for n in range(1, 46)}
+        for d in recent:
+            nums = d.get("numbers") if isinstance(d, dict) else d
+            if isinstance(nums, (list, tuple, set)):
+                for x in nums:
+                    try:
+                        xi = int(x)
+                        if 1 <= xi <= 45:
+                            freq_count[xi] += 1
+                    except (ValueError, TypeError):
+                        continue
+
+        def _cls(n: int) -> str:
+            fc = freq_count.get(n, 0)
+            if fc >= 5: return "hot"
+            if fc >= 3: return "neutral"
+            return "cold"
+
+        balanced = list(picked)
+        cur_hot = sum(1 for n in balanced if _cls(n) == "hot")
+        cur_cold = sum(1 for n in balanced if _cls(n) == "cold")
+
+        pool = [n for n in candidates if n not in balanced]
+
+        # Hot 부족 → Hot 후보로 cold 교체 (가장 score 낮은 cold부터)
+        if cur_hot < hot_min:
+            hot_pool = [n for n in pool if _cls(n) == "hot"]
+            cold_in = [n for n in balanced if _cls(n) == "cold"]
+            cold_in.sort(key=lambda n: scores.get(n, 0))
+            for new_n in hot_pool:
+                if cur_hot >= hot_min or not cold_in:
+                    break
+                old_n = cold_in.pop(0)
+                idx = balanced.index(old_n)
+                balanced[idx] = new_n
+                cur_hot += 1
+                cur_cold -= 1
+
+        # Cold 초과 → Non-cold로 교체
+        if cur_cold > cold_max:
+            non_cold = [n for n in pool if _cls(n) != "cold" and n not in balanced]
+            cold_in = [n for n in balanced if _cls(n) == "cold"]
+            cold_in.sort(key=lambda n: scores.get(n, 0))
+            while cur_cold > cold_max and non_cold and cold_in:
+                new_n = non_cold.pop(0)
+                old_n = cold_in.pop(0)
+                idx = balanced.index(old_n)
+                balanced[idx] = new_n
+                cur_cold -= 1
+
+        return balanced
 
     # ------------------------------------------------------------------
     # 제외 10 결정

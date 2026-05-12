@@ -2552,26 +2552,89 @@ async def get_deep_analysis(round_num: int = None):
         # 모델 실행 — Phase 0.4: task별 최적 가중치 적용
         ensemble = LottoEnsemble()
 
-        # [recommend_top] P4: Consensus + CI Gating
+        # [recommend_top] NumberRecommender 경로 (Phase 1 옵션 B)
         top5_data = []
         try:
-            top5_result = ensemble.predict_top5(
-                history_draws, n_top=5, n_bootstrap=50, consensus_k=4,
-                human_rules=human_rules
+            # B1-A: contributions 추출
+            result = ensemble.predict_with_task(history_draws, task="recommend_top", human_rules=human_rules)
+            final_probs = result["probabilities"]
+            contribs = result["model_contributions"]
+            xai = result.get("xai_contributions", {})
+            evidence = result.get("evidence", {})
+
+            # B1-B: rankings
+            from models.model_rank_extractor import ModelRankExtractor
+            extractor = ModelRankExtractor()
+            rankings = extractor.extract_rankings(contribs)
+
+            # B1-C: consensus_metrics
+            from models.consensus_analyzer import ConsensusAnalyzer
+            analyzer = ConsensusAnalyzer()
+            consensus_metrics = analyzer.compute_metrics(rankings)
+
+            # B1-D: bayesian_sigma (fallback)
+            bayesian_sigma = None
+
+            # B1-E: 4 Pillar 점수
+            from models.number_scorer import NumberScorer
+            scorer = NumberScorer()
+            scores = scorer.score_numbers(
+                ensemble_probs=final_probs,
+                filter_stats_result=None,  # deep_analysis_v3에는 predictor_pipeline 없음
+                predictor_pipeline_outputs=None,
+                consensus_metrics=consensus_metrics,
+                draws_so_far=history_draws[:20],
+                bayesian_sigma=bayesian_sigma,
             )
+
+            # B1-F: filter_compliance (간단 fallback)
+            import numpy as np
+            filter_compliance = np.full(45, 0.5, dtype=np.float64)
+
+            # B1-G: expert_memo
+            expert_memo = None
+            if target_round:
+                try:
+                    from db.supabase_client import get_client
+                    supabase = get_client()
+                    res = supabase.table("expert_memos") \
+                        .select("forced_includes, forced_excludes") \
+                        .eq("target_round", target_round) \
+                        .order("created_at", desc=True) \
+                        .limit(1) \
+                        .execute()
+                    if res.data:
+                        row = res.data[0]
+                        expert_memo = {
+                            "forced_includes": row.get("forced_includes") or [],
+                            "forced_excludes": row.get("forced_excludes") or [],
+                        }
+                except Exception:
+                    pass
+
+            # B1-H: NumberRecommender 호출
+            from models.number_recommender import NumberRecommender
+            recommender = NumberRecommender(scorer=scorer)
+            recs = recommender.select_recommendations(
+                scores=scores,
+                consensus_metrics=consensus_metrics,
+                filter_compliance=filter_compliance,
+                expert_memo=expert_memo,
+                n_top=5,
+                bayesian_sigma=bayesian_sigma,
+                target_round=target_round,
+                draws_so_far=history_draws,
+            )
+            top5_data = recs
+
             prediction = {
-                "probabilities":      top5_result["full_probs"],
-                "xai_contributions":  top5_result["xai_contributions"],
-                "evidence":           top5_result["evidence"],
+                "probabilities": final_probs,
+                "xai_contributions": xai,
+                "evidence": evidence,
+                "model_contributions": contribs,
             }
-            # model_contributions는 predict_with_task에서 별도 추출
-            prediction_full = ensemble.predict_with_task(
-                history_draws, task="recommend_top", human_rules=human_rules
-            )
-            prediction["model_contributions"] = prediction_full.get("model_contributions", {})
-            top5_data = top5_result["top_numbers"]  # P4 결과 저장
         except Exception as e:
-            print(f"P4 top5 오류 (기본 모드 폴백): {e}")
+            print(f"NumberRecommender 경로 오류 (fallback): {e}")
             traceback.print_exc()
             try:
                 prediction_full = ensemble.predict_with_task(
