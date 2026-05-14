@@ -17,12 +17,17 @@ weekly_* 테이블을 읽는 읽기 전용 엔드포인트.
 
 import json
 import traceback
-from fastapi import APIRouter
+import threading
+import time
+from fastapi import APIRouter, BackgroundTasks
 from fastapi.responses import JSONResponse
 
 from db.supabase_client import get_client, fetch_all_draws
 
 router = APIRouter(prefix="/api/v4", tags=["predictions-v4"])
+
+# Fire-and-forget 백필 작업 추적용 in-memory 상태 (HF Spaces 단일 머신 가정)
+_PIPELINE_JOBS = {}  # job_id -> {"round": int, "status": "running"|"done"|"error", "started_at": ts, "ended_at": ts, "error": str}
 
 
 def _ok(data: dict) -> JSONResponse:
@@ -387,31 +392,85 @@ async def get_combinations(round_num: int = 0):
 @router.post("/run-pipeline")
 async def run_pipeline_now(body: dict = None):
     """
-    weekly_pipeline_v2 즉시 실행 트리거.
+    weekly_pipeline_v2 fire-and-forget 백그라운드 실행 트리거.
 
-    body (optional): {"target_round": 1234}
+    body (optional): {"target_round": 1234, "sync": false}
+      - sync=false (기본): 즉시 202 + job_id 반환, 백그라운드 실행
+      - sync=true: 완료까지 대기 (gateway timeout 위험, 디버그용)
 
-    ⚠️ 시간이 오래 걸릴 수 있으므로 백그라운드 태스크로 실행 권장.
-    운영환경에서는 cron으로 주 1회 자동 실행.
+    완료 확인: GET /api/v4/pipeline-status/{job_id}
     """
-    import asyncio
-    from concurrent.futures import ThreadPoolExecutor
-
     body = body or {}
     target_round = body.get("target_round")
+    sync_mode = bool(body.get("sync", False))
 
-    try:
-        from pipeline.weekly_pipeline_v2 import WeeklyPipelineV2
+    if sync_mode:
+        # 레거시 동기 경로 (HF Spaces 게이트웨이가 ~120s에 끊으므로 디버그용)
+        import asyncio
+        from concurrent.futures import ThreadPoolExecutor
+        try:
+            from pipeline.weekly_pipeline_v2 import WeeklyPipelineV2
+            def _run():
+                pipeline = WeeklyPipelineV2()
+                return pipeline.run(target_round=target_round)
+            loop = asyncio.get_event_loop()
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                result = await loop.run_in_executor(executor, _run)
+            return JSONResponse(result)
+        except Exception as e:
+            traceback.print_exc()
+            return _err(str(e))
 
-        def _run():
+    # Fire-and-forget: thread 분리 실행
+    job_id = f"job_{int(time.time())}_{target_round or 'auto'}"
+    _PIPELINE_JOBS[job_id] = {
+        "round": target_round,
+        "status": "running",
+        "started_at": time.time(),
+        "ended_at": None,
+        "error": None,
+    }
+
+    def _bg_run():
+        try:
+            from pipeline.weekly_pipeline_v2 import WeeklyPipelineV2
             pipeline = WeeklyPipelineV2()
-            return pipeline.run(target_round=target_round)
+            pipeline.run(target_round=target_round)
+            _PIPELINE_JOBS[job_id]["status"] = "done"
+        except Exception as ex:
+            _PIPELINE_JOBS[job_id]["status"] = "error"
+            _PIPELINE_JOBS[job_id]["error"] = str(ex)
+            traceback.print_exc()
+        finally:
+            _PIPELINE_JOBS[job_id]["ended_at"] = time.time()
 
-        loop = asyncio.get_event_loop()
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            result = await loop.run_in_executor(executor, _run)
+    thread = threading.Thread(target=_bg_run, daemon=True, name=f"pipeline-{job_id}")
+    thread.start()
 
-        return JSONResponse(result)
-    except Exception as e:
-        traceback.print_exc()
-        return _err(str(e))
+    return JSONResponse(
+        {"success": True, "job_id": job_id, "round": target_round, "status": "running",
+         "poll_url": f"/api/v4/pipeline-status/{job_id}"},
+        status_code=202,
+    )
+
+
+@router.get("/pipeline-status/{job_id}")
+async def get_pipeline_status(job_id: str):
+    """fire-and-forget 백필 작업 상태 조회."""
+    job = _PIPELINE_JOBS.get(job_id)
+    if not job:
+        return _err(f"unknown job_id: {job_id}", status=404)
+    elapsed = (job["ended_at"] or time.time()) - job["started_at"]
+    return _ok({
+        "job_id": job_id,
+        "round": job["round"],
+        "status": job["status"],
+        "elapsed_seconds": round(elapsed, 1),
+        "error": job["error"],
+    })
+
+
+@router.get("/pipeline-jobs")
+async def list_pipeline_jobs():
+    """모든 백필 작업 일람."""
+    return _ok({"jobs": _PIPELINE_JOBS, "total": len(_PIPELINE_JOBS)})

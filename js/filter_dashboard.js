@@ -2478,22 +2478,28 @@ window.FilterDashboard = {
     },
 
     /**
-     * 대시보드 전용 저장 헬퍼
-     * - IS NULL 행 저장 (분석페이지 StorageEvent sync용)
-     * - round-specific 행 저장 (대시보드 재로드 시 정합성 유지)
-     * - _dashSelfSaving 플래그로 자체 StorageEvent → renderUI() 재진입 방지
+     * 대시보드 전용 저장 헬퍼 — 2026-05-14 양방향 동기화 fix
+     *
+     * 핵심 변경:
+     *   - 이전: Utils.saveFilter(NULL 행, storage event) + saveSetting(회차별 행, DB-only)
+     *           → 분석 페이지가 회차별 행 우선 로드하므로 storage event가 NULL 데이터로 발화돼 단방향 깨짐
+     *   - 현재: Utils.saveFilter(회차별 행, storage event 포함) → 분석 페이지의 회차별 우선 로드 정합
+     *           NULL 행은 DB에 추가 저장 (다른 페이지의 폴백 경로 보존)
      */
     async _saveDashboardFilter(defKey, settings, enabled) {
         this._dashSelfSaving = true;
         try {
-            // IS NULL 행: Utils.saveFilter → StorageEvent 브로드캐스트 포함
+            const tr = this.state.targetRound;
+            // 회차별 행 + localStorage + storage event 발화 (분석 페이지가 즉시 수신)
             if (window.Utils && window.Utils.saveFilter) {
-                await window.Utils.saveFilter(defKey, settings, enabled); // 4th arg 없음 → finalTargetRound=null
+                await window.Utils.saveFilter(defKey, settings, enabled, tr);
+            } else if (window.filterService?.initialized) {
+                await window.filterService.saveSetting(defKey, settings, enabled, tr);
             }
-            // round-specific 행: 대시보드 재로드 시 일치 유지
-            if (this.state.targetRound && window.filterService?.initialized) {
+            // NULL 행 폴백 보존 (DB만, storage event 불필요 — 이미 위에서 발화)
+            if (tr && window.filterService?.initialized) {
                 try {
-                    await window.filterService.saveSetting(defKey, settings, enabled, this.state.targetRound);
+                    await window.filterService.saveSetting(defKey, settings, enabled, null);
                 } catch (e) { /* 무시 */ }
             }
         } finally {
