@@ -1814,25 +1814,14 @@ window.FilterDashboard = {
                 html += `</div>`;
             } // end else (hasGroups)
         } else if (key === 'tail_digit_patterns') {
-            // [fix-296] 개별 키(end_digit_*_count)를 단일 진실로 사용 — 번들 vals.filters 폐기
-            // foundationFilters에서 end_digit_N_count 정의를 찾아 userSettings에서 min/max 추출
+            // [2026-05-14 표준] tail_digit_patterns.settings.filters 단일 진실 사용
+            // 이전: end_digit_0~9_count 10개 유령 키 참조 → DB 삭제 후 데이터 0건 → UI 빈 값 표시
             const digitFilters = {};
+            const tdFilters = (vals && vals.filters) || {};
             for (let i = 0; i <= 9; i++) {
-                const ddef = (this.state.foundationFilters || []).find(d => d.filter_key === `end_digit_${i}_count`);
-                if (ddef) {
-                    const us = this.state.userSettings[ddef.id];
-                    if (us && us.settings) {
-                        const s = us.settings;
-                        if (s.min !== undefined && s.max !== undefined) {
-                            digitFilters[i] = { min: s.min, max: s.max, _defId: ddef.id };
-                        } else if (Array.isArray(s.selectedValues) && s.selectedValues.length > 0) {
-                            digitFilters[i] = {
-                                min: Math.min(...s.selectedValues),
-                                max: Math.max(...s.selectedValues),
-                                _defId: ddef.id
-                            };
-                        }
-                    }
+                const f = tdFilters[i] || tdFilters[String(i)];
+                if (f && f.min !== undefined && f.max !== undefined) {
+                    digitFilters[i] = { min: f.min, max: f.max };
                 }
             }
 
@@ -2722,46 +2711,33 @@ window.FilterDashboard = {
     },
 
     /**
-     * [fix-296] 끝수 필터 변경 → 개별 키 end_digit_N_count에 직접 저장
-     * id: end_digit_N_count의 filter_definition id (digitDefId 전달됨)
-     * digit: 0~9 (의미 표시용, id로 이미 정해짐)
-     * type: 'min' | 'max'
+     * [2026-05-14 수정] 끝수 필터 → tail_digit_patterns 통합 키로 저장
+     * (end_digit_0~9_count 10개 유령 키는 DB에서 삭제됨 — Phase A·C)
+     * settings 구조: { filters: { "0":{min,max}, ..., "9":{min,max} }, recent10FilterActive }
      */
     async updateTailDigitFilter(id, digit, type, value) {
-        // 끝수별 실제 가능 max
         const TAIL_REAL_MAX = { 0: 4, 1: 5, 2: 5, 3: 5, 4: 5, 5: 5, 6: 4, 7: 4, 8: 4, 9: 4 };
         const realMax = TAIL_REAL_MAX[digit] ?? 6;
 
-        // 정의 찾기 — end_digit_N_count 우선, 못 찾으면 id 기반 fallback
-        let digitDef = this.state.foundationFilters.find(f => f.id === id && /^end_digit_\d_count$/.test(f.filter_key));
-        if (!digitDef) {
-            digitDef = this.state.foundationFilters.find(f => f.filter_key === `end_digit_${digit}_count`);
-        }
-        if (!digitDef) {
-            console.warn(`[updateTailDigitFilter] end_digit_${digit}_count 정의를 찾을 수 없음`);
+        const def = this.state.foundationFilters.find(f => f.filter_key === 'tail_digit_patterns');
+        if (!def) {
+            console.warn('[updateTailDigitFilter] tail_digit_patterns 정의를 찾을 수 없음');
             return;
         }
 
-        // userSettings 갱신
-        if (!this.state.userSettings[digitDef.id]) {
-            this.state.userSettings[digitDef.id] = { enabled: true, settings: {} };
+        if (!this.state.userSettings[def.id]) {
+            this.state.userSettings[def.id] = { enabled: true, settings: { filters: {} } };
         }
-        const us = this.state.userSettings[digitDef.id];
-        const v = Math.max(0, Math.min(realMax, parseInt(value) || 0));
+        const us = this.state.userSettings[def.id];
         us.settings = us.settings || {};
-        us.settings[type] = v;
-        // 짝맞춤: 한쪽이 비면 기본값 부여
-        if (us.settings.min === undefined) us.settings.min = 0;
-        if (us.settings.max === undefined) us.settings.max = realMax;
-        // selectedValues 동기화
-        const sv = [];
-        for (let _v = us.settings.min; _v <= us.settings.max; _v++) sv.push(_v);
-        us.settings.selectedValues = sv;
+        us.settings.filters = us.settings.filters || {};
+        if (!us.settings.filters[digit]) us.settings.filters[digit] = { min: 0, max: realMax };
+
+        const v = Math.max(0, Math.min(realMax, parseInt(value) || 0));
+        us.settings.filters[digit][type] = v;
         us.settings.recent10FilterActive = false;
 
-        // [fix-320] _saveDashboardFilter — IS NULL + targetRound row 양쪽 저장 (분석페이지↔대시보드 sync)
-        // 이전: Utils.saveFilter 단독 호출 → NULL row만 갱신 → 새로고침 시 specific row의 옛 값 표시
-        await this._saveDashboardFilter(digitDef.filter_key, us.settings, us.enabled);
+        await this._saveDashboardFilter(def.filter_key, us.settings, us.enabled);
         this.renderFoundationFilters();
         this.updateNeonCounter();
     },

@@ -797,12 +797,12 @@
 
     <script>
         // [표준화] 최근 10회차 필터를 비활성화하고 UI를 초기화하는 함수
-        function deactivateRecent10IfActive() {
+        async function deactivateRecent10IfActive() {
             if (!isRecentTenFilter) return;
 
             isRecentTenFilter = false;
             highlightStartRound = null;
-            
+
             const btn = document.getElementById('recent10FilterBtn');
             const btnText = document.getElementById('recent10BtnText');
             if (btn) {
@@ -810,7 +810,7 @@
                 btn.classList.add('from-blue-500', 'to-blue-600', 'shadow-blue-200');
             }
             if (btnText) btnText.textContent = '최근 10회차 필터 적용';
-            
+
             // 기존 하이라이트 해제
             document.querySelectorAll('.row-highlight').forEach(el => el.classList.remove('row-highlight'));
 
@@ -819,8 +819,10 @@
                 activeFilters = new Set(previousFilterState);
                 updateUIState();
             }
-            
+
             applyFilter();
+            // [2026-05-14] 해제 상태도 저장 (DB/localStorage)
+            await saveFilterSettings();
         }
 
         // [레거시] 최근 10회차 버튼 상태 초기화 헬퍼 (함수명 유지용)
@@ -1172,6 +1174,8 @@
             isRecentTenFilter = true;
             highlightStartRound = allDrawData[0].round;
             applyFilter();
+            // [2026-05-14] DB/localStorage 저장 누락 fix — 최근 10회차 적용도 영속화해야 대시보드·새로고침 시 유지됨
+            await saveFilterSettings();
         }
 
         // [표준화] 통계 분석 및 카드 업데이트 (평균/최소/최대)
