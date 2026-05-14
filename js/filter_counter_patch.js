@@ -54,7 +54,7 @@
     // Foundation 필터 배지 키 목록 (로딩 상태 표시용)
     // ──────────────────────────────────────────────────
     const BADGE_FILTER_KEYS = [
-        'total_sum', 'last_digit_sum', 'ac_value', 'odd_even_pattern', 'high_low_pattern',
+        'total_sum', 'tail_sum', 'ac_value', 'odd_even_pattern', 'high_low_pattern',
         // 끝수: 개별 키
         'end_digit_0_count','end_digit_1_count','end_digit_2_count','end_digit_3_count',
         'end_digit_4_count','end_digit_5_count','end_digit_6_count','end_digit_7_count',
@@ -318,7 +318,7 @@
         }
 
         // ── 끝수합 ───────────────────────────────────────
-        const tailSumSet = getSetting('last_digit_sum');
+        const tailSumSet = getSetting('tail_sum');
         if (tailSumSet) {
             filters.tailSumRange = {
                 min: tailSumSet.min !== undefined ? tailSumSet.min : 0,

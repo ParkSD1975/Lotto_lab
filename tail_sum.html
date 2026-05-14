@@ -146,14 +146,14 @@
 
                 // DB 저장 (FilterService 사용)
                 if (window.filterService && window.filterService.initialized) {
-                    await window.filterService.saveSetting('last_digit_sum', data, enabled, targetRound);
+                    await window.filterService.saveSetting('tail_sum', data, enabled, targetRound);
                 } else if (window.Utils && window.Utils.saveFilter) {
                     // Fallback: localStorage
                     window.Utils.saveFilter('tail_sum_filter', data, enabled, targetRound);
                 }
 
                 // localStorage sync
-                localStorage.setItem('last_digit_sum', JSON.stringify({ ...data, enabled }));
+                localStorage.setItem('tail_sum', JSON.stringify({ ...data, enabled }));
             } finally {
                 _tailSumSelfSaving = false;
             }
@@ -172,7 +172,7 @@
 
                 // DB에서 로드 (FilterService 사용)
                 if (window.filterService && window.filterService.initialized) {
-                    const data = await window.filterService.loadSetting('last_digit_sum', currentRound);
+                    const data = await window.filterService.loadSetting('tail_sum', currentRound);
                     if (data && data.settings) {
                         const s = data.settings;
                         // [추가] 회차가 변경되었으면 필터 초기화
@@ -275,7 +275,7 @@
         window.addEventListener('storage', async function (e) {
             if (_tailSumSelfSaving) return;
             if (!e.key) return;
-            const storageKey = 'last_digit_sum';
+            const storageKey = 'tail_sum';
             if (e.key === storageKey || e.key === 'tail_sum_filter') {
                 // 로그아웃 감지
                 if (e.newValue) {
@@ -785,7 +785,7 @@
                         <div class="flex items-center justify-between mb-4">
                             <h3 class="text-lg font-bold text-gray-900">조합 필터</h3>
 
-                            <a href="javascript:void(0)" onclick="javascript:location.href='filter.html?tab=foundation&id=last_digit_sum'"
+                            <a href="javascript:void(0)" onclick="javascript:location.href='filter.html?tab=foundation&id=tail_sum'"
                                 class="text-sm font-medium text-slate-500 hover:text-blue-600 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
                                 <span class="material-symbols-outlined text-[18px]">tune</span>
                                 필터 페이지 가기

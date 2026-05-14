@@ -452,7 +452,8 @@ class WeeklyPipelineV2:
             band_missing_2plus = [idx for idx in range(5) if band_dist_10[idx] <= 5]
 
             # 앙상블 총합 범위
-            sum_range = range_analysis.get("sum", {}).get("range", [100, 220])
+            # 표준 키(total_sum) 우선, 레거시 키(sum) 폴백
+            sum_range = range_analysis.get("total_sum", range_analysis.get("sum", {})).get("range", [100, 220])
             if isinstance(sum_range, list) and len(sum_range) == 2:
                 sum_dict = {"min": sum_range[0], "max": sum_range[1]}
             else:

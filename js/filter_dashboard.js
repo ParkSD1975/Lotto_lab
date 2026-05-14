@@ -43,7 +43,7 @@ window.FilterDashboard = {
             if (this._dashSelfSaving) return;
 
             const watchedKeys = new Set([
-                'total_sum', 'last_digit_sum', 'ac_value', 'odd_even_pattern', 'high_low_pattern',
+                'total_sum', 'tail_sum', 'ac_value', 'odd_even_pattern', 'high_low_pattern',
                 'prime_number_patterns', 'composite_count', 'square_number_patterns',
                 'triangular_number_patterns', 'twin_number_patterns', 'neighbor_number_patterns',
                 'carryover_count', 'consecutive_count', 'multiple_3_count',
@@ -587,7 +587,7 @@ window.FilterDashboard = {
             if (this._newRoundDetected) {
                 console.log('[FilterDashboard] 🎉 신규 회차! 모든 필터 recent10FilterActive 자동 활성화...');
                 const recent10 = this.state.allDraws.slice(0, 10);
-                const flagOnlyKeys = ['total_sum', 'last_digit_sum', 'ac_value', 'odd_even_pattern', 'high_low_pattern', 'prime_number_patterns', 'composite_count', 'missing_period'];
+                const flagOnlyKeys = ['total_sum', 'tail_sum', 'ac_value', 'odd_even_pattern', 'high_low_pattern', 'prime_number_patterns', 'composite_count', 'missing_period'];
                 for (const def of this.state.foundationFilters) {
                     const us = this.state.userSettings[def.id];
                     if (!us || def.filter_key === 'missing_custom_filter') continue;
@@ -824,7 +824,7 @@ window.FilterDashboard = {
 
     getFilterLink(key) {
         const mapping = {
-            'total_sum': 'total_sum.html', 'last_digit_sum': 'tail_sum.html', 'ac_value': 'ac_value.html',
+            'total_sum': 'total_sum.html', 'tail_sum': 'tail_sum.html', 'ac_value': 'ac_value.html',
             'prime_number_patterns': 'prime_number.html', 'composite_count': 'composite_number.html',
             'square_number_patterns': 'square_number.html', 'triangular_number_patterns': 'triangular_number.html',
             'twin_number_patterns': 'twin_number.html', 'neighbor_count': 'neighbor_number.html', 'neighbor_number_patterns': 'neighbor_number.html',
@@ -963,7 +963,7 @@ window.FilterDashboard = {
             // [수정] AC값(10), 끝수합(60) 등 필터 속성에 맞는 정확한 Max값 설정 (0-6 고정 오류 해결)
             const defaultMax = isCountFilter ? 6 :
                 (key.includes('total_sum') ? 255 :
-                    (key.includes('last_digit_sum') ? 60 :
+                    (key.includes('tail_sum') ? 60 :
                         (key.includes('ac_value') ? 10 : 45)));
 
             const min = vals.min !== undefined ? vals.min : (defaultSet.min !== undefined ? defaultSet.min : 0);
@@ -974,23 +974,24 @@ window.FilterDashboard = {
             const textColor = 'text-blue-600';
 
             // [Phase 4] AI 추천 범위 뱃지 (deep_analysis_history.range_analysis 기반)
+            // ⚠ 4계층 동기화: 키 = filter_definitions.filter_key, 값 = loadAIRanges() 반환 키 (= 컬럼 prefix _min/_max)
             const AI_KEY_MAP = {
-                'total_sum':                  ['sum_min',        'sum_max'],
-                'ac_value':                   ['ac_value_min',   'ac_value_max'],
-                'last_digit_sum':             ['tail_sum_min',   'tail_sum_max'],
-                'odd_even_pattern':           ['odd_count_min',  'odd_count_max'],
-                'high_low_pattern':           ['high_count_min', 'high_count_max'],
-                'consecutive_count':          ['consecutive_min','consecutive_max'],
-                'prime_number_patterns':      ['prime_min',      'prime_max'],
-                'composite_count':            ['composite_min',  'composite_max'],
-                'square_number_patterns':     ['square_min',     'square_max'],
-                'triangular_number_patterns': ['triangular_min', 'triangular_max'],
-                'twin_number_patterns':       ['twin_min',       'twin_max'],
-                'multiple_3_count':           ['mul3_min',       'mul3_max'],
-                'multiple_7_count':           ['mul7_min',       'mul7_max'],
-                'multiple_8_count':           ['mul8_min',       'mul8_max'],
-                'missing_period':             ['missing_min',    'missing_max'],
-                'neighbor_number_patterns':   ['neighbor_min',   'neighbor_max'],
+                'total_sum':                  ['total_sum_min',                  'total_sum_max'],
+                'ac_value':                   ['ac_value_min',                   'ac_value_max'],
+                'tail_sum':                   ['tail_sum_min',                   'tail_sum_max'],
+                'odd_even_pattern':           ['odd_even_pattern_min',           'odd_even_pattern_max'],
+                'high_low_pattern':           ['high_low_pattern_min',           'high_low_pattern_max'],
+                'consecutive_count':          ['consecutive_count_min',          'consecutive_count_max'],
+                'prime_number_patterns':      ['prime_number_patterns_min',      'prime_number_patterns_max'],
+                'composite_count':            ['composite_count_min',            'composite_count_max'],
+                'square_number_patterns':     ['square_number_patterns_min',     'square_number_patterns_max'],
+                'triangular_number_patterns': ['triangular_number_patterns_min', 'triangular_number_patterns_max'],
+                'twin_number_patterns':       ['twin_number_patterns_min',       'twin_number_patterns_max'],
+                'multiple_3_count':           ['multiple_3_count_min',           'multiple_3_count_max'],
+                'multiple_7_count':           ['multiple_7_count_min',           'multiple_7_count_max'],
+                'multiple_8_count':           ['multiple_8_count_min',           'multiple_8_count_max'],
+                'missing_period':             ['missing_period_min',             'missing_period_max'],
+                'neighbor_number_patterns':   ['neighbor_number_patterns_min',   'neighbor_number_patterns_max'],
             };
             let aiRangeBadge = '';
             const aiCols = AI_KEY_MAP[key];
@@ -1007,7 +1008,7 @@ window.FilterDashboard = {
             }
 
             // 총합/끝수합처럼 3자리 값을 갖는 필터는 input 너비 확장
-            const _wideRangeKeys = new Set(['total_sum', 'last_digit_sum', 'missing_period']);
+            const _wideRangeKeys = new Set(['total_sum', 'tail_sum', 'missing_period']);
             const _inputWidthCls = _wideRangeKeys.has(key) ? 'w-20' : 'w-14';
             html += `
             <div class="flex items-center justify-end gap-3">
@@ -1023,7 +1024,7 @@ window.FilterDashboard = {
                 </div>
             </div>`;
 
-            if (key === 'total_sum' || key === 'last_digit_sum' || key === 'ac_value') {
+            if (key === 'total_sum' || key === 'tail_sum' || key === 'ac_value') {
                 const manualExcluded = key === 'ac_value' ? (vals.excludedAcValues || []) : (vals.excludedSums || vals.excluded || []);
 
                 // 시스템 자동 제외
@@ -1040,7 +1041,7 @@ window.FilterDashboard = {
                                 return null;
                             }).filter(s => s !== null && !isNaN(s))
                         )].filter(s => !restoredAuto.includes(s)).sort((a, b) => a - b);
-                    } else if (key === 'last_digit_sum') {
+                    } else if (key === 'tail_sum') {
                         const latestDraw = this.state.allDraws[0];
                         let latestTailSum = null;
                         if (latestDraw) {
@@ -1074,7 +1075,7 @@ window.FilterDashboard = {
                 const hasSystem = systemExcluded.length > 0;
 
                 if (hasManual || hasSystem) {
-                    const label = key.includes('last_digit_sum') ? '끝수합' : key.includes('ac_value') ? 'AC값' : '합계';
+                    const label = key.includes('tail_sum') ? '끝수합' : key.includes('ac_value') ? 'AC값' : '합계';
                     html += `<div class="mt-4 pt-3 border-t border-slate-100 italic text-[10px] text-slate-400 font-bold mb-1">제외된 ${label}:</div>`;
                     html += `<div class="flex flex-wrap gap-1.5">`;
 
@@ -2002,7 +2003,7 @@ window.FilterDashboard = {
         let html = '';
         let activeCount = 0;
 
-        const targetKeys = ['total_sum', 'last_digit_sum', 'ac_value', 'odd_even_pattern', 'high_low_pattern', 'consecutive_count', 'neighbor_number_patterns', 'carryover_count', 'prime_number_patterns', 'composite_count', 'triangular_number_patterns', 'square_number_patterns', 'twin_number_patterns', 'tail_digit_patterns', 'multiple_3_count', 'number_range_patterns', 'magic_square_pattern', 'lotto_paper_pattern', 'hot_cold_5', 'hot_cold_10', 'hot_cold_15', 'hot_cold_20', 'missing_period', 'missing_custom_filter'];
+        const targetKeys = ['total_sum', 'tail_sum', 'ac_value', 'odd_even_pattern', 'high_low_pattern', 'consecutive_count', 'neighbor_number_patterns', 'carryover_count', 'prime_number_patterns', 'composite_count', 'triangular_number_patterns', 'square_number_patterns', 'twin_number_patterns', 'tail_digit_patterns', 'multiple_3_count', 'number_range_patterns', 'magic_square_pattern', 'lotto_paper_pattern', 'hot_cold_5', 'hot_cold_10', 'hot_cold_15', 'hot_cold_20', 'missing_period', 'missing_custom_filter'];
         const orderedFilters = targetKeys.map(key => this.state.foundationFilters.find(def => def.filter_key === key)).filter(Boolean);
 
         orderedFilters.forEach(def => {
@@ -2314,10 +2315,10 @@ window.FilterDashboard = {
                         const ar = this.state.aiRanges;
                         if (!ar) return '';
                         const badges = [];
-                        const odd = [ar.odd_count_min, ar.odd_count_max];
+                        const odd = [ar.odd_even_pattern_min, ar.odd_even_pattern_max];
                         if (odd[0] != null && odd[1] != null)
                             badges.push(`<span class="text-[10px] font-black bg-indigo-50 text-indigo-500 px-1.5 py-0.5 rounded-full ring-1 ring-indigo-200" style="white-space:nowrap;" title="AI 추천 홀수 범위">홀 ${odd[0]}~${odd[1]}</span>`);
-                        const sum = [ar.sum_min, ar.sum_max];
+                        const sum = [ar.total_sum_min, ar.total_sum_max];
                         if (sum[0] != null && sum[1] != null)
                             badges.push(`<span class="text-[10px] font-black bg-blue-50 text-blue-500 px-1.5 py-0.5 rounded-full ring-1 ring-blue-200" style="white-space:nowrap;" title="AI 추천 합계 범위">합 ${sum[0]}~${sum[1]}</span>`);
                         const ac = [ar.ac_value_min, ar.ac_value_max];
@@ -2858,7 +2859,7 @@ window.FilterDashboard = {
         userSet.settings.recent10FilterActive = isActivating;
 
         // flag-only 필터: buildFilterControl의 표시 로직이 자동 제외 처리
-        const flagOnlyKeys = ['total_sum', 'last_digit_sum', 'ac_value',
+        const flagOnlyKeys = ['total_sum', 'tail_sum', 'ac_value',
             'odd_even_pattern', 'high_low_pattern',
             'prime_number_patterns', 'composite_count', 'missing_period'];
 
@@ -3582,7 +3583,7 @@ window.FilterDashboard = {
 
             // 2. LocalStorage 관련 모든 키 삭제
             const keysToRemove = [
-                'total_sum', 'last_digit_sum', 'ac_value', 'odd_even_pattern', 'high_low_pattern',
+                'total_sum', 'tail_sum', 'ac_value', 'odd_even_pattern', 'high_low_pattern',
                 'prime_number_patterns', 'composite_count', 'square_number_patterns',
                 'triangular_number_patterns', 'twin_number_patterns', 'neighbor_number_patterns',
                 'carryover_count', 'consecutive_count', 'multiple_3_count',

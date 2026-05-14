@@ -654,8 +654,14 @@ class FilterStatsComputer:
             self._number_range(),
             self._neighbor_count(),
             self._multiple_3(),
+            self._multiple_4(),
+            self._multiple_5(),
             self._multiple_7(),
             self._multiple_8(),
+            self._multiple_3_4(),
+            self._multiple_3_5(),
+            self._multiple_4_5(),
+            self._no_multiple(),
             self._zone_pattern(),
             self._decade_distribution(),
             self._missing_group(),
@@ -768,7 +774,7 @@ class FilterStatsComputer:
         recent_patterns = [f"{v}:{6 - v}" for v in recent_vals]
 
         base = self._build_range_filter(
-            key="odd_even",
+            key="odd_even_pattern",
             name="홀짝 비율 (Odd:Even)",
             icon="contrast",
             all_vals=all_vals,
@@ -811,7 +817,7 @@ class FilterStatsComputer:
         recent_patterns = [f"{v}:{6 - v}" for v in recent_vals]
 
         base = self._build_range_filter(
-            key="low_high",
+            key="high_low_pattern",
             name="저고 비율 (Low:High)",
             icon="swap_vert",
             all_vals=all_vals,
@@ -849,7 +855,7 @@ class FilterStatsComputer:
         all_vals = [calc(nums) for nums in self.all_numbers]
         recent_vals = [calc(nums) for nums in self.recent_numbers]
         base = self._build_range_filter(
-            key="consecutive",
+            key="consecutive_count",
             name="연속번호 (Consecutive)",
             icon="linear_scale",
             all_vals=all_vals,
@@ -875,7 +881,7 @@ class FilterStatsComputer:
         recent_vals = all_vals[:self.recent_n]
 
         base = self._build_range_filter(
-            key="carryover",
+            key="carryover_count",
             name="이월수 (Carryover)",
             icon="replay",
             all_vals=all_vals,
@@ -899,7 +905,7 @@ class FilterStatsComputer:
         all_vals = [calc(nums) for nums in self.all_numbers]
         recent_vals = [calc(nums) for nums in self.recent_numbers]
         base = self._build_range_filter(
-            key="prime_count",
+            key="prime_number_patterns",
             name="소수 개수 (Prime)",
             icon="looks_one",
             all_vals=all_vals,
@@ -949,7 +955,7 @@ class FilterStatsComputer:
         all_vals = [calc(nums) for nums in self.all_numbers]
         recent_vals = [calc(nums) for nums in self.recent_numbers]
         base = self._build_range_filter(
-            key="square_count",
+            key="square_number_patterns",
             name="제곱수 개수 (Square)",
             icon="crop_square",
             all_vals=all_vals,
@@ -973,7 +979,7 @@ class FilterStatsComputer:
         all_vals = [calc(nums) for nums in self.all_numbers]
         recent_vals = [calc(nums) for nums in self.recent_numbers]
         base = self._build_range_filter(
-            key="triangular_count",
+            key="triangular_number_patterns",
             name="삼각수 개수 (Triangular)",
             icon="change_history",
             all_vals=all_vals,
@@ -1000,7 +1006,7 @@ class FilterStatsComputer:
         all_vals = [calc(nums) for nums in self.all_numbers]
         recent_vals = [calc(nums) for nums in self.recent_numbers]
         base = self._build_range_filter(
-            key="twin_count",
+            key="twin_number_patterns",
             name="쌍수 (Twin Numbers)",
             icon="group",
             all_vals=all_vals,
@@ -1086,7 +1092,7 @@ class FilterStatsComputer:
         all_vals = [calc(nums) for nums in self.all_numbers]
         recent_vals = [calc(nums) for nums in self.recent_numbers]
         base = self._build_range_filter(
-            key="number_range",
+            key="number_range_patterns",
             name="번호 범위 (Range)",
             icon="expand",
             all_vals=all_vals,
@@ -1135,7 +1141,7 @@ class FilterStatsComputer:
         recent_vals = all_vals[:self.recent_n]
 
         base = self._build_range_filter(
-            key="neighbor_count",
+            key="neighbor_number_patterns",
             name="이웃수 (Neighbor)",
             icon="share_location",
             all_vals=all_vals,
@@ -1159,7 +1165,7 @@ class FilterStatsComputer:
         all_vals = [calc(nums) for nums in self.all_numbers]
         recent_vals = [calc(nums) for nums in self.recent_numbers]
         base = self._build_range_filter(
-            key="multiple_3",
+            key="multiple_3_count",
             name="3의 배수 개수",
             icon="filter_3",
             all_vals=all_vals,
@@ -1182,7 +1188,7 @@ class FilterStatsComputer:
         all_vals = [calc(nums) for nums in self.all_numbers]
         recent_vals = [calc(nums) for nums in self.recent_numbers]
         base = self._build_range_filter(
-            key="multiple_7",
+            key="multiple_7_count",
             name="7의 배수 개수",
             icon="filter_7",
             all_vals=all_vals,
@@ -1205,7 +1211,7 @@ class FilterStatsComputer:
         all_vals = [calc(nums) for nums in self.all_numbers]
         recent_vals = [calc(nums) for nums in self.recent_numbers]
         base = self._build_range_filter(
-            key="multiple_8",
+            key="multiple_8_count",
             name="8의 배수 개수",
             icon="filter_8",
             all_vals=all_vals,
@@ -1215,6 +1221,76 @@ class FilterStatsComputer:
 
         ml_block = self._extract_multiple_ml("m8")
         return self._attach_ml_block(base, ml_block)
+
+    # ─────────────────────────────────────────
+    # 16d~16i. 4·5의 배수 + 공배수 + 배수 아님 (filter_definitions 활성, 백엔드 산출 추가)
+    # ─────────────────────────────────────────
+    def _multiple_4(self) -> dict:
+        S = {4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44}
+        all_vals = [sum(1 for n in nums if n in S) for nums in self.all_numbers]
+        recent_vals = [sum(1 for n in nums if n in S) for nums in self.recent_numbers]
+        base = self._build_range_filter(
+            key="multiple_4_count", name="4의 배수 개수", icon="filter_4",
+            all_vals=all_vals, recent_vals=recent_vals,
+            description="6개 중 4의 배수의 개수.",
+        )
+        return self._attach_ml_block(base, self._extract_multiple_ml("m4"))
+
+    def _multiple_5(self) -> dict:
+        S = {5, 10, 15, 20, 25, 30, 35, 40, 45}
+        all_vals = [sum(1 for n in nums if n in S) for nums in self.all_numbers]
+        recent_vals = [sum(1 for n in nums if n in S) for nums in self.recent_numbers]
+        base = self._build_range_filter(
+            key="multiple_5_count", name="5의 배수 개수", icon="filter_5",
+            all_vals=all_vals, recent_vals=recent_vals,
+            description="6개 중 5의 배수의 개수.",
+        )
+        return self._attach_ml_block(base, self._extract_multiple_ml("m5"))
+
+    def _multiple_3_4(self) -> dict:
+        S = {12, 24, 36}  # 3·4 공배수 (12의 배수)
+        all_vals = [sum(1 for n in nums if n in S) for nums in self.all_numbers]
+        recent_vals = [sum(1 for n in nums if n in S) for nums in self.recent_numbers]
+        base = self._build_range_filter(
+            key="multiple_3_4_count", name="3·4 공배수 개수", icon="filter_alt",
+            all_vals=all_vals, recent_vals=recent_vals,
+            description="6개 중 12의 배수(3·4 공배수)의 개수.",
+        )
+        return self._attach_ml_block(base, None)
+
+    def _multiple_3_5(self) -> dict:
+        S = {15, 30, 45}  # 3·5 공배수 (15의 배수)
+        all_vals = [sum(1 for n in nums if n in S) for nums in self.all_numbers]
+        recent_vals = [sum(1 for n in nums if n in S) for nums in self.recent_numbers]
+        base = self._build_range_filter(
+            key="multiple_3_5_count", name="3·5 공배수 개수", icon="filter_alt",
+            all_vals=all_vals, recent_vals=recent_vals,
+            description="6개 중 15의 배수(3·5 공배수)의 개수.",
+        )
+        return self._attach_ml_block(base, None)
+
+    def _multiple_4_5(self) -> dict:
+        S = {20, 40}  # 4·5 공배수 (20의 배수)
+        all_vals = [sum(1 for n in nums if n in S) for nums in self.all_numbers]
+        recent_vals = [sum(1 for n in nums if n in S) for nums in self.recent_numbers]
+        base = self._build_range_filter(
+            key="multiple_4_5_count", name="4·5 공배수 개수", icon="filter_alt",
+            all_vals=all_vals, recent_vals=recent_vals,
+            description="6개 중 20의 배수(4·5 공배수)의 개수.",
+        )
+        return self._attach_ml_block(base, None)
+
+    def _no_multiple(self) -> dict:
+        # 3·4·5·7·8 배수 모두 아닌 번호의 개수
+        all_mul = config.MUL3 | config.MUL4 | config.MUL5 | config.MUL7 | config.MUL8
+        all_vals = [sum(1 for n in nums if n not in all_mul) for nums in self.all_numbers]
+        recent_vals = [sum(1 for n in nums if n not in all_mul) for nums in self.recent_numbers]
+        base = self._build_range_filter(
+            key="no_multiple_count", name="배수 아님 개수", icon="block",
+            all_vals=all_vals, recent_vals=recent_vals,
+            description="6개 중 3·4·5·7·8의 배수가 모두 아닌 번호의 개수.",
+        )
+        return self._attach_ml_block(base, self._extract_multiple_ml("other"))
 
     def _extract_multiple_ml(self, label_key: str) -> dict | None:
         """multiple_distribution payload에서 특정 카테고리(m3/m4/m5/m7/m8/other) 추출."""

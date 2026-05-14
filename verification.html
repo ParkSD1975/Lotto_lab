@@ -1147,7 +1147,7 @@ const VP = (() => {
     // "소수 패턴" → "소수", "쌍둥이수" → "동형수" 등 용어를 여기서 통일
     const FILTER_DISPLAY_NAMES = {
         'total_sum':                 '총합',
-        'last_digit_sum':            '끝수합',
+        'tail_sum':            '끝수합',
         'ac_value':                  'AC값',
         'consecutive_count':         '연번',
         'odd_even_pattern':          '홀짝',
@@ -1274,7 +1274,7 @@ const VP = (() => {
 
         const map = {
             'total_sum':          sum,
-            'last_digit_sum':     tailSum,
+            'tail_sum':     tailSum,
             'ac_value':           acVal(nums),
             'consecutive_count':  consec,
             'odd_even_pattern':   `${odds}:${6-odds}`,
@@ -2444,7 +2444,7 @@ const VP = (() => {
         const m = {
             // 수치/비율 필터 → 대상번호 없음
             'total_sum':           [],
-            'last_digit_sum':      [],
+            'tail_sum':      [],
             'ac_value':            [],
             'odd_even_pattern':    [],
             'high_low_pattern':    [],
@@ -2619,7 +2619,7 @@ const VP = (() => {
 
         // 고정 순서 정의
         const BASIC_FILTER_ORDER = [
-            'total_sum','last_digit_sum','ac_value','odd_even_pattern','high_low_pattern',
+            'total_sum','tail_sum','ac_value','odd_even_pattern','high_low_pattern',
             'consecutive_count','neighbor_number_patterns','carryover_count',
             'prime_number_patterns','composite_count','triangular_number_patterns',
             'square_number_patterns','twin_number_patterns',

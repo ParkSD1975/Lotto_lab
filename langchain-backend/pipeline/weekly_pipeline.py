@@ -112,23 +112,23 @@ class WeeklyPipeline:
 
         # 4. model_filter_predictions 범위 검증 (Phase 4.5)
         mfp_res = self.supabase.table("model_filter_predictions") \
-            .select("id, sum_min, sum_max, odd_count_min, odd_count_max, ac_value_min, ac_value_max") \
+            .select("id, total_sum_min, total_sum_max, odd_even_pattern_min, odd_even_pattern_max, ac_value_min, ac_value_max") \
             .eq("round_number", actual_round).execute()
 
         from datetime import datetime, timezone
         now_ts = datetime.now(timezone.utc).isoformat()
         for row in (mfp_res.data or []):
-            in_sum = (row["sum_min"] is not None and row["sum_min"] <= actual_sum <= row["sum_max"])  \
-                     if row.get("sum_min") is not None else None
-            in_odd = (row["odd_count_min"] is not None and row["odd_count_min"] <= actual_odd <= row["odd_count_max"]) \
-                     if row.get("odd_count_min") is not None else None
+            in_sum = (row["total_sum_min"] is not None and row["total_sum_min"] <= actual_sum <= row["total_sum_max"])  \
+                     if row.get("total_sum_min") is not None else None
+            in_odd = (row["odd_even_pattern_min"] is not None and row["odd_even_pattern_min"] <= actual_odd <= row["odd_even_pattern_max"]) \
+                     if row.get("odd_even_pattern_min") is not None else None
             self.supabase.table("model_filter_predictions") \
                 .update({
-                    "actual_sum":       actual_sum,
-                    "actual_odd_count": actual_odd,
-                    "in_range_sum":     in_sum,
-                    "in_range_odd":     in_odd,
-                    "verified_at":      now_ts,
+                    "actual_total_sum":           actual_sum,
+                    "actual_odd_even_pattern":    actual_odd,
+                    "in_range_total_sum":         in_sum,
+                    "in_range_odd_even_pattern":  in_odd,
+                    "verified_at":                now_ts,
                 }) \
                 .eq("id", row["id"]).execute()
         logger.info(f"   [4.5] 필터 범위 검증 완료: {len(mfp_res.data or [])}건")

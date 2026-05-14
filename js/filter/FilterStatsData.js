@@ -59,7 +59,8 @@ window.FilterStatsData = {
         switch (filterKey) {
             case 'total_sum':
                 return this._getRangeProb(this.THEORETICAL_SUM, settings.min, settings.max, settings.excludedSums);
-            case 'last_digit_sum':
+            case 'tail_sum':
+            case 'last_digit_sum':  // 레거시 호환
                 return this._getRangeProb(this.THEORETICAL_TAIL_SUM, settings.min, settings.max, settings.excludedSums);
             case 'odd_even_pattern':
                 return this._getDiscreteProb(this.COUNTS.odd_even, discreteValues);

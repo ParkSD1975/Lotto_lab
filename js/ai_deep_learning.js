@@ -2393,18 +2393,27 @@ const DeepLearning = {
             'mul3', 'mul4', 'mul5', 'mul7', 'mul8', 'non_multiple',
             'neighbor', 'carryover'
         ];
-        // 백엔드 key → localStorage key 매핑 (현재 설정값 읽기용)
+        // 레거시 짧은 key → 표준 키 매핑 (deep_analysis_history.range_analysis 등에서 짧은 키를 받는 경우 대비)
+        // 새 데이터는 표준 키로 직접 들어와야 하지만, 1224 이전 백엔드 출력 호환을 위해 유지
         const FILTER_TO_LS = {
-            sum: 'total_sum', tail_sum: 'last_digit_sum', ac: 'ac_value',
-            odd: 'odd_even_pattern', high: 'high_low_pattern',
-            prime: 'prime_number_patterns', composite: 'composite_count',
-            consecutive: 'consecutive_count', square: 'square_number_patterns',
-            triangular: 'triangular_number_patterns', twin: 'twin_number_patterns',
+            sum: 'total_sum',                        total_sum: 'total_sum',
+            tail_sum: 'tail_sum',
+            ac: 'ac_value',                          ac_value: 'ac_value',
+            odd: 'odd_even_pattern',                 odd_even_pattern: 'odd_even_pattern',
+            high: 'high_low_pattern',                high_low_pattern: 'high_low_pattern',
+            prime: 'prime_number_patterns',          prime_number_patterns: 'prime_number_patterns',
+            composite: 'composite_count',            composite_count: 'composite_count',
+            consecutive: 'consecutive_count',        consecutive_count: 'consecutive_count',
+            square: 'square_number_patterns',        square_number_patterns: 'square_number_patterns',
+            triangular: 'triangular_number_patterns', triangular_number_patterns: 'triangular_number_patterns',
+            twin: 'twin_number_patterns',            twin_number_patterns: 'twin_number_patterns',
             mul3: 'multiple_3_count', mul4: 'multiple_4_count', mul5: 'multiple_5_count',
             mul7: 'multiple_7_count', mul8: 'multiple_8_count',
+            mul34: 'multiple_3_4_count', mul35: 'multiple_3_5_count', mul45: 'multiple_4_5_count',
             non_multiple: 'no_multiple_count',
             hot10: 'hot_cold_10', missing: 'missing_period',
-            neighbor: 'neighbor_number_patterns', carryover: 'carryover_count'
+            neighbor: 'neighbor_number_patterns',    neighbor_number_patterns: 'neighbor_number_patterns',
+            carryover: 'carryover_count',            carryover_count: 'carryover_count'
         };
         const FILTER_MAX = { mul8: 5, non_multiple: 6 };
         // 필터별 물리적 상한/하한 (6개 번호 기준 절대 범위) - DB 데이터 클램프

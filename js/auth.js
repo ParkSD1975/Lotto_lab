@@ -76,12 +76,15 @@
 
         // 기초 분석 필터 키 목록
         const foundationKeys = [
-            'total_sum', 'last_digit_sum', 'ac_value', 'odd_even_pattern', 'high_low_pattern',
+            'total_sum', 'tail_sum', 'ac_value', 'odd_even_pattern', 'high_low_pattern',
             'prime_number_patterns', 'composite_count', 'square_number_patterns',
             'triangular_number_patterns', 'twin_number_patterns', 'neighbor_number_patterns',
-            'carryover_count', 'consecutive_count', 'multiple_3_count', 'number_range_patterns',
-            'magic_square_pattern', 'lotto_paper_pattern', 'hot_cold_5', 'hot_cold_10',
-            'hot_cold_15', 'hot_cold_20', 'missing_period', 'missing_custom_filter',
+            'carryover_count', 'consecutive_count',
+            'multiple_3_count', 'multiple_4_count', 'multiple_5_count', 'multiple_7_count', 'multiple_8_count',
+            'multiple_3_4_count', 'multiple_3_5_count', 'multiple_4_5_count', 'no_multiple_count',
+            'number_range_patterns', 'magic_square_pattern', 'lotto_paper_pattern',
+            'hot_cold_5', 'hot_cold_10', 'hot_cold_15', 'hot_cold_20',
+            'missing_period', 'missing_custom_filter',
             'regression_analysis', 'tail_digit_patterns'
         ];
         foundationKeys.forEach(k => {

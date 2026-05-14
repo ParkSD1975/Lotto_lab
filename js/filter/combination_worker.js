@@ -1081,7 +1081,7 @@ function buildStages(F) {
     // ── 끝수합 ──────────────────────────────────────
     if (F.tailSumMin !== undefined) {
         stages.push({
-            name: '끝수합', key: 'last_digit_sum', fn(a, b, c, d, e, f) {
+            name: '끝수합', key: 'tail_sum', fn(a, b, c, d, e, f) {
                 const ts = (a % 10) + (b % 10) + (c % 10) + (d % 10) + (e % 10) + (f % 10);
                 if (ts < F.tailSumMin || ts > F.tailSumMax) return false;
                 if (F.tailSumExcluded && F.tailSumExcluded.has(ts)) return false;

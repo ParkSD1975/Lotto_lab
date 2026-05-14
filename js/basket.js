@@ -20,53 +20,56 @@
         } catch { return { fixed: [], exclude: [] }; }
     }
 
+    // ⚠ DB-first 정책 (2026-05-14): DB가 단일 출처. localStorage는 캐시.
+    //   DB 저장 실패 시 사용자에게 명시적 알림 (silent fail 금지).
     async function save(data) {
+        // 1) localStorage 즉시 캐시 (UI 반응성)
         localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-        // FilterService 연동: 초기화된 경우 DB에도 저장
-        if (window.filterService?.initialized) {
-            try {
-                await window.filterService.saveSetting('fixed_numbers', { numbers: data.fixed }, data.fixed.length > 0);
-                await window.filterService.saveSetting('excluded_numbers', { numbers: data.exclude }, data.exclude.length > 0);
-                console.log('💾 GNB Basket saved to Supabase');
-            } catch (e) {
-                console.error('❌ Basket Supabase Save Error:', e);
+
+        // 2) DB 저장 시도 (filterService 필수)
+        if (!window.filterService?.initialized) {
+            if (window.BasketUI?.showToast) {
+                window.BasketUI.showToast('⚠ 로그인이 필요합니다. 바스켓이 DB에 저장되지 않았습니다.', 'warn');
+            }
+            console.warn('⚠ Basket: filterService 미초기화 — DB 저장 생략');
+            window.dispatchEvent(new CustomEvent('basketChanged', { detail: load() }));
+            return;
+        }
+
+        try {
+            await window.filterService.saveSetting('fixed_numbers',    { numbers: data.fixed },   data.fixed.length > 0);
+            await window.filterService.saveSetting('excluded_numbers', { numbers: data.exclude }, data.exclude.length > 0);
+            console.log('💾 GNB Basket saved to Supabase');
+        } catch (e) {
+            console.error('❌ Basket Supabase Save Error:', e);
+            if (window.BasketUI?.showToast) {
+                window.BasketUI.showToast('❌ 바스켓 DB 저장 실패 — 새로고침 후 다시 시도해주세요', 'warn');
             }
         }
         window.dispatchEvent(new CustomEvent('basketChanged', { detail: load() }));
     }
 
+    // ⚠ DB-first 정책 (2026-05-14): DB가 단일 출처. union 정책 폐기 — DB가 비어 있으면 localStorage도 비움.
     async function syncFromDB() {
         if (!window.filterService?.initialized) return;
 
         try {
-            const fixedData = await window.filterService.loadSetting('fixed_numbers');
+            const fixedData   = await window.filterService.loadSetting('fixed_numbers');
             const excludeData = await window.filterService.loadSetting('excluded_numbers');
 
-            if (fixedData || excludeData) {
-                const current = load();
-                // [Stage 1-4-D-2-fix-95] DB row가 있어도 빈 array면 localStorage 보존
-                // 사용자 보고: '로그아웃되면 또 제외수/고정수 바스켓이 다 없어지네?'
-                // 원인: DB의 fixed_numbers/excluded_numbers row에 빈 array 저장돼 있으면
-                //       기존 코드가 빈 array로 localStorage 덮어씀 → 데이터 손실
-                // 정책: DB array가 비어 있으면 localStorage 우선, 둘 다 합집합(union) 적용
-                const dbFixed = (fixedData && Array.isArray(fixedData.settings?.numbers))
-                    ? fixedData.settings.numbers : [];
-                const dbExclude = (excludeData && Array.isArray(excludeData.settings?.numbers))
-                    ? excludeData.settings.numbers : [];
-                // union: 로컬 + DB 합집합 (사용자 데이터 손실 방지)
-                const newFixed = [...new Set([...(current.fixed || []), ...dbFixed])];
-                const newExclude = [...new Set([...(current.exclude || []), ...dbExclude])];
+            const current = load();
+            const dbFixed   = (fixedData   && Array.isArray(fixedData.settings?.numbers))   ? fixedData.settings.numbers   : [];
+            const dbExclude = (excludeData && Array.isArray(excludeData.settings?.numbers)) ? excludeData.settings.numbers : [];
 
-                const merged = {
-                    fixed: newFixed.sort((a, b) => a - b),
-                    exclude: newExclude.sort((a, b) => a - b),
-                    current_round: current.current_round
-                };
+            const synced = {
+                fixed:   [...dbFixed].sort((a, b) => a - b),
+                exclude: [...dbExclude].sort((a, b) => a - b),
+                current_round: current.current_round
+            };
 
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
-                renderPanel();
-                console.log(`🔄 GNB Basket synced (union: fixed=${merged.fixed.length}, exclude=${merged.exclude.length})`);
-            }
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(synced));
+            renderPanel();
+            console.log(`🔄 GNB Basket synced from DB (fixed=${synced.fixed.length}, exclude=${synced.exclude.length})`);
         } catch (e) {
             console.error('❌ Basket Sync Error:', e);
         }
@@ -163,32 +166,19 @@
 
             // 로컬에 이전 회차가 기록되어 있고, 최신 회차보다 작다면 (새 회차가 업데이트 되었다면)
             if (savedRound && savedRound < latestRound) {
-                // [Stage 1-4-D-2-fix-80] Bug 4 — 회차 변경 시 exclude(제외수)는 보존
-                // 사용자 보고: '조작도 안했는데 제외수가 사라짐' (데이터 손실)
-                // 정책: 고정수(fixed)는 회차마다 의미 변화하므로 reset, 제외수(exclude)는 영구 의도이므로 보존
-                const preservedExclude = Array.isArray(currentData.exclude) ? currentData.exclude : [];
-                console.log(`[Basket] 새로운 회차 감지 (${savedRound} -> ${latestRound}). 고정수만 비우고 제외수 ${preservedExclude.length}개는 보존.`);
-                // localStorage 초기화 (exclude 보존)
-                save({ fixed: [], exclude: preservedExclude, current_round: latestRound });
+                // [2026-05-14 정책 변경] 사용자 명시 지시: "회차 업데이트되면 리셋이야"
+                // 기존 fix-80의 "exclude 보존" 정책 폐기 → fixed·exclude 모두 비움
+                // 이유: 영구 제외수가 다음 회차 적중 기회를 차단하는 사고 방지
+                console.log(`[Basket] 새 회차 감지 (${savedRound} → ${latestRound}). 고정수·제외수 모두 리셋.`);
+                save({ fixed: [], exclude: [], current_round: latestRound });
                 _wasCleared = true;
-                // ── FilterLifecycle 에 NEW_ROUND 통보 ──────────────────
-                if (window.FilterLifecycle && typeof window.FilterLifecycle.onNewRound === 'function') {
+
+                if (window.FilterLifecycle?.onNewRound) {
                     window.FilterLifecycle.onNewRound(savedRound, latestRound);
                 }
-                // Supabase DB도 함께 초기화 (fixed만, exclude는 그대로 유지)
-                if (window.filterService?.initialized) {
-                    try {
-                        await window.filterService.saveSetting('fixed_numbers', { numbers: [] }, false);
-                        // [fix-80] excluded_numbers는 보존 — 사용자가 명시적으로 비울 때만 비움
-                        console.log('[Basket] Supabase 고정수 초기화 완료 (제외수 보존)');
-                    } catch (dbErr) {
-                        console.warn('[Basket] Supabase 초기화 실패:', dbErr);
-                    }
+                if (window.BasketUI?.showToast) {
+                    window.BasketUI.showToast('새 회차 업데이트 — 고정수·제외수가 초기화되었습니다.', 'info');
                 }
-                const msg = preservedExclude.length > 0
-                    ? `새 회차 업데이트 — 고정수는 비우고 제외수 ${preservedExclude.length}개는 그대로 유지합니다.`
-                    : '새로운 로또 회차가 업데이트되어 고정수 바구니를 비웠습니다.';
-                window.BasketUI.showToast(msg, 'info');
             }
             // 기록된 회차가 없거나, 같거나 크다면 현재 최신 회차로 기록만 갱신
             else if (!savedRound || savedRound !== latestRound) {

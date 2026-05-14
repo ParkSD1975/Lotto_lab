@@ -97,6 +97,30 @@
 
 위 토큰은 **데이터 시각화 라벨용만**. UI/아이콘/배경에 사용 X.
 
+## Filter Key Synchronization Rule (CRITICAL)
+
+필터 키는 **4계층 모두 동일 표기**여야 한다. 강제 룰:
+
+| 계층 | 위치 | 표기 |
+|---|---|---|
+| ① 프론트 | `js/filter/FilterRuleEngine.js::FILTER_KEYS`, `js/filter_dashboard.js::AI_KEY_MAP`, 각 분석 페이지 saveSetting key | 표준 키 |
+| ② 백엔드 | `langchain-backend/services/filter_stats.py` 각 메서드의 `key=` | 표준 키 |
+| ③ DB 정의 | `filter_definitions.filter_key`, `weekly_filter_predictions.filter_key` | 표준 키 |
+| ④ DB 컬럼 | `model_filter_predictions.<key>_min/_max` | 표준 키 prefix |
+
+**표준 키 35종** (2026-05-14 기준): `ac_value, total_sum, tail_sum, tail_digit_patterns, carryover_count, prime_number_patterns, square_number_patterns, triangular_number_patterns, odd_even_pattern, twin_number_patterns, neighbor_number_patterns, high_low_pattern, lotto_paper_pattern, magic_square_pattern, number_range_patterns, composite_count, consecutive_count, hot_cold_5/10/15/20, missing_period, missing_custom_filter, multiple_3/4/5/7/8_count, multiple_3_4_count, multiple_3_5_count, multiple_4_5_count, no_multiple_count, fixed_numbers, excluded_numbers, regression_analysis`.
+
+### 변경 시 절차 (필수)
+1. 새 필터 추가 / 키 변경 / 삭제 → **4계층 동시 PR**
+2. PR 본문에 4계층 비교 표 첨부
+3. `node scripts/verify_filter_keys.js` 실행 결과 첨부 (불일치 0 확인)
+4. `AI_KEY_MAP` 같은 강제 매핑 레이어 신규 추가 금지 (레거시는 점진 제거)
+
+### 바스켓 정책 (DB-first)
+- `Basket`(`js/basket.js`)은 **DB가 단일 출처**. localStorage는 캐시.
+- DB 저장 실패 시 사용자 토스트로 노출 (silent fail 금지).
+- 회차 업데이트 감지 시 `fixed` · `exclude` **모두** 리셋 (영구 제외수 사고 방지).
+
 ## Project Structure
 
 - 분석 페이지 22개 — 각 지표마다 (`ac_value.html`, `total_sum.html`, `tail_sum.html` 등)

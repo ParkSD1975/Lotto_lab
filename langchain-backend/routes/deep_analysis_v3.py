@@ -2105,35 +2105,44 @@ def _save_filter_predictions(target_round: int, result: dict):
                     pass
             return None, None
 
-        sum_min,       sum_max       = _parse_range("sum")
-        ac_min,        ac_max        = _parse_range("ac")
-        odd_min,       odd_max       = _parse_range("odd")
-        high_min,      high_max      = _parse_range("high")
-        tail_min,      tail_max      = _parse_range("tail_sum")
-        prime_min,     prime_max     = _parse_range("prime")
-        composite_min, composite_max = _parse_range("composite")
-        consec_max = _parse_range("consecutive")[1]
+        # range_analysis 입력 키는 백엔드 filter_stats.py 표준화 후 긴 표기 사용. 짧은 키도 호환.
+        def _r(*keys):
+            for k in keys:
+                lo, hi = _parse_range(k)
+                if lo is not None or hi is not None:
+                    return lo, hi
+            return None, None
+
+        sum_min,       sum_max       = _r("total_sum", "sum")
+        ac_min,        ac_max        = _r("ac_value", "ac")
+        odd_min,       odd_max       = _r("odd_even_pattern", "odd")
+        high_min,      high_max      = _r("high_low_pattern", "high")
+        tail_min,      tail_max      = _r("tail_sum")
+        prime_min,     prime_max     = _r("prime_number_patterns", "prime")
+        composite_min, composite_max = _r("composite_count", "composite")
+        consec_min,    consec_max    = _r("consecutive_count", "consecutive")
 
         row = {
-            "round_number":    target_round,
-            "source_model":    "ensemble",
-            "sum_min":         sum_min,
-            "sum_max":         sum_max,
-            "ac_value_min":    ac_min,
-            "ac_value_max":    ac_max,
-            "odd_count_min":   odd_min,
-            "odd_count_max":   odd_max,
-            "high_count_min":  high_min,
-            "high_count_max":  high_max,
-            "tail_sum_min":    tail_min,
-            "tail_sum_max":    tail_max,
-            "prime_min":       prime_min,
-            "prime_max":       prime_max,
-            "composite_min":   composite_min,
-            "composite_max":   composite_max,
-            "consecutive_max": consec_max,
-            "full_range_data": json.dumps(range_analysis, cls=NumpyEncoder, ensure_ascii=False),
-            "confidence":      0.700,
+            "round_number":              target_round,
+            "source_model":              "ensemble",
+            "total_sum_min":             sum_min,
+            "total_sum_max":             sum_max,
+            "ac_value_min":              ac_min,
+            "ac_value_max":              ac_max,
+            "odd_even_pattern_min":      odd_min,
+            "odd_even_pattern_max":      odd_max,
+            "high_low_pattern_min":      high_min,
+            "high_low_pattern_max":      high_max,
+            "tail_sum_min":              tail_min,
+            "tail_sum_max":              tail_max,
+            "prime_number_patterns_min": prime_min,
+            "prime_number_patterns_max": prime_max,
+            "composite_count_min":       composite_min,
+            "composite_count_max":       composite_max,
+            "consecutive_count_min":     consec_min,
+            "consecutive_count_max":     consec_max,
+            "full_range_data":           json.dumps(range_analysis, cls=NumpyEncoder, ensure_ascii=False),
+            "confidence":                0.700,
         }
         client.table("model_filter_predictions").upsert(
             row, on_conflict="round_number,source_model"

@@ -485,7 +485,8 @@ class FilterService {
         const keyMapping = {
             'ac_filter': 'ac_value',
             'total_sum_filter': 'total_sum',
-            'tail_sum_filter': 'last_digit_sum',
+            'tail_sum_filter': 'tail_sum',
+            'last_digit_sum': 'tail_sum',
             'tail_digit_filter': 'tail_digit_patterns',  // 끝수 통합 패턴 키로 마이그레이션
             'carryover_filter': 'carryover_count',
             'odd_even_filter': 'odd_even_pattern',
@@ -827,7 +828,7 @@ class FilterService {
      * deep_analysis_history.analysis_data.range_analysis 에서 AI 추천 필터 범위 조회.
      * 별도 테이블 없음 — 기존 JSONB 컬럼 재활용.
      * @param {number|null} roundNumber - 특정 회차 지정 (null = 최신)
-     * @returns {object|null} { sum_min, sum_max, ac_value_min, ac_value_max, ... , _round, _source } 또는 null
+     * @returns {object|null} { total_sum_min, total_sum_max, ac_value_min, ac_value_max, ... , _round, _source } 또는 null
      */
     async loadAIRanges(roundNumber = null) {
         // 5분 캐시 (동일 회차 재조회 방지)
@@ -891,23 +892,23 @@ class FilterService {
             const [nbMin, nbMax]           = r('neighbor');
 
             const result = {
-                // filter_dashboard.js AI_KEY_MAP 키
-                sum_min: sumMin,           sum_max: sumMax,
-                ac_value_min: acMin,       ac_value_max: acMax,
-                tail_sum_min: tailMin,     tail_sum_max: tailMax,
-                odd_count_min: oddMin,     odd_count_max: oddMax,
-                high_count_min: highMin,   high_count_max: highMax,
-                consecutive_min: consMin,  consecutive_max: consMax,
-                prime_min: primeMin,       prime_max: primeMax,
-                composite_min: compMin,    composite_max: compMax,
-                square_min: squareMin,     square_max: squareMax,
-                triangular_min: triMin,    triangular_max: triMax,
-                twin_min: twinMin,         twin_max: twinMax,
-                mul3_min: mul3Min,         mul3_max: mul3Max,
-                mul7_min: mul7Min,         mul7_max: mul7Max,
-                mul8_min: mul8Min,         mul8_max: mul8Max,
-                missing_min: misMin,       missing_max: misMax,
-                neighbor_min: nbMin,       neighbor_max: nbMax,
+                // 표준 키 _min/_max (filter_definitions.filter_key prefix 일치)
+                total_sum_min: sumMin,                       total_sum_max: sumMax,
+                ac_value_min: acMin,                         ac_value_max: acMax,
+                tail_sum_min: tailMin,                       tail_sum_max: tailMax,
+                odd_even_pattern_min: oddMin,                odd_even_pattern_max: oddMax,
+                high_low_pattern_min: highMin,               high_low_pattern_max: highMax,
+                consecutive_count_min: consMin,              consecutive_count_max: consMax,
+                prime_number_patterns_min: primeMin,         prime_number_patterns_max: primeMax,
+                composite_count_min: compMin,                composite_count_max: compMax,
+                square_number_patterns_min: squareMin,       square_number_patterns_max: squareMax,
+                triangular_number_patterns_min: triMin,      triangular_number_patterns_max: triMax,
+                twin_number_patterns_min: twinMin,           twin_number_patterns_max: twinMax,
+                multiple_3_count_min: mul3Min,               multiple_3_count_max: mul3Max,
+                multiple_7_count_min: mul7Min,               multiple_7_count_max: mul7Max,
+                multiple_8_count_min: mul8Min,               multiple_8_count_max: mul8Max,
+                missing_period_min: misMin,                  missing_period_max: misMax,
+                neighbor_number_patterns_min: nbMin,         neighbor_number_patterns_max: nbMax,
                 // 메타데이터
                 _round: data.target_round,
                 _source: 'ensemble',
