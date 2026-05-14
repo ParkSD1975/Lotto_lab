@@ -4,7 +4,7 @@ const CONFIG = {
         KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRrY2ZsbXlvc2N1ZGF3bGVnbHpiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc1NDQ4OTAsImV4cCI6MjA4MzEyMDg5MH0.haAvbpScvMJv1uqH_tk-0fUlJNCpHnlWBtYzX6YFweo'
     },
     LANGCHAIN: {
-        URL: 'http://localhost:8000',
+        URL: 'https://parksungdeok-lotto-ai-backend.hf.space',  // [2026-05-14] localhost:8000 → HF Spaces 통일 (ERR_CONNECTION_REFUSED fix)
         ENABLED: true,
         TIMEOUT: 60000
     }
