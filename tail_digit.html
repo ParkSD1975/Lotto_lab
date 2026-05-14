@@ -1751,12 +1751,17 @@
                 await loadFilterSettings(currentRound);
 
                 // [토요일 자동 업데이트] 새 회차가 감지되면 최근 10회차 필터 자동 적용
+                // [2026-05-14 fix] isManual=true(대시보드/사용자 수동 변경) 시 skip — 사용자 의도 덮어쓰기 방지
                 const latestRoundNum = AppState.allDrawData[0]?.round || 0;
                 const lastAutoRound = parseInt(localStorage.getItem('tail_digit_recent10_auto_round') || '0');
-                if (latestRoundNum > lastAutoRound && AppState.allDrawData.length >= 10) {
+                const isManualMode = localStorage.getItem('tail_digit_filter_isManual') === 'true';
+                if (latestRoundNum > lastAutoRound && AppState.allDrawData.length >= 10 && !isManualMode) {
                     console.log(`[tail_digit] 새 회차 감지 (${lastAutoRound} → ${latestRoundNum}), 필터 자동 갱신`);
                     await applyRecent10Filters();
                     await saveFilterSettings(latestRoundNum + 1);
+                    localStorage.setItem('tail_digit_recent10_auto_round', String(latestRoundNum));
+                } else if (isManualMode && latestRoundNum > lastAutoRound) {
+                    console.log(`[tail_digit] 새 회차 감지 (${lastAutoRound} → ${latestRoundNum}) — 사용자 수동 모드(isManual=true), 자동 재세팅 skip`);
                     localStorage.setItem('tail_digit_recent10_auto_round', String(latestRoundNum));
                 }
 
