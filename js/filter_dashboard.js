@@ -2467,13 +2467,13 @@ window.FilterDashboard = {
     },
 
     /**
-     * 대시보드 전용 저장 헬퍼 — 2026-05-14 양방향 동기화 fix
+     * 대시보드 전용 저장 헬퍼 — 2026-05-14 양방향 동기화 fix v2
      *
      * 핵심 변경:
      *   - 이전: Utils.saveFilter(NULL 행, storage event) + saveSetting(회차별 행, DB-only)
      *           → 분석 페이지가 회차별 행 우선 로드하므로 storage event가 NULL 데이터로 발화돼 단방향 깨짐
-     *   - 현재: Utils.saveFilter(회차별 행, storage event 포함) → 분석 페이지의 회차별 우선 로드 정합
-     *           NULL 행은 DB에 추가 저장 (다른 페이지의 폴백 경로 보존)
+     *   - v2 추가: 분석 페이지의 자동 재세팅(checkAndResetOnNewDraw 등)이 대시보드 변경을
+     *             덮어쓰는 문제 fix — 모든 분석 페이지의 isManual 플래그 변형을 한번에 표시.
      */
     async _saveDashboardFilter(defKey, settings, enabled) {
         this._dashSelfSaving = true;
@@ -2485,14 +2485,61 @@ window.FilterDashboard = {
             } else if (window.filterService?.initialized) {
                 await window.filterService.saveSetting(defKey, settings, enabled, tr);
             }
-            // NULL 행 폴백 보존 (DB만, storage event 불필요 — 이미 위에서 발화)
+            // NULL 행 폴백 보존 (DB만)
             if (tr && window.filterService?.initialized) {
                 try {
                     await window.filterService.saveSetting(defKey, settings, enabled, null);
                 } catch (e) { /* 무시 */ }
             }
+            // 분석 페이지 자동 재세팅 방지: 표준 키 → 페이지 isManual 키 매핑
+            this._markPagesManual(defKey);
         } finally {
             this._dashSelfSaving = false;
+        }
+    },
+
+    /**
+     * 표준 filter_key에 매핑되는 각 분석 페이지의 isManual localStorage 플래그를 'true'로 설정.
+     * checkAndResetOnNewDraw / autoApply*OnLoad 등 자동 재세팅 로직이 대시보드 변경을 덮어쓰는 사고 방지.
+     */
+    _markPagesManual(filter_key) {
+        const MANUAL_KEY_MAP = {
+            'ac_value':                  ['ac_value_is_manual'],
+            'total_sum':                 ['total_sum_filter_isManual'],
+            'tail_sum':                  ['tail_sum_filter_isManual'],
+            'tail_digit_patterns':       ['tail_digit_filter_isManual'],
+            'carryover_count':           ['carryover_filter_isManual'],
+            'composite_count':           ['composite_number_is_manual'],
+            'consecutive_count':         ['consecutive_number_is_manual', 'consecutive_filter_isManual'],
+            'hot_cold_5':                ['hot_cold_filter_isManual'],
+            'hot_cold_10':               ['hot_cold_filter_isManual'],
+            'hot_cold_15':               ['hot_cold_filter_isManual'],
+            'hot_cold_20':               ['hot_cold_filter_isManual'],
+            'high_low_pattern':          ['low_high_is_manual'],
+            'magic_square_pattern':      ['magic_square_filter_isManual'],
+            'missing_period':            ['missing_period_is_manual'],
+            'missing_custom_filter':     ['missing_period_is_manual'],
+            'multiple_3_count':          ['multiple_period_is_manual'],
+            'multiple_4_count':          ['multiple_period_is_manual'],
+            'multiple_5_count':          ['multiple_period_is_manual'],
+            'multiple_7_count':          ['multiple_period_is_manual'],
+            'multiple_8_count':          ['multiple_period_is_manual'],
+            'multiple_3_4_count':        ['multiple_period_is_manual'],
+            'multiple_3_5_count':        ['multiple_period_is_manual'],
+            'multiple_4_5_count':        ['multiple_period_is_manual'],
+            'no_multiple_count':         ['multiple_period_is_manual'],
+            'neighbor_number_patterns':  ['neighbor_number_period_is_manual'],
+            'number_range_patterns':     ['number_range_period_is_manual'],
+            'odd_even_pattern':          ['odd_even_is_manual'],
+            'prime_number_patterns':     ['prime_number_patterns_isManual'],
+            'regression_analysis':       ['regression_analysis_isManual'],
+            'square_number_patterns':    ['square_number_patterns_isManual'],
+            'twin_number_patterns':      ['twin_number_patterns_isManual'],
+            'lotto_paper_pattern':       ['lotto_paper_filter_isManual'],
+        };
+        const keys = MANUAL_KEY_MAP[filter_key] || [];
+        for (const k of keys) {
+            try { localStorage.setItem(k, 'true'); } catch (_) { /* 무시 */ }
         }
     },
 
