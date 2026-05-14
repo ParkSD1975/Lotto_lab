@@ -643,7 +643,8 @@ window.FilterDashboard = {
                         console.log(`[Dashboard] missing_custom_filter targetRound 갱신: ${savedRound} → ${expectedTargetRound} (그룹 유지)`);
                         mcSet.settings.targetRound = expectedTargetRound;
                         if (window.filterService?.initialized) {
-                            await window.filterService.saveSetting('missing_custom_filter', mcSet.settings, mcSet.enabled);
+                            // [2026-05-14] targetRound 명시 — 회차별 행에 저장 (NULL 행으로 빠지지 않도록)
+                            await window.filterService.saveSetting('missing_custom_filter', mcSet.settings, mcSet.enabled, expectedTargetRound);
                         }
                         // localStorage 동기화
                         try {
@@ -2648,11 +2649,8 @@ window.FilterDashboard = {
 
             const def = this.state.foundationFilters.find(d => d.id === id);
             if (def) {
-                if (window.Utils && window.Utils.saveFilter) {
-                    await window.Utils.saveFilter(def.filter_key, this.state.userSettings[id].settings, this.state.userSettings[id].enabled);
-                } else if (window.filterService?.initialized) {
-                    await window.filterService.saveSetting(def.filter_key, this.state.userSettings[id].settings, this.state.userSettings[id].enabled);
-                }
+                // [2026-05-14] _saveDashboardFilter 사용 — targetRound + isManual 일괄 처리
+                await this._saveDashboardFilter(def.filter_key, this.state.userSettings[id].settings, this.state.userSettings[id].enabled);
             }
         }
     },
@@ -2859,11 +2857,9 @@ window.FilterDashboard = {
             // [수정] 최근 10회차를 켤 때만 필터를 자동으로 켜줌 (해제할 때는 기존 상태 유지)
             if (isActivating) userSet.enabled = true;
 
-            if (window.Utils && window.Utils.saveFilter) {
-                await window.Utils.saveFilter(def.filter_key, userSet.settings, userSet.enabled);
-            } else if (window.filterService?.initialized) {
-                await window.filterService.saveSetting(def.filter_key, userSet.settings, userSet.enabled);
-            }
+            // [2026-05-14] _saveDashboardFilter 사용 — targetRound + isManual 일괄 처리
+            // (이전: Utils.saveFilter 직접 호출 + targetRound 누락 → null 저장)
+            await this._saveDashboardFilter(def.filter_key, userSet.settings, userSet.enabled);
         }
         this.renderFoundationFilters();
         this.updateNeonCounter();
