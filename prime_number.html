@@ -373,14 +373,12 @@
 
                 console.log(`💾 소수 필터 저장 시도: counts=${JSON.stringify(activeCounts)}, target=${targetRound}, enabled=${enabled}`);
 
-                // Utils.saveFilter로 저장 (localStorage + StorageEvent 브로드캐스트 포함)
+                // [2026-05-14 표준 패턴] Utils.saveFilter에 targetRound 4번째 인자 직접 전달
+                // → 회차별 DB 저장 + localStorage + StorageEvent 브로드캐스트 통합 처리
                 if (window.Utils && window.Utils.saveFilter) {
-                    // [1] NULL 행 저장 (표준 크로스탭 sync용)
-                    await window.Utils.saveFilter(storageKey, data, enabled);
-                    // [2] 회차 특정 행 저장 (대시보드는 targetRound 행을 우선 읽으므로 반드시 함께 저장)
-                    if (window.filterService && window.filterService.initialized && targetRound) {
-                        await window.filterService.saveSetting(storageKey, data, enabled, targetRound);
-                    }
+                    await window.Utils.saveFilter(storageKey, data, enabled, targetRound);
+                } else if (window.filterService && window.filterService.initialized) {
+                    await window.filterService.saveSetting(storageKey, data, enabled, targetRound);
                 }
                 _primeSaveTime = Date.now();  // ★ self-save 종료 시간 갱신 (마지막 save 기준)
 

@@ -126,24 +126,22 @@
                 console.log(`💾 끝수 필터 저장 시도: target=${targetRound}, enabled=${filterEnabled}`);
 
                 if (window.Utils && window.Utils.saveFilter) {
-                    // [fix-296] 단일 진실 공급원: 개별 키 end_digit_*_count 10개만 저장
-                    // 번들(tail_digit_patterns)은 폐기 — 대시보드가 read-time 합성으로 가져감
+                    // [2026-05-14 표준화] end_digit_0~9_count 10개 유령 키 폐기 → tail_digit_patterns 단일 키로 통합
+                    // 구조: { filters: { "0": {min, max}, "1": {min, max}, ... "9": {min, max} }, recent10FilterActive }
+                    const filtersObj = {};
                     for (let i = 0; i <= 9; i++) {
                         const f = AppState.digitFilters[i];
                         if (!f) continue;
-                        const selectedValues = [];
-                        for (let _v = f.min; _v <= f.max; _v++) selectedValues.push(_v);
-                        const data = {
-                            min: f.min,
-                            max: f.max,
-                            selectedValues: selectedValues,
-                            recent10FilterActive: AppState.isRecentTenFilter
-                        };
-                        await window.Utils.saveFilter(`end_digit_${i}_count`, data, filterEnabled, targetRound);
+                        filtersObj[String(i)] = { min: f.min, max: f.max };
                     }
+                    const data = {
+                        filters: filtersObj,
+                        recent10FilterActive: AppState.isRecentTenFilter
+                    };
+                    await window.Utils.saveFilter('tail_digit_patterns', data, filterEnabled, targetRound);
                 }
                 _tailSaveTime = Date.now();
-                console.log(`✅ 끝수 필터 저장 완료 (${targetRound}회) — 개별 10개 키 (DB 단일 진실)`);
+                console.log(`✅ 끝수 필터 저장 완료 (${targetRound}회) — tail_digit_patterns 통합 키`);
             } catch (error) {
                 console.error('❌ 필터 저장 오류:', error);
             }
@@ -159,50 +157,34 @@
                 let firstRecent10 = undefined;
                 const loadedFilters = {};
 
-                // [1] 개별 끝수 키 로드 시도 (end_digit_0_count ~ end_digit_9_count)
+                // [2026-05-14 표준] tail_digit_patterns 단일 키 로드 (end_digit_0~9_count 폐기)
                 if (window.Utils && window.Utils.loadFilter) {
-                    for (let i = 0; i <= 9; i++) {
-                        const raw = await window.Utils.loadFilter(`end_digit_${i}_count`, latestRound);
-                        if (!raw) continue;
-                        const data = (raw.settings !== undefined) ? { ...raw.settings, enabled: raw.enabled } : raw;
-                        if (data.min !== undefined && data.max !== undefined) {
-                            loadedFilters[i] = { min: data.min, max: data.max };
-                        }
-                        if (!anyLoaded) {
-                            firstEnabled = data.enabled;
-                            firstRecent10 = data.recent10FilterActive;
-                        }
-                        anyLoaded = true;
-                    }
-                }
-
-                // [2] 레거시 번들 마이그레이션: 개별 키가 없으면 구 tail_digit_patterns 번들 읽기
-                if (!anyLoaded && window.Utils && window.Utils.loadFilter) {
                     const raw = await window.Utils.loadFilter('tail_digit_patterns', latestRound);
                     if (raw) {
-                        const legacy = (raw.settings !== undefined) ? { ...raw.settings, enabled: raw.enabled } : raw;
-                        if (legacy.filters) {
+                        const data = (raw.settings !== undefined) ? { ...raw.settings, enabled: raw.enabled } : raw;
+                        if (data.filters) {
                             for (let i = 0; i <= 9; i++) {
-                                if (legacy.filters[i]) loadedFilters[i] = legacy.filters[i];
+                                if (data.filters[String(i)]) loadedFilters[i] = data.filters[String(i)];
                             }
-                            firstEnabled = legacy.enabled;
-                            firstRecent10 = legacy.recent10FilterActive;
-                            anyLoaded = true;
+                            firstEnabled = data.enabled;
+                            firstRecent10 = data.recent10FilterActive;
+                            anyLoaded = Object.keys(loadedFilters).length > 0;
                         }
                     }
-                    // Fallback: localStorage 직접 읽기
+                    // localStorage 폴백 (DB sync 전 시점 대비)
                     if (!anyLoaded) {
-                        const local = localStorage.getItem('tail_digit_patterns') || localStorage.getItem('tail_digit_filter') || localStorage.getItem('lottoDigitFilters');
+                        const local = localStorage.getItem('tail_digit_patterns');
                         if (local) {
                             try {
                                 const p = JSON.parse(local);
-                                if (p.filters) {
+                                const inner = (p.settings !== undefined) ? p.settings : p;
+                                if (inner.filters) {
                                     for (let i = 0; i <= 9; i++) {
-                                        if (p.filters[i]) loadedFilters[i] = p.filters[i];
+                                        if (inner.filters[String(i)]) loadedFilters[i] = inner.filters[String(i)];
                                     }
-                                    firstEnabled = p.enabled;
-                                    firstRecent10 = p.recent10FilterActive;
-                                    anyLoaded = true;
+                                    firstEnabled = p.enabled !== undefined ? p.enabled : inner.enabled;
+                                    firstRecent10 = inner.recent10FilterActive;
+                                    anyLoaded = Object.keys(loadedFilters).length > 0;
                                 }
                             } catch (e) { }
                         }
@@ -300,10 +282,8 @@
                 return;
             }
             if (!e.key) return;
+            // [2026-05-14 표준] tail_digit_patterns 단일 키만 감지 (end_digit_*_count 키 폐기)
             const endDigitKeys = [
-                'end_digit_0_count','end_digit_1_count','end_digit_2_count','end_digit_3_count',
-                'end_digit_4_count','end_digit_5_count','end_digit_6_count','end_digit_7_count',
-                'end_digit_8_count','end_digit_9_count',
                 'tail_digit_patterns', 'tail_digit_filter', 'tail_digit_patterns_filter'
             ];
             if (endDigitKeys.includes(e.key)) {

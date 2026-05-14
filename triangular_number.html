@@ -77,7 +77,7 @@
         let _triangularSelfSaving = false;
         let _filterSettingsLoaded = false;
 
-        // [표준] 필터 저장
+        // [표준] 필터 저장 — targetRound 명시 (2026-05-14)
         async function saveFilterSettings() {
             const toggle = document.getElementById('applyFilterCheck');
             const activeCounts = [];
@@ -90,21 +90,25 @@
                 excludedNumbers: Array.from(excludedNumbers),
             };
             const enabled = toggle ? toggle.checked : true;
+            const latestRound = (window.allDrawData && window.allDrawData.length > 0) ? window.allDrawData[0].round : null;
+            const targetRound = latestRound ? latestRound + 1 : null;
             if (window.Utils && window.Utils.saveFilter) {
-                await window.Utils.saveFilter('triangular_number_patterns', data, enabled);
+                await window.Utils.saveFilter('triangular_number_patterns', data, enabled, targetRound);
             } else if (window.filterService && window.filterService.initialized) {
-                await window.filterService.saveSetting('triangular_number_patterns', data, enabled);
+                await window.filterService.saveSetting('triangular_number_patterns', data, enabled, targetRound);
             }
         }
 
-        // [표준] 필터 로드
+        // [표준] 필터 로드 — targetRound 명시 (2026-05-14)
         async function loadFilterSettings() {
             let saved = null;
+            const latestRound = (window.allDrawData && window.allDrawData.length > 0) ? window.allDrawData[0].round : null;
+            const targetRound = latestRound ? latestRound + 1 : null;
             if (window.Utils && window.Utils.loadFilter) {
-                saved = await window.Utils.loadFilter('triangular_number_patterns');
+                saved = await window.Utils.loadFilter('triangular_number_patterns', targetRound);
             }
             if (!saved && window.filterService && window.filterService.initialized) {
-                const data = await window.filterService.loadSetting('triangular_number_patterns');
+                const data = await window.filterService.loadSetting('triangular_number_patterns', targetRound);
                 if (data) saved = { ...data.settings, enabled: data.enabled };
             }
             if (saved) {

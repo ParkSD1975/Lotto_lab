@@ -144,12 +144,11 @@
                 };
                 const enabled = chk ? chk.checked : true;
 
-                // DB 저장 (FilterService 사용)
-                if (window.filterService && window.filterService.initialized) {
+                // [2026-05-14 표준] 단일 키 'tail_sum'으로만 저장 (tail_sum_filter 레거시 키 폐기)
+                if (window.Utils && window.Utils.saveFilter) {
+                    await window.Utils.saveFilter('tail_sum', data, enabled, targetRound);
+                } else if (window.filterService && window.filterService.initialized) {
                     await window.filterService.saveSetting('tail_sum', data, enabled, targetRound);
-                } else if (window.Utils && window.Utils.saveFilter) {
-                    // Fallback: localStorage
-                    window.Utils.saveFilter('tail_sum_filter', data, enabled, targetRound);
                 }
 
                 // localStorage sync
@@ -184,9 +183,9 @@
                     }
                 }
 
-                // Fallback: localStorage
+                // [2026-05-14 표준] 단일 키 'tail_sum' 로드 (tail_sum_filter 레거시 키 폐기)
                 if (!saved && window.Utils && window.Utils.loadFilter) {
-                    saved = await window.Utils.loadFilter('tail_sum_filter', currentRound);
+                    saved = await window.Utils.loadFilter('tail_sum', currentRound);
                 }
 
                 if (saved) {

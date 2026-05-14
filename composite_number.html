@@ -1859,36 +1859,9 @@ ${distText}
             cbs.forEach(cb => cb.checked = false);
             syncExcludeFilter();
         }
-        // [추가] 필터 설정 로드 함수
-        async function loadFilterSettings(targetRound = null) {
-            try {
-                if (!window.Utils || !window.Utils.loadFilter) return;
-                const settings = await window.Utils.loadFilter('composite_number_filter', targetRound);
-                if (settings) {
-                    const chk = document.getElementById('applyFilterCheck');
-                    if (chk && settings.enabled !== undefined) chk.checked = settings.enabled;
-                    
-                    if (settings.selectedCounts) {
-                        activeFilters.clear();
-                        settings.selectedCounts.forEach(c => activeFilters.add(c));
-                        document.querySelectorAll('input[name="compositeCountFilter"]').forEach(el => {
-                            el.checked = activeFilters.has(parseInt(el.value));
-                        });
-                    }
-                    if (settings.excludedComposites) {
-                        // 체크박스 상태 업데이트
-                        document.querySelectorAll('input[id^="exclude_"]').forEach(el => {
-                            const val = parseInt(el.id.split('_')[1]);
-                            el.checked = settings.excludedComposites.includes(val);
-                        });
-                        syncExcludeFilter();
-                    }
-                    applyFilter(true);
-                }
-            } catch (e) {
-                console.error('합성수 필터 로드 실패:', e);
-            }
-        }
+        // [2026-05-14 제거] 중복 정의된 비표준 키('composite_number_filter') 사용 함수 제거.
+        // line 168의 메인 함수가 표준 키(composite_count)로 정상 동작하므로 중복 정의 폐기.
+        // 이전 함수가 후순위 정의로 메인을 덮어써서 비표준 키로 로드 시도 → 실패.
 
     </script>
     <!-- AI Q&A Sidebar (Floating Right) -->

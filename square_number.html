@@ -95,8 +95,9 @@
                 const enabled = toggle ? toggle.checked : true;
 
                 const activeCounts = Array.from(activeFilters);
-                const latestRound = allDrawData && allDrawData.length > 0 ? allDrawData[0].round : 1219;
-                
+                const latestRound = allDrawData && allDrawData.length > 0 ? allDrawData[0].round : null;
+                const targetRound = latestRound ? latestRound + 1 : null;
+
                 const data = {
                     selectedCounts: activeCounts,
                     excludedNumbers: Array.from(excludedNumbers),
@@ -104,9 +105,10 @@
                 };
 
                 const storageKey = 'square_number_patterns';
+                // [2026-05-14 표준 패턴] targetRound 4번째 인자 명시
                 if (window.Utils && window.Utils.saveFilter) {
-                    await window.Utils.saveFilter(storageKey, data, enabled);
-                    console.log('✅ 제곱수 필터 저장 완료');
+                    await window.Utils.saveFilter(storageKey, data, enabled, targetRound);
+                    console.log(`✅ 제곱수 필터 저장 완료 (${targetRound}회)`);
                 }
             } catch (error) {
                 console.error('❌ 필터 저장 오류:', error);

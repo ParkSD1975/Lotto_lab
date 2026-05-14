@@ -54,101 +54,30 @@
         // let excludedNumbers = new Set(); <-- 삭제
         let selectedHeaderNumbers = new Set();
 
-        // [수정] 필터 설정 저장 함수 (Utils.saveFilter → DB + localStorage + 브로드캐스트)
+        // [2026-05-14 정리] stats_by_number는 통계 페이지로 필터 저장 대상 아님.
+        // - 바스켓(fixed/exclude)은 window.Basket이 fixed_numbers/excluded_numbers 표준 키로 별도 저장
+        // - 페이지 고유 정렬 옵션(sortByMissCount)만 로컬 UI 상태로 보관
+        const _SORT_PREF_KEY = '_lotto_stats_by_number_sort_pref';
+
         async function saveFilterSettings(targetRoundOverride = null) {
-            const toggle = document.getElementById('filterToggle');
-            const basket = window.Basket.get();
-            const data = {
-                fixedNumbers: basket.fixed,
-                excludedNumbers: basket.exclude,
-                sortByMissCount: sortByMissCount
-            };
-            const enabled = toggle ? toggle.checked : true;
-            
-            // [표준화] 최신 회차 + 1을 타겟 회차로 설정하여 고정 저장
-            const latestRound = (allData && allData.length > 0) ? allData[0].round : 0;
-            const targetRound = targetRoundOverride || (latestRound + 1);
-
-            console.log(`[stats_by_number] Saving filters for round: ${targetRound}`);
-
-            // [동기화] Utils.saveFilter 사용 → DB + localStorage 동시 저장 + storage 이벤트 브로드캐스트
-            if (window.Utils && window.Utils.saveFilter) {
-                // targetRound를 명시적으로 전달하기 위해 settings 객체에 포함하거나 wrapper 사용 권장
-                // Utils.saveFilter(pageKey, settings, enabled) 구조이므로 settings 내부에 targetRound 주입
-                await window.Utils.saveFilter('stats_by_number_filter', { settings: data, enabled, targetRound }, enabled);
-            } else if (window.filterService && window.filterService.initialized) {
-                await window.filterService.saveSetting('stats_by_number_patterns', data, enabled, targetRound);
-            }
+            try {
+                localStorage.setItem(_SORT_PREF_KEY, JSON.stringify({ sortByMissCount }));
+            } catch (e) { /* localStorage 실패 무시 */ }
         }
 
-        // [수정] 필터 설정 불러오기 함수 (DB 로드)
         async function loadFilterSettings(currentRound = null) {
-            let saved = null;
-            let finalEnabled = true;
-
-            // [표준화] currentRound가 명시되지 않으면 최신회차+1 로드 시도
-            if (!currentRound && allData && allData.length > 0) {
-                currentRound = allData[0].round + 1;
-            }
-
-            // 1. Utils.loadFilter를 통해 Supabase(우선) 및 localStorage에서 로드
-            if (window.Utils && window.Utils.loadFilter) {
-                const combined = await window.Utils.loadFilter('stats_by_number_filter', currentRound);
-                if (combined) {
-                    // [표준화] 저장된 타겟 회차와 현재 회차 비교
-                    const savedTargetRound = combined.targetRound;
-                    if (savedTargetRound && currentRound && savedTargetRound < currentRound) {
-                        console.log(`[stats_by_number] Old round filter detected (${savedTargetRound} < ${currentRound}). Resetting.`);
-                        return false;
+            try {
+                const raw = localStorage.getItem(_SORT_PREF_KEY);
+                if (raw) {
+                    const p = JSON.parse(raw);
+                    if (p && p.sortByMissCount !== undefined) {
+                        sortByMissCount = p.sortByMissCount;
+                        updateSortButtonUI();
                     }
-
-                    const { enabled, ...settings } = combined;
-                    saved = settings;
-                    finalEnabled = enabled;
                 }
-            }
-            
-            // Fallback: FilterService 직접 사용 (Utils 실패 시)
-            if (!saved && window.filterService && window.filterService.initialized) {
-                const data = await window.filterService.loadSetting('stats_by_number_patterns', currentRound);
-                if (data) {
-                    saved = data.settings;
-                    finalEnabled = data.enabled;
-                }
-            }
-
-            if (saved) {
-                // Basket API에 병합 (고정수/제외수)
-                const basket = window.Basket.get();
-                // 불러오기 전 초기화 (중복 방지)
-                basket.fixed = [];
-                basket.exclude = [];
-
-                if (saved.fixedNumbers) {
-                    saved.fixedNumbers.forEach(n => {
-                        if (!basket.fixed.includes(n)) window.Basket.addFixed(n);
-                    });
-                }
-                if (saved.excludedNumbers) {
-                    saved.excludedNumbers.forEach(n => {
-                        if (!basket.exclude.includes(n)) window.Basket.addExclude(n);
-                    });
-                }
-
-                const toggle = document.getElementById('filterToggle');
-                if (toggle) {
-                    toggle.checked = finalEnabled;
-                }
-                if (saved.sortByMissCount !== undefined) {
-                    sortByMissCount = saved.sortByMissCount;
-                    updateSortButtonUI();
-                }
-
-                renderFilterBoxes();
-                console.log(`[stats_by_number] Filter loaded for round: ${currentRound}`);
-                return true;
-            }
-            return false;
+            } catch (e) { /* 무시 */ }
+            renderFilterBoxes();
+            return true;
         }
 
         // [전문가] 새 회차 감지 및 필터 리셋/이월 로직
@@ -1038,28 +967,8 @@
 
         // [동기화] 필터대시보드(filter.html) 또는 다른 탭에서 설정 변경 시 실시간 반영
         window.addEventListener('storage', async (e) => {
-            // stats_by_number 필터 설정 변경 동기화
-            if (e.key === 'stats_by_number_filter' || e.key === 'stats_by_number_filter_filter') {
-                if (!e.newValue) return;
-                try {
-                    const saved = JSON.parse(e.newValue);
-                    // 로그아웃 감지
-                    if (saved.enabled === false && !saved.settings) {
-                        resetFilterUI(); return;
-                    }
-                    const data = (saved.settings !== undefined) ? saved.settings : saved;
-                    const toggle = document.getElementById('filterToggle');
-                    if (toggle && saved.enabled !== undefined) toggle.checked = saved.enabled;
-                    if (data.sortByMissCount !== undefined) {
-                        sortByMissCount = data.sortByMissCount;
-                        updateSortButtonUI();
-                    }
-                    renderFilterBoxes();
-                    if (typeof updateRange === 'function') updateRange(currentRange);
-                } catch (err) {
-                    console.error('[stats_by_number] 필터 동기화 오류:', err);
-                }
-            }
+            // [2026-05-14 정리] stats_by_number는 표준 필터가 아니므로 DB 동기화 제거.
+            // 페이지 정렬 옵션(sortByMissCount)은 _lotto_stats_by_number_sort_pref 로컬 키로 보관 — 크로스탭 동기화는 불필요.
 
             // lotto_basket 변경 동기화 (filter.html에서 바스켓 고정수/제외수 변경 시)
             if (e.key === 'lotto_basket' && e.newValue) {
