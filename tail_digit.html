@@ -26,9 +26,9 @@
     <script src="js/filter/FilterLifecycle.js"></script>
     <script src="js/filter/FilterRuleEngine.js"></script>
     <script src="js/layout.js"></script>
-    <script src="js/deep_insight_panel.js?v=20260515-maxcontent"></script>
-    <script src="js/premium_insight_panel.js?v=20260515-maxcontent"></script>
-    <script src="js/aiProxy.js?v=20260515-maxcontent"></script>
+    <script src="js/deep_insight_panel.js?v=20260515-grid-layout"></script>
+    <script src="js/premium_insight_panel.js?v=20260515-grid-layout"></script>
+    <script src="js/aiProxy.js?v=20260515-grid-layout"></script>
     <script src="js/NLPInputComponent.js"></script>
     <script src="js/NLPProcessor.js"></script>
     <script src="js/AutoNLPMatcher.js"></script>
@@ -2361,12 +2361,13 @@ ${contextData}
                 html += '<div class="space-y-1.5">';
                 distSorted.forEach(([s, c]) => {
                     const pct = (c / matches.length * 100).toFixed(0);
-                    html += `<div class="flex items-center gap-3 text-xs tabular-nums">
-                        <span class="w-10 text-right" style="color:${TD_INK_2}">${s}개</span>
-                        <div class="flex-1 h-1.5 rounded-full overflow-hidden" style="background:${TD_GRID}">
+                    // [2026-05-15] flex 폐기 → grid 명시 폭 (40px / 가변 / 100px) — 한 줄 절대 보장
+                    html += `<div class="items-center gap-3 text-xs tabular-nums" style="display:grid; grid-template-columns: 40px 1fr 110px; align-items:center; column-gap:12px;">
+                        <span class="text-right" style="color:${TD_INK_2}">${s}개</span>
+                        <div class="h-1.5 rounded-full overflow-hidden" style="background:${TD_GRID}">
                             <div style="background:${TD_ACCENT};height:100%;width:${pct}%"></div>
                         </div>
-                        <span class="text-right whitespace-nowrap flex-shrink-0" style="color:${TD_INK_3}; min-width:max-content; padding-left:8px;">${c}회 (${pct}%)</span>
+                        <span class="text-right whitespace-nowrap" style="color:${TD_INK_3};">${c}회 (${pct}%)</span>
                     </div>`;
                 });
                 html += '</div>';
