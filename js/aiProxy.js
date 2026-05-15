@@ -3,11 +3,10 @@
  * Python(LangChain) 서버 우선 통신, V3 심층 분석 및 기초 분석 폴백 처리
  */
 (function () {
-    // [2026-05-15] fallback URL을 HF Spaces로 강제 (localhost:8000 폐기)
-    // 사용자 콘솔 ERR_CONNECTION_REFUSED 패턴: window.LANGCHAIN_CONFIG가 미로드 또는 옛 캐시일 때
-    //   기본 fallback이 localhost:8000이라 발생. HF Spaces로 fallback도 통일.
+    // [2026-05-15] 사용자 명시: 전부 로컬 백엔드. fallback URL도 localhost:8000 통일.
+    //   사용자 PC에서 uvicorn :8000 실행 필수.
     const BASE_URLS = [
-        (window.LANGCHAIN_CONFIG && window.LANGCHAIN_CONFIG.URL) || 'https://parksungdeok-lotto-ai-backend.hf.space'
+        (window.LANGCHAIN_CONFIG && window.LANGCHAIN_CONFIG.URL) || 'http://localhost:8000'
     ];
     let CURRENT_BASE_URL = BASE_URLS[0];
     const TIMEOUT = (window.LANGCHAIN_CONFIG && window.LANGCHAIN_CONFIG.TIMEOUT) || 60000;

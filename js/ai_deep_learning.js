@@ -5835,7 +5835,8 @@ const DeepLearning = {
     },
 
     _getBaseUrl() {
-        return window.AI_SERVER_URL || 'https://parksungdeok-lotto-ai-backend.hf.space';
+        // [2026-05-15] 사용자 명시: 로컬 백엔드 강제
+        return window.AI_SERVER_URL || (window.LANGCHAIN_CONFIG && window.LANGCHAIN_CONFIG.URL) || 'http://localhost:8000';
     },
 
     renderBalls(id, nums) {

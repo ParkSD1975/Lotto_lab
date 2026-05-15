@@ -4,7 +4,7 @@ const CONFIG = {
         KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRrY2ZsbXlvc2N1ZGF3bGVnbHpiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc1NDQ4OTAsImV4cCI6MjA4MzEyMDg5MH0.haAvbpScvMJv1uqH_tk-0fUlJNCpHnlWBtYzX6YFweo'
     },
     LANGCHAIN: {
-        URL: 'https://parksungdeok-lotto-ai-backend.hf.space',  // [2026-05-14] localhost:8000 → HF Spaces 통일 (ERR_CONNECTION_REFUSED fix)
+        URL: 'http://localhost:8000',  // [2026-05-15] 사용자 명시: 전부 로컬 백엔드 강제
         ENABLED: true,
         TIMEOUT: 60000
     }
@@ -12,10 +12,12 @@ const CONFIG = {
 
 window.CONFIG = CONFIG;
 
-// [New] AI Backend (LangChain) Configuration
-// Python FastAPI 서버와의 통신 설정입니다.
+// [2026-05-15] AI Backend = 항상 로컬 (uvicorn :8000)
+//   환경 분기 폐기. 사용자가 로컬 백엔드 실행 필수:
+//     cd langchain-backend && python -m uvicorn main:app --port 8000
 window.LANGCHAIN_CONFIG = {
-    URL: 'https://parksungdeok-lotto-ai-backend.hf.space', // Python 백엔드 주소 (HF Spaces)
-    TIMEOUT: 60000,               // 타임아웃 (60초)
-    ENABLED: true                 // AI 프록시 사용 여부
+    URL: 'http://localhost:8000',
+    TIMEOUT: 60000,
+    ENABLED: true,
+    _resolvedFor: 'local-forced',
 };
