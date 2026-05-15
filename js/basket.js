@@ -24,10 +24,40 @@
     //   - DB가 단일 출처. localStorage는 캐시.
     //   - target_round 명시 저장 — 전역(NULL) 저장 금지 (1217~1223 전역 사고 재발 방지).
     //   - 회차 업데이트 시 자동 리셋 (회차 격리).
-    function _getCurrentTargetRound() {
-        // 최신 회차 + 1 (다음 추첨 회차). load()의 current_round = latest_round.
+
+    let _cachedTargetRound = null;
+    async function _getCurrentTargetRound() {
+        // [2026-05-15 fix] localStorage 의존 제거 → lotto_draws에서 직접 latest+1 계산
+        //   새 창에서 localStorage 비어있으면 current_round null → loadSetting(key, null) →
+        //   NULL 행 조회 → DB의 회차별 행(1224) 못 가져오던 결함 해결.
+        if (_cachedTargetRound) return _cachedTargetRound;
+
+        // localStorage 캐시 우선 (빠른 응답)
         const d = load();
-        return d.current_round ? d.current_round + 1 : null;
+        if (d.current_round) {
+            _cachedTargetRound = d.current_round + 1;
+            return _cachedTargetRound;
+        }
+
+        // localStorage 없으면 DB 직접 조회
+        if (!window.supabaseClient) return null;
+        try {
+            const { data } = await window.supabaseClient
+                .from('lotto_draws')
+                .select('round')
+                .order('round', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+            if (data?.round) {
+                _cachedTargetRound = data.round + 1;
+                // localStorage에도 저장 (다음 호출 빠르게)
+                const cur = load();
+                cur.current_round = data.round;
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(cur));
+                return _cachedTargetRound;
+            }
+        } catch (e) { console.warn('[Basket] _getCurrentTargetRound DB 조회 실패:', e); }
+        return null;
     }
 
     async function save(data) {
@@ -44,7 +74,7 @@
             return;
         }
 
-        const targetRound = _getCurrentTargetRound();
+        const targetRound = await _getCurrentTargetRound();
         if (!targetRound) {
             console.warn('⚠ Basket: targetRound 미정 — DB 저장 보류 (latestRound 로드 대기)');
             window.dispatchEvent(new CustomEvent('basketChanged', { detail: load() }));
@@ -69,7 +99,7 @@
         if (!window.filterService?.initialized) return;
 
         try {
-            const targetRound = _getCurrentTargetRound();
+            const targetRound = await _getCurrentTargetRound();
             // [2026-05-15] 회차별 행 우선 로드 (NULL 행 폴백)
             const fixedData   = await window.filterService.loadSetting('fixed_numbers', targetRound);
             const excludeData = await window.filterService.loadSetting('excluded_numbers', targetRound);

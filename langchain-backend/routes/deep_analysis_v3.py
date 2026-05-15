@@ -2604,7 +2604,9 @@ async def get_deep_analysis(round_num: int = None):
             expert_memo = None
             if target_round:
                 try:
-                    from db.supabase_client import get_client
+                    # [2026-05-15 fix] 함수 안 import 제거 — module-level get_client(line 23) 사용.
+                    # Python이 함수 본문에 'from ... import get_client'를 보면 그 함수 안 모든 get_client를
+                    # local로 취급 → 다른 곳(line 1751 등)에서 UnboundLocalError 발생.
                     supabase = get_client()
                     res = supabase.table("expert_memos") \
                         .select("forced_includes, forced_excludes") \
