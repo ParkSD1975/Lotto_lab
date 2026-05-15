@@ -20,6 +20,9 @@ if (window._COMMON_V2_LOADED) {
     window.supabaseClient = null;
 
     if (typeof supabase !== 'undefined') {
+        // [2026-05-14] auth 복원 — 직전 CORS 차단은 Supabase 일시 장애였음
+        //   기본 옵션 (persistSession: true) → 로그인 + user_id 데이터 정상 작동
+        //   CORS 재발 시 Supabase Dashboard → Auth > URL Configuration 검토 필요
         window.supabaseClient = supabase.createClient(SUPABASE_CONFIG.URL, SUPABASE_CONFIG.KEY);
         console.log('✅ Supabase Client initialized');
     } else {
@@ -1146,17 +1149,17 @@ Format: JSON
                     'multiple_4_5_count': 'multiple_4_5_count',
                     'no_multiple_count':  'no_multiple_count',
                     'multiple_filter':    'multiple_3_count', // 레거시 트리거 키
-                    // end_digit_*_count 레거시 키 → tail_digit_patterns로 흡수 (DB에서는 삭제됨)
-                    'end_digit_0_count':  'tail_digit_patterns',
-                    'end_digit_1_count':  'tail_digit_patterns',
-                    'end_digit_2_count':  'tail_digit_patterns',
-                    'end_digit_3_count':  'tail_digit_patterns',
-                    'end_digit_4_count':  'tail_digit_patterns',
-                    'end_digit_5_count':  'tail_digit_patterns',
-                    'end_digit_6_count':  'tail_digit_patterns',
-                    'end_digit_7_count':  'tail_digit_patterns',
-                    'end_digit_8_count':  'tail_digit_patterns',
-                    'end_digit_9_count':  'tail_digit_patterns',
+                    // [2026-05-15 재설계] end_digit_*_count 10개 독립 키 (통합 흡수 폐기)
+                    'end_digit_0_count':  'end_digit_0_count',
+                    'end_digit_1_count':  'end_digit_1_count',
+                    'end_digit_2_count':  'end_digit_2_count',
+                    'end_digit_3_count':  'end_digit_3_count',
+                    'end_digit_4_count':  'end_digit_4_count',
+                    'end_digit_5_count':  'end_digit_5_count',
+                    'end_digit_6_count':  'end_digit_6_count',
+                    'end_digit_7_count':  'end_digit_7_count',
+                    'end_digit_8_count':  'end_digit_8_count',
+                    'end_digit_9_count':  'end_digit_9_count',
                     'ac_value': 'ac_value',
                     'ac_value_filter': 'ac_value',
                     'ac_filter': 'ac_value',
