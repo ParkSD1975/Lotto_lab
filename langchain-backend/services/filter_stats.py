@@ -668,59 +668,43 @@ class FilterStatsComputer:
             self._zone_pattern(),
             self._decade_distribution(),
             self._missing_group(),
-            self._tail_digit_patterns(),  # [2026-05-15] 끝수 0~9 통합 산출
+            # [2026-05-15] 끝수 — 0~9 각각 독립 산출 (end_digit_N_count)
+            *[self._end_digit(d) for d in range(10)],
         ]
         return filters
 
     # ─────────────────────────────────────────
-    # 20. 끝수 출현 패턴 (tail_digit_patterns) — 0~9 각 끝수의 출현 개수
-    # [2026-05-15] 프론트 tail_digit_patterns + DB filter_definitions와 정합되도록 통합 산출
+    # 20. 끝수 0~9 독립 산출 (end_digit_N_count) — 사용자 결정: 통합 폐기, 10개 개별 필터
     # ─────────────────────────────────────────
-    def _tail_digit_patterns(self) -> dict:
-        per_digit = {}
-        for d in range(10):
-            all_vals = [sum(1 for n in nums if n % 10 == d) for nums in self.all_numbers]
-            recent_vals = [sum(1 for n in nums if n % 10 == d) for nums in self.recent_numbers]
-            sub_base = self._build_range_filter(
-                key=f"digit{d}",
-                name=f"{d}끝 개수",
-                icon="pin",
-                all_vals=all_vals,
-                recent_vals=recent_vals,
-                description=f"{d}끝 번호의 출현 개수.",
-            )
-            rec = sub_base.get("recommendation", {})
-            per_digit[str(d)] = {
-                "min": rec.get("min"),
-                "max": rec.get("max"),
-                "stats": sub_base.get("stats", {}),
-            }
+    def _end_digit(self, digit: int) -> dict:
+        """digit(0~9)에 대한 출현 개수 산출. key=end_digit_{digit}_count"""
+        all_vals = [sum(1 for n in nums if n % 10 == digit) for nums in self.all_numbers]
+        recent_vals = [sum(1 for n in nums if n % 10 == digit) for nums in self.recent_numbers]
+        base = self._build_range_filter(
+            key=f"end_digit_{digit}_count",
+            name=f"{digit}끝수 개수",
+            icon="pin",
+            all_vals=all_vals,
+            recent_vals=recent_vals,
+            description=f"{digit}끝 번호의 출현 개수.",
+        )
 
-        # ML: endings predictor payload (Phase 2 endings) — 0~9 분포 정보 활용
+        # ML: Phase2 endings_predictor의 distribution_10d 에서 해당 digit 분포 추출
         ml_block = None
         phase1_outs = self._get_phase1_outputs()
         phase2_out = self._get_phase2_endings_output(phase1_outs)
         if isinstance(phase2_out, dict):
             dist = phase2_out.get("distribution_10d")
-            if dist:
+            if dist and digit < len(dist):
                 ml_block = {
                     "min": None, "max": None, "median": None,
-                    "narrative": phase2_out.get("narrative", "tail_digit ready"),
+                    "narrative": phase2_out.get("narrative", f"{digit}끝 ready"),
                     "model_contributions": {},
-                    "per_digit": per_digit,
-                    "distribution_10d": dist,
-                    "indicator": "tail_digit_10",
+                    "digit": digit,
+                    "distribution": dist[digit] if isinstance(dist, list) else None,
+                    "indicator": f"end_digit_{digit}",
                 }
-
-        result = {
-            "key": "tail_digit_patterns",
-            "name": "끝수 출현 패턴",
-            "icon": "pin",
-            "type": "multi_range",
-            "description": "0~9 각 끝수의 출현 개수 분포.",
-            "per_digit": per_digit,
-        }
-        return self._attach_ml_block(result, ml_block)
+        return self._attach_ml_block(base, ml_block)
 
     # ─────────────────────────────────────────
     # 1. 총합 (Total Sum) — Phase 4 sum_predictor

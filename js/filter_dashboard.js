@@ -1815,14 +1815,16 @@ window.FilterDashboard = {
                 html += `</div>`;
             } // end else (hasGroups)
         } else if (key === 'tail_digit_patterns') {
-            // [2026-05-14 표준] tail_digit_patterns.settings.filters 단일 진실 사용
-            // 이전: end_digit_0~9_count 10개 유령 키 참조 → DB 삭제 후 데이터 0건 → UI 빈 값 표시
+            // [2026-05-15 재설계] 통합 폐기 → end_digit_0~9_count 10개 독립 키에서 직접 추출
+            // 카드 자체는 통합 UI 유지하되 데이터는 10개 키로 분리 저장
             const digitFilters = {};
-            const tdFilters = (vals && vals.filters) || {};
             for (let i = 0; i <= 9; i++) {
-                const f = tdFilters[i] || tdFilters[String(i)];
-                if (f && f.min !== undefined && f.max !== undefined) {
-                    digitFilters[i] = { min: f.min, max: f.max };
+                const ddef = (this.state.foundationFilters || []).find(d => d.filter_key === `end_digit_${i}_count`);
+                if (ddef) {
+                    const us = this.state.userSettings[ddef.id];
+                    if (us?.settings?.min !== undefined && us?.settings?.max !== undefined) {
+                        digitFilters[i] = { min: us.settings.min, max: us.settings.max, _defId: ddef.id };
+                    }
                 }
             }
 
@@ -2509,6 +2511,17 @@ window.FilterDashboard = {
             'total_sum':                 ['total_sum_filter_isManual'],
             'tail_sum':                  ['tail_sum_filter_isManual'],
             'tail_digit_patterns':       ['tail_digit_filter_isManual'],
+            // [2026-05-15] 끝수 0~9 독립 필터 — tail_digit_filter_isManual 공유 (단일 분석 페이지)
+            'end_digit_0_count':         ['tail_digit_filter_isManual'],
+            'end_digit_1_count':         ['tail_digit_filter_isManual'],
+            'end_digit_2_count':         ['tail_digit_filter_isManual'],
+            'end_digit_3_count':         ['tail_digit_filter_isManual'],
+            'end_digit_4_count':         ['tail_digit_filter_isManual'],
+            'end_digit_5_count':         ['tail_digit_filter_isManual'],
+            'end_digit_6_count':         ['tail_digit_filter_isManual'],
+            'end_digit_7_count':         ['tail_digit_filter_isManual'],
+            'end_digit_8_count':         ['tail_digit_filter_isManual'],
+            'end_digit_9_count':         ['tail_digit_filter_isManual'],
             'carryover_count':           ['carryover_filter_isManual'],
             'composite_count':           ['composite_number_is_manual'],
             'consecutive_count':         ['consecutive_number_is_manual', 'consecutive_filter_isManual'],
@@ -2756,30 +2769,31 @@ window.FilterDashboard = {
     },
 
     /**
-     * [2026-05-14 수정] 끝수 필터 → tail_digit_patterns 통합 키로 저장
-     * (end_digit_0~9_count 10개 유령 키는 DB에서 삭제됨 — Phase A·C)
-     * settings 구조: { filters: { "0":{min,max}, ..., "9":{min,max} }, recent10FilterActive }
+     * [2026-05-15 재설계] 끝수 0~9 각각 독립 키 `end_digit_{digit}_count`로 저장
+     * 통합 tail_digit_patterns 폐기. 각 끝수가 완전 분리된 필터.
+     * settings 구조: { min, max, recent10FilterActive }
      */
     async updateTailDigitFilter(id, digit, type, value) {
         const TAIL_REAL_MAX = { 0: 4, 1: 5, 2: 5, 3: 5, 4: 5, 5: 5, 6: 4, 7: 4, 8: 4, 9: 4 };
         const realMax = TAIL_REAL_MAX[digit] ?? 6;
+        const digitKey = `end_digit_${digit}_count`;
 
-        const def = this.state.foundationFilters.find(f => f.filter_key === 'tail_digit_patterns');
+        const def = this.state.foundationFilters.find(f => f.filter_key === digitKey);
         if (!def) {
-            console.warn('[updateTailDigitFilter] tail_digit_patterns 정의를 찾을 수 없음');
+            console.warn(`[updateTailDigitFilter] ${digitKey} 정의를 찾을 수 없음`);
             return;
         }
 
         if (!this.state.userSettings[def.id]) {
-            this.state.userSettings[def.id] = { enabled: true, settings: { filters: {} } };
+            this.state.userSettings[def.id] = { enabled: true, settings: { min: 0, max: realMax } };
         }
         const us = this.state.userSettings[def.id];
         us.settings = us.settings || {};
-        us.settings.filters = us.settings.filters || {};
-        if (!us.settings.filters[digit]) us.settings.filters[digit] = { min: 0, max: realMax };
+        if (us.settings.min === undefined) us.settings.min = 0;
+        if (us.settings.max === undefined) us.settings.max = realMax;
 
         const v = Math.max(0, Math.min(realMax, parseInt(value) || 0));
-        us.settings.filters[digit][type] = v;
+        us.settings[type] = v;
         us.settings.recent10FilterActive = false;
 
         await this._saveDashboardFilter(def.filter_key, us.settings, us.enabled);

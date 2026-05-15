@@ -126,22 +126,21 @@
                 console.log(`💾 끝수 필터 저장 시도: target=${targetRound}, enabled=${filterEnabled}`);
 
                 if (window.Utils && window.Utils.saveFilter) {
-                    // [2026-05-14 표준화] end_digit_0~9_count 10개 유령 키 폐기 → tail_digit_patterns 단일 키로 통합
-                    // 구조: { filters: { "0": {min, max}, "1": {min, max}, ... "9": {min, max} }, recent10FilterActive }
-                    const filtersObj = {};
+                    // [2026-05-15 재설계] 끝수 0~9 각각 독립 키 end_digit_{N}_count 로 저장
+                    // 구조: 각 키마다 { min, max, recent10FilterActive }
                     for (let i = 0; i <= 9; i++) {
                         const f = AppState.digitFilters[i];
                         if (!f) continue;
-                        filtersObj[String(i)] = { min: f.min, max: f.max };
+                        const data = {
+                            min: f.min,
+                            max: f.max,
+                            recent10FilterActive: AppState.isRecentTenFilter
+                        };
+                        await window.Utils.saveFilter(`end_digit_${i}_count`, data, filterEnabled, targetRound);
                     }
-                    const data = {
-                        filters: filtersObj,
-                        recent10FilterActive: AppState.isRecentTenFilter
-                    };
-                    await window.Utils.saveFilter('tail_digit_patterns', data, filterEnabled, targetRound);
                 }
                 _tailSaveTime = Date.now();
-                console.log(`✅ 끝수 필터 저장 완료 (${targetRound}회) — tail_digit_patterns 통합 키`);
+                console.log(`✅ 끝수 필터 저장 완료 (${targetRound}회) — 10개 독립 키 (end_digit_0~9_count)`);
             } catch (error) {
                 console.error('❌ 필터 저장 오류:', error);
             }
@@ -157,36 +156,32 @@
                 let firstRecent10 = undefined;
                 const loadedFilters = {};
 
-                // [2026-05-14 표준] tail_digit_patterns 단일 키 로드 (end_digit_0~9_count 폐기)
+                // [2026-05-15 재설계] 10개 독립 키 end_digit_{N}_count 로드
                 if (window.Utils && window.Utils.loadFilter) {
-                    const raw = await window.Utils.loadFilter('tail_digit_patterns', latestRound);
-                    if (raw) {
+                    for (let i = 0; i <= 9; i++) {
+                        const raw = await window.Utils.loadFilter(`end_digit_${i}_count`, latestRound);
+                        if (!raw) continue;
                         const data = (raw.settings !== undefined) ? { ...raw.settings, enabled: raw.enabled } : raw;
-                        if (data.filters) {
-                            for (let i = 0; i <= 9; i++) {
-                                if (data.filters[String(i)]) loadedFilters[i] = data.filters[String(i)];
-                            }
-                            firstEnabled = data.enabled;
-                            firstRecent10 = data.recent10FilterActive;
-                            anyLoaded = Object.keys(loadedFilters).length > 0;
+                        if (data.min !== undefined && data.max !== undefined) {
+                            loadedFilters[i] = { min: data.min, max: data.max };
+                            if (firstEnabled === undefined) firstEnabled = data.enabled;
+                            if (firstRecent10 === undefined) firstRecent10 = data.recent10FilterActive;
+                            anyLoaded = true;
                         }
                     }
-                    // localStorage 폴백 (DB sync 전 시점 대비)
+                    // 레거시 호환: tail_digit_patterns 통합 키에서 1회 마이그레이션 로드
                     if (!anyLoaded) {
-                        const local = localStorage.getItem('tail_digit_patterns');
-                        if (local) {
-                            try {
-                                const p = JSON.parse(local);
-                                const inner = (p.settings !== undefined) ? p.settings : p;
-                                if (inner.filters) {
-                                    for (let i = 0; i <= 9; i++) {
-                                        if (inner.filters[String(i)]) loadedFilters[i] = inner.filters[String(i)];
-                                    }
-                                    firstEnabled = p.enabled !== undefined ? p.enabled : inner.enabled;
-                                    firstRecent10 = inner.recent10FilterActive;
-                                    anyLoaded = Object.keys(loadedFilters).length > 0;
+                        const legacy = await window.Utils.loadFilter('tail_digit_patterns', latestRound);
+                        if (legacy) {
+                            const ls = (legacy.settings !== undefined) ? legacy.settings : legacy;
+                            if (ls.filters) {
+                                for (let i = 0; i <= 9; i++) {
+                                    if (ls.filters[String(i)]) loadedFilters[i] = ls.filters[String(i)];
                                 }
-                            } catch (e) { }
+                                firstEnabled = legacy.enabled;
+                                firstRecent10 = ls.recent10FilterActive;
+                                anyLoaded = Object.keys(loadedFilters).length > 0;
+                            }
                         }
                     }
                 }
