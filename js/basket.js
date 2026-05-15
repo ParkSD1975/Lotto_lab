@@ -20,13 +20,21 @@
         } catch { return { fixed: [], exclude: [] }; }
     }
 
-    // ⚠ DB-first 정책 (2026-05-14): DB가 단일 출처. localStorage는 캐시.
-    //   DB 저장 실패 시 사용자에게 명시적 알림 (silent fail 금지).
+    // ⚠ DB-first + 회차별 저장 정책 (2026-05-15)
+    //   - DB가 단일 출처. localStorage는 캐시.
+    //   - target_round 명시 저장 — 전역(NULL) 저장 금지 (1217~1223 전역 사고 재발 방지).
+    //   - 회차 업데이트 시 자동 리셋 (회차 격리).
+    function _getCurrentTargetRound() {
+        // 최신 회차 + 1 (다음 추첨 회차). load()의 current_round = latest_round.
+        const d = load();
+        return d.current_round ? d.current_round + 1 : null;
+    }
+
     async function save(data) {
-        // 1) localStorage 즉시 캐시 (UI 반응성)
+        // 1) localStorage 즉시 캐시
         localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 
-        // 2) DB 저장 시도 (filterService 필수)
+        // 2) DB 저장
         if (!window.filterService?.initialized) {
             if (window.BasketUI?.showToast) {
                 window.BasketUI.showToast('⚠ 로그인이 필요합니다. 바스켓이 DB에 저장되지 않았습니다.', 'warn');
@@ -36,10 +44,18 @@
             return;
         }
 
+        const targetRound = _getCurrentTargetRound();
+        if (!targetRound) {
+            console.warn('⚠ Basket: targetRound 미정 — DB 저장 보류 (latestRound 로드 대기)');
+            window.dispatchEvent(new CustomEvent('basketChanged', { detail: load() }));
+            return;
+        }
+
         try {
-            await window.filterService.saveSetting('fixed_numbers',    { numbers: data.fixed },   data.fixed.length > 0);
-            await window.filterService.saveSetting('excluded_numbers', { numbers: data.exclude }, data.exclude.length > 0);
-            console.log('💾 GNB Basket saved to Supabase');
+            // [2026-05-15] target_round 명시 → 회차별 행 저장 (전역 NULL 행 폐기)
+            await window.filterService.saveSetting('fixed_numbers',    { numbers: data.fixed },   data.fixed.length > 0, targetRound);
+            await window.filterService.saveSetting('excluded_numbers', { numbers: data.exclude }, data.exclude.length > 0, targetRound);
+            console.log(`💾 GNB Basket saved to Supabase (round=${targetRound})`);
         } catch (e) {
             console.error('❌ Basket Supabase Save Error:', e);
             if (window.BasketUI?.showToast) {
@@ -49,13 +65,14 @@
         window.dispatchEvent(new CustomEvent('basketChanged', { detail: load() }));
     }
 
-    // ⚠ DB-first 정책 (2026-05-14): DB가 단일 출처. union 정책 폐기 — DB가 비어 있으면 localStorage도 비움.
     async function syncFromDB() {
         if (!window.filterService?.initialized) return;
 
         try {
-            const fixedData   = await window.filterService.loadSetting('fixed_numbers');
-            const excludeData = await window.filterService.loadSetting('excluded_numbers');
+            const targetRound = _getCurrentTargetRound();
+            // [2026-05-15] 회차별 행 우선 로드 (NULL 행 폴백)
+            const fixedData   = await window.filterService.loadSetting('fixed_numbers', targetRound);
+            const excludeData = await window.filterService.loadSetting('excluded_numbers', targetRound);
 
             const current = load();
             const dbFixed   = (fixedData   && Array.isArray(fixedData.settings?.numbers))   ? fixedData.settings.numbers   : [];
@@ -69,7 +86,7 @@
 
             localStorage.setItem(STORAGE_KEY, JSON.stringify(synced));
             renderPanel();
-            console.log(`🔄 GNB Basket synced from DB (fixed=${synced.fixed.length}, exclude=${synced.exclude.length})`);
+            console.log(`🔄 GNB Basket synced from DB (round=${targetRound}, fixed=${synced.fixed.length}, exclude=${synced.exclude.length})`);
         } catch (e) {
             console.error('❌ Basket Sync Error:', e);
         }
