@@ -650,7 +650,10 @@ class FilterStatsComputer:
             self._square_count(),
             self._triangular_count(),
             self._twin_count(),
-            self._hot_cold(),
+            self._hot_cold_window(5),
+            self._hot_cold_window(10),
+            self._hot_cold_window(15),
+            self._hot_cold_window(20),
             self._number_range(),
             self._neighbor_count(),
             self._multiple_3(),
@@ -665,8 +668,59 @@ class FilterStatsComputer:
             self._zone_pattern(),
             self._decade_distribution(),
             self._missing_group(),
+            self._tail_digit_patterns(),  # [2026-05-15] 끝수 0~9 통합 산출
         ]
         return filters
+
+    # ─────────────────────────────────────────
+    # 20. 끝수 출현 패턴 (tail_digit_patterns) — 0~9 각 끝수의 출현 개수
+    # [2026-05-15] 프론트 tail_digit_patterns + DB filter_definitions와 정합되도록 통합 산출
+    # ─────────────────────────────────────────
+    def _tail_digit_patterns(self) -> dict:
+        per_digit = {}
+        for d in range(10):
+            all_vals = [sum(1 for n in nums if n % 10 == d) for nums in self.all_numbers]
+            recent_vals = [sum(1 for n in nums if n % 10 == d) for nums in self.recent_numbers]
+            sub_base = self._build_range_filter(
+                key=f"digit{d}",
+                name=f"{d}끝 개수",
+                icon="pin",
+                all_vals=all_vals,
+                recent_vals=recent_vals,
+                description=f"{d}끝 번호의 출현 개수.",
+            )
+            rec = sub_base.get("recommendation", {})
+            per_digit[str(d)] = {
+                "min": rec.get("min"),
+                "max": rec.get("max"),
+                "stats": sub_base.get("stats", {}),
+            }
+
+        # ML: endings predictor payload (Phase 2 endings) — 0~9 분포 정보 활용
+        ml_block = None
+        phase1_outs = self._get_phase1_outputs()
+        phase2_out = self._get_phase2_endings_output(phase1_outs)
+        if isinstance(phase2_out, dict):
+            dist = phase2_out.get("distribution_10d")
+            if dist:
+                ml_block = {
+                    "min": None, "max": None, "median": None,
+                    "narrative": phase2_out.get("narrative", "tail_digit ready"),
+                    "model_contributions": {},
+                    "per_digit": per_digit,
+                    "distribution_10d": dist,
+                    "indicator": "tail_digit_10",
+                }
+
+        result = {
+            "key": "tail_digit_patterns",
+            "name": "끝수 출현 패턴",
+            "icon": "pin",
+            "type": "multi_range",
+            "description": "0~9 각 끝수의 출현 개수 분포.",
+            "per_digit": per_digit,
+        }
+        return self._attach_ml_block(result, ml_block)
 
     # ─────────────────────────────────────────
     # 1. 총합 (Total Sum) — Phase 4 sum_predictor
@@ -1022,12 +1076,13 @@ class FilterStatsComputer:
 
     # ─────────────────────────────────────────
     # 13. 핫/콜드 (최근 출현빈도) — Phase 1 hotcold
+    # [2026-05-15] 단일 'hot_cold' 폐기 → 윈도우(5/10/15/20)별 분리 산출
     # ─────────────────────────────────────────
-    def _hot_cold(self) -> dict:
-        # 최근 10회 출현 빈도
-        recent_10 = self.all_numbers[:10]
+    def _hot_cold_window(self, window_size: int) -> dict:
+        """주어진 윈도우 크기로 핫/콜드 분포 산출. 프론트 hot_cold_{N} 키와 1:1 정합."""
+        win = self.all_numbers[:window_size]
         freq = Counter()
-        for nums in recent_10:
+        for nums in win:
             freq.update(nums)
 
         hot_nums = [n for n, _ in freq.most_common(10)]
@@ -1035,7 +1090,7 @@ class FilterStatsComputer:
         if len(cold_nums) < 5:
             cold_nums = [n for n, _ in freq.most_common()[-10:]]
 
-        # 최근 10회 평균 핫넘버 적중수
+        # 윈도우 hot 적중수
         all_vals = []
         for nums in self.all_numbers:
             hit = sum(1 for n in nums if n in hot_nums)
@@ -1043,15 +1098,23 @@ class FilterStatsComputer:
         recent_vals = all_vals[:self.recent_n]
 
         base = self._build_range_filter(
-            key="hot_cold",
-            name="핫/콜드 분석 (Hot/Cold)",
+            key=f"hot_cold_{window_size}",
+            name=f"{window_size}회차 핫/콜드",
             icon="local_fire_department",
             all_vals=all_vals,
             recent_vals=recent_vals,
-            description="최근 10회 출현 빈도 기반 핫넘버 적중 수.",
+            description=f"최근 {window_size}회 출현 빈도 기반 핫넘버 적중 수.",
         )
         base["hot_numbers"] = hot_nums[:10]
         base["cold_numbers"] = cold_nums[:10]
+        base["window_size"] = window_size
+        return base
+
+    def _hot_cold(self) -> dict:
+        """하위 호환용 진입점 — hot_cold_10 호출하여 단일 결과 반환. compute_all()은 _hot_cold_5/10/15/20 4개 모두 호출."""
+        base = self._hot_cold_window(10)
+        base["key"] = "hot_cold_10"
+        hot_nums = base.get("hot_numbers", [])
 
         # ML: hotcold predictor의 per_category 12 카테고리 — narrative 통합
         ml_block = None
@@ -1478,8 +1541,8 @@ class FilterStatsComputer:
         )
 
         result = {
-            "key": "missing_group",
-            "name": "미출현 그룹 (Missing Group)",
+            "key": "missing_period",  # [2026-05-15] 프론트/DB 표준 키 정합 — 'missing_group' 폐기
+            "name": "미출현 그룹 (Missing Period)",
             "icon": "schedule",
             "type": "categorical",
             "description": "전체 45번호를 미출현 길이별로 4그룹(hot/warm/cool/cold)으로 분류한 분포.",
