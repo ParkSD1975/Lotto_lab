@@ -180,10 +180,14 @@
                     window.BasketUI.showToast('새 회차 업데이트 — 고정수·제외수가 초기화되었습니다.', 'info');
                 }
             }
-            // 기록된 회차가 없거나, 같거나 크다면 현재 최신 회차로 기록만 갱신
+            // 기록된 회차가 없거나, 같거나 크다면 current_round localStorage만 갱신
+            // [2026-05-15 critical fix] 이전: save(currentData) 호출 → 빈 {fixed:[], exclude:[]}를
+            //   DB로 PUSH해서 사용자 등록 데이터를 무효화하는 결함. 새 창/다른 기기에서 페이지 열 때마다
+            //   DB의 excluded_numbers 8개 등을 빈 배열로 덮어쓰는 사고 유발.
+            // → localStorage current_round만 직접 갱신. syncFromDB가 DB에서 데이터 회수 담당.
             else if (!savedRound || savedRound !== latestRound) {
-                currentData.current_round = latestRound;
-                save(currentData);
+                const next = { ...currentData, current_round: latestRound };
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
             }
         } catch (e) {
             console.error('[Basket] 최신 회차 확인 실패:', e);
