@@ -297,28 +297,50 @@
     }
 
     const _digitResolver = (payload, filterKey) => {
-        // [fix-80 Bug 1] v4 weekly API에는 tail_analysis가 없음 → range_analysis[digitN]에서 합성
+        // [2026-05-15 재설계] 끝수 10개 독립 필터 (end_digit_0_count ~ end_digit_9_count)
+        //   ─ filterKey = 'digit0'~'digit9' (panel 호출 키)
+        //   ─ 백엔드 키 매핑 우선순위:
+        //       (a) v3 deep_analysis.tail_analysis[idx].model_exp ({min,max,exp} 또는 prob)
+        //       (b) v4 weekly range_analysis['end_digit_{idx}_count'].model_expectations
+        //       (c) legacy v4 range_analysis['digit{idx}'].model_expectations
         const idx = parseInt(String(filterKey).replace('digit', ''), 10);
-        // (a) v3 deep_analysis가 있으면 우선 사용
+
+        // (a) v3 deep_analysis.tail_analysis[idx]
         const ta = payload?.analysis?.tail_analysis;
         if (Array.isArray(ta) && ta[idx] && ta[idx].model_exp) {
             const modelExp = {};
-            Object.entries(ta[idx].model_exp).forEach(([m, p]) => { modelExp[m] = _probToRange(p); });
-            return { modelExp, targetRound: payload?.target_round || '' };
-        }
-        // (b) v4 fallback — range_analysis[`digit${idx}`] 사용
-        const ra = payload?.analysis?.range_analysis;
-        if (ra && ra[filterKey] && ra[filterKey].model_expectations) {
-            const me = ra[filterKey].model_expectations;
-            const modelExp = {};
-            Object.entries(me).forEach(([m, e]) => {
+            Object.entries(ta[idx].model_exp).forEach(([m, v]) => {
                 if (m === '__ensemble__') return;
-                if (e && typeof e.min === 'number' && typeof e.max === 'number') {
-                    modelExp[m] = { min: e.min, max: e.max, weight: e.weight };
+                // [2026-05-15 fix] 백엔드는 {min,max,exp} 객체 — 기존 _probToRange(prob)는 NaN
+                if (v && typeof v === 'object' && typeof v.min === 'number' && typeof v.max === 'number') {
+                    modelExp[m] = { min: v.min, max: v.max, exp: v.exp };
+                } else if (typeof v === 'number') {
+                    modelExp[m] = _probToRange(v);  // 레거시 prob 형식
                 }
             });
             if (Object.keys(modelExp).length > 0) {
                 return { modelExp, targetRound: payload?.target_round || '' };
+            }
+        }
+
+        // (b) v4 weekly — range_analysis['end_digit_{idx}_count']
+        const ra = payload?.analysis?.range_analysis;
+        const v4Key = `end_digit_${idx}_count`;
+        const candidates = [v4Key, filterKey];  // 우선순위: 표준 키 → 레거시 digit{idx}
+        for (const k of candidates) {
+            const fd = ra && ra[k];
+            if (fd && fd.model_expectations && Object.keys(fd.model_expectations).length > 0) {
+                const me = fd.model_expectations;
+                const modelExp = {};
+                Object.entries(me).forEach(([m, e]) => {
+                    if (m === '__ensemble__') return;
+                    if (e && typeof e.min === 'number' && typeof e.max === 'number') {
+                        modelExp[m] = { min: e.min, max: e.max, weight: e.weight, exp: e.exp };
+                    }
+                });
+                if (Object.keys(modelExp).length > 0) {
+                    return { modelExp, targetRound: payload?.target_round || '' };
+                }
             }
         }
         return null;

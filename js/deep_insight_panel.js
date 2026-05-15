@@ -1398,24 +1398,50 @@
                 const ra = (data && data.analysis && data.analysis.range_analysis) || {};
                 let filterData = ra[filterKey] || {};
 
-                // [개선] 끝수(digitX) 데이터 매핑 및 확률->범위 정규화
-                if (filterKey.startsWith('digit') && data.analysis && data.analysis.tail_analysis) {
-                    const dIdx = filterKey.replace('digit', '');
-                    const raw = data.analysis.tail_analysis[dIdx] || data.analysis.tail_analysis[parseInt(dIdx)] || {};
+                // [2026-05-15 재설계] 끝수(digitX) 10개 독립 필터 매핑
+                //   ─ v3 tail_analysis[idx].model_exp는 백엔드에서 {min,max,exp} 객체로 옴
+                //   ─ v4 weekly range_analysis['end_digit_{idx}_count'].model_expectations 폴백
+                if (filterKey.startsWith('digit')) {
+                    const dIdx = parseInt(filterKey.replace('digit', ''), 10);
+                    let normModelExp = {};
+                    let raw = {};
 
-                    // 확률(model_exp)을 UI 카드용 범위(model_expectations)로 변환
-                    const normModelExp = {};
-                    if (raw.model_exp) {
-                        Object.entries(raw.model_exp).forEach(([m, prob]) => {
-                            // 단순 확률을 0~1/2/3 범위로 매핑 (기존 추천 로직과 일치)
-                            let min = 0, max = 2;
-                            if (prob < 0.3) { min = 0; max = 1; }
-                            else if (prob >= 1.2) { min = 1; max = 2; }
-                            else if (prob >= 1.8) { min = 1; max = 3; }
-                            normModelExp[m] = { min, max, reasoning: 'Deep Ensemble Probability' };
-                        });
+                    // (a) v3: tail_analysis[idx]
+                    if (data.analysis && data.analysis.tail_analysis) {
+                        raw = data.analysis.tail_analysis[dIdx] || data.analysis.tail_analysis[String(dIdx)] || {};
+                        if (raw.model_exp) {
+                            Object.entries(raw.model_exp).forEach(([m, v]) => {
+                                if (m === '__ensemble__') return;
+                                // 백엔드 신규: {min,max,exp} 객체
+                                if (v && typeof v === 'object' && typeof v.min === 'number' && typeof v.max === 'number') {
+                                    normModelExp[m] = { min: v.min, max: v.max, reasoning: 'PB PMF (v3)' };
+                                } else if (typeof v === 'number') {
+                                    // 레거시: 평탄 prob 값 — 범위 정규화
+                                    let mi = 0, ma = 2;
+                                    if (v < 0.3) { mi = 0; ma = 1; }
+                                    else if (v >= 1.8) { mi = 1; ma = 3; }
+                                    else if (v >= 1.2) { mi = 1; ma = 2; }
+                                    normModelExp[m] = { min: mi, max: ma, reasoning: 'Deep Ensemble Probability (legacy)' };
+                                }
+                            });
+                        }
                     }
-                    filterData = { ...raw, model_expectations: normModelExp, range: [0, 4] };
+
+                    // (b) v4 weekly: range_analysis['end_digit_{idx}_count']
+                    if (Object.keys(normModelExp).length === 0 && data.analysis && data.analysis.range_analysis) {
+                        const v4Fd = data.analysis.range_analysis[`end_digit_${dIdx}_count`];
+                        if (v4Fd && v4Fd.model_expectations) {
+                            Object.entries(v4Fd.model_expectations).forEach(([m, e]) => {
+                                if (m === '__ensemble__') return;
+                                if (e && typeof e.min === 'number' && typeof e.max === 'number') {
+                                    normModelExp[m] = { min: e.min, max: e.max, reasoning: 'V4 weekly' };
+                                }
+                            });
+                            raw = v4Fd;
+                        }
+                    }
+
+                    filterData = { ...raw, model_expectations: normModelExp, range: raw.range || [0, 4] };
                 }
 
                 const modelExp = filterData.model_expectations || {};
@@ -1432,16 +1458,39 @@
                         try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ data: fresh, ts: Date.now() })); } catch (e) { }
 
                         let fd2 = (fresh.analysis?.range_analysis ? fresh.analysis.range_analysis[filterKey] : {}) || {};
-                        if (filterKey.startsWith('digit') && fresh.analysis?.tail_analysis) {
-                            const raw2 = fresh.analysis.tail_analysis[filterKey.replace('digit', '')] || {};
+                        if (filterKey.startsWith('digit')) {
+                            // [2026-05-15 재설계] 동일 로직 — 위의 메인 경로와 일치
+                            const dIdx2 = parseInt(filterKey.replace('digit', ''), 10);
                             const mexp2 = {};
-                            if (raw2.model_exp) {
-                                Object.entries(raw2.model_exp).forEach(([m, p]) => {
-                                    let mi = 0, ma = 2;
-                                    if (p < 0.3) { mi = 0; ma = 1; }
-                                    else if (p >= 1.2) { mi = 1; ma = 2; }
-                                    mexp2[m] = { min: mi, max: ma };
-                                });
+                            let raw2 = {};
+                            if (fresh.analysis?.tail_analysis) {
+                                raw2 = fresh.analysis.tail_analysis[dIdx2] || fresh.analysis.tail_analysis[String(dIdx2)] || {};
+                                if (raw2.model_exp) {
+                                    Object.entries(raw2.model_exp).forEach(([m, v]) => {
+                                        if (m === '__ensemble__') return;
+                                        if (v && typeof v === 'object' && typeof v.min === 'number' && typeof v.max === 'number') {
+                                            mexp2[m] = { min: v.min, max: v.max };
+                                        } else if (typeof v === 'number') {
+                                            let mi = 0, ma = 2;
+                                            if (v < 0.3) { mi = 0; ma = 1; }
+                                            else if (v >= 1.8) { mi = 1; ma = 3; }
+                                            else if (v >= 1.2) { mi = 1; ma = 2; }
+                                            mexp2[m] = { min: mi, max: ma };
+                                        }
+                                    });
+                                }
+                            }
+                            if (Object.keys(mexp2).length === 0 && fresh.analysis?.range_analysis) {
+                                const v4Fd2 = fresh.analysis.range_analysis[`end_digit_${dIdx2}_count`];
+                                if (v4Fd2?.model_expectations) {
+                                    Object.entries(v4Fd2.model_expectations).forEach(([m, e]) => {
+                                        if (m === '__ensemble__') return;
+                                        if (e && typeof e.min === 'number' && typeof e.max === 'number') {
+                                            mexp2[m] = { min: e.min, max: e.max };
+                                        }
+                                    });
+                                    raw2 = v4Fd2;
+                                }
                             }
                             fd2 = { ...raw2, model_expectations: mexp2 };
                         }
